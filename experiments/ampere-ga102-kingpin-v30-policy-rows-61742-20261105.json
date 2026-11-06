@@ -1,0 +1,348 @@
+{
+ "schema": 1,
+ "scope": "One EVGA RTX 3090 Ti Kingpin (GA102), driver 617.42, idle. Session-only policy-5 bound writes, exact readback and restoration; no physical measurement.",
+ "identity": {
+  "architecture": 7,
+  "device_id": "0x2203",
+  "subsystem_id": "0x49983842",
+  "vbios": "94.02.a0.00.a7"
+ },
+ "row_format_byte": "0x30 on every occupied INFO row",
+ "relation": "effective = floor((requested * upper + 2048) / 4096) on integral rows",
+ "integral": [
+  {
+   "policy": 0,
+   "type": 16,
+   "unit": "mW",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 258974
+  },
+  {
+   "policy": 1,
+   "type": 3,
+   "unit": "mW",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 2001000,
+   "effective": 2001000
+  },
+  {
+   "policy": 2,
+   "type": 0,
+   "unit": "mW",
+   "available": true,
+   "reason": null,
+   "lower_raw": 3973,
+   "upper_raw": 4424,
+   "default_lower_raw": 3973,
+   "default_upper_raw": 4424,
+   "past_samples": 43,
+   "next_samples": 7,
+   "requested": 900000,
+   "effective": 972070
+  },
+  {
+   "policy": 3,
+   "type": 15,
+   "unit": "mW",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 5001000
+  },
+  {
+   "policy": 4,
+   "type": 15,
+   "unit": "mW",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 5001000
+  },
+  {
+   "policy": 5,
+   "type": 3,
+   "unit": "mW",
+   "available": true,
+   "reason": null,
+   "lower_raw": 3891,
+   "upper_raw": 4301,
+   "default_lower_raw": 3891,
+   "default_upper_raw": 4301,
+   "past_samples": 43,
+   "next_samples": 7,
+   "requested": 378000,
+   "effective": 396918
+  },
+  {
+   "policy": 6,
+   "type": 3,
+   "unit": "mW",
+   "available": true,
+   "reason": null,
+   "lower_raw": 3891,
+   "upper_raw": 4301,
+   "default_lower_raw": 3891,
+   "default_upper_raw": 4301,
+   "past_samples": 43,
+   "next_samples": 7,
+   "requested": 475000,
+   "effective": 498773
+  },
+  {
+   "policy": 7,
+   "type": 3,
+   "unit": "mW",
+   "available": true,
+   "reason": null,
+   "lower_raw": 3891,
+   "upper_raw": 4301,
+   "default_lower_raw": 3891,
+   "default_upper_raw": 4301,
+   "past_samples": 43,
+   "next_samples": 7,
+   "requested": 475000,
+   "effective": 498773
+  },
+  {
+   "policy": 8,
+   "type": 3,
+   "unit": "mW",
+   "available": true,
+   "reason": null,
+   "lower_raw": 3891,
+   "upper_raw": 4301,
+   "default_lower_raw": 3891,
+   "default_upper_raw": 4301,
+   "past_samples": 43,
+   "next_samples": 7,
+   "requested": 475000,
+   "effective": 498773
+  },
+  {
+   "policy": 12,
+   "type": 16,
+   "unit": "mA",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 5001000
+  },
+  {
+   "policy": 13,
+   "type": 15,
+   "unit": "mA",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 845000,
+   "effective": 845000
+  },
+  {
+   "policy": 14,
+   "type": 16,
+   "unit": "mW",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 5001000
+  },
+  {
+   "policy": 15,
+   "type": 16,
+   "unit": "mW",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 5001000
+  },
+  {
+   "policy": 18,
+   "type": 15,
+   "unit": "mA",
+   "available": false,
+   "reason": "Integral mode or sample counts are not understood",
+   "lower_raw": 0,
+   "upper_raw": 0,
+   "default_lower_raw": 0,
+   "default_upper_raw": 0,
+   "past_samples": 0,
+   "next_samples": 0,
+   "requested": 5001000,
+   "effective": 5001000
+  }
+ ],
+ "relationships": {
+  "error": null,
+  "records": [
+   [
+    0,
+    0,
+    4096,
+    null
+   ],
+   [
+    1,
+    1,
+    4096,
+    null
+   ],
+   [
+    2,
+    3,
+    4096,
+    null
+   ],
+   [
+    3,
+    4,
+    4096,
+    null
+   ],
+   [
+    7,
+    5,
+    4096,
+    null
+   ],
+   [
+    8,
+    6,
+    4096,
+    null
+   ],
+   [
+    9,
+    7,
+    4096,
+    null
+   ],
+   [
+    10,
+    8,
+    4096,
+    null
+   ],
+   [
+    11,
+    13,
+    4096,
+    null
+   ],
+   [
+    12,
+    18,
+    4096,
+    null
+   ]
+  ],
+  "sources": [
+   {
+    "policy": 2,
+    "available": true,
+    "reason": null,
+    "enabled": false,
+    "first": 65535,
+    "last": 65535,
+    "relationships": []
+   }
+  ]
+ },
+ "restored": true,
+ "steps": [
+  {
+   "field": "upper",
+   "value": 4300,
+   "readback": 4300,
+   "upper": 4300,
+   "lower": 3891,
+   "predicted_effective": 396826,
+   "effective": 396826,
+   "samples": 1
+  },
+  {
+   "field": "upper",
+   "value": 4301,
+   "readback": 4301,
+   "upper": 4301,
+   "lower": 3891,
+   "predicted_effective": 396918,
+   "effective": 396918,
+   "samples": 1
+  },
+  {
+   "field": "lower",
+   "value": 3890,
+   "readback": 3890,
+   "upper": 4301,
+   "lower": 3890,
+   "predicted_effective": 396918,
+   "effective": 396918,
+   "samples": 1
+  },
+  {
+   "field": "lower",
+   "value": 3891,
+   "readback": 3891,
+   "upper": 4301,
+   "lower": 3891,
+   "predicted_effective": 396918,
+   "effective": 396918,
+   "samples": 1
+  }
+ ],
+ "final": {
+  "requested": 378000,
+  "effective": 396918,
+  "available": true
+ }
+}

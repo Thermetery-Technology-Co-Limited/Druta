@@ -93,6 +93,8 @@ function Get-SourceSnapshot {
         'experiments/strix-3070ti-mp2888-20261015.md',
         'experiments/ampere-live-client-power-20261027.md',
         'experiments/ampere-four-digit-policy-summary-20261027.json',
+        'experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md',
+        'experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.json',
         'experiments/turing-tu104-live-power-20261028.md',
         'experiments/turing-tu104-live-power-20261028.json',
         'experiments/validate_turing_live_power.py',

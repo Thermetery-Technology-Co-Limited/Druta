@@ -113,6 +113,29 @@ def test_failed_write_restores_and_partial_raise():
     assert c.read()["policies"][0]["upper_raw"] == 4200
 
 
+def test_v3_row_reads_and_writes_like_v4():
+    gpu = GPU()
+    gpu.info[(204 + 4 * 260) // 4] = (gpu.info[(204 + 4 * 260) // 4] & ~255) | 0x30
+    c = controller(gpu)
+    row = c.read()["policies"][0]
+    assert row["available"] and row["upper_raw"] == 4200
+    assert c.set_upper(4, 4100)["policies"][0]["upper_raw"] == 4100
+    assert c.set_lower(4, 900)["policies"][0]["lower_raw"] == 900
+    assert gpu.sets == 2
+
+
+@pytest.mark.parametrize("version", [0x00, 0x20, 0x31, 0x41, 0x50])
+def test_unknown_row_version_is_not_offered(version):
+    gpu = GPU()
+    gpu.info[(204 + 4 * 260) // 4] = (gpu.info[(204 + 4 * 260) // 4] & ~255) | version
+    c = controller(gpu)
+    row = c.read()["policies"][0]
+    assert not row["available"] and "format" in row["reason"]
+    with pytest.raises(PowerIntegralError):
+        c.set_upper(4, 4100)
+    assert gpu.sets == 0
+
+
 def test_refusals_and_decimal():
     gpu = GPU(1)
     c = controller(gpu)

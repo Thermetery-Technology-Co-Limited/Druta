@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Decode configured power relationship metadata from a validated INFO packet.
 
-This is a read-only interpretation of the known V4 INFO geometry. Relationship
+This is a read-only interpretation of the known INFO geometry for V3 and V4
+policy rows (``power_arbitration.ROW_FORMATS``). Relationship
 records identify targets; separate policy fields identify configured source
 references. Neither identifies arbitration clients or proves runtime execution.
 Evidence: experiments/power-relationship-info-20261105.md and
@@ -12,6 +13,8 @@ or driver version selects this layout.
 
 import struct
 from collections.abc import Mapping, Sequence
+
+from .power_arbitration import ROW_FORMATS
 
 _INFO = 0x2080A618
 _SIZE = 20512
@@ -26,7 +29,7 @@ def decode(layout, info):
     A type-0 relationship has a unitless Q4.12 ``weight_raw``. Unknown
     relationship types are retained without interpreting their payload. Target
     metadata is independently unavailable when the target is absent or its
-    policy row is not an understood V4 row with a known unit.
+    policy row is not an understood V3 or V4 row with a known unit.
     """
     result = {"available": False, "reason": None, "relationships": []}
     if not isinstance(layout, Mapping) or not isinstance(layout.get("sizes"), Mapping):
@@ -70,7 +73,7 @@ def decode(layout, info):
             version, header, minimum, default, maximum = struct.unpack_from("<5I", raw, at)
             unit_code = (header >> 16) & 0xFF
             unit = {0: "mW", 1: "mA"}.get(unit_code)
-            if version & 0xFF != 0x40:
+            if version & 0xFF not in ROW_FORMATS:
                 record["target_reason"] = "The target policy row format is not understood."
             elif unit is None:
                 record["target_reason"] = "The target policy unit is not understood."
@@ -99,7 +102,7 @@ def decode(layout, info):
             first, last = struct.unpack_from("<HH", raw, at + 0x34)
             source = {"policy": index, "first": first, "last": last,
                       "relationships": [], "available": False, "reason": None}
-            if raw[at] != 0x40:
+            if raw[at] not in ROW_FORMATS:
                 source["reason"] = "The source policy row format is not understood."
             elif first > last:
                 # The host skips a reversed range before looking up any index,
@@ -123,7 +126,7 @@ def decode(layout, info):
             link = {"policy": index, "relationship": relation,
                     "target": record["target"] if record else None,
                     "available": False, "reason": None}
-            if raw[at] != 0x40:
+            if raw[at] not in ROW_FORMATS:
                 link["reason"] = "The source policy row format is not understood."
             elif relation >= _CAPACITY or record is None:
                 link["reason"] = "The linked relationship is absent from the INFO mask."
@@ -140,7 +143,7 @@ def decode(layout, info):
         flag_a, flag_b = raw[at + 0xB9], raw[at + 0xC0]
         source = {"policy": index, "available": False, "reason": None,
                   "enabled": None, "first": first, "last": last, "relationships": []}
-        if raw[at] != 0x40:
+        if raw[at] not in ROW_FORMATS:
             source["reason"] = "The source policy row format is not understood."
         elif flag_a not in (0, 1) or flag_b not in (0, 1):
             source["reason"] = "The source relationship flags are not understood."

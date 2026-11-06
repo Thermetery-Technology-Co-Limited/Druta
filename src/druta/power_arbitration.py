@@ -25,6 +25,11 @@ _GEOMETRY = {
     "control": (0x14, 0xC4, _CONTROL, 13876),
 }
 _METHODS = {0: "minimum", 1: "maximum", 2: "sum"}
+# BIOS power-policy table versions recorded in the first INFO row byte. The RM
+# row layout does not change with them. V4 was traced; on a V3 board every
+# arbitration vector was self-consistent and integral rows' effective limits
+# followed request x upper word (ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md).
+ROW_FORMATS = frozenset((0x30, 0x40))
 
 
 class _PacketError(ValueError):
@@ -130,8 +135,8 @@ def _row(index, info, control, status):
         "unit": {0: "mW", 1: "mA"}.get(unit),
         "unit_code": unit,
     }
-    if info[meta] & 255 != 0x40:
-        reason = "The policy row does not declare the understood V4 table format."
+    if info[meta] & 255 not in ROW_FORMATS:
+        reason = "The policy row does not declare an understood V3 or V4 table format."
     elif control[request] != kind or status[state] & 255 != kind:
         reason = "The policy types disagree between INFO, CONTROL and STATUS."
     else:
