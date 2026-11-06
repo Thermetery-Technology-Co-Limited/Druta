@@ -1767,6 +1767,15 @@ the firmware minimum vote was 360 W; policy 9 requested 45 A while its firmware
 minimum vote was 36.002 A. These are idle observations, not workload enforcement
 measurements. Malformed vectors remain unavailable independently of readable peers.
 
+The arbitration, integral-bound and relationship decoders accept INFO rows that
+record a v30 or v40 BIOS table; other versions stay unavailable. The RM row
+layout is the same for both. On an RTX 3090 Ti Kingpin (v30, 617.42) every
+arbitration vector was self-consistent, and each integral row's effective limit
+was floor((request x upper + 2048) / 4096). Writing policy 5's upper word
+4301 -> 4300 -> 4301 moved effective status to the predicted value and back
+([evidence](experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md)).
+Relationship-weight editing still requires a v40 BIOS power table.
+
 A separate 360 -> 361 -> 360 W request trial changed only policy 8's CONTROL
 request. Its firmware client-8 votes on policies 2 and 7 followed the change,
 matching independently decoded relationship edges on this BIOS image. All 18
@@ -4957,8 +4966,8 @@ The latter observation is supported in 1.9.05; it does not admit an independent
 above-maximum current request. Independent writes remain bounded by their own
 descriptors, and applying a value equal to the saturated effective limit still
 writes when the stored request differs.
-Arbitration details requiring v40 definitions and original-BIOS provenance can
-remain unavailable independently of the request control.
+Arbitration details can remain unavailable independently of the request
+control.
 
 Both 431.60 and 621.01 accepted and read back idle 349/351/400 W configured
 requests against the same 105/250/350 W ordinary range. Paired native STATUS

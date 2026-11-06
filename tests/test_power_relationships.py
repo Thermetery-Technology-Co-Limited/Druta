@@ -76,12 +76,50 @@ def test_missing_and_unknown_target_format_are_local_failures():
     raw[0x41D0 + 10 * 0x24 + 1] = 8
     raw[0x41D0 + 11 * 0x24 + 1] = 31
     struct.pack_into("<I", raw, 4, (1 << 9) | (1 << 8))
-    struct.pack_into("<I", raw, 0xCC + 8 * 0x104, 0x30)
+    struct.pack_into("<I", raw, 0xCC + 8 * 0x104, 0x50)
     result = decode_raw(layout, raw)
     assert result["available"]
     assert result["relationships"][0]["target_metadata"] is not None
     assert "format" in result["relationships"][1]["target_reason"]
     assert "absent" in result["relationships"][2]["target_reason"]
+
+
+def v3_packet():
+    """Kingpin (V3) shape: a type-0 source whose relationship range is unset,
+    and relationships 0 and 1 targeting a type-3 mW and a type-15 mA policy."""
+    layout, raw = packet()
+    struct.pack_into("<I", raw, 4, (1 << 2) | (1 << 5) | (1 << 13))
+    struct.pack_into("<5I", raw, 0xCC + 5 * 0x104, 0x30, 3 | (4 << 8), 1000, 378000, 378000)
+    struct.pack_into("<5I", raw, 0xCC + 13 * 0x104, 0x30, 15 | (19 << 8) | (1 << 16), 1, 845000, 845000)
+    source_policy(raw, flag_a=0, flag_b=0, first=0xFFFF, last=0xFFFF, version=0x30)
+    struct.pack_into("<I", raw, 0x41CC, 0b11)
+    raw[0x41D0:0x41D0 + 8] = bytes.fromhex("0005000000000010")
+    raw[0x41D0 + 0x24:0x41D0 + 0x24 + 8] = bytes.fromhex("000d000000000010")
+    return layout, raw
+
+
+def test_v3_rows_decode_targets_and_sources():
+    layout, raw = v3_packet()
+    result = decode_raw(layout, raw)
+    assert [(r["index"], r["target"], r["weight_raw"], r["target_reason"]) for r in result["relationships"]] == [
+        (0, 5, 4096, None), (1, 13, 4096, None)]
+    assert result["relationships"][1]["target_metadata"] == {
+        "policy": 13, "type": 15, "channel": 19, "unit": "mA", "minimum": 1, "default": 845000, "maximum": 845000}
+    assert result["source_references"] == [{
+        "policy": 2, "available": True, "reason": None,
+        "enabled": False, "first": 0xFFFF, "last": 0xFFFF, "relationships": []}]
+    assert result["source_uninterpreted_policies"] == [5, 13]
+
+
+@pytest.mark.parametrize("version", [0x00, 0x20, 0x31, 0x41, 0x50])
+def test_unknown_row_versions_remain_local_failures(version):
+    layout, raw = v3_packet()
+    struct.pack_into("<I", raw, 0xCC + 13 * 0x104, version)
+    raw[0xCC + 2 * 0x104] = version
+    result = decode_raw(layout, raw)
+    assert result["relationships"][0]["target_metadata"] is not None
+    assert "format" in result["relationships"][1]["target_reason"]
+    assert not result["source_references"][0]["available"]
 
 
 def test_unknown_unit_does_not_invalidate_other_records():
@@ -175,7 +213,7 @@ def test_invalid_source_is_local_and_remains_visible(problem):
     elif problem == "missing_target":
         raw[0x41D0 + 9 * 0x24 + 1] = 8
     else:
-        raw[at] = 0x30
+        raw[at] = 0x50
     result = decode_raw(layout, raw)
     assert result["available"]
     assert len(result["source_references"]) == 1
@@ -239,7 +277,7 @@ def test_bad_link_is_local_unavailable(problem):
     elif problem == "unknown_relation":
         raw[rel] = 8
     else:
-        raw[at] = 0x30
+        raw[at] = 0x50
     result = decode_raw(layout, raw)
     assert result["available"]
     assert len(result["linked_references"]) == 1
@@ -310,7 +348,7 @@ def test_type33_invalid_or_unavailable_range_is_visible(problem):
     elif problem == "missing_target":
         raw[0x41D0 + 3 * 0x24 + 1] = 8
     elif problem == "version":
-        raw[at] = 0x30
+        raw[at] = 0x50
     else:
         struct.pack_into("<HH", raw, at + 0x34, 0, 0xFFFF if problem == "sentinel" else 32)
     result = decode_raw(layout, raw)
