@@ -254,6 +254,9 @@ def start_session_log(argv=None, directories=None):
             # Native crashes (access violations in a driver DLL, renderer
             # faults) print the Python stack of every thread to this file.
             faulthandler.enable(file=handle, all_threads=True)
+            _write("note: on Windows, faulthandler also prints 'Windows fatal exception' for "
+                   "exceptions a driver DLL catches itself; the last stack before the log "
+                   "ends is the one that stopped Druta")
         except Exception as e:
             _write(f"faulthandler unavailable: {e}")
         _install_hooks()
@@ -391,6 +394,8 @@ def _druta_modules():
 def _probe_imports(report):
     import importlib
     names = _druta_modules()
+    if not names:
+        raise RuntimeError("the frozen package did not list its modules; nothing was imported")
     failed = 0
     for name in names:
         try:
