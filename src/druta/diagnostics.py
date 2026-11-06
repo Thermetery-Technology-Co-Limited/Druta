@@ -117,8 +117,15 @@ def redact(text, environ=None):
 # session log
 
 def log_directories(environ=None):
-    """Candidate log directories, most useful first."""
+    """Candidate log directories, most useful first.
+
+    ``DRUTA_LOG_DIR`` overrides the choice, for example to keep test or
+    scripted runs out of a source checkout.
+    """
     environ = os.environ if environ is None else environ
+    override = environ.get("DRUTA_LOG_DIR")
+    if override:
+        return [Path(override)]
     out = []
     try:
         from .paths import app_dir

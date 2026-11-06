@@ -37,3 +37,9 @@ findings-for-*.md
 # code-signing decision that has not been made. Source, build script and the
 # built .sys all stay out of the repo until that changes.
 drv/
+
+# Session logs and diagnostics bundles written by running Druta from a
+# checkout (see WINDOWS7.md, "Diagnostics"): machine-specific, never source.
+logs/
+Druta-diagnostics-*/
+Druta-self-check-*/

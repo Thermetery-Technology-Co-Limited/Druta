@@ -21,6 +21,10 @@ class LaunchTests(unittest.TestCase):
         self.directory = temporary.name
         self.environment = dict(os.environ)
         self.environment.pop("PYTHONPATH", None)
+        # Session logs from these launches belong in the temporary directory,
+        # never in the source checkout under test.
+        self.logs = Path(self.directory) / "logs"
+        self.environment["DRUTA_LOG_DIR"] = str(self.logs)
 
     def assert_version(self, command, environment=None, cwd=None):
         result = subprocess.run(command, cwd=self.directory if cwd is None else cwd,
@@ -37,6 +41,10 @@ class LaunchTests(unittest.TestCase):
 
     def test_frozen_source_entrypoint_resolves_package_from_unrelated_cwd(self):
         self.assert_version([sys.executable, str(self.root / "src/run_druta.py"), "--version"])
+        # The frozen entry point leaves a session log, where it was told to.
+        logs = list(self.logs.glob("druta-*.log"))
+        self.assertEqual(len(logs), 1)
+        self.assertIn("stage: application imported", logs[0].read_text(encoding="utf-8"))
 
     def test_compatibility_import_preserves_package_and_submodule_identity(self):
         code = '''
