@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import dearpygui.dearpygui as dpg
 
-from . import profiles
+from . import profiles, ui_sections
 from . import voltage_requests_live as requests
 
 
@@ -22,9 +22,8 @@ class VoltageRequestsPanel:
         return f"voltage_requests_{position}_{suffix}"
 
     def build(self):
-        with dpg.collapsing_header(
-            label="Live voltage rail requests", tag="voltage_requests_header", default_open=False
-        ):
+        with ui_sections.section("Live voltage rail requests", level=1, scale=getattr(self.app, "scale", 1.0),
+                                 tag="voltage_requests_header", default_open=False, ui=dpg):
             dpg.add_text(
                 "Signed offsets in mV for the driver's stored legacy rail requests. "
                 "Readback confirms requests, not measured voltage. The request gate is read separately; "

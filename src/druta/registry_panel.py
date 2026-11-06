@@ -7,8 +7,8 @@ from decimal import Decimal, InvalidOperation
 
 import dearpygui.dearpygui as dpg
 
+from . import profiles, ui_sections, vbios_fields
 from . import registry_overrides as overrides
-from . import profiles, vbios_fields
 from .perf_diagnostics import PerfDiagnosticsReader
 from .voltage_request_gate import VoltageRequestGate
 
@@ -18,6 +18,27 @@ _VF_LIVE_FIELDS = (
 )
 _DIFR_LABELS = {"9": "DFPR", "10": "MS DIFR SW-ASR", "11": "MS DIFR CG"}
 _THRESHOLD_TO_ADAPTIVE = {0: 0, 4: 2, 12: 4, 13: 5, 15: 6, 14: 7}
+_SESSION_ONLY = "This driver session only. A GPU restart returns these to the driver's values."
+# The Advanced tab: each section and the subsection headers it holds, so a
+# capture or trial can open exactly the path to one control.
+ADVANCED_TAB, ADVANCED_PAGE = "tab_advanced", "page_advanced"
+SECTIONS = {
+    "registry_header": ("reg_difr_config_header",),
+    "live_voltage_header": ("reg_voltage_gate_header", "reg_vf_live_header", "voltage_offsets_header",
+                            "voltage_requests_header", "reg_rel_live_header", "reg_constants_live_header",
+                            "reg_switch_delay_header"),
+    "live_power_header": ("reg_gr_gating_live_header", "reg_individual_power_gating_header",
+                          "reg_gr_idle_threshold_header", "reg_adaptive_power_header",
+                          "reg_engine_clock_gating_header", "reg_block_clock_gating_header",
+                          "reg_second_level_clock_gating_header", "reg_difr_live_header",
+                          "reg_pcie_speed_header"),
+    "diagnostics_header": ("reg_driver_policies_header", "reg_power_arbitration_header"),
+}
+
+
+def section_of(tag):
+    """The Advanced-tab section holding `tag` (itself for a section), or None."""
+    return next((name for name, subs in SECTIONS.items() if tag == name or tag in subs), None)
 
 
 def _type4_queries_become_unavailable(contract):
@@ -82,273 +103,307 @@ class RegistryPanel:
                 break
 
     def build(self):
-        dpg.add_text(
-            "Change BIOS defaults, ranges, and driver model inputs used when the GPU starts.", wrap=self.app.s(900)
-        )
-        dpg.add_text(
-            "Registry apply restarts the selected GPU and reopens Druta. Windows stays running. "
-            "Changes persist until restored. Runtime tuning profiles are not reapplied.",
-            wrap=self.app.s(900),
-        )
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Read current fields", callback=self.refresh)
-            dpg.add_button(label="Preview changes", callback=self.prepare, tag="reg_preview_button", enabled=False)
-            dpg.add_button(label="Apply and restart GPU", callback=self.apply, tag="reg_apply_button", enabled=False)
-            dpg.add_button(
-                label="Restore previous registry settings",
-                callback=self.restore,
-                tag="reg_restore_button",
-                enabled=False,
-            )
-        dpg.add_text("Read fields to inspect this adapter.", tag="reg_status", wrap=self.app.s(900))
-        dpg.add_text("", tag="reg_last_recovery", wrap=self.app.s(900), show=False)
-        dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(180))
-        with dpg.group(tag="reg_fields"):
-            pass
-        with dpg.collapsing_header(label="Driver policy diagnostics"):
-            dpg.add_text(
-                "Read registered performance limits and feedback-policy flags. "
-                "Registered slots do not identify which limits are currently active.",
-                wrap=self.app.s(900),
-            )
-            dpg.add_button(label="Read driver policies", callback=self.refresh_diagnostics)
-            dpg.add_input_text(tag="reg_diagnostics", readonly=True, multiline=True, width=-1, height=self.app.s(220))
-        with dpg.collapsing_header(label="DIFR configured state"):
-            dpg.add_text(
-                "Read the loaded P-state to LPWR mapping and configured DFPR/MS DIFR support. "
-                "These values describe configuration, not the current P-state, residency or measured power savings. "
-                "DIFR entry and subfeature disables use the registry field preview and GPU restart above.",
-                wrap=self.app.s(900),
-            )
-            dpg.add_button(label="Read DIFR configuration", callback=self.refresh_difr)
-            dpg.add_input_text(tag="reg_difr_readback", readonly=True, multiline=True, width=-1, height=self.app.s(190))
-        from .difr_live_panel import DifrLivePanel
-
-        self.difr_live_panel = DifrLivePanel(self.app)
-        with dpg.collapsing_header(label="Live DIFR disable request", tag="reg_difr_live_header"):
-            self.difr_live_panel.build()
-        from .pcie_speed_panel import PcieSpeedPanel
-
-        self.pcie_speed_panel = PcieSpeedPanel(self.app)
-        with dpg.collapsing_header(label="Manual PCIe speed request", tag="reg_pcie_speed_header"):
-            self.pcie_speed_panel.build()
-        from .gr_gating_live_panel import GrGatingLivePanel
-
-        self.gr_gating_live_panel = GrGatingLivePanel(self.app)
-        with dpg.collapsing_header(label="Live engine-level power gating (ELPG)", tag="reg_gr_gating_live_header"):
-            self.gr_gating_live_panel.build()
-        from .individual_power_gating_panel import IndividualPowerGatingPanel
-
-        self.individual_power_gating_panel = IndividualPowerGatingPanel(self.app)
-        with dpg.collapsing_header(label="Individual engine power gating", tag="reg_individual_power_gating_header"):
-            self.individual_power_gating_panel.build()
-        from .gr_idle_threshold_panel import GrIdleThresholdPanel
-
-        self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app, self._threshold_requested)
-        with dpg.collapsing_header(label="Live idle thresholds", tag="reg_gr_idle_threshold_header"):
-            self.gr_idle_threshold_panel.build()
-        from .adaptive_power_panel import AdaptivePowerPanel
-
-        self.adaptive_power_panel = AdaptivePowerPanel(self.app, self._adaptive_requested)
-        with dpg.collapsing_header(label="Live adaptive power policy", tag="reg_adaptive_power_header"):
-            self.adaptive_power_panel.build()
-        from .engine_clock_gating_panel import EngineClockGatingPanel
-
-        self.engine_clock_gating_panel = EngineClockGatingPanel(self.app)
-        with dpg.collapsing_header(label="Live engine clock gating", tag="reg_engine_clock_gating_header"):
-            self.engine_clock_gating_panel.build()
-        from .block_clock_gating_panel import BlockClockGatingPanel
-
-        self.block_clock_gating_panel = BlockClockGatingPanel(self.app)
-        with dpg.collapsing_header(label="Live block clock gating", tag="reg_block_clock_gating_header"):
-            self.block_clock_gating_panel.build()
-        from .second_level_clock_gating_panel import SecondLevelClockGatingPanel
-
-        self.second_level_clock_gating_panel = SecondLevelClockGatingPanel(self.app)
-        with dpg.collapsing_header(label="Live second-level clock gating (SLCG)", tag="reg_second_level_clock_gating_header"):
-            self.second_level_clock_gating_panel.build()
-        with dpg.collapsing_header(label="Power/current arbitration", tag="reg_power_arbitration_header"):
-            dpg.add_text(
-                "Compare each request with host votes, firmware votes, and the effective limit. "
-                "Firmware values can lag a recent change; refresh to check again. "
-                "Client numbers have not been assigned physical names.",
-                wrap=self.app.s(900),
-            )
-            dpg.add_button(label="Read arbitration", callback=self.refresh_arbitration)
-            dpg.add_input_text(tag="reg_arbitration", readonly=True, multiline=True, width=-1, height=self.app.s(260))
-            dpg.add_text(
-                "Configured relationships describe policy targets, weights and available source-policy ranges. "
-                "This partial mapping does not establish the producer of an active vote. "
-                "Qualified weights can be edited through the BIOS field preview and require a driver refresh.", wrap=self.app.s(900),
-            )
-            dpg.add_button(label="Read relationships", tag="reg_relationships_read", callback=self.refresh_relationships)
-            dpg.add_input_text(tag="reg_relationships", readonly=True, multiline=True,
-                               width=-1, height=self.app.s(180))
-        with dpg.collapsing_header(label="Runtime voltage-request control", tag="reg_voltage_gate_header"):
-            dpg.add_text(
-                "Allow or suppress the driver's voltage-request processing. Changes take effect immediately. "
-                "This switch does not set a voltage or raise a voltage ceiling.",
-                wrap=self.app.s(900),
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Read voltage-request gate", callback=self.refresh_voltage_gate)
-                dpg.add_button(label="Save gate profile", callback=self.app.open_save_profile, user_data="gate")
-                dpg.add_checkbox(label="Allow voltage requests", tag="reg_voltage_gate_value", enabled=False)
-                dpg.add_button(
-                    label="Apply gate now",
-                    tag="reg_voltage_gate_apply",
-                    callback=self.apply_voltage_gate,
-                    enabled=False,
-                )
-                dpg.add_button(
-                    label="Restore initial gate",
-                    tag="reg_voltage_gate_restore",
-                    callback=self.restore_voltage_gate,
-                    enabled=False,
-                )
-            dpg.add_text(
-                "Read the current gate before changing it.", tag="reg_voltage_gate_status", wrap=self.app.s(900)
-            )
-        with dpg.collapsing_header(label="Runtime VF policy control", tag="reg_vf_live_header"):
-            dpg.add_text(
-                "Change the driver's active VF checks without restarting the GPU. "
-                "Some startup modes reject disabling a check; use the registry setting first in that case. "
-                "Live changes retain the startup processing mode and apply to this driver session. "
-                "Physical firmware enforcement has not been measured.",
-                wrap=self.app.s(900),
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Read VF policies", callback=self.refresh_clock_vf_live)
-                dpg.add_button(label="Save VF policies profile", callback=self.app.open_save_profile, user_data="clock_vf")
-                dpg.add_checkbox(label="Enforce monotonicity", tag="reg_vf_live_monotonicity", enabled=False)
-                dpg.add_checkbox(label="Enforce smoothing", tag="reg_vf_live_smoothening", enabled=False)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Apply policies now",
-                    tag="reg_vf_live_apply",
-                    callback=self.apply_clock_vf_live,
-                    enabled=False,
-                )
-                dpg.add_button(
-                    label="Restore initial policies",
-                    tag="reg_vf_live_restore",
-                    callback=self.restore_clock_vf_live,
-                    enabled=False,
-                )
-            dpg.add_text(
-                "Read the policies before changing them. Restore initial policies before registry Undo.",
-                tag="reg_vf_live_status",
-                wrap=self.app.s(900),
-            )
-        from .voltage_offsets_panel import VoltageOffsetsPanel
-
-        self.voltage_offsets_panel = VoltageOffsetsPanel(self.app)
-        self.voltage_offsets_panel.build()
-        from .voltage_requests_panel import VoltageRequestsPanel
-
-        self.voltage_requests_panel = VoltageRequestsPanel(self.app)
-        self.voltage_requests_panel.build()
-        with dpg.collapsing_header(label="Live REL equation bounds", tag="reg_rel_live_header"):
-            dpg.add_text(
-                "Change the loaded REL equation bounds for this driver session without restarting the GPU. "
-                "Fix both bounds uses the entered value for both bounds; linked equations can still affect REL and ALT. "
-                "These are equation settings, not measured rail voltage.",
-                wrap=self.app.s(900),
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Read", callback=self.refresh_rel_live)
-                dpg.add_button(label="Save bounds profile", callback=self.app.open_save_profile, user_data="rel_bounds")
-                dpg.add_combo(
-                    [], tag="reg_rel_live_select", width=self.app.s(220), enabled=False, callback=self.select_rel_live
-                )
-                dpg.add_input_text(
-                    label="Bound value (mV)", tag="reg_rel_live_value", width=self.app.s(130), enabled=False
-                )
-                dpg.add_button(label="Apply upper", tag="reg_rel_live_apply", callback=self.apply_rel_live, enabled=False)
-                dpg.add_button(
-                    label="Restore initial upper",
-                    tag="reg_rel_live_restore",
-                    callback=self.restore_rel_live,
-                    enabled=False,
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Fix both bounds", tag="reg_rel_live_fixed", callback=self.fix_rel_live, enabled=False
-                )
-                dpg.add_button(
-                    label="Restore BIOS bounds", tag="reg_rel_live_restore_bounds",
-                    callback=self.restore_rel_live_bounds, enabled=False,
-                )
-            dpg.add_text("Read live bounds before changing them.", tag="reg_rel_live_status", wrap=self.app.s(900))
-            dpg.add_input_text(
-                tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
-            )
-        with dpg.collapsing_header(label="Live voltage constants", tag="reg_constants_live_header"):
-            dpg.add_text(
-                "Change an OV or VMIN constant, or an ALT addend, for this driver session without restarting the GPU. "
-                "Reported policy values can differ. Physical enforcement has not been measured.",
-                wrap=self.app.s(900),
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Read", callback=self.refresh_constants_live)
-                dpg.add_button(label="Save constants profile", callback=self.app.open_save_profile, user_data="constants")
-                dpg.add_combo([], tag="reg_constants_live_select", width=self.app.s(240), enabled=False,
-                              callback=self.select_constants_live)
-                dpg.add_input_text(label="Value (mV)", tag="reg_constants_live_value",
-                                   width=self.app.s(130), enabled=False)
-                dpg.add_button(label="Apply now", tag="reg_constants_live_apply",
-                               callback=self.apply_constants_live, enabled=False)
-                dpg.add_button(label="Restore initial value", tag="reg_constants_live_restore",
-                               callback=self.restore_constants_live, enabled=False)
-            dpg.add_text("Read live values before changing them.", tag="reg_constants_live_status", wrap=self.app.s(900))
-            dpg.add_input_text(tag="reg_constants_live_inventory", readonly=True, multiline=True, width=-1,
-                               height=self.app.s(130))
-        with dpg.collapsing_header(label="Voltage switch-delay requests"):
-            dpg.add_text(
-                "Read and change a voltage device's switch-delay request in microseconds. "
-                "DEFAULT and IPC_VMIN are separate operations. Changes apply to this driver session "
-                "without a GPU restart. Physical switching latency has not been measured; "
-                "the separate power-up/down delays are not controlled here.",
-                wrap=self.app.s(900),
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Read device delays", callback=self.refresh_voltage_devices)
-                dpg.add_button(label="Save delays profile", callback=self.app.open_save_profile, user_data="switch_delay")
-                dpg.add_combo(
-                    [],
-                    tag="reg_volt_device_select",
-                    width=self.app.s(310),
-                    enabled=False,
-                    callback=self.select_voltage_device,
-                )
-                dpg.add_input_text(
-                    label="Delay request (us)",
-                    tag="reg_volt_device_delay",
-                    width=self.app.s(130),
-                    enabled=False,
-                )
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Apply delay now",
-                    tag="reg_volt_device_apply",
-                    callback=self.apply_voltage_device_delay,
-                    enabled=False,
-                )
-                dpg.add_button(
-                    label="Restore initial delay",
-                    tag="reg_volt_device_restore",
-                    callback=self.restore_voltage_device_delay,
-                    enabled=False,
-                )
-            dpg.add_text("Read devices before changing a delay.", tag="reg_volt_device_status", wrap=self.app.s(900))
-            dpg.add_input_text(
-                tag="reg_volt_device_inventory",
-                readonly=True,
-                multiline=True,
-                width=-1,
-                height=self.app.s(100),
-            )
+        """Build the Advanced tab's four sections, in reading order."""
+        self.build_registry()
+        self.build_live_voltage()
+        self.build_live_power()
+        self.build_diagnostics()
         self.recover()
+
+    def _section(self, label, tag, note):
+        return ui_sections.section(label, level=0, scale=getattr(self.app, "scale", 1.0),
+                                   note=note, tag=tag, default_open=False, ui=dpg)
+
+    def _sub(self, label, tag):
+        return ui_sections.section(label, level=1, scale=getattr(self.app, "scale", 1.0),
+                                   tag=tag, default_open=False, ui=dpg)
+
+    def build_registry(self):
+        """Persistent BIOS/registry fields; applying restarts the GPU."""
+        with self._section("Registry / BIOS overrides", "registry_header", None):
+            dpg.add_text(
+                "Change BIOS defaults, ranges, and driver model inputs used when the GPU starts.", wrap=self.app.s(900)
+            )
+            dpg.add_text(
+                "Registry apply restarts the selected GPU and reopens Druta. Windows stays running. "
+                "Changes persist until restored. Runtime tuning profiles are not reapplied.",
+                wrap=self.app.s(900),
+            )
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Read current fields", callback=self.refresh)
+                dpg.add_button(label="Preview changes", callback=self.prepare, tag="reg_preview_button", enabled=False)
+                dpg.add_button(label="Apply and restart GPU", callback=self.apply, tag="reg_apply_button", enabled=False)
+                dpg.add_button(
+                    label="Restore previous registry settings",
+                    callback=self.restore,
+                    tag="reg_restore_button",
+                    enabled=False,
+                )
+            dpg.add_text("Read fields to inspect this adapter.", tag="reg_status", wrap=self.app.s(900))
+            dpg.add_text("", tag="reg_last_recovery", wrap=self.app.s(900), show=False)
+            dpg.add_input_text(tag="reg_preview", readonly=True, multiline=True, width=-1, height=self.app.s(180))
+            with dpg.group(tag="reg_fields"):
+                pass
+            with self._sub("DIFR configured state", "reg_difr_config_header"):
+                dpg.add_text(
+                    "Read the loaded P-state to LPWR mapping and configured DFPR/MS DIFR support. "
+                    "These values describe configuration, not the current P-state, residency or measured power savings. "
+                    "DIFR entry and subfeature disables use the registry field preview and GPU restart above.",
+                    wrap=self.app.s(900),
+                )
+                dpg.add_button(label="Read DIFR configuration", callback=self.refresh_difr)
+                dpg.add_input_text(tag="reg_difr_readback", readonly=True, multiline=True, width=-1, height=self.app.s(190))
+
+    def build_live_voltage(self):
+        """Session-only voltage controls; a driver restart clears them."""
+        with self._section(
+            "Live voltage controls", "live_voltage_header",
+            _SESSION_ONLY + " Exception: enabling voltage policy offsets installs persistent definitions "
+            "and restarts the GPU once.",
+        ):
+            with self._sub("Runtime voltage-request control", "reg_voltage_gate_header"):
+                dpg.add_text(
+                    "Allow or suppress the driver's voltage-request processing. Changes take effect immediately. "
+                    "This switch does not set a voltage or raise a voltage ceiling.",
+                    wrap=self.app.s(900),
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Read voltage-request gate", callback=self.refresh_voltage_gate)
+                    dpg.add_button(label="Save gate profile", callback=self.app.open_save_profile, user_data="gate")
+                    dpg.add_checkbox(label="Allow voltage requests", tag="reg_voltage_gate_value", enabled=False)
+                    dpg.add_button(
+                        label="Apply gate now",
+                        tag="reg_voltage_gate_apply",
+                        callback=self.apply_voltage_gate,
+                        enabled=False,
+                    )
+                    dpg.add_button(
+                        label="Restore initial gate",
+                        tag="reg_voltage_gate_restore",
+                        callback=self.restore_voltage_gate,
+                        enabled=False,
+                    )
+                dpg.add_text(
+                    "Read the current gate before changing it.", tag="reg_voltage_gate_status", wrap=self.app.s(900)
+                )
+            with self._sub("Runtime VF policy control", "reg_vf_live_header"):
+                dpg.add_text(
+                    "Change the driver's active VF checks without restarting the GPU. "
+                    "Some startup modes reject disabling a check; use the registry setting first in that case. "
+                    "Live changes retain the startup processing mode and apply to this driver session. "
+                    "Physical firmware enforcement has not been measured.",
+                    wrap=self.app.s(900),
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Read VF policies", callback=self.refresh_clock_vf_live)
+                    dpg.add_button(label="Save VF policies profile", callback=self.app.open_save_profile, user_data="clock_vf")
+                    dpg.add_checkbox(label="Enforce monotonicity", tag="reg_vf_live_monotonicity", enabled=False)
+                    dpg.add_checkbox(label="Enforce smoothing", tag="reg_vf_live_smoothening", enabled=False)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Apply policies now",
+                        tag="reg_vf_live_apply",
+                        callback=self.apply_clock_vf_live,
+                        enabled=False,
+                    )
+                    dpg.add_button(
+                        label="Restore initial policies",
+                        tag="reg_vf_live_restore",
+                        callback=self.restore_clock_vf_live,
+                        enabled=False,
+                    )
+                dpg.add_text(
+                    "Read the policies before changing them. Restore initial policies before registry Undo.",
+                    tag="reg_vf_live_status",
+                    wrap=self.app.s(900),
+                )
+            from .voltage_offsets_panel import VoltageOffsetsPanel
+
+            self.voltage_offsets_panel = VoltageOffsetsPanel(self.app)
+            self.voltage_offsets_panel.build()
+            from .voltage_requests_panel import VoltageRequestsPanel
+
+            self.voltage_requests_panel = VoltageRequestsPanel(self.app)
+            self.voltage_requests_panel.build()
+            with self._sub("Live REL equation bounds", "reg_rel_live_header"):
+                dpg.add_text(
+                    "Change the loaded REL equation bounds for this driver session without restarting the GPU. "
+                    "Fix both bounds uses the entered value for both bounds; linked equations can still affect REL and ALT. "
+                    "These are equation settings, not measured rail voltage.",
+                    wrap=self.app.s(900),
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Read", callback=self.refresh_rel_live)
+                    dpg.add_button(label="Save bounds profile", callback=self.app.open_save_profile, user_data="rel_bounds")
+                    dpg.add_combo(
+                        [], tag="reg_rel_live_select", width=self.app.s(220), enabled=False, callback=self.select_rel_live
+                    )
+                    dpg.add_input_text(
+                        label="Bound value (mV)", tag="reg_rel_live_value", width=self.app.s(130), enabled=False
+                    )
+                    dpg.add_button(label="Apply upper", tag="reg_rel_live_apply", callback=self.apply_rel_live, enabled=False)
+                    dpg.add_button(
+                        label="Restore initial upper",
+                        tag="reg_rel_live_restore",
+                        callback=self.restore_rel_live,
+                        enabled=False,
+                    )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Fix both bounds", tag="reg_rel_live_fixed", callback=self.fix_rel_live, enabled=False
+                    )
+                    dpg.add_button(
+                        label="Restore BIOS bounds", tag="reg_rel_live_restore_bounds",
+                        callback=self.restore_rel_live_bounds, enabled=False,
+                    )
+                dpg.add_text("Read live bounds before changing them.", tag="reg_rel_live_status", wrap=self.app.s(900))
+                dpg.add_input_text(
+                    tag="reg_rel_live_inventory", readonly=True, multiline=True, width=-1, height=self.app.s(110)
+                )
+            with self._sub("Live voltage constants", "reg_constants_live_header"):
+                dpg.add_text(
+                    "Change an OV or VMIN constant, or an ALT addend, for this driver session without restarting the GPU. "
+                    "Reported policy values can differ. Physical enforcement has not been measured.",
+                    wrap=self.app.s(900),
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Read", callback=self.refresh_constants_live)
+                    dpg.add_button(label="Save constants profile", callback=self.app.open_save_profile, user_data="constants")
+                    dpg.add_combo([], tag="reg_constants_live_select", width=self.app.s(240), enabled=False,
+                                  callback=self.select_constants_live)
+                    dpg.add_input_text(label="Value (mV)", tag="reg_constants_live_value",
+                                       width=self.app.s(130), enabled=False)
+                    dpg.add_button(label="Apply now", tag="reg_constants_live_apply",
+                                   callback=self.apply_constants_live, enabled=False)
+                    dpg.add_button(label="Restore initial value", tag="reg_constants_live_restore",
+                                   callback=self.restore_constants_live, enabled=False)
+                dpg.add_text("Read live values before changing them.", tag="reg_constants_live_status", wrap=self.app.s(900))
+                dpg.add_input_text(tag="reg_constants_live_inventory", readonly=True, multiline=True, width=-1,
+                                   height=self.app.s(130))
+            with self._sub("Voltage switch-delay requests", "reg_switch_delay_header"):
+                dpg.add_text(
+                    "Read and change a voltage device's switch-delay request in microseconds. "
+                    "DEFAULT and IPC_VMIN are separate operations. Changes apply to this driver session "
+                    "without a GPU restart. Physical switching latency has not been measured; "
+                    "the separate power-up/down delays are not controlled here.",
+                    wrap=self.app.s(900),
+                )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Read device delays", callback=self.refresh_voltage_devices)
+                    dpg.add_button(label="Save delays profile", callback=self.app.open_save_profile, user_data="switch_delay")
+                    dpg.add_combo(
+                        [],
+                        tag="reg_volt_device_select",
+                        width=self.app.s(310),
+                        enabled=False,
+                        callback=self.select_voltage_device,
+                    )
+                    dpg.add_input_text(
+                        label="Delay request (us)",
+                        tag="reg_volt_device_delay",
+                        width=self.app.s(130),
+                        enabled=False,
+                    )
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Apply delay now",
+                        tag="reg_volt_device_apply",
+                        callback=self.apply_voltage_device_delay,
+                        enabled=False,
+                    )
+                    dpg.add_button(
+                        label="Restore initial delay",
+                        tag="reg_volt_device_restore",
+                        callback=self.restore_voltage_device_delay,
+                        enabled=False,
+                    )
+                dpg.add_text("Read devices before changing a delay.", tag="reg_volt_device_status", wrap=self.app.s(900))
+                dpg.add_input_text(
+                    tag="reg_volt_device_inventory",
+                    readonly=True,
+                    multiline=True,
+                    width=-1,
+                    height=self.app.s(100),
+                )
+
+    def build_live_power(self):
+        """Session-only power-saving holds and PCIe requests."""
+        with self._section("Live power-saving & PCIe", "live_power_header", _SESSION_ONLY):
+            from .gr_gating_live_panel import GrGatingLivePanel
+
+            self.gr_gating_live_panel = GrGatingLivePanel(self.app)
+            with self._sub("Live engine-level power gating (ELPG)", "reg_gr_gating_live_header"):
+                self.gr_gating_live_panel.build()
+            from .individual_power_gating_panel import IndividualPowerGatingPanel
+
+            self.individual_power_gating_panel = IndividualPowerGatingPanel(self.app)
+            with self._sub("Individual engine power gating", "reg_individual_power_gating_header"):
+                self.individual_power_gating_panel.build()
+            from .gr_idle_threshold_panel import GrIdleThresholdPanel
+
+            self.gr_idle_threshold_panel = GrIdleThresholdPanel(self.app, self._threshold_requested)
+            with self._sub("Live idle thresholds", "reg_gr_idle_threshold_header"):
+                self.gr_idle_threshold_panel.build()
+            from .adaptive_power_panel import AdaptivePowerPanel
+
+            self.adaptive_power_panel = AdaptivePowerPanel(self.app, self._adaptive_requested)
+            with self._sub("Live adaptive power policy", "reg_adaptive_power_header"):
+                self.adaptive_power_panel.build()
+            from .engine_clock_gating_panel import EngineClockGatingPanel
+
+            self.engine_clock_gating_panel = EngineClockGatingPanel(self.app)
+            with self._sub("Live engine clock gating", "reg_engine_clock_gating_header"):
+                self.engine_clock_gating_panel.build()
+            from .block_clock_gating_panel import BlockClockGatingPanel
+
+            self.block_clock_gating_panel = BlockClockGatingPanel(self.app)
+            with self._sub("Live block clock gating", "reg_block_clock_gating_header"):
+                self.block_clock_gating_panel.build()
+            from .second_level_clock_gating_panel import SecondLevelClockGatingPanel
+
+            self.second_level_clock_gating_panel = SecondLevelClockGatingPanel(self.app)
+            with self._sub("Live second-level clock gating (SLCG)", "reg_second_level_clock_gating_header"):
+                self.second_level_clock_gating_panel.build()
+            from .difr_live_panel import DifrLivePanel
+
+            self.difr_live_panel = DifrLivePanel(self.app)
+            with self._sub("Live DIFR disable request", "reg_difr_live_header"):
+                self.difr_live_panel.build()
+            from .pcie_speed_panel import PcieSpeedPanel
+
+            self.pcie_speed_panel = PcieSpeedPanel(self.app)
+            with self._sub("Manual PCIe speed request", "reg_pcie_speed_header"):
+                self.pcie_speed_panel.build()
+
+    def build_diagnostics(self):
+        """Read-only driver policy, arbitration and relationship views."""
+        with self._section("Diagnostics", "diagnostics_header", "Read-only."):
+            with self._sub("Driver policy diagnostics", "reg_driver_policies_header"):
+                dpg.add_text(
+                    "Read registered performance limits and feedback-policy flags. "
+                    "Registered slots do not identify which limits are currently active.",
+                    wrap=self.app.s(900),
+                )
+                dpg.add_button(label="Read driver policies", callback=self.refresh_diagnostics)
+                dpg.add_input_text(tag="reg_diagnostics", readonly=True, multiline=True, width=-1, height=self.app.s(220))
+            with self._sub("Power/current arbitration", "reg_power_arbitration_header"):
+                dpg.add_text(
+                    "Compare each request with host votes, firmware votes, and the effective limit. "
+                    "Firmware values can lag a recent change; refresh to check again. "
+                    "Client numbers have not been assigned physical names.",
+                    wrap=self.app.s(900),
+                )
+                dpg.add_button(label="Read arbitration", callback=self.refresh_arbitration)
+                dpg.add_input_text(tag="reg_arbitration", readonly=True, multiline=True, width=-1, height=self.app.s(260))
+                dpg.add_text(
+                    "Configured relationships describe policy targets, weights and available source-policy ranges. "
+                    "This partial mapping does not establish the producer of an active vote. "
+                    "Qualified weights can be edited through the BIOS field preview and require a driver refresh.", wrap=self.app.s(900),
+                )
+                dpg.add_button(label="Read relationships", tag="reg_relationships_read", callback=self.refresh_relationships)
+                dpg.add_input_text(tag="reg_relationships", readonly=True, multiline=True,
+                                   width=-1, height=self.app.s(180))
+
 
     @staticmethod
     def _format_difr(observation):
@@ -1474,7 +1529,8 @@ class RegistryPanel:
                 wrap=self.app.s(900),
             )
             for name, fields in groups.items():
-                with dpg.collapsing_header(label=name, default_open=False):
+                with ui_sections.section(name, level=1, scale=getattr(self.app, "scale", 1.0),
+                                         default_open=False, ui=dpg):
                     for field in fields:
                         factor, unit = self.display(field)
                         writable = field["capability"] == "editable" and (

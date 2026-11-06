@@ -19,7 +19,8 @@ def setup(monkeypatch):
     monkeypatch.setattr(rel_bounds_ui_trial.time, "monotonic", lambda: next(clock))
     dpg, application = FakeDpg(), app()
     dpg.stop_dearpygui = Mock()
-    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
                       reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
                       reg_constants_live_value="", reg_rel_live_status="", reg_constants_live_status="",
                       reg_rel_live_inventory="")
