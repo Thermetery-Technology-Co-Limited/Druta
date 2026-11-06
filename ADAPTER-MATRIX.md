@@ -1,7 +1,7 @@
 # Adapter and interface matrix
 
 This matrix records what each tested adapter has shown for each Druta
-interface, as of 1.9.08. It keeps source qualification, live reads and
+interface, as of 1.9.1. It keeps source qualification, live reads and
 changed-state tests apart. Each cell covers one board on the drivers in the key,
 not its generation. A W means the request was written, read back exactly and
 restored. It does not mean the hardware responded physically. Druta decides
@@ -68,11 +68,11 @@ driver accepts, which is not proof the interface is absent.
 | Board power limit | N | N | N | W | W⁸ | W | W | | W | W | W |
 | Live client power above reported max (XOC) | | | | | W⁸ | | W | W¹⁰ | W¹⁰ | S | W |
 | Current limits and named power policies | N | | N | W | W⁸ | W | W | W | W | W | W |
-| Power-policy feedback bounds | | | | | N | | | | R¹¹ | | W⁶ |
-| Power relationships: weight, linked base current | | | | | N | | | | R¹¹ | | W |
+| Power-policy feedback bounds | | | | | N | | | | W¹¹ | | W⁶ |
+| Power relationships: weight, linked base current | | | | | N | | | | R¹⁵ | | W |
 | **Low power** | | | | | | | | | | | |
-| GR power gating (GRPG) entry disables (registry) | | | | | N | | | | R | | W |
-| MS, NVDEC, NVENC, OFA, NVJPG entry disables (registry) | | | | | N | | | | R | | W |
+| GR power gating (GRPG) entry disables (registry) | | | | | N | | | | W | | W |
+| MS, NVDEC, NVENC, OFA, NVJPG entry disables (registry) | | | | | N | | | | W¹⁶ | | W |
 | DIFR (entry disable, live inhibit) | | | | | N | | | | N | | W |
 | Grouped engine-level power gating (ELPG) hold | | | | | R | | | | R | | W |
 | Engine clock gating (ELCG) hold | | | | | R | | | | R | | W |
@@ -109,15 +109,19 @@ driver accepts, which is not proof the interface is absent.
 10. Native board status equals floor((request × policy-2 upper word + 2048) / 4096)
     mod 2^20 at every request tested from 850 to 1,999 W, with this board's word
     4424. The 3070 Ti's 33/32 fit corresponds to a word of 4224.
-11. Raw bounds or weights read. Ampere policy rows are not decoded, so Druta
-    reports the controls unavailable.
+11. Upper and lower bounds on policy 5 (v30 rows, 1.9.1). Effective status
+    followed the upper word; sample counts stay read-only.
 12. GR and MS only; the media inhibits are unavailable.
 13. Clock V/F policy profiles and selected Undo only.
 14. Written with a trial script; Druta's reader decodes only the Blackwell row
     type, so it lists no IDDQ input here. NVVDD IDDQ followed every request; the
     voltage policy did not move, because no loaded VFE equation reads IDDQ.
+15. Targets and weights decode on v30 rows since 1.9.1. Weight editing needs a
+    v40 BIOS power table.
+16. MS only: both enabled rows disabled and restored. Media and NVDEC rows were
+    not tried.
 
-Evidence from 2026-11-05: [GTX 1060, 581.42](experiments/pascal-gp106-58142-capability-20261105.md); RTX 3090 Ti Kingpin, 617.42: [survey](experiments/ampere-ga102-kingpin-61742-20261105.md), [current, EnableCoreVoltage, IDDQ](experiments/ampere-ga102-kingpin-trials-61742-20261105.md).
+Evidence from 2026-11-05: [GTX 1060, 581.42](experiments/pascal-gp106-58142-capability-20261105.md); RTX 3090 Ti Kingpin, 617.42: [survey](experiments/ampere-ga102-kingpin-61742-20261105.md), [current, EnableCoreVoltage, IDDQ](experiments/ampere-ga102-kingpin-trials-61742-20261105.md), [GRPG](experiments/ampere-ga102-kingpin-grpg-61742-20261105.md), [MS](experiments/ampere-ga102-kingpin-ms-61742-20261105.md), [v30 policy rows](experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md).
 
 ## I2C regulators
 
