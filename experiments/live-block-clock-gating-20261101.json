@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "Session-only BLCG request with independent partial register witness. Hardware observations limited to one RTX5080/617.42; other GB20x implementations have static layout/offline-test coverage only.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "contracts": {
+    "profiler": "B2CC owned object; B0CC0301 selected BLCG field shift2 disable4; B0CC0302 release12; explicit owned-object free.",
+    "register_read": "20800122 header48, external operation32, route16 TYPE_NONE. READ32=0/GLOBAL=0; count+20, pointer+24, per-opstatus+2 and outputlo+20. No raw register writes.",
+    "architecture": "Native20801701 arch1B0, implementations2/3/5/6/7. Same-build chipword producer/constructor joins map to ChipHal41..45 and the same feature-zero register table; no driver version or board-ID allowlist.",
+    "read_addresses": [
+      "0x4041f0",
+      "0x409890",
+      "0x405bf0",
+      "0x407000"
+    ],
+    "allowed_clear_masks": [
+      "0xc646",
+      "0x7f",
+      "0xc044",
+      "0x4000c042"
+    ],
+    "hold_verification": "Stable reads; unchanged native layout; cleared-only changes within source masks; at least one observed cleared bit. No-op accepted status is insufficient.",
+    "release_verification": "Current register values OR this request's observed cleared bits; preserve other current bits.",
+    "limits": [
+      "Partial register configuration witness, not full BLCG coverage, physical gating, residency or power savings.",
+      "Unsupported architecture layouts, rejected register reads and poison values do not enable Hold.",
+      "Other software may affect aggregate requests; ownership is the allocated profiler object, not inferred from register values.",
+      "No registry writes, driver restart, workload, helper-driver installation, persistent settings or automatic replay."
+    ]
+  },
+  "native_architecture": {
+    "pci": "0000:01:00.0",
+    "command": "0x20801701",
+    "payload_bytes": 16,
+    "raw_hex": "b001000003000000a100000001000000",
+    "architecture": "0x1b0",
+    "implementation": "0x3",
+    "revision": "0xa1",
+    "flags_word": "0x1",
+    "scope": "Native public GET_ARCH_INFO read; no SET"
+  },
+  "trial": {
+    "before": {
+      "0x4041f0": 16454,
+      "0x409890": 127,
+      "0x405bf0": 16452,
+      "0x407000": 16450
+    },
+    "held": {
+      "0x4041f0": 6,
+      "0x409890": 63,
+      "0x405bf0": 4,
+      "0x407000": 2
+    },
+    "after": {
+      "0x4041f0": 16454,
+      "0x409890": 127,
+      "0x405bf0": 16452,
+      "0x407000": 16450
+    },
+    "stable_pairs": true,
+    "response": {
+      "global_status": 0,
+      "feature_status": 0
+    },
+    "released": true,
+    "freed": true,
+    "voltage_unchanged": true,
+    "lpwr_unchanged": true
+  },
+  "production_source": {
+    "duplicate_block_hold_no_write": true,
+    "independent_block_release_verified": true,
+    "block_registers_restored": true,
+    "duplicate_engine_hold_no_write": true,
+    "independent_release_verified": true,
+    "voltage_unchanged": true,
+    "configured_lpwr_unchanged": true,
+    "engine_masks_restored": true,
+    "power_masks_restored": true,
+    "close_errors": []
+  },
+  "tests": {
+    "passed": 737,
+    "new_api_tests": 39,
+    "new_panel_tests": 2,
+    "ui_scope": "Offline callback tests; no physical GUI input qualification."
+  },
+  "static_audit": {
+    "root_verified_family_windows": 17,
+    "getter_rvas": [
+      "0xe61990",
+      "0x4d3f70"
+    ],
+    "native_architecture_rvas": [
+      "0xe65a90",
+      "0x48c4d0",
+      "0x11e234"
+    ],
+    "table_provider_rva": "0xc3a1f0",
+    "feature_table_rva": "0x133fa60",
+    "register_table_rva": "0x133f8a8",
+    "note": "Offsets identify evidence in the inspected file; product does not use these RVAs."
+  },
+  "primary_sources": [
+    "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080gpu.h",
+    "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h"
+  ],
+  "local_artifacts": [
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg_read_register.py",
+      "bytes": 2437,
+      "sha256": "39423e1dfaf6d119000514fe4752d53ff6e4db0090b4c753191e66c9e51022c3"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-native-register-read.json",
+      "bytes": 1722,
+      "sha256": "1143d4ebe29bb52892c7687d0705b4e486fe8a907eedba4137b0ca6548bb9b29"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg_register_trial.py",
+      "bytes": 4211,
+      "sha256": "42e606f3b662e219a6da3ac40bff62d89fe4484f0c1719beed013929e5e65ab7"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-register-trial.json",
+      "bytes": 135559,
+      "sha256": "a9e09791f36301af4208a59e808191ae0084a300eeda581aeb04c3b6fdcf465c"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg_product_smoke.py",
+      "bytes": 5538,
+      "sha256": "9cbe26e89f6f0b9cb47e6c804b0ea2ec5aaaf6148a924f1e7219cc82d626566a"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-product-source.json",
+      "bytes": 180964,
+      "sha256": "e2b57b18c58d234642c48cb268e550caccc8ea1f2c9ae6e8cc18915dfe3910fd"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/native-architecture-source.json",
+      "bytes": 2172,
+      "sha256": "d98217c98a85292215a74da0e2b9c79f169adad511beacf92610b348fad28eb0"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/blcg-family-static-61742.json",
+      "bytes": 6421,
+      "sha256": "a72ec8f8230cc9cad8c69f5dec9fe62ca40b0f835f951981b54f569713763c44"
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-getters-sol-20261101/source-getter-assessment.json",
+      "bytes": 12229,
+      "sha256": "d9383189a18a255ff45d194e8705a75a91250d392d39a61fba363953ce3b5eff"
+    }
+  ]
+}

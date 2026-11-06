@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "Session-only GR engine-level power-gating disable request, one RTX 5080 configuration. Software requests and masks, not physical residency.",
+  "identity": {
+    "driver": "617.42",
+    "gpu": {
+      "enum_index": 0,
+      "name": "NVIDIA GeForce RTX 5080",
+      "devid": 11266,
+      "subsys": 2313031747,
+      "slot": "0000:01:00.0"
+    },
+    "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+    "nvapi_sha256": "912ac885975da8d8df80aa0d1c04704e7dd2ca42fa2a02d341ae70237890e9bb"
+  },
+  "contract": {
+    "class": "0xB2CC",
+    "parent": "paired Subdevice",
+    "allocate_params_bytes": 8,
+    "request": [
+      "0xB0CC0301",
+      12,
+      "0x40"
+    ],
+    "release": [
+      "0xB0CC0302",
+      4,
+      "0xC0"
+    ],
+    "primary_source": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h",
+    "allocation_opcode": "0x0500002A",
+    "allocation_bytes": 88,
+    "control_opcode": "0x0500002B",
+    "free_opcode": "0x0500000C",
+    "free_bytes": 64,
+    "transport_origin": "Unmodified NVAPI initialization/unload capture, corroborated with Windows handlers; not Linux ioctl numbers.",
+    "only_own_object_freed": true
+  },
+  "static_findings": {
+    "scope": "Static offline analysis of one Windows 617.42 driver; offsets are evidence identities, not compatibility constants.",
+    "descriptor": {
+      "handler": "0x4f3ba0",
+      "command": "0x2080a801",
+      "rva": "0xe6a0e8",
+      "size": "0x404"
+    },
+    "dispatch": {
+      "type3": "0x4f3cfe -> 0x738410",
+      "record": "group + controller index * 0x108",
+      "attr_0x37": "controller support bit from group+0xe8, record+0xf1 true, record+0x110 zero, and virtual predicate",
+      "group_object": "GPU+0x2550 -> +0x12c0",
+      "attr_0x48": "record+0x110",
+      "attr_0x49": "record+0x11c",
+      "attr_0x39": "controller support bit from group+0xe8"
+    },
+    "manager": {
+      "selector": "feature 6 case 0x42b784 selects nonempty group0 else group1 and group3 independently; group mask at group+0x1930+4*group index",
+      "concurrency": "manager 0x6a4690 calls callback only at aggregate count zero; overlapping profiler clients need not cause transitions",
+      "initializer": "0x42c1f0 creates feature 6 object stored manager+0xc08; constructor 0x6a4610 assigns callback 0x42b350",
+      "release": "0x752340 ->0x73a480 decrements reason-zero count",
+      "hold": "0x7522a0 iterates mask ->0x73a3b0 sets reason bit0 at record+0x110 and increments reason-zero count at +0x10c"
+    },
+    "conclusion": "No direct exposure of group+0x1930 masks found in type3 dispatch. Attr 0x39 is support bitmap membership, not proven membership of the selected groups. Attribute 0x48 supports a partial reason-bit witness, but cannot alone prove complete controller coverage or distinguish another request with same reason."
+  },
+  "initial_live": {
+    "allocated": true,
+    "fulfilled": true,
+    "released": true,
+    "freed": true,
+    "attr48_bit0_transitions": [
+      0,
+      1,
+      12,
+      13,
+      14,
+      15
+    ],
+    "predicate_true_to_false": [
+      0,
+      12,
+      13,
+      14,
+      15
+    ],
+    "controller1_predicate": "already false",
+    "attr49_unchanged": true,
+    "released_complete_observations_match_before": true,
+    "voltage_unchanged": true,
+    "configured_lpwr_unchanged": true
+  },
+  "negative_trials": [
+    {
+      "file": "product-source.json",
+      "result": "First production run rejected unstable successive readback after Hold. Explicit Release/free succeeded; later serialized complete controller state matched baseline. Initial False comparison mixed integer in-memory mask keys with JSON string keys; correction preserved in artifact."
+    },
+    {
+      "file": "product-source-observed.json",
+      "result": "No mutations. Controller4 enabled_predicate changed true/false/true with identical support and reason masks. Live predicate stability must not gate stable request-mask verification."
+    }
+  ],
+  "production_qualification": {
+    "result": "passed",
+    "mutation_sequence": [
+      "allocate own B2CC",
+      "ELPG disable",
+      "ELPG release",
+      "free own B2CC"
+    ],
+    "mutation_count": 4,
+    "observed_controllers": [
+      "0",
+      "1",
+      "12",
+      "13",
+      "14",
+      "15"
+    ],
+    "duplicate_hold_no_write": true,
+    "voltage_unchanged": true,
+    "lpwr_unchanged": true,
+    "controller_masks_restored": true,
+    "stable_fields": "All inventory/support/reason-mask fields; enabled predicate remains latest diagnostic observation. No board/driver/observed-controller allowlist.",
+    "targeted_tests_passed": 668,
+    "ruff_new_files": "passed"
+  },
+  "limits": [
+    "Changed controller masks are a partial witness, not complete GR group membership or an ownership getter.",
+    "Overlapping requests can hide a new transition; successful no-transition requests remain unverified and explicitly releasable.",
+    "No measured physical gating, power savings, clock or timing effect.",
+    "No registry write, driver restart, Windows reboot, workload or profile persistence.",
+    "No automatic reapply; driver-restart cleanup not exercised.",
+    "Other profiler clock-gating and idle-slowdown controls remain unqualified."
+  ],
+  "local_artifacts": [
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/capture_init.py",
+      "bytes": 3366,
+      "sha256": "22766bfab127281af4b51b630d84aa5ba29f65b2d237b475875e8a71db45e27f"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/init-capture.json",
+      "bytes": 26671,
+      "sha256": "9fba90963cd71aac74f8c84ac699f14afb4faf78c911915bb1f3963f669eecad"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/profiler_probe.py",
+      "bytes": 5138,
+      "sha256": "2231b5dfa696d4f62ddd4157b3ac2e6fda28f010de7e6a0e6b5637ca9dc038ca"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/profiler-allocation.json",
+      "bytes": 130695,
+      "sha256": "5cb78bddc4a55a5e3a64245a1d66e0cd42cbcb34c5c77fe706ad39e19272e082"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/elpg-disable.json",
+      "bytes": 161711,
+      "sha256": "0a16e8691acde7f4cf17e7ad867218d6fe859176a3f974056ff7885bfe7c2e95"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/static-windows.json",
+      "bytes": 67100,
+      "sha256": "460efd8544a7de1514254701db260abb5fe80fa53f86f85946a0c28f980a654a"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/product-source.json",
+      "bytes": 75700,
+      "sha256": "ed1028f48bf0e216477ece523e59ebfd16cb95dac7dca1eeda2d8bdb70097754"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/product-source-observed.json",
+      "bytes": 161347,
+      "sha256": "e47048934200b3abc9d438629b7f3bd382912741d1d041f5550ae8ab807110d8"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-root-20261101/product-source-qualified.json",
+      "bytes": 209881,
+      "sha256": "2afedf8285f5f675830fc68447c21049ad17a54bf7b9312d04be5fa6fb2c6fae"
+    },
+    {
+      "path": "experiments/registry-overrides/live-gating-terra-20261101/elpg-static-61742.json",
+      "bytes": 2210,
+      "sha256": "4ecd50d84c99687bd0a035b9ff81db4f990a8ee916d1f78c9223790b6ef59623"
+    }
+  ]
+}

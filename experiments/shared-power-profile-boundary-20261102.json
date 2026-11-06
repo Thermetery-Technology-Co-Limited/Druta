@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "scope": "Shared threshold/adaptive profile exclusion; static 617.42 analysis",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "sources": [
+    {
+      "path": "experiments/registry-overrides/difr-idle-thresholds-terra-20261102/threshold-auxiliary-callback-61742.json",
+      "sha256": "7b338b14bedb25f81d6e0a2c5515db34f256683e8bced19735b34bf497ea8c81"
+    },
+    {
+      "path": "experiments/registry-overrides/adaptive-power-terra-20261102/adaptive-type4-control-61742.json",
+      "sha256": "5a39c457cc12d8d0b7ce8afc818bf4cd3f254eebdb4da6c553ca981581a6bfc6"
+    },
+    {
+      "path": "src/druta/gr_idle_threshold_live.py",
+      "sha256": "6702d4e28657d72a056158147357108617cef31241be1531615f8c647872102a"
+    },
+    {
+      "path": "src/druta/adaptive_power_live.py",
+      "sha256": "6efc38a2e5ea68bce7e4189cdfa5f73f338781670854e5daf3ee6bd18ee59d00"
+    }
+  ],
+  "findings": [
+    "The examined type3 threshold setter can set auxiliary reason bit 2 (mask 0x4) for mapped supported roles.",
+    "The available adaptive getter reports only whether the complete reason word is zero.",
+    "The examined adaptive setter changes shared bit 1 (mask 0x2), not bit 2, without a per-client counted ownership contract.",
+    "Restoring the earlier numeric threshold therefore does not establish restoration of the shared reason state.",
+    "Scaled integer SET input also requires representability checking to restore exact captured raw threshold values.",
+    "No known independent getter or reversible bit-2 contract currently fills this gap; repeating the aggregate read would not resolve it."
+  ],
+  "product_decision": "Keep shared idle thresholds and adaptive policy outside saved and combined profiles. Existing manual controls retain their stated request/readback limitations.",
+  "completion_evidence_needed": "A qualified independent affected-state read and reversible operation/lifetime contract, followed by exact raw pair, peer and shared-state verification.",
+  "limitations": "Static findings apply to the examined binary and paths; no universal firmware semantics, physical effect or new hardware experiment is claimed."
+}

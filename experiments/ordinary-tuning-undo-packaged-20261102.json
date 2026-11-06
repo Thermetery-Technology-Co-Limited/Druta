@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "source_files_verified": 554,
+  "executable_sha256": "f52fa4ea7f552eb92d33b7550609bd248e0722848c9db1e88a102f0074f114dc",
+  "zip_sha256": "565bd5210f6a2ccd8f426b69df87faf421e5c2287951f961d03207b8353913df",
+  "zip_crc": "passed",
+  "note": "This receipt is written after packaging and is not in the bundled source manifest.",
+  "captures": {
+    "count": 34,
+    "state": "complete",
+    "skipped": [
+      "current-voltage-offsets: Could not read offsets: No readable offset scaffold profile for this adapter"
+    ],
+    "errors": [],
+    "manifest_sha256": "545691751c8652dea56e211029b18abde094a4bbfaa70f4ff827ee7da7350df4"
+  },
+  "control_frame": {
+    "stage": "control-actual",
+    "synthetic": false,
+    "path": "control-actual.png",
+    "requested_frame": 4,
+    "width": 1528,
+    "height": 1261,
+    "sha256": "6da7bdcde453774b9e876986c5668bcfbe033f9c3ab2d74fdd84549ecd29f6e6",
+    "widget": {
+      "slider": 360.0,
+      "input": 360.0,
+      "min": 250.0,
+      "max": 450.0
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "device": {
+    "name": "NVIDIA GeForce RTX 5080",
+    "driver": "617.42",
+    "vbios": "98.03.3b.c0.6f"
+  },
+  "operating_point": {
+    "pstate": 8,
+    "gpu_utilization_percent": 5,
+    "board_request_mw": 360000
+  },
+  "policy": {
+    "index": 2,
+    "type": 0,
+    "channel": 0,
+    "unit": "mW",
+    "requested": 450000,
+    "mode": 2,
+    "past": 43,
+    "next": 7,
+    "lower": 3072,
+    "upper": 4219
+  },
+  "lower_trial": {
+    "original": 3072,
+    "requested": 3113,
+    "sample_count": 3,
+    "request_readback_exact": true,
+    "effective_mw_before": 370811,
+    "effective_mw_samples": [
+      370811,
+      370811,
+      370811
+    ],
+    "effective_mw_after_restore": 370811,
+    "pmu_output_mw": 360000,
+    "full_request_state_restored_exact": true,
+    "interpretation": "Retained CONTROL request; unchanged idle effective limit does not establish lower-bound enforcement or suppression."
+  },
+  "past_trial": {
+    "original": 43,
+    "requested": 44,
+    "set_ntstatus": 0,
+    "set_rm_status": "0x65",
+    "later_get_rm_status": "0x23",
+    "restoration_set_dispatched": false,
+    "interpretation": "SET outcome was ambiguous; no retained 44 readback was obtained. One failure does not establish general lack of support."
+  },
+  "next_trial": {
+    "attempted": false
+  },
+  "recovery": {
+    "pre_reset_info_and_control_get_succeeded": true,
+    "pre_reset_active_fields": {
+      "mode": 2,
+      "past": 43,
+      "next": 7,
+      "lower": 3072,
+      "upper": 4219
+    },
+    "gpu_only_reset_success": true,
+    "reboot_required": false,
+    "post_reset_complete": true,
+    "post_reset_full_client_native_request_state_matches_baseline": true,
+    "post_reset_active_fields": {
+      "mode": 2,
+      "past": 43,
+      "next": 7,
+      "lower": 3072,
+      "upper": 4219
+    }
+  },
+  "limits": "Single device and idle operating point; STATUS is not a physical measurement. No general controller formula, lower-bound enforcement, or count admission rule is established. The manual lower control passed a separate production-path configuration trial; sample counts remain read-only.",
+  "artifact_sha256": {
+    "trial": "75EC9F68663D659047A53B0D11C9AF45FB4054B43C49C6087FD2D85FC0897240",
+    "packet_audit": "9833029F92FF4552F48F5640B52309FF85C9D0353DC5A73B5B445BE2044F8967",
+    "harness": "A65757EFD4DC7E3B686393FDA95DDEBC25AB2B37373EC2B99D953EEBFBC6F595",
+    "reset": "42EDD2E5DB01AE8F48697AC89C1B30883FEA6402BFA9C1587E194B6BB3A82CC6",
+    "post_reset": "E172F2109BD28AE4D74C671AE4A662913B097F07E4667BA9567A7F36420C4F49"
+  },
+  "production_receipt": "power-integral-lower-production-20261105.json"
+}

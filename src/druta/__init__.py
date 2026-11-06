@@ -20,7 +20,7 @@
 Druta - GPU monitor and tuner for NVIDIA cards.
 """
 
-__version__ = "1.8.1"
+__version__ = "1.9.1"
 __author__ = "Thermetery Technology Co Limited"
 __license__ = "GPL-3.0-or-later"
 
@@ -28,3 +28,9 @@ __license__ = "GPL-3.0-or-later"
 # Users should import druta.druta or druta.nvbackend directly
 
 __all__ = ["__version__"]
+
+# The Windows 7 and Vista bundles run CPython 3.8; install the few language
+# shims main's code needs before any submodule is imported. No-op on 3.10+.
+from . import legacy_python as _legacy_python  # noqa: E402
+
+_legacy_python.install()

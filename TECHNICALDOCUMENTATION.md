@@ -695,7 +695,9 @@ like. Aligned against the frequency field, rail 0 is at `+0x110`:
 
 - **Rail 0 is NVVDD** and it works. `+50 mV` requested moves vcore exactly
   `+50 mV`, measured with the core clock pinned at 1500 MHz. Shipped as
-  *NVVDD offset (mV)*.
+  *NVVDD offset (mV)*. A domain request write succeeds only when a subsequent
+  GET reports the requested stored value. Matching readback does not establish
+  a physical voltage response.
 - **The tested MSVDD request was ineffective on this board.** It was refused
   on the measured active domains and accepted on domain 6 without establishing
   a voltage response. This experiment does not suppress other boards' controls.
@@ -873,6 +875,11 @@ also raises reliability, alt-reliability and overvoltage to the held point plus
 ceiling, where it would run below the clock it shows. That raise does not need
 the Rail limits box; it is written only upward, to exactly hold + margin, and
 restored when the hold ends (`GPU.apply_hold_headroom`).
+The mode's 1200 mV normal / 1500 mV XOC request bound applies to the held
+voltage before the headroom margin is added. The automatic raise may exceed
+that bound by the selected margin (6.25-100 mV): at the default 25 mV, a
+1200 mV hold requests a 1225 mV ceiling without XOC. This does not extend the
+manual rail sliders or permit a hold above the current rail ceiling.
 
 **Headroom first, clocks last.** Cooling before the power budget rises, budget
 before the extra voltage spends it, curve last because it is the only step
@@ -920,6 +927,28 @@ behind the **Unlock controls** checkbox — untick it to make the app read-only.
 
 Core offsets snap **down** onto the card's own grid before being sent, because
 they land in the same per-point V/F delta table the curve editor uses.
+
+In 1.9.05, an exported `nvmlDeviceSetClockOffsets` returning
+`NVML_ERROR_NOT_SUPPORTED` (3) permits the independently available Pstates20
+fallback. Missing NVML exports already select that path. Other NVML failures
+do not dispatch a second setter. The fallback negotiates the understood public
+packet versions, selects the unique editable P0 domain, validates signed-kHz
+range and representability, and sends one sparse clock delta with no voltage
+rows. It requires exact selected offset readback. No driver-version decision
+selects either path. Both paths retain the graphics V/F snapshot/restoration
+handling, including restoration after a refused write when a shape was captured.
+
+On the modified TU104, 472.12 core -15 MHz, memory -1 true MHz and combined
+offset trials restored captured offsets, graphics curve, 1062.5 mV P0 hold and
+the observed 7750 MHz memory baseline. The combined trial preserved a nonzero
+memory offset across a core write. Fan 100% and voltage boost 1% checks also
+restored their captures. These passed with both the installed NVML runtime's
+unsupported offset exports and an explicitly loaded supplied NVML runtime
+without offset exports. Earlier 431.60 trials restored captured offset fields,
+graphics curve and hold, but the observed memory clock changed from 8000 to
+7750 MHz. Its cause is unresolved; selected-field and curve restoration do not
+establish complete physical clock-state restoration. See the
+[472.12 compatibility record](experiments/turing-47212-compatibility-20261028.md).
 
 ## Lockable clocks are not a ceiling
 
@@ -1610,6 +1639,3620 @@ published, it is either read-only here (the per-domain hard VF lock) or written
 only through read-modify-write with a diff guard that refuses if any dword other
 than the intended one changed.
 
+## Registry override transactions
+
+`registry_overrides.py` binds a paired NVAPI/NVML adapter to SetupAPI's PCI
+instance and its current `Enum\...\Driver` class-key mapping. A per-adapter
+Windows mutex serializes staging, restart and verification. A durable receipt
+and discovery pointer precede mutation; `registry_recovery.py` provides
+case-insensitive three-way undo of transaction-owned values, including partial
+writes. Original types and missing values are retained.
+
+`romOverrideXX` records use a big-endian four-byte VBIOS selector, one-byte OEM
+selector, little-endian full-image offset, byte length, and payload. Records
+are contiguous; payloads are limited to 246 bytes by the traced 256-byte driver
+buffer. `vbios_fields.py` resolves actual image ownership and table pointers,
+preserves all unselected bytes, and rejects unknown geometry. Existing record
+payloads must reconcile with the running image before another transaction can
+be composed. New transactions preserve `EnableGpuFirmware` exactly, including
+absence and value type. A 450 -> 451 -> 450 W maximum trial succeeded with that
+value absent throughout; the production path then verified three 999 W maxima
+and undo with it still absent. Old prepared receipts retain their saved explicit
+firmware plan for compatibility. NVIDIA's shared firmware-registry header defines
+0x11 as enable-with-fallback; it is not a power-limit value. The NVML GSP-mode
+getter returned unsupported in all trial phases, so these results do not identify
+the active GSP mode.
+
+The helper restarts only the selected device through PnP. A separate child
+process reads the new image to avoid retained NVAPI/NVML state. Power policy
+contracts additionally bind the selected table index, units, channel and all
+three initial bounds to driver metadata, then verify all resulting bounds and
+unchanged understood peer policies. `power_runtime.py` also handles the traced
+GB20x class-17/18 reconstruction: effective maximum follows the rated/default
+limit. This requires the actual architectural implementation, recognized V4
+layout and exact baseline relationship. An isolated BIOS maximum edit is rejected
+with an explanation; the preview shows the coupled active maximum. Old receipts
+retain their original selected-field restoration contract.
+`bios_runtime.py` binds decoded GPC/DRAM offset ranges to public NVAPI P0 clock
+domains and kHz units. It checks both bounds before mutation, after activation
+and during undo. Other clock domains retain image-level verification only.
+The operating-temperature contract uses the public NVML absolute Celsius
+threshold getter, with independent capability checks and bounded retries for
+each threshold. It requires an exact BIOS/runtime baseline match, whole Celsius
+requests, and unchanged supported slowdown/shutdown thresholds. Relative T.Limit
+values are not substituted for absolute temperatures.
+Decoded BIOS fields without a separate runtime semantic readback remain marked
+experimental. An exact image match proves activation, not hardware behavior.
+
+`vfe_inputs.py` uses read-only VFE getters with explicit native packet geometry,
+typed fuse identities and bounded transient retries. Direct Speedo registry
+substitution is verified through active/override fields while raw/default
+values remain unchanged. IDDQ is displayed as a raw model integer; its physical
+units and internal firmware implementation remain unresolved. Named-only transactions do not
+require a BIOS parser or image getter. No mvolt implementation is used.
+
+On the tested RTX 5080 / 621.01 configuration, three power-policy maxima accepted
+999000 mW with exact restoration, and Speedo accepted 2187 -> 2188 -> 2187.
+`EnableCoreVoltage=0` left the active flag at 1 after restart; it is not exposed
+as a working registry control. Static follow-up identifies a conditional Windows
+initialization path that could overwrite a registry-derived zero with 1, but
+does not establish that the tested GPU took that path. Both A030 and A031 have
+a route-to-physical flag; their actual route and the loaded firmware are not
+established. A candidate firmware image has a same-byte initializer and
+getter/setter, but its input provenance and lifecycle order remain unresolved.
+One read-only GSP-features query returned success with `bValid=0` and an
+unchanged zero-filled response. Its feature mask is invalid, so this does not
+establish the current offload mode or command route. The pinned NVIDIA source
+also includes a kernel implementation that returns success with `bValid=0`.
+The [transport evidence](experiments/driver-transport-followup-20261028.json)
+records the prior negative and the static boundaries. These observations
+describe the tested configuration.
+
+Core/memory offset ceilings also accepted 1000 -> 1001 MHz and 3000 -> 3001 MHz.
+Public NVAPI returned 1001000/3001000 kHz; NVML returned 1001/6002 in its core and
+doubled-memory units. Applied offsets stayed zero and exact initial metadata was
+restored. This establishes range control on that configuration, not stability
+at an offset within the expanded range.
+
+The operating-temperature limit accepted 88 -> 87 -> 88 C through the production
+transaction. NVML GPU-max readback followed it, while slowdown/shutdown remained
+90/93 C and the memory threshold was unsupported. Registry values, image and
+all supported thresholds were restored exactly; no workload was started.
+
+`perf_diagnostics.py` independently reads PERF limit, continuous-feedback
+controller and policy INFO/CONTROL groups through a captured paired RM transport.
+GET command/size pairs, masks, row types and adapter identity are validated;
+transient failures have bounded retries and prior snapshots remain explicitly
+historical. Registered named slots are not an active-throttle report. The tested
+configuration exposes 244 limit slots, nine feedback controllers and five
+feedback policies. Most registry flag and policy semantics remain under
+investigation; the diagnostics reader itself has no setters.
+
+`registry_flags.py` supports two traced fields of `RmPerfLimitsOverride`. The cache
+field uses
+bits 3:2 encode inherit=0, disabled=1 and enabled=2; encoding 3 is reserved.
+This field reaches PERF CONTROL byte 0x4D and controls reuse of cached limit
+calculations. The production false transaction changed its active flag from
+1 to 0 after GPU restart, and restoring the original absent value returned it
+to 1. Other flags, the BIOS image and the 360000 mW request stayed unchanged.
+Explicit true also passed a nested false -> true -> false -> original-absence
+transaction using DWORD values 4 and 8. Both active states and both undo steps
+were verified. No performance improvement or power-enforcement bypass is
+claimed. Transactions reconcile existing named
+bits, preserve unrelated state, and verify stable paired identity, geometry,
+inventory, row types and peer flags. Undecoded pre-existing bits must be
+reconciled before a transaction can restart the GPU.
+
+Bits 1:0 use the same inherit/false/true/reserved encoding for skipping host
+performance-limit updates. The driver getter returns the consumed object flag
+at PERF CONTROL byte 0x4C. Static host consumers bypass both immediate and queued
+processing before the firmware-facing update request. A production idle trial
+using DWORD 2 verified false -> true -> false, exact registry and BIOS restoration,
+unchanged peer flags and a 360 W board request. Firmware enforcement effects are
+unverified. Combined cache/skip transactions reconcile both saved peer baselines
+and verify their independent expected states. Legacy cache-only receipts remain
+compatible. Bits 5:4 have a traced deferral/coalescing consumer but no independent
+getter; bits 7:6 have a getter but no proven consumer semantics. Neither is writable.
+
+`power_arbitration.py` decodes the independently traced modern policy STATUS
+prefix. It separates CONTROL request, host arbitration, returned PMU arbitration,
+effective limit and signed serialization adjustment. Each bounded vote vector has
+a method, output and numeric client/value pairs; unknown clients are not assigned
+policy or physical names. Other packet geometries remain undecoded without
+removing existing power controls. `GPU.read_power_arbitration()` checks paired
+identity before and after fresh GETs and retries transient failures once.
+The independent UI read preserves previous snapshots as explicitly historical.
+All 18 policies decoded on the tested adapter. Policy 7 requested 450 W while
+the firmware minimum vote was 360 W; policy 9 requested 45 A while its firmware
+minimum vote was 36.002 A. These are idle observations, not workload enforcement
+measurements. Malformed vectors remain unavailable independently of readable peers.
+
+The arbitration, integral-bound and relationship decoders accept INFO rows that
+record a v30 or v40 BIOS table; other versions stay unavailable. The RM row
+layout is the same for both. On an RTX 3090 Ti Kingpin (v30, 617.42) every
+arbitration vector was self-consistent, and each integral row's effective limit
+was floor((request x upper + 2048) / 4096). Writing policy 5's upper word
+4301 -> 4300 -> 4301 moved effective status to the predicted value and back
+([evidence](experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md)).
+Relationship-weight editing still requires a v40 BIOS power table.
+
+A separate 360 -> 361 -> 360 W request trial changed only policy 8's CONTROL
+request. Its firmware client-8 votes on policies 2 and 7 followed the change,
+matching independently decoded relationship edges on this BIOS image. All 18
+INFO rows and all other CONTROL fields remained exact. Policy 7's effective
+limit followed the vote; policy 2's settled effective field was separately
+derived (370811 -> 371841 -> 370811 mW). Downstream current-policy values also
+changed, so raising the board request does not imply that finer limits remain
+independent or that every effective value copies the board request.
+
+Immediate post-write reads sometimes contained the new local request and stale
+downstream votes. Three consecutive matching reads confirmed propagation and
+undo. These sequential captures bound observed transitions, not firmware
+execution latency or a universal settling time. No workload was started; this
+establishes request propagation at the tested idle operating point, not physical
+enforcement. The UI therefore identifies reads as sequential and keeps client
+labels numeric. Raw packets and a reproducible offline analysis are retained in
+`experiments/registry-overrides/vbios-fields/arbitration-propagation-analysis.json`.
+
+`linked_current_runtime.py` verifies the BIOS kind13/runtime32 linked-current
+configuration independently of its source power request. The WORD at BIOS +33
+is a relationship index, resolved through an understood kind1 relationship to
+its target policy. It is not universally the target policy index. Source INFO
++0x34 exposes that relationship reference; the target policy must independently
+expose the expected runtime30 class and mA units.
+
+The UInt32 at BIOS +61 appears in source CONTROL +0x28. An independent firmware
+STATUS float at +0x148 followed the same value in isolated trials. Host and GSP
+serializers forward the configured field; their ordinary SET callbacks ignore
+these extension words, so the control uses the registry image and GPU restart.
+The original firmware member name and numerical enforcement algorithm remain
+unresolved. Selected loaded cache and reported value must match exactly, while
+full INFO and every other CONTROL byte are preserved. Dynamic status peers are
+observations, not configuration that can be compared byte-for-byte on Undo.
+
+On the tested 5080, 45 -> 44 -> 45 A changed exactly the selected cached DWORD
+and firmware-reported value. The target's client7 vote also followed the change;
+its effective limit stayed at 36.002 A because another vote was lower. The first
+research comparator incorrectly required every CONTROL word to stay unchanged;
+it rejected the expected cache change and restored the full baseline. The
+corrected exact-projection repeat passed and restored the full baseline again.
+Neither trial started a workload or measured electrical enforcement. Existing
+image-only linked-current receipts remain restore-only; new Apply requires the
+versioned runtime contract.
+
+The read-only modern power-equation getter also links DTCS 1.3 equation 0 to
+the NVVDD IDDQ VFE input and equation 1 to MSVDD IDDQ on this configuration.
+Active values are 26000 and 10300, versus raw values 520 and 206, with a Q12
+hardware scale of 50. Subsequent selected-adapter DWORD trials established
+direct effective substitution on this configuration: NVVDD 26000 -> 26001 and
+MSVDD 10300 -> 10301, with exact cached override and evaluated active readback.
+Writing the current active integer first also preserved that active value.
+Thus these registry integers are not additionally multiplied by the reported
+hardware scale in the observed path. Staging alone left the model unchanged;
+activation required the selected-GPU restart. Full VFE INFO outside the selected
+active/override fields, complete VFE CONTROL, voltage/power policies, clocks,
+VF tables, BIOS and peer registry values were preserved, with exact undo.
+Physical IDDQ units and the internal evaluator implementation remain unresolved.
+
+A later NVVDD IDDQ trial used 26000 -> 52000 -> 26000 on the same adapter.
+The active input and cached override matched exactly. Calculated REL, ALT_REL
+and effective limits fell by 120000 uV on both reported rails; voltage offsets,
+reported boost and clock requests stayed unchanged. The full original policy,
+model, registry and compared peer state returned after the trial. Unlike the
+earlier +1 trials, this larger model change did affect calculated voltage
+policy. Druta's IDDQ detail and preview now explain that linked rails may be
+affected.
+
+Fresh-process passive A610/A611 sampling retained 16 samples in each phase.
+All baseline/restored samples and six active samples matched the recorded
+P8, 255/405 MHz and 800/800 mV operating observations. In those six active
+samples, type0C rows 9/10 record0's first two raw DWORDs were 3118/3898,
+versus 1547-1549/1934-1936 in the initial baseline and 1569/1961 after cleanup.
+The other ten active samples remain recorded as state mismatches. A1/A2 drift,
+adjacent rather than simultaneous telemetry and possible cached samples limit
+the result to an intervention-associated software response. These positional
+fields still have no qualified units, provider roles or direct numerical
+producer; this is not a physical power or voltage measurement. The earlier
+immediate-post-restart comparison and the first stopped attempt are preserved.
+[Exact captures, comparisons and limits](experiments/iddq-model-response-20261030.json).
+
+`model_registry.py` binds direct IDDQ transactions to evaluated values, cached
+overrides, typed fuse metadata, the complete variable inventory, CONTROL hash
+and a static INFO fingerprint. Only understood mutable input fields are masked
+from that fingerprint; unknown INFO bytes remain covered. Known active/raw
+scalar mirrors must agree with their typed unions. Receipts validate before
+apply or recovery; effective readback and preserved peers must match exactly
+after restart and undo. Existing Speedo receipts remain recoverable.
+
+`fan_runtime.py` reads Fan2X INFO (0x2080852E/0x598 bytes) and CONTROL
+(0x20808530/0x3D4 bytes), using two stable paired observations. The BIOS cooler
+header supplies the client-ID-to-row map; indices are never inferred from fan
+IDs. Typed CONTROL rows expose duty bounds as Q16 fractions and RPM bounds as
+integers. Contracts compare all understood peer bounds, inventory, role map and
+adapter identity before activation, after restart and during undo. Unknown peer
+types stay diagnostic. Dynamic requests and telemetry are not frozen by this
+metadata comparison.
+
+On the tested adapter, production trials changed cooler row 0's duty minimum
+30 -> 31 -> 30 percent (Q16 19661 -> 20316 -> 19661) and RPM minimum
+500 -> 499 -> 500. Both selected readbacks and exact restoration passed. A
+500 -> 501 RPM preview was rejected before writing because an existing curve
+point would lie below the proposed minimum. Public NVAPI/NVML still reported
+30-100 percent; this adapter's selector 2 normalizes RPM bounds into that range.
+These trials establish stored bounds, not measured fan response under load.
+
+The same Fan2X INFO getter exposes loaded PWM Hz at row+0x18 for types 2 and 3.
+The BIOS parser copies the unsigned 24-bit cooler value without scaling; the
+constructor and getter preserve it as a 32-bit Hz value. New contracts retain
+the actual client-role mapping, raw routing identity, all understood peer
+frequencies and duty/RPM bounds. Missing PWM data leaves valid bound controls
+usable, and malformed row bounds do not remove a separately understood PWM
+field. The transport still requires both paired INFO and CONTROL GETs. Legacy
+bound receipts remain valid without the new optional PWM metadata.
+
+The production transaction changed row 0 from 25000 -> 25001 -> 25000 Hz.
+During activation the complete INFO packet changed only at the selected
+frequency DWORD; the complete CONTROL packet and row 1's 25000 Hz remained
+unchanged. Both packets, the registry and BIOS image restored exactly, and the
+board request remained 360 W. Initialization converts Hz into an integer
+hardware period, so this proves loaded configuration rather than a measured
+one-Hz waveform change. Evidence is retained in
+`experiments/registry-overrides/production-probe-1792813474579849500.json`.
+
+The separate `RmFan2XOverride` selector is consumed on the tested 5080. Writing
+DWORD 1 and restarting the GPU changed the previously populated modern Fan2X
+INFO/CONTROL observations into empty results; public NVAPI/NVML fan-control
+readbacks also became unavailable. Exact absence restoration and a second GPU
+restart restored both modern fan rows and automatic-control metadata. Board
+request and BIOS image were unchanged. The available readbacks do not establish
+physical fan movement during the disabled interval. This selector is not exposed
+as a production toggle.
+
+The all-state editability experiment wrote `RMEnableOverclockingAllPstates=1`.
+Staging alone changed no tables; after GPU restart, P1/P3/P5/P8 exposed core and
+memory offset editability. P0 and video-clock editability were unchanged. The
+extended Pstates20 getter retained the same underlying offset values, ranges,
+clock metadata, voltage rows and domain map. The public getter had previously
+hidden the noneditable delta triples as zero; their appearance is not an offset
+change. Exact registry absence and full table restoration passed. This proves
+capability exposure on the tested configuration, not successful offset writes
+in every exposed state.
+
+`all_pstates_registry.py` integrates that override with exact public/native/map
+packet contracts. The production apply/undo transaction repeated the successful
+activation and restored the full original observation. Nonzero DWORDs force the
+gate true; zero and absence leave the initialization default. Disabling removes
+an existing nonzero entry and verifies disabled capability, rolling back if the
+driver default stays enabled. A naturally enabled default with no effective
+override is not presented as a proven disable path. BIOS clock-range changes
+require a separate transaction because the editability contract preserves their
+underlying values exactly. No per-state clock/voltage SET is part of this module.
+
+A separate sparse public Pstates20 SET requested +1000 kHz on the newly editable
+P1 core domain. NVAPI returned success, but the requested delta remained zero;
+the complete public/native/domain-map and VF tables were unchanged. Restoring
+the request and removing the override restored the original tables and registry.
+The immediate final power GET was unavailable; three fresh reads subsequently
+confirmed the original 360000 mW, with the complete original snapshot exact.
+The journal preserves both the failed immediate observation and this recovery.
+This is a successful no-op on the tested configuration, so advertised editability
+alone is not used to enable per-state offset writers.
+
+`voltage_request_gate.py` uses traced RM commands 0x2080A030 (four-byte GET) and
+0x2080A031 (eight-byte SET). SET returns the prior Boolean in word 0 and takes
+the new Boolean in word 1. It controls host voltage-request admission; it does
+not set a voltage or change a ceiling. Two fresh GETs, a sentinel overwrite,
+validated transport-header geometry and sticky paired identity are required.
+The NVDA envelope has two traced output words: word 5 receives a Boolean caller
+context flag and word 11 must report escape success 1. These outputs are cleared
+for each call; the other header words must remain exact, and the independent RM
+status must be zero. A SET
+is never retried as the requested change. Failed verification attempts restore
+the returned atomic previous state, or the captured baseline when a valid
+previous-state response is unavailable. Target changes prohibit compensating
+writes. On the tested 5080, true -> false -> true and an identity write passed
+without registry changes or driver restart; no voltage request was sent and
+the 360 W board request and BIOS image remained unchanged.
+
+The class-18 current-policy experiment changed only policy 13's BIOS default
+from 300000 to 301000 mA, leaving its BIOS maximum at 5001000 mA. Runtime default,
+maximum, requested and active limits all moved from 300000 to 301000 mA. The
+original registry, running image and complete policy INFO/CONTROL blocks were
+restored exactly. This is an idle metadata experiment, not a measured 301 A
+workload. The reconstruction is now independently traced immediately after
+successful BIOS parsing in host RM and GSP implementations. The production
+transaction repeated the same 300 -> 301 -> 300 A sequence, verified the coupled
+maximum and exact undo, and left the board request at 360 W. Runtime classes 17
+and 18 alone do not identify input versus output power; both can reference the
+same channel and units. Names require separate channel/topology evidence.
+
+Further GSP factory/assertion tracing identifies class 17 as workload physical
+single 2x and class 18 as logical single 2x, with the latter referencing a range
+of physical-single relationships. This describes their model roles, not rail
+placement. Configured directed relationships correlate with several numeric PMU
+votes in the saved capture, but the actual PMU vote producer remains unresolved;
+the arbitration UI therefore retains numeric client labels.
+
+The selected GSP class17/class18 STATUS implementations call the common policy
+serializer and an interface-owner identity check. They do not populate the
+additional workload-result fields. Saved zero extension bytes therefore do not
+prove zero modeled workload, zero leakage or an inactive estimator. Class17's
+clock selector travels unchanged from its BIOS parameter through object+0x38A,
+INFO+0x38 and PMU+0xEC. No traced consumer connects it to the separate clock
+inventory ordinal namespace; the UI retains the numeric selector.
+
+Additional named registry paths have been traced in the installed driver:
+
+| Registry value | Traced role | Current evidence |
+| --- | --- | --- |
+| `RMHwSpeedoOverride`, `RMHwSpeedo1Override`, `RMHwSpeedo2Override` | Substitute selected silicon-model inputs | Primary Speedo active readback and exact undo verified; peers require their own live input identity |
+| `RmPmgrSpeedoCoefficient`, `RmPmgrSpeedoOffset` | Q12 scaling and signed offset in the legacy VDT/CVB voltage-model path | Legacy VDT getter returned unsupported twice on the tested 5080; no working coefficient/offset control claimed |
+| `RmPmgrIddqNvvddOverride`, `RmPmgrIddqMsvddOverride` | Substitute leakage-model inputs | Constructor traced; firmware correction order and physical units unresolved |
+| `RMEnableOverclockingAllPstates` | Expose non-P0 overclocking editability | DWORD 1 activation and exact undo verified; offset setters remain separately qualified |
+| `RmFan2XOverride` | Select a fan initialization path with capability checks | DWORD 1 removed modern/public fan-control readbacks; exact undo verified; physical fan behavior unresolved |
+| `RmPerfLimitsOverride` | Override four performance-limit processing flags | Cache bits 3:2 and host-update skip bits 1:0 have active readback and exact undo; other fields remain research candidates |
+| `RmPerfCfPolicyOverrides`, `RmPerfCfControllersOverrides` | Continuous-feedback policy/controller initialization | Selected policy indices and some raw flags readable; semantic roles under investigation |
+| `RMClkVfOverride` | Clock/VF initialization flags with more than one consumer | Monotonicity and smoothing flags independently activated and restored; remaining fields unresolved |
+| `RmVoltThresholdCtrlCtrl` | Voltage-threshold controller initialization bits | Bit fields, not a numeric voltage ceiling |
+| `EnableCoreVoltage` | Initialize a flag gating voltage requests | Registry zero did not change the tested flag; conditional initialization and command routing remain unresolved. Separate live A030/A031 GET/SET verified both states and undo |
+
+These names are research results, not a recommendation to write arbitrary
+DWORDs. Their consumers, activation rules and supported GPU paths differ.
+
+The threshold-controller investigation now binds two selectors to bits 12/13
+of the modern PMU initialization payload: 0xA8 bytes, flag DWORD at offset
+0xA0. An independent architecture GET reports RISCV_EB on the tested adapter.
+Host RM and GSP encode the same selectors, but matching firmware meanings and
+authoritative active-flag readback remain unresolved. Public nvgpu bootarg
+layouts differ from the installed payload and cannot supply those names by
+offset analogy. No threshold-control mutation is exposed. A further offline
+object-identity audit excludes a similarly located field in a different GSP
+class, resolves an eight-byte registry output-pointer base bias, and finds no
+direct exports on the identified PMU class. These exclusions supply neither
+named bit semantics nor an active readback; a matching readable PMU consumer or
+typed loaded-initialization diagnostic remains necessary.
+
+For example, `RmPerfCfControllersOverrides` has subtype-specific fields whose
+two-bit encodings are opposite those of `RmPerfLimitsOverride`. The relevant
+controller type 5 is absent from the current adapter's returned inventory.
+The policy STATUS getter (0x2080A0CD, 400 bytes) also returned five fresh rows
+matching the current INFO/CONTROL inventory, but its numeric status fields have
+not been assigned physical meanings. Agreement with host flags alone does not
+establish which policies currently limit a workload.
+
+The first two `RMClkVfOverride` fields map to clock-domain members serialized in
+the same order and with the same defaults as NVIDIA's
+[monotonicity and smoothing fields](https://github.com/OE4T/linux-nvgpu/blob/patches-rel-36/drivers/gpu/nvgpu/common/pmu/clk/ucode_clk_inf.h#L282-L297).
+This naming is a correlation with NVIDIA-authored source, not a public Windows
+registry specification. The independently traced CONTROL getter is
+0x2080901B with 0x83C bytes; an empty selection mask reads the group header
+without per-domain entries. Two paired baseline reads returned both flags true,
+with intact buffer guards and exact envelope validation. This establishes the
+active host configuration; firmware enforcement is a separate question.
+
+Two isolated registry trials verified the individual selectors: DWORD 3 disabled
+monotonicity, and DWORD 12 disabled smoothing. Neither staging operation changed
+the live flags; each target changed after restarting the selected GPU. Exact
+registry absence restoration and another GPU restart restored both flags true.
+Full public/extended P-state and VF/boost-table payloads, BIOS image and 360 W
+request were preserved in each trial. The driver also derives an internal mode
+flag from the two checks, so disabling either is not a claim that every internal
+field stays unchanged. No curve, clock or voltage setter was used, and no
+firmware algorithm or workload effect was measured.
+
+The production transaction then disabled both checks together (DWORD 15) and
+restored their original absence and active true states. Both apply and undo
+verified the selected flags, paired adapter identity and every preserved header
+field. Independent full P-state/VF captures, BIOS image and registry snapshots
+matched the baseline after undo; the board request remained 360 W. Receipts
+bind each selected Boolean to its complete captured contract before either
+apply or recovery can modify the registry. This structural recovery check does
+not require a working GPU getter before restoring the registry.
+
+The separate live CONTROL SET is **0x2080D01C**, also 0x83C bytes.
+The adjacent 0x2080901C command is STATUS, not SET. `clock_vf_runtime.py`
+captures two stable empty-mask headers and changes only selected bytes A/B.
+The remaining header, including the opaque 40-byte block, is preserved; the
+explicit zero domain mask skips all per-domain setters. A configured PMU update
+still serializes the group flags, which establishes packet propagation rather
+than firmware execution. Any dispatched failure or mismatched readback gets one
+exact-original compensating SET and a fresh verification; SET is not retried
+through a different transport.
+
+The live setter does not recompute the startup-derived group member +181.
+When the PMU capability at +4F4 is enabled and that mode is false, requesting
+either check false returns RM56 before the header writes. An unchanged SET
+succeeded on the original RTX 5080 configuration while monotonicity=false was
+rejected with that status. After the existing registry monotonicity=false
+setting entered its derived startup mode, separate live monotonicity=true and
+smoothing=false trials and their exact undos succeeded without further driver
+restarts. Both public and extended P-state tables and complete VF/boost payloads
+were preserved. The full user-clock GET mirrors the same host flags: V2
+0x261A4 maps native A/B to public bytes E/F; these are aliases rather than an
+independent firmware observation. Registry Undo and another GPU restart restored
+the complete original configuration. No workload or Windows reboot occurred.
+Support is established from current paired identity, packet layout and actual
+responses; the tested board and driver are not compatibility allowlists.
+
+`voltage_device_runtime.py` adds a separate live voltage-device switch-delay
+request. Native INFO **0x2080B205** uses 1800 bytes (8-byte header, 32 rows of
+56 bytes); CONTROL **0x2080B207** and SET **0x2080F208** use 392 bytes
+(8-byte header, 32 rows of 12 bytes). The PWM type is 3. CONTROL row+4 is the
+`switchDelayus` uint32, copied to host device+5C and PMU row+8 without conversion.
+This is distinct from the registry power-up/down WORDs at device+880/+882,
+serialized at PMU row+18/+1A. Those separate words still have no qualified active
+readback or scheduler consumer in this investigation.
+
+Two stable INFO/CONTROL captures establish each selected ordinal, type,
+voltage domain and operation. SET and its compensating restore use a singleton
+mask; full-inventory GET then verifies all INFO and the exact CONTROL projection,
+including unknown bytes and peer requests. No SET retry or transport fallback
+occurs after dispatch. Unknown or malformed peer devices remain diagnostic;
+the selected target must have its own understood binding. Positive whole
+microseconds use the uint32 request format, with no board-specific delay value
+or driver-version gate.
+
+On the tested RTX 5080, the four returned PWM devices had LOGIC/MSVDD domains,
+each with DEFAULT and IPC_VMIN operations. All four independently accepted
+128→129→128 us with exact full INFO/CONTROL and broader configuration
+restoration, without a registry write, driver restart or workload. Current rail
+registration puts the DEFAULT selector in rail+2C and its normal device mask;
+IPC_VMIN uses the separate selector+2D. This distinguishes their roles and does
+not establish that both operations execute in every firmware mode. PMU
+serialization/submission is traced, but the actual timer/wait consumer and
+physical settling latency remain unproved.
+
+A later trace identifies the legacy PWM timing consumer. Windows PWM class3
+binds device+8A0 to C40680; after changed PWM programming succeeds, C4081D
+multiplies device+5C by1000 and calls the OBJTMR delay method. Unchanged duty
+and period skip both programming and this wait. The corresponding GSP class3
+factory binds 1680A18, which performs the same multiplication and calls the
+PTIMER-style timer at16F4ED8. This corroborates a real microsecond-to-nanosecond
+consumer, not a timing measurement. The identified Windows caller5009A0 and
+GSP caller16848A8 reject VOLT+16A!=0, whereas the working modern B207 getter
+requires that member nonzero. These opposite gates prevent attributing the
+legacy consumer to ordinary voltage switches on the tested modern path.
+Its actual PMU consumer, composition with policy delay, and separate power-up
+and power-down WORD consumers/readbacks remain unresolved.
+
+`lpwr_runtime.py` adds a configuration contract for disabling captured enabled
+DIFR entries. Native **0x2080A0A7** is the callable loaded P-state INFO getter:
+17676 bytes, a 12-byte header and 32 rows of 552 bytes. The output inventory mask
+is at +4 and version at +8; no caller subset is consumed. Common row fields are
+P-state-ID mask +4, flags +8, dense level +C, LPWR selector +D and duplicate type
++E. The serializer at 94C700 has a different selector-at-+4 PMU layout and is not
+this INFO record. A successful RM status with version zero is capability
+absence, not an initialized inventory.
+
+The contract joins the actual loaded selectors to the bounded v10 LPWR index
+table at BIT P+74, then its row byte10 to the DIFR table at BIT P+E8. The index
+table declares its own row size and is stepped by it: the 5080 ROM has 18-byte rows,
+the RTX 3090 Ti Kingpin ROM 10-byte rows, which carry the GRPG (byte 1) and MS
+(byte 2) routes but no DIFR or media route. The DIFR table is 11/18. Invalid selectors
+choose runtime fallback slot5. The traced fresh host construction leaves that
+slot's DIFR flags zero: allocation, constructors, separate table loaders and both
+HAL alternatives have been checked. A consumed index below6 that lacks a loaded
+table row is not guessed. The aggregation model requires the understood
+populated PERF v70 path; the producer of that format's raw P-state selector is
+not inferred from a matching ROM offset.
+
+For an enabled DIFR record, subfeature bits1/2/3 govern the configured support
+of DFPR9, MS DIFR SW-ASR10 and MS DIFR CG11. Disabling the record skips its
+construction and clears its contribution. Native **0x2080A801** type3 attribute39
+reads support; attribute36 reads configured P-state-ID masks only where support
+is available. A false support value is itself a valid readback. Its gated state
+mask is unavailable, whereas a supported zero mask is a distinct valid value.
+The model accounts for all currently loaded routes and enabled records rather
+than assuming a particular entry index or P-state ID.
+
+The root research trial disabled the sole enabled DIFR0 on the current RTX5080
+by changing BF→BE at its flags byte. The loaded INFO map independently showed
+P8→LPWR0→DIFR0; other active states routed to fallback5. After a GPU-only restart,
+all three controllers reported support false and their masks were unavailable.
+The complete INFO payload, remaining ROM bytes and independent clock, power,
+voltage and fan configuration matched the projected state. Registry/image Undo
+and another GPU restart restored the full baseline. Registry staging alone did
+not alter the loaded readbacks. This establishes configuration activation;
+firmware execution, residency and measured power savings remain unproved.
+
+The same single-bit trial also passed through production `prepare`/`execute`
+and durable-receipt Undo. Both transactions reported the selected field as
+runtime verified. Independent complete INFO and attribute captures, plus the
+full image/registry/clock/power/voltage/fan baseline, matched after activation
+and restoration. The production diagnostic callback was exercised against
+real driver GETs before, during and after the trial; its rendered text
+distinguished unsupported controllers from a supported zero state mask.
+
+Enabled DIFR entries also expose independent disable selections for DFPR,
+MS DIFR SW-ASR and MS DIFR CG (raw bits0x02/0x04/0x08). Their schema2 Apply
+contract verifies type3 controller9/10/11 support, configured P-state masks and
+attribute0x38 feature words. A single-byte plan can combine selected child clears
+without changing the entry enable bit, other flags or six loaded parameters.
+Whole-row disables retain schema1 and use a separate transaction.
+
+The child contribution words are combined across the bounded loaded slots and
+filtered into native features. The CG word depends on the full flag DWORD,
+including bit0x200. A native before-feature containing bits outside its modeled
+contribution union refuses the operation. Surviving features use the captured
+native word intersected with the new union, preserving other filter inputs.
+
+Controller dependencies also matter: removal of controller10 removes11;
+controller9 removal can remove10, depending on an LPWR initialization predicate.
+Schema2 constructs both source-grounded shared-predicate projections, keeps only
+those compatible with the complete fresh before state, and deduplicates complete
+after support/mask/feature outcomes. Preview lists all remaining outcomes. Apply
+must match one entire outcome; it cannot mix fields from different alternatives.
+The RMLpwrArch initializer is traced, but a missing selected-PDO value triggers
+fallback lookups and does not establish its effective default or hidden predicate.
+The product neither guesses that value nor writes RMLpwrArch.
+
+On the captured RTX5080, real panel Preview and production Apply separately
+cleared each child bit: DFPR removed9/10/11, SW-ASR removed10/11, and CG removed11.
+Independent raw-packet reconstruction checked complete support/state/feature
+payloads, retained opaque bytes, other LPWR peers and P-state data. Each complete
+image changed only its selected bit and returned to the original after the trial.
+Full broad comparisons in every positive trial retained four early active and
+three early final BOOST_LOW mismatches, then two exact samples in each window;
+complete curves remained in those comparisons. Two earlier independent-controller
+DFPR predictions failed and remain negative evidence. Root reproduced 34 pinned
+instruction windows; 329 focused functionality tests and Ruff passed. These are
+configured-state qualifications, not physical residency or power measurements.
+
+In the captured image, factory-disabled DIFR rows 1-4 have raw flags 0xFFFFF800, zero
+subfeature bits and no loaded P-state routes; enabling bit 0 alone leaves the
+understood controller 9/10/11 support and mask projection unchanged. The enabled-row
+loader also copies six 16-bit parameters: routed internal consumers return the
+captured 0xFFFF values as 65535, and one caller multiplies a returned value by 1000.
+Their units and valid ranges remain unproved; 0xFFFF is not identified as a sentinel
+or as invalid. No direct native getter of an arbitrary loaded row has been
+established, and no new factory-disabled enable or compound routing control is
+qualified.
+
+A later consumer trace maps 16-bit words at row byte offsets+7/+9/+13/+15 to the
+four-word routed getter, +11 to the single-word getter, and +5 to a loaded field
+without a separately bound consumer. Compatible selectors join their configuration path
+to NVIDIA's `OBJISOHUB` class0x7C5E0D and selected display working states. The
+public C3720101 display-mode ABI is bound to the installed 0x800-byte command;
+its 92-byte head records supply a documented kHz pixel-clock input and raster
+width. The clock can subsequently be replaced from ClockManager data whose
+nonzero unit remains unbound. The later comparison also uses an indexed field
+whose zero-initialization and copying are established, but whose nonzero producer
+and unit are not. Neither the input kHz declaration nor matching arithmetic
+alone establishes the DIFR parameters' units.
+
+The configuration path adds these five routed words into two aggregates and
+per-head output records. A matched downstream call with the region offset and
+length only validates a pointer on the inspected path; it does not establish a
+copy, serialization or firmware consumer. Root reproduced 90 pinned byte windows
+and independently checked the primary C ABI and installed command descriptor.
+No new timing parameter or factory-disabled enable control follows yet. The
+[consumer evidence](experiments/driver-transport-followup-20261028.json) preserves
+the exact remaining boundaries and the corrected class ID.
+
+A separate static path for RmForceEnableDIFR can, subject to controller presence and
+other conditions, call the controller-9 enable helper with reason 6. The public
+0x20802801 DIFR control uses reason 0 and separate counter/bit handling. Attribute
+0x37 is a conjunction involving controller presence, record fields and a callback,
+rather than a direct reason-mask read; attributes 0x3A/0x3B serialize scaled callback
+values, not raw reason bits. A subsequent trace binds both callers to the same
+conditionally installed OBJDISP child at GPU+0x22D0. Its owner+0x270 alternatives
+clear owner bits, submit a separate packet or return; runtime selection and physical
+effect remain unproved. None establishes that disabled BIOS entries became active.
+See the [transport evidence](experiments/driver-transport-followup-20261028.json).
+
+The separate `difr_live_control.py` path sends public command **0x20802801** with
+one 32-bit value: disable1, enable2 or support3. Disable/enable increment/decrement
+a reason0 request count. Type3 controller9 attributes **0x48/0x49** read its two
+request-mask banks at record+0x110/+0x11C. The controller owns at most one request;
+a repeated Hold adds no count, and Release clears only its own reason0 request,
+preserving other current reason bits. The panel exposes Read, Hold and Release
+without a GPU restart. Its controller survives a panel rebuild for the same GPU
+object. Release before switching GPUs or closing; there is no automatic release.
+
+The initial documented command pair succeeded but left attribute0x37 unchanged;
+that trial remains negative for an enabled-predicate toggle. A later mask-readback
+trial and the real product panel callbacks observed **0x49 bit0: 0→1→0**, with
+0x48 zero throughout. The driver-enabled predicate stayed true. Duplicate Hold
+sent no extra disable, and the native mutation sequence was exactly disable/enable.
+Target identity, registry, full image and configured LPWR bytes matched the original
+afterward. All 120 focused backend, panel and registry-panel tests passed. This
+qualifies the counted software request and its exact readback, not physical DIFR
+disable, residency, power saving or activation of originally disabled entries.
+
+New DIFR previews carry a versioned structural contract bound to their image
+and paired adapter. Apply, post-restart verification, Undo and automatic rollback
+check the selected configuration. Contract validation before registry cleanup
+does not require a working GPU getter; historical receipts remain recoverable.
+The new reads are scoped to DIFR operations and the optional diagnostic view,
+so an unsupported LPWR getter does not gate unrelated registry controls.
+Raw INFO bytes are retained diagnostically, while the activation contract uses
+the loaded routing fields and controller states; it does not turn evaluated
+clock data into universal frequency-equality requirements.
+
+### Session-only engine-level power-gating request
+
+The adjacent **Live engine-level power gating (ELPG)** panel provides Hold disabled and Release
+through `gr_gating_live.py`. It allocates a dedicated NVIDIA `0xB2CC` profiler
+object under the paired GPU subdevice. Public command `0xB0CC0301` requests GR
+engine-level power-gating disable using control mask `0x40`; `0xB0CC0302`
+releases that object's request using `0xC0`. The profiler's global status and
+selected two-bit feature status must both indicate success. A successful stub
+or unsupported feature response is not sufficient to verify a working control.
+See NVIDIA's [profiler power-control contract](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/main/src/common/sdk/nvidia/inc/ctrl/ctrlb0cc/ctrlb0ccpower.h).
+
+Windows allocation/free envelopes were captured from ordinary NVAPI
+initialization and unload, then checked against the inspected driver handlers.
+The product preserves the paired client's routing fields and allocates/frees
+only its own profiler object. Allocation is lazy, on Hold. A repeated verified
+Hold adds no request. Explicit Release and normal app exit/GPU switch release
+and free the owned object. This path writes no registry value, saves no profile,
+and never automatically replays a request after a driver restart. Other existing
+registry-backed controls have separate activation behavior.
+
+Independent A801 type-3 attributes corroborate the operation. The controller
+discovers supported LPWR indices, requires stable support and reason-mask
+readbacks, and verifies at least one attribute `0x48` bit0 transition with all
+other reason bits and the complete `0x49` bank preserved. Release checks the
+inverse transition on the observed set. Attribute `0x37` is retained as a latest
+enabled-predicate observation, not a stable request field or physical residency
+measurement. A read-only qualification captured an unrelated controller's
+predicate changing between samples while its support and reason masks stayed
+identical; this must not suppress otherwise verifiable requests.
+
+The panel describes this as a grouped ELPG request rather than GR-only control.
+The public GR feature selects group0 when present, otherwise group1, and
+independently selects nonempty group3. In the inspected617.42 constructor,
+controller12 and17 register in group3 when their support bits are set. A later
+removal path can change membership, so a supported controller is not guaranteed
+to participate. Existing live evidence includes controller12, an NVDEC contributor,
+and media controllers13..15. Controller17 has no live qualification on this adapter.
+This is existing session-only control, not a new selective NVDEC switch or an
+extension of registry-backed controller17 configuration. While held, the panel
+separately marks observed transitions and no new observed transition; neither a
+latest disabled predicate nor another controller's transition proves a requested
+effect on an unobserved controller.
+[Group routing and scoped evidence](experiments/elpg-group-coverage-20261102.json).
+
+The observed indices are a partial witness, not an exhaustive group map or an
+ownership getter. The Windows callback selects dynamic groups and other clients
+can already hold the same reason. A fulfilled request without a new independent
+transition remains unverified, with explicit Release available. No architecture,
+board identity or driver version is inferred from the local witness list.
+
+On the captured RTX 5080 / 617.42 configuration, Hold changed `0x48` bit0 on
+controllers 0, 1 and 12-15. Predicates for 0 and 12-15 changed from true to false;
+controller 1 was already false. Release restored the original request masks.
+The production API also verified duplicate Hold without another native write,
+and unchanged voltage requests and configured LPWR observations. These results
+qualify a live software request, not measured power savings, timing, or physical
+gating residency. No registry write, driver restart, workload or Windows reboot
+was used. ELCG, BLCG and SLCG were subsequently qualified below; the examined
+idle-slowdown path remains unqualified.
+[Qualification evidence](experiments/live-gr-power-gating-20261101.json).
+
+### Tested live-interface matrix
+
+The following consolidates local RTX 5080 / 617.42 observations documented
+below, plus the explicitly identified earlier gate trial. These results qualify
+the tested requests and readbacks on their captured configurations,
+not physical voltage, latency, gating residency or power savings. Availability
+is checked on the selected adapter; the captured device is not an allowlist.
+Configured BIOS and registry controls are separate from these live requests.
+
+| Live control | Request and independent observation | Evidence and focused tests |
+| --- | --- | --- |
+| Voltage rail REL, ALT/OP, OV, VMIN, VCRIT low and high | All six stored offset requests read back on both rails; REL, ALT, OV and VMIN also changed reported policies. The two VCRIT effective thresholds remain unverified. | [Rail trials](experiments/voltage-rail-knobs-20261101.json); [tests](tests/test_voltage_requests_live.py) |
+| Voltage-request gate | Boolean admission SET and independent GET; this is not a voltage or ceiling request. The earlier local gate trial did not record a driver version, so it is not presented as a 617.42 trial. | [Gate trial description](#registry-override-transactions); [tests](tests/test_voltage_request_gate.py) |
+| Grouped ELPG disable | Owned profiler request; selected reason-mask transition and release readback. | [ELPG evidence](experiments/live-gr-power-gating-20261101.json); [tests](tests/test_gr_gating_live.py) |
+| Live DIFR inhibit | Counted controller9 request with independently read reason-mask banks; distinct from the individual controller10/11 requests. Coexistence and separate release were checked. | [DIFR coexistence](experiments/live-ms-difr-components-20261102.json); [tests](tests/test_difr_live_control.py) |
+| ELCG disable and enable | Disable has an eligibility-bitmap witness; enable has a separate opposing-request arbitration witness. | [Disable](experiments/live-profiler-controls-20261101.json), [enable](experiments/elcg-enable-qualified-20261102.json); [tests](tests/test_engine_clock_gating_live.py) |
+| BLCG disable | Owned request with a partial register-configuration witness; this does not cover every BLCG domain. | [BLCG evidence](experiments/live-block-clock-gating-20261101.json); [tests](tests/test_block_clock_gating_live.py) |
+| SLCG disable and enable | Partial HWPM register witness; enable also checks rejection of a separate opposing request. | [Disable](experiments/live-second-level-clock-gating-20261101.json), [enable](experiments/slcg-enable-qualified-20261102.json); [tests](tests/test_second_level_clock_gating_live.py) |
+| Individual inhibits | Eight balanced requests: GR, MS, MS DIFR SW-ASR, MS DIFR CG, NVDEC, NVENC, OFA and NVJPG. Selected reason-bit and peer readbacks qualify the software requests. | [GR](experiments/live-individual-power-gating-20261102.json), [MS/DIFR](experiments/live-ms-difr-components-20261102.json), [media](experiments/live-media-power-gating-20261102.json); [tests](tests/test_individual_power_gating_live.py) |
+| First idle thresholds | The same eight controllers have independently selected first-field requests and raw-pair readbacks. Requested microseconds follow source naming and conversion; the second threshold field is not qualified. | [GR](experiments/live-gr-idle-threshold-20261102.json), [MS/media](experiments/live-additional-idle-thresholds-20261102.json), [DIFR](experiments/live-difr-idle-thresholds-20261102.json); [tests](tests/test_gr_idle_threshold_live.py) |
+| Adaptive power policy | Shared Allow/Disable request and aggregate-state readback. GR and four media roles were present locally; MS was independently unavailable. Other reasons can mask a request, and a request may also change idle thresholds. | [Adaptive evidence](experiments/live-adaptive-power-policy-20261102.json); [tests](tests/test_adaptive_power_live.py) |
+
+Production callback trials are recorded in the linked evidence where performed.
+The app-owned framebuffer walkthrough now covers these controls, including all
+eight individual inhibit rows. Its source-run review on RTX 5080 / 617.42
+produced 32 frames at 1528 x 1261 with no skipped stages or capture errors.
+The new stages refresh readbacks without applying tuning requests; the existing
+synthetic power-range and invalid-input stages remain display/parser checks.
+Selected headings, action buttons and readback qualifications were reviewed,
+including the explicit unverified-effective-threshold label for VCRIT.
+This establishes the reviewed baseline layout, not physical effects, every
+request state or other viewport/DPI layouts. See the
+[capture review](experiments/ui-current-controls-capture-20261102.json).
+
+### Scoped voltage-request profiles
+
+The six live rail offsets now support field-only pre-write Undo snapshots and
+explicitly loaded named profiles. The profile stores signed integer microvolt
+offsets, native adapter identity and independently read rail identity, not opaque
+packets, boost, admission-gate state or profiler ownership counts. A single-field
+Apply captures the fresh old value under the writer's lock immediately before
+the actual SET; a no-op creates no snapshot. Snapshot failure prevents that write.
+Profile load captures only its selected fields for Undo, validates the entire
+profile before writing, uses the existing fresh-request projection and exact
+readback for each field, and stops with per-field results after a failure.
+
+Scoped requests use UUID/slot and native adapter/rail checks. Saved driver,
+VBIOS and display-name strings are informational, not compatibility gates.
+The dedicated application path leaves unrelated tuning modes and controls alone.
+Startup selection and automatic application reject this scope, including held
+startup requests; GPU reset does not schedule its reapplication.
+
+On RTX 5080 / 617.42, production callbacks changed REL from 0 to -1000 uV,
+Undo restored 0, manual profile load restored -1000 uV, and a baseline profile
+returned to 0. Four SETs verified; other rail requests, boost, gate and opaque
+request metadata matched the expected values. No workload or physical voltage
+measurement was performed. VCRIT qualification remains stored-request-only.
+[Scoped profile evidence](experiments/voltage-request-profiles-20261102.json).
+
+### Manual profiles for other verified voltage controls
+
+The `voltage_controls` scope stores one control family: the admission Boolean,
+REL bounds, typed ALT/OV/VMIN constants, or PWM switch-delay requests. It retains
+adapter identity and the selected rail/equation or device/domain/operation
+identity, without serializing opaque native packets. Descriptive driver and
+VBIOS labels do not gate loading. Each existing controller captures its fresh
+pre-write state through a callback under the GPU lock; a failed undo save aborts
+before dispatch. No-op requests create no undo point.
+
+Upper-only REL edits preserve the current lower bound during Undo; edits to both
+bounds restore the exact pair through the existing native bounds writer. Named
+profiles include independently ready controls, including upper-only REL support.
+Manual loading preflights typed values and all identities, saves only affected
+fields, and stops on the first failed write with per-control results. Each setter
+retains its existing live policy validation and compensating write behavior.
+The UI blocks automatic application and startup selection of this scope.
+
+Hardware round-trip evidence and limitations are recorded in
+[voltage-control profile qualification](experiments/voltage-control-profiles-20261102.json).
+
+### Owned low-power request profiles
+
+`lowpower_requests` stores one selected kind/index and its owned request mode,
+bound to native adapter identity and UUID when available. It does not serialize
+profiler handles, reference counts, reason masks, global predicates or register
+packets. Panels and profile loading share the existing per-app controller caches.
+Manual changes capture the prior intent under the GPU lock; no-op held requests
+still call the existing idempotent hold method to revalidate their witnesses.
+Release can proceed without a verified undo point when saving fails or prior
+ownership is uncertain, and reports that exception explicitly. Existing native
+release restrictions still apply; cleanup does not create profiles.
+
+Load/Undo route through the application context rather than GPU-only restoration.
+Enabled/disabled transitions release the old owned request before acquiring the
+new one and report partial failure. Driver/VBIOS labels are descriptive only.
+Automatic loading and startup selection are rejected. This scope covers DIFR,
+grouped ELPG, ELCG, BLCG, SLCG and eight independent controller inhibits. It does
+not make unsupported BLCG or ELPG enable paths available.
+
+On the local RTX 5080 / 617.42, 15 Apply/Undo/manual Load/baseline round trips and
+two enabled/disabled mode-transition Undo checks passed. All trial-owned requests
+were released and the checked baseline reason masks/register readbacks matched.
+No workload, physical measurement or driver restart was used.
+[Owned request profile evidence](experiments/lowpower-request-profiles-20261102.json).
+
+Threshold/adaptive Undo remains separate: the first threshold's public microsecond
+value can lose raw precision; its setter can also change a shared adaptive reason.
+Adaptive `enabled` is aggregate rather than owned request state, and its setter
+can change threshold values. The current interfaces do not prove full-state Undo
+for either operation, so these values are not silently included in owned profiles.
+
+### Manual Clock V/F policy profiles
+
+The schema-2 `clock_vf` scope contains only selected Boolean monotonicity and
+smoothing policies plus adapter identity. The live setter supplies its fresh
+pre-write snapshot under the GPU lock; Apply saves only changed fields and a
+failed save prevents dispatch. Profiles never serialize the opaque header,
+startup mode or curve. Loading uses the existing typed setter and preserves
+all unselected fields. UUID/native identity are checked; descriptive driver and
+VBIOS metadata do not restrict compatibility. Automatic loading is refused.
+
+The local RTX 5080 / 617.42 trial captured the profile and a field-specific undo
+point, but the first monotonicity-disable request returned RM 0x56 in the current
+startup mode. The full original header was restored and verified. Consequently
+this trial does not qualify changed-state Undo or profile replay on hardware;
+those routes have offline coverage only. No restart or registry adjustment was
+made to force acceptance. The pre-write autosave is retained after refusal, as
+with other profile operations; Undo can then restore an already-current value.
+[Clock V/F profile evidence](experiments/clock-vf-profiles-20261102.json).
+
+### Ordinary tuning action Undo
+
+`tuning_action` snapshots store one memory/domain/boost request. Memory retains
+native driver units and descriptive scale; restoration converts using the live
+scale. A domain snapshot must be exactly replayable through the existing MHz
+setter. Boost verifies percentage request readback. These snapshots carry no
+curve, rail packet or unrelated tuning fields. Fan edits reuse the existing fan
+scope and save requested policy/duty, not transient RPM. Capture and dispatch
+use the existing GPU lock. Unchanged selected requests do not add undo entries.
+
+`power_action` captures the configured board request, the complete readable
+policy table's typed requests/identities and this instance's pin map. A policy
+setter can affect peers, and Stock/Max can remove pins, so a single scalar is
+insufficient. Undo suppresses current pin reapplication, restores a changed
+board request and then changed supported policies in one pass, and compares all
+captured requests. It reinstates prior pin intent where the captured request was
+restored, even when the original pin intent differed from that original request.
+Unsupported collateral changes or coupled mismatches are reported as partial
+failure. No iterative convergence scheme or opaque packet replay is added.
+Board-only capture is restricted to an understood peer-preserving live transport
+when the policy table and NVML write path are unavailable.
+
+Scoped Load uses live capability/UUID/slot checks and bypasses descriptive
+name/VBIOS mismatch confirmation. New snapshots cannot be selected for automatic
+startup loading. Snapshot failure blocks normal Apply; Fan Auto and explicit
+power Stock can proceed with a clear warning so their release/reset actions stay
+available. Existing full-tune profile semantics remain separate.
+
+Seven local request/Undo round trips passed: memory, clock control 2, boost,
+fan, board power, named current policy 13 and policy 2. The baseline requests and
+pin map were restored. Stock/Max capture routes have offline coverage only in
+this increment. No workload or physical measurement was performed.
+[Ordinary tuning Undo evidence](experiments/ordinary-tuning-undo-20261102.json).
+
+### Additional live profiler controls
+
+**Live engine clock gating** adds a separate session-owned ELCG Hold disabled /
+Release control. It uses the same B2CC object contract, with request mask `1`
+and release mask `3`. Each feature has its own object; a GR power-gating hold
+does not become an engine clock-gating hold or vice versa. Neither control
+saves or automatically reapplies settings after a driver restart.
+
+Independent A801 type10 attributes `1` and `0x801` return supported-engine and
+no-disable-reason bitmaps. Two 32-bit chunks form each 64-bit mask. The latter
+is a driver predicate, not physical clock-gating residency. The parser checks
+the exact four-row layout, availability and untouched fields, requires eligible
+bits to be a subset of supported bits, and retains missing metadata as unknown.
+Hold requires stable readbacks, unchanged support, and at least one eligible bit
+clearing without new eligible bits appearing. Release verifies the inverse on
+the observed bits while preserving the current peers. These bits provide a
+partial witness, not an exhaustive profiler-group mapping or ownership getter.
+
+On RTX 5080 / 617.42, support remained `0x0000000033204C0B`; the no-disable-reason
+bitmap changed `0x0000000033204C0B` to `0x0000000033000000` and returned exactly on
+Release. The observed engine indices were 0, 1, 3, 10, 11, 14 and 21; these are
+evidence values, not compatibility constants. A production-controller trial
+held ELCG and GR simultaneously, released ELCG without changing the GR masks,
+then released GR. Duplicate ELCG Hold added no native request. Both sets of masks,
+voltage requests and configured LPWR observations matched the original afterward.
+
+ELCG also offers **Hold enabled** with named mask `2`. Admission requires a
+complete, stable, nonzero 64-bit supported mask equal to the eligible mask.
+The inspected engine selector maps to indices 0..44, covered by those chunks;
+getter and callback use the same support guards. With an aggregate reason mask
+of zero, the callback returns before decrementing the shared reason-2 count.
+The request still acquires profiler arbitration: a separate temporary DISABLE
+object must return global `0x63` and selected rejection `1`. It is then freed,
+and support and eligibility must remain unchanged. Duplicate enabled holds
+recheck these values without another request; changing modes requires Release.
+No physical gating or exclusive ownership is inferred. Extra supported bits in
+the 64-bit inventory remain visible and checked, not rejected by a local mask.
+
+A bounded RTX5080/617.42 trial accepted ENABLE, rejected the opposing DISABLE,
+released ENABLE, then observed a successful DISABLE transition and its release.
+Engine eligibility, voltage requests and configured LPWR matched their initial
+state afterward. No workload, registry mutation or driver restart was used.
+[ENABLE qualification and callback boundaries](experiments/elcg-enable-qualified-20261102.json)
+records the source and hardware evidence. The production trial also held ELCG
+and SLCG enabled alongside BLCG and ELPG disabled, released ELCG independently,
+then positively verified its DISABLE transition and release. Duplicate enabled
+holds issued no further native requests; all compared masks, registers, voltage
+requests and configured LPWR values matched their starting values afterward.
+
+This ENABLE contract is not copied to BLCG or ELPG. In the inspected driver,
+their initial ENABLE and final release both invoke shared disable-count
+release helpers: BLCG reason0 and grouped ELPG reason0. Those helpers can consume
+another caller's count. Existing BLCG register samples do not expose that count;
+ELPG's supported-controller masks do not independently expose all saved group
+members or their counts. These are concrete callback/observation gaps, not a
+request to add recovery machinery. The existing owned DISABLE lifecycles remain
+available. Other driver paths require their own evidence.
+
+The ELPG follow-up narrows that admission gap. The identified group constructor,
+addition and removal paths maintain membership within supported controllers;
+its delayed callback performs policy-gated reevaluation. But feature6 also has
+a parallel path: when the parent low-power object's `+F10` capability satisfies
+the selected predicate, ENABLE and final release additionally clear reason bit2
+at `+FC8` and a flag at `+F24`, possibly invoking another state transition.
+This path can run alongside the controller-group path. A801 type3 support and
+reason masks do not expose those fields, so even every visible reason mask
+being zero cannot qualify an independent ELPG ENABLE. A valid typed observation or
+source-proven current-state constraint on that parallel path is required.
+The follow-up found A801 type12/index0/attribute3: a valid entry returns `+F10`
+and a value below2 or even excludes the branch. The getter has separate
+availability gates. Two captured reads on RTX5080/617.42 returned unavailable,
+so neither zero nor an inactive predicate is inferred. On the inspected GB20x
+normal construction path the object starts zeroed, `+28C` initializes to zero,
+and both the `+F10` initializer and its graphics-dependent filter are skipped.
+That startup observation does not prove current state. Registry `RMPowerFeature`
+bits25:24 can influence the initializer when it is called; the registry value
+is not a substitute for live capability readback. No ELPG ENABLE was sent.
+[Callback and decoder evidence](experiments/additional-lowpower-functional-gaps-20261102.json)
+also records why the inspected VAT field is not a working request.
+
+The other named requests were tested individually with explicit release/free:
+
+| Control | Local request response | Qualification |
+|---|---|---|
+| ELCG | Fulfilled | Independent eligible-engine transition and exact release verified; exposed in the panel. |
+| BLCG | Fulfilled | Follow-up register READ32 trial independently verifies a partial BLCG transition and exact release; exposed in the live block clock-gating panel for the understood GB20x layout. |
+| SLCG | Fulfilled | Follow-up typed register reads verify nine disable transitions and exact release on the captured configuration; four other registers return invalid-read markers and remain unverified. See the SLCG qualification below. |
+| SM idle slowdown | Fulfilled | The inspected feature2 callback returns without a feature action. No independent effect established; no working control exposed. |
+
+Type10 attributes `0x803`, `0x804` and `0x809` delegate to GPU-specific handlers;
+they were not probed as BLCG getters because their relationship to BLCG was not
+established. Public `khwpmGetRequestCgStatusMask` merely translates a supplied
+request status and is not an independent GPU getter. These are bounded findings
+for the inspected paths, not driver-version or hardware denylists.
+
+An earlier MS inhibition path at `82BC1A`/`82BD29` releases its request before
+returning from the same operation. That historical path is not the later shipped
+individual MS control; it is not a remaining gap in that implemented control.
+
+PCIe LTR GET `20801817` returns four value/scale fields; SET `20801818` masks
+values to ten bits and scales to three bits, forces request bits 14/28, and
+triggers bit 0. GET omits corresponding requirement and trigger-source bits.
+The [PCI Express Base Specification rev2.1, section6.18](https://www.intel.com/content/dam/support/us/en/programmable/support-resources/fpga-wiki/asset03/pci-express-base-r2.1.pdf)
+defines scales 0 through 5 as multipliers 1, 32, 1024, 32768, 1048576 and
+33554432 nanoseconds; scales 6 and 7 are prohibited. The named public command
+and selected GB HAL bind a programmed-request check through raw `0x8A254`.
+The separate status at `0x8A24C` does not prove this request was transmitted.
+Owned-reference or restoration semantics are not required for an explicit
+programmed request, and message delivery is a separate qualification.
+
+On RTX 5080/617.42, one native request for 65536/98304 ns (value/scale pairs
+64/2 and 96/2) returned success and an unchanged request packet. Expected
+post-trigger request `0x14305080` did not appear: two independent reads of both
+registers remained zero, as did the typed latency fields. The normal GLOBAL
+read and setter poll use the same accessor, aperture and address. The write
+helper has interception paths that can skip MMIO, while an already-clear
+trigger lets the caller return success. That is a possible explanation, not a
+proven local cause. No functioning LTR control is claimed. A GPU-only reset
+completed afterward; sampled fields matched baseline, without reboot or replay.
+
+The register-write follow-up identifies a GPU-state sanity gate and a matching
+filter-list path. NVIDIA's [register-filter contract](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/ca2d03e6fafd4d4b56b383497d931c25b283bfcf/src/nvidia/generated/g_gpu_access_nvoc.h#L72)
+expects a WRITE filter callback to perform the write itself. Skipping the base
+MMIO write therefore does not establish suppression or callback failure. No
+identified query exposes the current sanity result or matching filter state;
+the LTR trial's exact cause remains unknown.
+
+The public ASPM helper reads a 16-bit control word, sends a zero-extended
+four-byte configuration write and ignores its result. On the source-qualified
+Blackwell HAL ordinals `0x41..0x45` (decimal 65..69), only one additional bus
+callback is substantive: it changes the GPU's own config DWORD at `0x70`.
+Typed getter selector 7 reads that same GPU-side word; the other three callbacks
+are stubs. The first helper still touches a separate topology-selected handle,
+whose same-target getter depends on an unbound runtime mode. No ASPM SET is
+qualified by the GPU-side readback alone. This trace does not establish the
+upper status bits' write effect.
+
+The later topology trace establishes a useful conditional join: if the first
+upstream bridge is a Root Port, the initial helper and root getter selector 8
+use the same selected node and PCIe capability. Windows reports this local GPU
+at bus 1/device 0/function 0 directly beneath Root Port bus 0/device 1/function 1.
+Its PCI device-property type is 8, distinct from the PCIe capability-register
+Root Port type 4. Board getters 9/23 are not substitutes: their descriptor may
+come from another helper instead of copying the initial target.
+
+Two exact native inventories returned GPU link caps `0x0047F905` and root caps
+`0x00737904`: both ASPM fields are 2 (L1 only). Both configured control fields
+are 0. The inspected public Boolean command forces 3 (L0s and L1), so no ASPM
+SET was issued. The known private type8 Boolean path reaches a Blackwell stub;
+its other fixed-selector path has no qualified L1-only meaning. A selective
+L1 operation remains unqualified. Capability/configuration readback does not
+measure low-power residency or savings; no working ASPM control is claimed.
+
+The separate `PCIEPowerControl` configuration path caches its value before
+selecting L0s/L1 policy through bits 5:4. The installed code agrees with
+NVIDIA's named enum (1=L0s, 2=L1, 3=both), but other branches and preexisting
+policy bytes still matter. This establishes a selective configuration input,
+not an exported live setter or an applied link-state change. No registry write
+was performed, and this initialization-policy lead adds no prerequisite to
+shipping the qualified session-only controls.
+
+Named `RMLpwr*ElcgThreshold` inputs unpack 8/4/4 bits into three per-engine
+words. The driver sends them in firmware header bytes `00/03/11` and copies
+returned values back after success. NVIDIA's older thermal definitions have
+matching idle-filter and before/after-delay field widths, but that structural
+match does not bind the current Blackwell receiver, register encoding or clock
+units. A session-only threshold setter and independent readback remain unbound.
+The understood type10 attributes `0x805/0x806` send a different Boolean request;
+they do not pass a numeric threshold. No speculative threshold writes were
+performed. This limitation is separate from the shipped ELCG hold controls
+and the eight implemented power-gating idle thresholds.
+
+Unnamed type3 attribute `0x45` can initially receive its cached byte from a
+firmware initialization reply. After SET, its getter echoes the requested byte
+stored by the host on success. Its meaning, allowed values and independent
+effect remain unbound, so no SET or user-facing control is qualified.
+[Source windows and local negative trial](experiments/pcie-ltr-and-additional-controls-20261102.json)
+preserve these distinctions; the working controls are unchanged.
+
+The public profiler header also defines a **VAT** field at bits11:10:
+disable `0x400`, enable `0x800`, release `0xC00`. The inspected Windows driver 617.42
+real handler (profiler HAL selector2) decodes only five fields through bit9;
+its internal manager masks requests with `0x3FF`. Its status translator also
+rewrites only those five fields, preserving the caller's original VAT status
+bits. A zero-initialized VAT status could therefore look fulfilled without any
+VAT operation. The release decoder likewise does not dispatch VAT. No VAT
+hardware trial or control is qualified by that path. This finding is scoped to
+the traced handler, not a version-based feature gate or a claim about every
+implementation; the public header does not expand the name VAT.
+
+A separate live numeric path is source-bound: descriptor `0x2080E802`
+(size `0x404`) dispatches type3 attributes `0x3A`, `0x3B` and `0x4C`. It is not
+an `A802` command. For `3A`/`3B`, the host converts nonzero input `x` using
+`floor(x * factor / 1000)`, takes the low32 bits, and substitutes1 if that word
+is zero; a usable contract must exclude overflow. An all-zero pair is rejected.
+The selected value and a zero-valued peer enter a 16-byte parameter block in
+firmware request `02/03/04`. Host code does not establish whether firmware
+preserves or overwrites that zero peer, and no matching receiver was identified.
+
+A801 `3A`/`3B` return `floor(raw * 1000 / factor)` from two hardware-register
+values; `4C` returns the first raw word. The scaled helper ignores its provider's
+error, while `4C` propagates it. On the captured RTX5080/617.42, two stable valid
+controller0 reads returned `3A=100`, `3B=1000000`, `4C=10800`. The first pair bounds
+the integer factor to106931..108000, so it does not identify an exact factor.
+The provider uses a separate current hardware ID; controller index0 does not
+license a guessed register-ID0 read for the second word. At that earlier
+read-only checkpoint, units, exact conversion and firmware peer semantics were
+unqualified and no SET had been issued. The later GR control below uses native
+raw-pair GET selectors 1/2, a unique scale and a verified non-noop SET; this
+supersedes the first-field limitation without guessing hardware addresses.
+
+A further host-source audit binds the IdleThresholdUs registry literals to
+per-controller group rows, while the default-pair generator reads different
+fields in the parent LPWR object. The subsequent GR trace joins group+124 to
+parent+37C and the first default-generated threshold, supporting its requested
+microsecond label. Other controller fields need their own unit qualification.
+Another real caller,
+command 20801707, accepts 12-byte selector/controller/value entries. Its 303/304
+selectors still call the conversion separately with a zero peer; they do not
+provide a simultaneous two-value update. The PMU scale is traced to a
+ClockManager query and an alternate PMU branch, but the queried domain units
+and current scale-mode selection remain unbound.
+
+Published NVIDIA-authored GA10B host code has a four-word threshold structure
+and explicitly fills both idle and post-power-up values. Its PG RPC uses
+function 6 and a different unjoined header, so it cannot establish the Windows
+02/03/04 receiver or zero-peer behavior. The current packaged firmware hashes
+and 1293-entry archive differ from the older 1223-entry extraction context; old
+row numbers must not be reused as current firmware identities. Root verified
+39 additional host-source windows, five immutable public source receipts and
+the current firmware-package hashes. That source-only audit attempted no SET;
+the later GR production trial below verifies the raw transition and peer.
+
+The follow-up excludes an arbitrary-pair shortcut through this type3 dispatcher.
+SET `4C` reads only entry+8 and supplies zero as the second threshold; SET `43`
+sends a pair generated from controller defaults, ignoring caller value fields.
+Neither is a caller-supplied paired write. The provider's hardware ID is assigned
+from a successful firmware response by `73A760`, then stored at controller-row
+byte0; it is not a family constant or the public controller index. No current-ID
+getter was qualified, so no guessed-address raw-second read was attempted.
+
+Three other actual E802 type3 cases remain distinct from the threshold controls.
+Attribute `3D` ignores the entry value and sends firmware request `00/03/06`
+with the selected controller index. Its A801 getter reaches a default branch
+that returns success without writing a value; it is not meaningful readback.
+The adjacent statistics refresh request does not establish whether `3D` resets,
+latches, or changes anything. Its functional meaning remains unknown.
+Attribute `45` sends the low byte of the requested value through firmware request
+`00/03/08`, then caches it at row+168 on successful status. A801 returns that
+cached byte. Its feature meaning and firmware behavior are not established;
+arbitrary low-byte acceptance does not prove Boolean semantics.
+Attribute `3E` replaces hardcoded shared client slot3 with a dependency-normalized
+mask, clipped to the base. A801 `38` returns the base mask and `3E` the base
+intersected with seven slots. If the valid aggregate equals the base, every
+available base bit is present in every slot at that instant. This does not reveal
+slot bits outside the base or establish who controls the slot. In general, using
+the aggregate as a read-modify-write baseline can copy another slot's temporary
+restrictions into slot3. The host stores the aggregate even after logging a
+firmware-send error, so matching aggregate readback does not establish firmware
+acceptance. Source-bound names for these masks and the operation's functional
+consequences remain unqualified; an explicit whole-mask assignment does not
+resolve those gaps.
+
+Two stable read-only observations on the captured adapter reported support `39=1`
+and `38=3E` for GR controller0 and media controllers 12 through 15. Their respective
+base masks were `32804372`, `253957`, `254048`, `254208`, and `254976` (decimal);
+all returned cached `45=0`. These values describe that adapter and state, not
+generation-wide defaults. The [recorded inventory](experiments/additional-lowpower-functional-gaps-20261102.json)
+has SHA-256 `a45053916c85d9507ee7ead8a4eb88022f65f1338140393a63e298a836abfbc7`.
+No SET or product control was added for these cases.
+
+[Bounded byte evidence and exact gaps](experiments/additional-lowpower-functional-gaps-20261102.json)
+records these findings; they do not add recovery or profile work.
+
+The remaining supported controller 1 has MS-related configured routing but no
+qualified individual function name. Controller 5 belongs to group 2 and is tied
+to the RMLpwrEiIdleThresholdUs literal, unlike grouped profiler ELPG which targets
+groups 0/1 and 3. The EI abbreviation does not establish a useful action or
+physical effect. Neither unnamed controller was added as a product control.
+
+### Individual live engine power-gating inhibits
+
+`individual_power_gating_live.py` exposes independent Graphics/GR (0), MS (4),
+MS DIFR SW-ASR (10), MS DIFR CG (11), NVDEC (12), NVENC (13), OFA (14) and NVJPG (15) holds through the actual attribute SET `0x2080E802`. A singleton
+`0x404` packet contains one 16-byte type3 row for attribute `0x37`: value0 acquires
+one shared reason0 reference; value1 releases one. The source increments row+10C
+and sets row+110 bit0 on acquire, and clears that bit only when the count reaches
+zero on release. This is a balanced shared count, not an allocated profiler
+object or a getter for exclusive ownership. Controller4 additionally requires the family-specific auxiliary-path qualification
+described below.
+
+Admission requires paired transport identity, the understood native architecture,
+selected controller support and stable selected A801 `48`/`49` readbacks, with
+`48` bit0 initially clear. An unrelated unavailable controller is not a prerequisite.
+The SET response must set only the entry's success flag and preserve all other
+request bytes; the selected `48` bit must independently transition, preserving
+all other bits and `49`. A successful status alone is insufficient. A failed
+acquire can already have changed the shared count, so its selected readback is
+inspected before deciding whether one balancing release remains due. Mutating
+requests are never retried. Duplicate holds send no extra acquire; a release
+attempt is never repeated blindly after a response or verification error.
+
+The GR extension selects controller0 directly rather than traversing the
+profiler ELPG group0/1 and group3 request loops. Its acquire updates the selected
+reason reference and may update shared resource bookkeeping; release callbacks
+can reevaluate other supported controllers. The control therefore verifies a
+GR-controller request, without promising GR-only physical effects. A bounded
+RTX5080/617.42 trial showed only controller0 reason48 bit0 changing, unchanged
+media/other observed reason masks and reason49, and exact return on release.
+Voltage requests and configured LPWR remained unchanged. The individual panel
+adds this control beside the four media controls; grouped ELPG remains separate.
+The production trial held GR and all four media requests alongside ELCG/SLCG
+ENABLE and BLCG DISABLE, then released GR while preserving the media requests.
+All final compared masks, registers, voltage requests and configured LPWR
+matched baseline. The focused suite passed 346 tests.
+[GR extension evidence](experiments/live-individual-power-gating-20261102.json).
+
+MS controller4 has a distinct auxiliary helper, but its additional counter and
+firmware path are inactive for source-qualified GA10x, AD10x and GB20x native
+implementation pairs. The GPU+2208 object constructor receives the native-derived
+ChipHal owner and sets its +179B flag only for Turing ordinals25 through29.
+The admitted Ampere/Ada/Blackwell pairs select false and return from the auxiliary
+helper before touching its count or firmware path. Turing MS remains unavailable;
+other independently supported controllers keep their own admission. The gate is
+architectural and does not inspect board IDs or driver versions.
+
+Controllers10/11 use separate selected primary-bank reason0 requests. Existing
+DIFR command20802801 instead fixes controller9 and selects primary48 or secondary49
+through a driver flag. Direct controller9 was not added as another switch, since
+it would duplicate the existing primary path or expose an unexplained alternate
+bank. A false latest enabled predicate on10/11 does not establish unsupported
+requests; capability and the positive reason transition are checked separately.
+
+Root verified 14 additional source windows and bounded single-reference trials
+for4/10/11 on RTX5080/617.42. Each changed only its selected48 bit0, preserved all
+observed peers and49, and returned to baseline on release. The production trial
+held all eight individual controllers with ELCG/SLCG enabled and BLCG disabled,
+then verified4/10/11 release while the existing DIFR switch remained held. Final
+masks, clock-gating registers, voltage requests and configured LPWR matched
+baseline; no registry change, restart or workload was used. The focused suite
+passed 378 tests. [MS/DIFR component evidence](experiments/live-ms-difr-components-20261102.json).
+
+The release callback is selected by RM runtime variant, independently of GPU
+architecture: PF monolithic selects the working callback; other examined variants
+select an unsupported stub. The host decrements the shared count and clears bit0
+when appropriate before invoking that callback. A callback error therefore cannot
+be treated as proof of no mutation. No read-only mode getter was source-bound to
+this selector; the documented NVML GSP query was unavailable on this adapter.
+Native-family and selected-support checks do not guarantee callback fulfillment.
+Each actual SET still requires acknowledgement and independent readback, and a
+callback error is reported rather than described as a successful hold/release.
+
+The group+E6 callback on acquire is tied to `RmPmuPgLogParams` and a PG logging
+notification; the firmware logging receiver was not independently decoded.
+Current hardware qualification on RTX5080/617.42 tested each of the four media
+controllers separately. Each showed exactly its selected reason0 transition,
+unchanged peer reason masks, and return to the captured masks on release.
+Voltage requests and configured LPWR records were unchanged. These observations
+qualify the request and readback on that configuration, not physical engine
+activity or generation-wide power effects.
+
+The production trial then held all four media requests simultaneously with
+ELCG/SLCG enabled and BLCG disabled. Duplicate holds issued no extra acquire;
+independent releases preserved the remaining requests. An extra root-owned
+NVDEC reference stayed active after the product released its one reference,
+then cleared after the extra reference was released. Final reason masks,
+clock-gating registers, voltage requests and configured LPWR matched baseline.
+The trial used no workload, registry change or driver restart.
+
+The panel and shutdown path own only this application's counted references.
+Another client's reference may keep reason0 active after our one release, which
+is reported as the current readback. There is no profile or driver-restart replay.
+[Media request evidence](experiments/live-media-power-gating-20261102.json)
+records the source and bounded hardware qualification.
+
+The portable `experiments/individual_power_gating_validation.py` collector
+defaults to read-only inventory. `--trial` requires an explicit PCI slot, a new
+output path and one selected controller from 0/4/10/11/12/13/14/15. It uses the
+production controller, records exact E802 request/response bytes, verifies the
+selected transition/release, and compares independently readable peer masks
+including controller 9. An unreadable peer is reported as unverified coverage;
+it cannot hide a change on another readable peer. A failed selected read or
+trial returns nonzero. Qualification is scoped to the selected request; inspect
+peer_check separately. It performs no restart, registry change or workload.
+Root verified a zero-write inventory and one balanced controller 10 trial on
+RTX5080/617.42. The 3070 Ti peer was online but SSH timed out, so this collector
+has not yet established Ampere hardware results. The 82 focused collector/backend/
+panel tests passed; [collector qualification](experiments/individual-power-gating-validation-20261102.json)
+records the exact local request/response and unchanged final comparison state.
+
+The **Idle threshold** panel controls the first idle request for Graphics (GR,
+controller 0), Memory subsystem (MS, 4), MS DIFR SW-ASR (10), MS DIFR CG (11),
+NVDEC (12), NVENC (13), OFA (14) and NVJPG (15) via E802 attribute `0x3A`. Each selection has independent capability
+checks; switching selections clears the entered value and readback. The initial
+scope is native Blackwell with source-qualified implementations and runtime
+support. The selected controller's scaled A801 attributes and guarded
+`0x20801706` raw pair are checked before Apply. Two stable reads with different
+sentinels detect skipped entries; the raw first word must agree with A801
+attribute `0x4C`. Both raw/scaled pairs must imply a unique conversion scale.
+The exact response and fresh raw pair, including the other threshold word, are
+checked after Apply. Requests are session-only and are not reissued after a
+driver restart.
+
+The microsecond request label follows the relevant driver threshold names and
+their traced conditional paths into the default generator and first live
+threshold conversion. For controllers 10 and 11, the named registry rows have
+not been joined to their parent default fields; that gap concerns initialization
+provenance. Their controller identity, first default-pair position, indexed live
+setter and indexed raw readback follow the source-qualified common path. These
+are driver requests, not physical latency measurements.
+
+The same `0x3A` path can also change a separate auxiliary reason bit for some GR,
+MS and media controllers. When the selected row's auxiliary index is present,
+the driver sets bit2 in an object whose initializer reads `RMAdaptivePwrDebug`;
+on a first reason transition it can send firmware request `00/03/0D`. Returning
+the threshold value alone does not prove that bit was cleared. The complete
+adaptive policy and firmware effects remain unqualified. In the inspected
+construction, controllers 10 and 11 initialize the auxiliary index to `0x0B`,
+which the callback predicate rejects; this describes the source-defined path,
+not an assertion that the field can never change.
+
+On one local RTX 5080, the GR production panel changed 100 to 101 and back to
+100, with first raw word 10800 to 10908 to 10800; its peer stayed unchanged.
+Separate bounded raw trials changed MS 150 to 151 and back to 150 and each media
+controller 100 to 101 and back to 100. All eight sampled controller raw pairs
+were restored, and voltage and configured LPWR observations matched baseline.
+The production selector callbacks then kept all six changed requests active
+together, before returning them individually in reverse order. Every step
+matched the expected eight raw pairs; final scaled attributes, voltage requests
+and LPWR configuration matched baseline. The 289 focused tests and Ruff passed.
+On the same adapter, separate controller 10 and 11 trials changed 150 to 151
+and back to 150, with the first raw word 16200 to 16308 to 16200. All eight
+sampled raw pairs, voltage and configured LPWR observations returned to baseline.
+The production panel then kept both DIFR requests changed together and returned
+each independently, checking all eight raw pairs at every step. The same final
+comparisons passed, along with 294 focused tests and Ruff. These comparisons
+do not measure or assert restoration of the separate auxiliary policy state.
+These observations do not establish a general firmware zero-peer rule or the
+physical effect on other devices. The second threshold remains unqualified.
+[GR source and trial evidence](experiments/live-gr-idle-threshold-20261102.json);
+[additional controller evidence](experiments/live-additional-idle-thresholds-20261102.json);
+[DIFR controller evidence](experiments/live-difr-idle-thresholds-20261102.json).
+
+The **Live adaptive power policy** panel uses A801 type 4 attribute 9 for
+per-role availability and attribute 10 for the aggregate enabled predicate.
+Source associations map GR to role 0, MS to 2, NVDEC to 4, NVENC to 5, NVJPG to 6
+and OFA to 7. These indices differ from the type 3 threshold controllers.
+`adaptive_power_live.py` admits the source-qualified native Blackwell layout
+and current per-role capability, without board or driver-version allowlists.
+
+E802 type 4 attribute 10 value 0 sets shared reason bit 1; value 1 clears only that
+bit. This is not an owned/counted reference. The getter reports whether the
+entire reason DWORD is zero, not its individual bits. Other reasons, including
+the bit 2 associated with manual threshold requests, may keep it disabled.
+The implementation validates exact packet geometry, routing and opaque fields,
+Boolean capability/state, the full SET acknowledgement and stable aggregate
+readback. Only a distinguishing transition verifies the aggregate change;
+accepted no-change or masked results are labeled as not independently verified.
+SET is never retried. No profile, restart replay or exit-time clearing is added.
+
+The traced zero-to-nonzero transition sends firmware header `00/03/0D`;
+the transition back to zero sends `02/03/0C`. The host packets carry a role,
+not an explicit numeric threshold. The firmware receiver and its current
+algorithm remain unbound. The source trace establishes shared policy semantics,
+not physical gating or residency.
+
+On RTX 5080/617.42 the production callbacks disabled all five present roles
+0/4/5/6/7 together and allowed each in reverse order. Ten aggregate transitions
+and selected/peer comparisons passed; role 2 was independently unavailable.
+Voltage requests and configured LPWR observations were unchanged. Each disabled
+role's first idle threshold changed from100 to 70000 microseconds while its
+paired word stayed 108000000. Allow restored aggregate enabled state but did
+not immediately restore every threshold. A later read showed GR back at 100
+while media remained 70000. An earlier GR-only trial failed its incorrect
+numeric-invariance assertion despite successful policy transitions; this is
+retained in the evidence. No threshold number is promised by Allow.
+
+A final GPU-only reset completed without a Windows reboot or tuning replay.
+All five present policies read enabled; fresh GR/media thresholds read 70000
+and MS/DIFR 150. This does not assert restoration of adaptive numeric state.
+[Adaptive policy evidence](experiments/live-adaptive-power-policy-20261102.json)
+contains the exact request prefixes/zero tails, observations and 36 verified
+source windows. The 337 focused tests cover alternate identities, partial
+capabilities, shared reasons, no-effect responses and read/SET failures.
+
+The BLCG follow-up binds the native architecture getter and generated HAL
+constructor to the same chipword. In the inspected source, native architecture
+`0x1B0` and implementations `2/3/5/6/7` select the same graphics method and
+feature-zero register table. This supplies the architectural layout contract;
+the implementation does not check a board ID or driver version. Root verified
+all 17 final family-trace byte windows. A separate GA10x layout is described below;
+other layouts remain unavailable.
+
+`block_clock_gating_live.py` uses public `GPU_EXEC_REG_OPS` (`0x20800122`), with
+a 48-byte header, external 32-byte operations and a 16-byte TYPE_NONE route.
+Every operation is READ32/GLOBAL. NVIDIA's ordinary offset and permission checks
+remain active; both overall RM and per-operation status must succeed. The code
+checks buffer guards, unchanged routing/opaque fields and rejects poison values.
+It does not install a helper driver or write registers directly.
+
+The four table addresses are `0x4041F0`, `0x409890`, `0x405BF0` and `0x407000`.
+Source-defined production/disable differences bound the bits that may clear;
+the observed starting values and changed bits are obtained from the current GPU.
+Hold requires a stable, cleared-only transition within those masks, with at least
+one observed change. Release checks the exact inverse of the observed bits while
+retaining other current bits. The witness covers these registers, not every BLCG
+group or a measured physical clock-gating outcome.
+
+On the captured RTX 5080 / 617.42, the values changed from
+`4046/007F/4044/4042` to `0006/003F/0004/0002` (hex) and returned exactly on Release.
+The production controllers also held BLCG, ELCG and GR simultaneously, released
+BLCG without changing the other two readbacks, then released ELCG and GR.
+Duplicate Hold added no native request. All compared register/mask values,
+voltage requests and configured LPWR state matched their starting values afterward.
+This validates the captured adapter; the other listed implementations have source
+layout coverage and offline tests, not new hardware qualification.
+
+The BLCG increment passed 737 targeted tests, including 39 API and two panel
+tests. [BLCG source and trial evidence](experiments/live-block-clock-gating-20261101.json)
+supersedes the earlier accepted-only BLCG result below. No workload, physical
+measurement, registry edit or driver restart was used.
+
+The GA10x extension selects native architecture `0x170`, implementations
+`2/3/4/6/7`. Its graphics table contains `0x4041F0`, `0x409890`, `0x4098B0`,
+`0x405BF0` and `0x407000`, with production values `C646/7F/7F/C444/4000C242`
+(hex). The driver writes whole zero words when disabling this group. Its release
+path chooses production values or zero according to native policy, so the
+Blackwell cleared-bit verification contract is not reused.
+
+The Graphics object creates an `IoAperture` at `0x400000`, backed by the same
+GPU's device-zero mapping. Its RegisterAperture write thunk adds the relative
+table offset to that base. The public GLOBAL READ32 paths reach that same
+mapping, including the alternate zero-base aperture used for graphics reads.
+These source joins establish the addresses; they do not establish an Ampere
+hardware transition.
+
+Ampere Hold rejects unknown baseline bits before allocating a request, requires
+at least one nonzero word, and verifies zero in every register. Duplicate Hold
+also checks every complete word. Release drops the named request and compares
+readback with the captured starting words; a policy mismatch is reported while
+freeing only the owned object. No raw register writes or automatic replay are
+added. The captured baseline may be a subset of the source production bits;
+it is not presented as a factory default.
+
+[Ampere BLCG source qualification](experiments/blcg-ampere-layout-20261101.json)
+records the native bindings and verification limits. Hardware qualification is
+pending. `experiments/blcg_live_validation.py` defaults to read-only; `--trial`
+performs one Turing, Ampere or Ada production-controller Hold/read/Release session and records
+the exact request packets. Run it on the target adapter with an explicit PCI
+slot and a new output path. Success requires a positive transition and exact
+release readback, not merely an accepted API status.
+
+All 697 targeted tests passed, including 29 new ELCG tests. The trials used no
+registry changes, driver restart, workload, physical measurement or Windows reboot.
+[Additional-control evidence](experiments/live-profiler-controls-20261101.json).
+
+The Ada extension uses distinct `ad10x-blcg` and `ad10x-slcg` layouts for native
+architecture `0x190`, implementations `2/3/4/6/7`. Its HAL selects different table
+providers from Ampere, but root verified identical base-instance BLCG and HWPM
+SLCG table bytes. The BLCG Graphics aperture/write/public-read joins and SLCG
+direct writer plus no-op LPWR callback are source-bound for those selections.
+Ada therefore uses the existing full-word BLCG and exact-value SLCG checks;
+unknown implementations never borrow another family's layout.
+
+[Ada gating source qualification](experiments/ada-gating-layouts-20261102.json)
+records the branches and limits. Both remote collectors accept only matching
+Turing, Ampere or Ada native/layout pairs for `--trial`. Ada hardware qualification is
+pending; source equivalence and offline tests do not establish an actual gating
+transition or physical effect.
+
+The Turing extension uses distinct `tu10x-blcg` and `tu10x-slcg` layouts for
+native architecture `0x160`, implementations `2/4/6/8/7` (HAL `25..29`). BLCG
+selects two source providers with identical five-register values, matching the
+Ampere/Ada values in a different row order. Its direct `381810` callback and
+`7D5E10` Graphics aperture initializer bind the same full-word zero Hold and
+captured-initial-value Release checks.
+
+Turing SLCG selects HWPM route `0x240000`, two identical 16-row tables, the
+direct writer, and a no-op LPWR callback. Fifteen rows release to `0xFFFFFFFF`,
+which is ambiguous with an unusable READ32 response. They are explicitly
+unverified source peers and are not used as evidence. The remaining address,
+`0x24A124`, provides a partial witness: baseline `1`, Hold `0`, Release `1`.
+A missing, invalid, unexpected or unchanged witness cannot verify the request.
+The panel and collector use the per-layout release map rather than assuming
+all released values are zero. The native request still writes the other 15
+registers: their prior values and transitions are not established, and Release
+is not claimed to restore their prior contents. No raw register writes are added.
+[Turing gating source qualification](experiments/turing-gating-layouts-20261102.json)
+records the source joins and limits. Turing hardware qualification remains pending;
+source evidence and offline tests do not prove a physical gating or power effect.
+
+**Live second-level clock gating (SLCG)** uses its own session-owned profiler request,
+mask `0x10`, and release mask `0x30`. Corrected decoding of the compressed dispatch
+table routes feature19 to `42B6FC`, not the feature5/7 unsupported leaf previously
+attributed to SLCG. For the understood GB20x family, OBJHWPM supplies route
+`0x260000`; its table contains fourteen rows and thirteen distinct addresses.
+The graphics-instance translation predicate is false for this route. This is an
+HWPM table witness, not proof that every subunit on the GPU changes gating.
+
+The public disable request maps to manager state2, which selects the nonzero
+table values. Final release selects the zero table. Release relinquishes the
+request; it does not replay an arbitrary previous register state. Consequently
+Hold requires the readable registers to match the source-defined zero baseline.
+Stable current-adapter reads determine which registers are usable. Invalid-read
+markers and rejected operations remain explicitly unavailable, never valid zero
+values. At least one usable register must change to its exact source-defined
+disable value; the valid inventory must remain stable and Release must return
+those registers to zero. Only the named profiler API writes state.
+
+On RTX 5080 / 617.42, eight registers changed `0 -> 0x80000000` and one changed
+`0 -> 1`; all nine returned exactly to zero. Four other table registers returned
+`0xBADF1002` despite per-operation success and remain unverified. These results
+establish a partial software configuration transition, not physical gating,
+residency or power savings. Voltage requests and configured LPWR observations
+matched before and after. The control does not persist or reapply settings after
+a driver restart. The production trial held SLCG, BLCG, ELCG and GR together,
+released SLCG without changing the other three readbacks, then released the
+others. Duplicate SLCG Hold issued no extra request. All compared original
+registers, masks, voltage requests and configured LPWR observations matched.
+The increment passed 785 targeted tests, including 47 new API cases and two
+panel tests. [SLCG evidence](experiments/live-second-level-clock-gating-20261101.json).
+
+SLCG additionally supports an owned ENABLE request (`0x20`), distinct from
+releasing a DISABLE request. The inspected manager maps ENABLE to state1,
+DISABLE to state2 and release to state0; ENABLE and release both select the
+source table's enabled values. State conflicts are reference-counted between
+profiler objects, and a separate policy gate can also reject ENABLE. Other RM
+mechanisms are outside this arbitration guarantee.
+
+A new enabled hold requires stable known source values, an accepted named
+request, exact enabled-value readbacks, and exact rejection of a DISABLE probe
+on a separate owned object (global status `0x63`, selected status1). The probe
+is then freed and enabled values must remain exact. This demonstrates observed
+conflict arbitration; it is not exclusive ownership, a physical gating measure,
+or proof that this object is the only enabled requester. No preflight disable
+cycling or post-release mutation probe is added to the product. Duplicate holds
+verify the same mode without another request; switching modes requires Release.
+An enabled hold can have zero register transitions, reported separately from
+its arbitration witness. Turing's fifteen unverified source peers remain so.
+
+The bounded root qualification on RTX5080/617.42 used ENABLE, observed the
+separate DISABLE rejection, released ENABLE, then positively verified DISABLE
+and its release. Registers, complete voltage requests and configured LPWR
+readbacks matched the baseline afterward. It used no registry write, restart
+or workload. [ENABLE ownership and source evidence](experiments/slcg-enable-qualified-20261102.json)
+records the protocol and its partial scope.
+
+The SLCG controller also has a separately derived GA10x layout: native
+architecture `0x170`, implementations `2/3/4/6/7`, map to HAL ordinals
+`0x2B..0x2F`. Their HWPM route selects four source rows with three unique
+addresses: `0x248018`, `0x251A18`, and `0x251818`. All three use disable value `3`
+and release value `0`; the additional LPWR callback is a no-op. These mappings
+come from the generated architecture selectors and source table, not the
+identity of the owner's RTX 3070 Ti. Other native pairs receive no fallback.
+
+Register reads and expected values now follow the selected layout. The existing
+zero-baseline, availability, exact transition and release checks still apply.
+Ampere coverage is source/offline qualification only until a live adapter result
+is captured; the Blackwell hardware results above do not establish Ampere
+behavior. [Source layout and qualification boundary](experiments/slcg-ampere-layout-20261101.json).
+The increment passed 805 targeted tests; the Blackwell four-controller source
+trial still passed. `experiments/slcg_live_validation.py` provides a read-only
+collector by default and an explicit `--trial` for one native170 hold/read/release.
+It records exact request packets and rejects unchanged/no-op outcomes as
+qualification. Its nine offline tests passed; the local read-only run issued
+no mutation. The remote Ampere result remains outstanding.
+
+The adjacent `grpg_runtime.py` contract covers disable-only GR PG entries. Its
+original schema retains shared capability contributions; scoped schemas2/3
+qualify removal of the final raw-bit3 or raw-bit1 contributor respectively,
+schema4 verifies their combined removal, and schema5 covers removal of all
+enabled main entries in the development continuation.
+The owned layouts are BIT P+74
+index v10/header6/stride18/owner24 and P+80 GR PG v10/header10/stride5/owner39,
+each with1..5 rows. Actual A7 selectors route through index-row byte1:
+7A9230 reads LPWR+2FD+index*18h;770A19 reads the selected GR PG enable byte at
+LPWR+39C+entry*0Ch. Configured controller0 P-state IDs are read through A801
+attribute36, separately from attribute39 support.
+
+The host HAL at AE8C90 can populate all six GR PG slots, including fallback5,
+on the constructor branches that install it. The traced generated bindings
+select that callback for ChipHal indices3D/3E, whereas the current GB203 mapping
+is42; the overwrite is not a universal active path. These are static evidence,
+not runtime device allowlists.
+The contract therefore retains captured fallback and unselected membership;
+it does not assume that fallback is zero. Selected entries must be enabled,
+consumed by the actual loaded map, and present in controller0's before mask.
+After-mask is the captured mask with only those routed P-state ID bits removed.
+Ignored activation fails the exact readback and invokes Undo, without using
+GPU or driver identity allowlists. The populated PERF v70 aggregation path,
+loaded routing, support and other available controller masks remain checked.
+
+Clearing the last enabled entry calls771730 for controller0 at BEEC17..27,
+which recursively clears its group+F8 dependency
+mask. Constructor76E4E0 adds controller4 when group+E1 is clear and controller2
+when LPWR+2D8 bit100h is set. Its traced group+C0 callbacks write software-filter
+data rather than additional dependency edges. The configuration getters do not
+expose the dependency mask or these constructor predicates. No universal
+controller4 disappearance is inferred. Schema5 accepts finite, fully specified
+profiles for the traced conditional loss of controller2 (GRRG), controller4
+(MSCG), or both, and rejects any other peer changes. It requires all enabled
+entries to be disabled, including enabled entries unused by the loaded map.
+Main controller0 must become unsupported and its configured mask unavailable.
+All controller feature words and type7 configuration are independently read
+and checked along with the auxiliary and bit1 blocks. DFPR controller9 feature
+mask0x8 clears in a profile only when no surviving class0 provider (1, 2 or 20)
+supplies feature0x200000; an unresolved provider prevents that profile. Activation must match
+one complete profile; Undo verifies the captured before state. The dependency
+graph is not exhaustively known, and broader hardware qualification remains
+pending. Historical schema5 main-loss profiles require the OR-presence of raw
+bit4 among enabled GR PG entries to remain unchanged. Schema10 extends full
+main removal to aggregate losses11h/13h/19h/1Bh: it requires active controller0
+feature8, type7 group/role0 support, and a valid role0 mask exactly matching
+the consumed enabled bit4 routes, including a valid zero for an unrouted
+carrier. BEEC27 clears main0 through771730 before the later BEF342..355
+bit4-role cleanup, which is redundant on this bound path. Schema10 also
+admits the complete all-unavailable type4 support-query outcome when the
+affected roles leave no positive peer. For raw-bit1 loss it requires a positive
+before role0 witness. No independent empty support mask is inferred. Fresh
+preparation uses schema10 when its expanded complete outcomes differ; saved
+schema5 contracts retain their original narrow recomputation. Available
+feature copies must agree; an unavailable optional duplicate is not zero.
+Raw bits1/3/4 feed separate feature-group operations92A650,927470 and92B350
+respectively; their numeric role0 is not controller0.
+
+On one RTX 5080 GB203 with driver 621.01, a schema5 production trial used
+normal preparation, durable reload, Apply and Undo. Controller0 became
+unsupported with its mask unavailable; controller2 was already unsupported,
+controller4 stayed supported with mask120h, and DFPR9 feature Fh became 7h.
+The complete controller and auxiliary projection, image, registry and other
+requests matched, and the final baseline was restored exactly. This trial did
+not test the conditional loss of controller2 or controller4, establish broader
+hardware qualification, or measure physical residency.
+
+A later packaged trial disabled all three enabled GRPG rows using the ordinary
+panel, durable helper and Undo. Main0 became unsupported with mask and feature
+unavailable; controller2 was already unsupported and controller4 remained
+supported. The standalone auxiliary feature row was marked unavailable, with
+its raw value uninterpreted; the bulk row was absent. Controller9 feature Fh became
+7h, type1 role0 support/mask became valid zero, type4 role0 became unavailable
+and type7 remained available through the MS peer. Full LPWR packet and opaque
+peer projections, P-state, client/native requests and original restoration
+were independently audited. This does not qualify the conditional loss of
+controller2 or 4.
+
+Root and Luna inspected all four frames: three checked boxes before and after,
+three blank boxes and change lines in Preview, and three read-only False labels
+active. The Preview shows the main support and P5/P8 unavailable clauses; the
+far-right generic caption tail has no separate legibility qualification.
+Before/restored images are byte-identical. All eight before samples matched;
+final samples 0-2 retained BOOST_LOW request/hash differences and 3-7 matched.
+All sixteen before/final curves matched without exclusions. There was no
+independent active broad window, physical input or physical effect measurement.
+This packaged trial used two GPU-only restarts. No-peer UI, failure/recovery
+and other configurations remain pending.
+[Packaged GRPG evidence](experiments/ui-lpwr-configured-qualified-20261029.json).
+
+A 2026-10-30 source execution qualified the combined main+bit4 shutdown on
+the same captured RTX5080/621.01 configuration. A temporary setup changed
+only known bit10h on one already enabled, routed GRPG row, producing a
+positive type7 role0 with mask20h and feature8. Real RegistryPanel refresh/
+Prepare callbacks and normal durable Apply then disabled all three enabled
+rows, aggregate loss1Bh, using schema10. Main0 became unsupported with mask
+and feature unavailable; type1/type7 role0 masks became valid0, type4 role0
+became unavailable, and DFPR9 featureFh became7h. Controller4 and its shared
+roles remained supported; controller2 was already unsupported. Complete LPWR
+and settled broad image/registry/clock/voltage/power projections matched.
+Intermediate broad mismatches remain recorded: setup settled on samples6/7,
+active and final on3/4, with no curve exclusions. Independent raw reconstruction
+reproduced both native rounds and every broad comparator flag. Early setup/
+active differences were confined to driver-flag request/hash fields; early
+final samples also differed in the V/F curve. Power fields stayed exact, and
+no recalculation cause is inferred. Existing cleanup removed
+the experiment and recovered the complete original. Four GPU-only restarts
+were used. This was a source callback/Apply trial, without physical input, a
+packaged helper walkthrough, physical measurement or a conditional2/4-loss
+observation. The main-loss no-peer variants are source/test qualified here,
+rather than separate hardware observations.
+[Complete-main evidence and limits](experiments/grpg-main-complete-qualified-20261030.json).
+
+The initial schema6 qualification covered aggregate loss10h: disabling the last
+routed raw-bit4 contributor while main controller0 and an independently
+supported type7 peer remain. It reads the complete dependency scope and verifies role0
+support/mask removal and controller0 feature8 clearing. Both available feature
+copies must agree; an unavailable optional duplicate stays independently
+unavailable. Other controllers and roles are retained. When selected entries
+also contribute raw bit3, their type1 mask806:0 loses only those routed IDs,
+while surviving support and feature10h stay active. Schema7 composes the
+witnessed mixed losses described below. The no-peer follow-up below extends
+these schemas without changing their previously accepted projections.
+
+A temporary singleton raw-bit4 setup on the captured RTX 5080/621.01 established
+a distinguishing before-state. Normal production preparation, durable reload,
+Apply and Undo then passed with schema6: main and type1 masks120h→100h→120h,
+type7 role0 support1→0→1 and mask20h→0→20h, and feature8 removal/restoration.
+Full A801 packets matched independently patched projections, raw A7 stayed
+exact, and all captured peers and the complete original registry/image/requests
+were restored after removing the setup. Intermediate broad GET differences
+were retained and bounded GET-only recovery reached each exact projection.
+The full suite passed 6,537 tests, including 399 focused tests. This qualifies
+configured transitions on that setup, not a product enable action, physical
+residency or power savings. [Bit4 qualification and remaining scope](experiments/grpg-bit4-qualified-20261029.json).
+
+Schema7 adds the exact aggregate losses 12h, 18h and 1Ah while main support
+remains. It composes the existing type1 bit3 projection, type4 bit1 support
+query, and type7 bit4 projection under the same complete dependency readback.
+For bit3 loss, role0 support/mask and controller0 feature10h clear; group-any
+is derived from independently read peer roles. For bit1 loss, role0 becomes
+unavailable; the initial qualification retained another supported type4 role
+as a witness. The later full-state availability contracts are described below. The initial bit4
+profiles clear role0 support/mask and feature8 while retaining a type7 peer. Both available
+feature copies receive the complete combined projection; an unavailable
+optional duplicate stays independently unavailable. If bit3 survives, only its
+selected contributing routes contract. Schemas1-6 remain valid.
+
+Three source executions of the production workflow on the captured RTX 5080/621.01 passed normal
+Prepare, durable reload, Apply and Undo from distinguishing temporary setups:
+
+| Aggregate loss | Main mask before/after | Type1 role0 after | Type4 role0 after |
+| --- | --- | --- | --- |
+| 12h (bit1+bit4) | 120h / 100h | supported, mask100h | unavailable |
+| 18h (bit3+bit4) | 120h / 0 | unsupported, valid mask0 | supported |
+| 1Ah (bit1+bit3+bit4) | 120h / 0 | unsupported, valid mask0 | unavailable |
+
+Main controller0 remained supported with an available mask in all cases,
+including the valid-zero results. Type7 role0 support/mask cleared while its
+supported peer and group remained. Both feature copies and all remaining A801
+packet bytes matched independent projections; the selected unavailable type4
+value DWORD is unspecified, not assigned a false value. Full raw A7 remained
+identical in these idle captures. That raw equality is diagnostic evidence for
+these trials, not a universal gate on evaluated clock tails. Every successful
+Undo recovered its exact setup, and ownership-aware setup removal recovered
+the complete original registry, image, requests and peer configuration.
+Intermediate broad GET differences remain recorded; bounded GET-only recovery
+reached each expected state.
+
+The first 12h attempt passed Apply but recorded AccessDenied during cleanup
+before an Undo result and failed final restoration verification. A separate
+durable Undo and setup removal restored the full original; a fresh complete 12h
+trial then passed. The failure location/cause was not captured and remains
+unresolved, rather than being treated as successful restoration. The retained
+failure, recovery and three successful trials used sixteen GPU-only restarts
+in total, without Windows reboot or workload. The full suite passed 6,563 tests,
+including 425 focused tests. Those trials did not qualify type7 whole-group
+disappearance, conditional controller2/4 losses, physical residency/savings or
+broader adapters. The separate no-peer qualification follows. [Mixed-loss evidence and exact limits](experiments/grpg-bit4-combined-qualified-20261029.json).
+
+**Last type7 role, with independent main readback (2026-10-29).**
+
+Schemas6/7 now also accept no-peer before-states when both type7 roles1/2
+independently return available/value0. Unknown peers without a supported
+witness remain refused. Clearing role0 at92B350 clears controller0 feature8
+and the group's support bit0; the A801 outer92B3A0 gate then skips the handler.
+Every type7 query becomes unavailable, including group-any and role support.
+The main controller's separate support/mask/feature GETs remain readable and
+must match the complete projection. Existing peer-bearing receipts recompute
+the same after-state and retain their original read scope.
+
+Four source production trials used temporary understood MS enabled-entry
+shutdown plus known GRPG raw-bit1/bit4 setup flags. Production then cleared
+only selected GRPG bit0 through normal Prepare, durable reload, Apply and Undo.
+All four removals ended with an unavailable type7 group:
+
+| Loss | Main mask before/after | Type1 group-any after | Type4 role0 after |
+| --- | --- | --- | --- |
+| 10h | 120h / 100h | valid1 | supported |
+| 12h | 120h / 100h | valid1 | unavailable |
+| 18h | 120h / 0 | valid0 | supported |
+| 1Ah | 120h / 0 | valid0 | unavailable |
+
+Main support remained true, including both zero-mask cases. This also
+qualifies type1 empty support as valid0 alongside type7 unavailability.
+Independent raw-packet checks cover all controller support/masks/features,
+type1/type4/type7 groups, duplicate GETs, routing and opaque bytes. Complete
+client/native power records and requests, selected-bit-only images and the
+compared configured peers are retained. Each qualified Undo restored its exact
+setup; ownership-aware setup removal recovered the complete captured original.
+A7 common identity/routes are required; its evaluated clock tails remain
+diagnostic rather than becoming a universal byte-equality gate.
+
+The first1Ah trial passed LPWR/client verification and normal Apply/Undo, but
+its active and UndoSetup broad comparisons differed in50 evaluated V/F
+frequency words. The original image, registry and complete curve were verified
+restored after setup removal. That run remains a negative full qualification
+with its cleanup warning; the recalculation cause is unproven. A separate
+repeat reached the original strict broad comparator at every settled phase,
+and all its captured curves equaled the original. No frequency exception was
+needed for qualification. The diagnostic probe's broader frequency mask is
+not a portable qualification helper: the current read-only layout and captured
+grids classify127 GPU rows and trailing other_idx127, which remained exact.
+
+The final suite passed6,633 tests in117.14 seconds. The focused controller/receipt
+cases passed405 tests, and the Preview panel suite passed76 including the new
+unavailable-group messages. Ruff passed for changed source and tests.
+
+Twenty GPU-only restarts include all four qualified cases and the retained
+negative attempt. No Windows reboot, workload, F219 SET or product enable path
+was used. Type4 whole-group disappearance, conditional controller2/4 losses,
+physical residency/savings, wider adapters and a dedicated packaged no-peer
+visual walkthrough remain pending. [Exact no-peer evidence and limits](experiments/grpg-bit4-no-peer-qualified-20261029.json).
+
+For the raw-bit3 transition,927470 clears controller0's available feature bit10h
+at group+138 and role0's bit in the separate LPWR+12F8 group support mask+5C.
+A801 type3 attribute38h reads the controller feature word directly. Type1
+attribute1 reads whether the auxiliary group has any support;800h reads a
+bounded role's support;806h returns its configured P-state-ID mask. Unsupported
+roles return a valid zero here, so support and configured mask are captured
+separately. These getters do not invoke the26h/28h statistics refresh hooks.
+Nearby type1 attributes802h..804h are not used for this configuration readback.
+Schema2 captures these extra fields only for the selected auxiliary transition,
+preserves the other roles and verifies the exact projected feature/support/mask
+change through Apply, Undo and recovery. Schema1 receipts retain their original
+read scope and Undo behavior.
+
+For the raw-bit1 transition,92A650 clears role0 in the separate LPWR+12F0
+support mask. A801 type4 attribute9 can read supported roles0..10, but the
+driver gates the query both on group support and on the individual role.
+An unavailable row is therefore not a reported false value. Schema3 requires
+role0 and another role to be readable before the change; it verifies role0's
+row becomes unavailable while the witness and all other observed role rows
+remain unchanged. This legacy schema does not qualify all-unavailable
+replies; the later schemas8/9 add a full-state availability contract. No reliable
+per-P-state mask for this auxiliary role has been identified; its configured
+membership is not claimed. These additional reads apply only to schema3,
+leaving schema1/2 transactions and older Undo receipts at their existing scope.
+BEFD81 can set a runtime bit1 subflag after BIOS loading, and the HAL can also
+overwrite entries. The post-restart role readback determines whether the
+projected support disappearance actually occurred; the BIOS aggregate alone
+does not establish it.
+
+On the current5080, a reversible research setup cleared bit1 in enabled rows0
+and2 while leaving their other flags intact. Disabling row1 then removed the
+last bit1 contributor while main support and bit3 support remained. Controller0
+and bit3 role0 configured masks changed120h to100h; bit1 role0's query became
+unavailable and roles4/5/6/7 remained readable. All captured controller peers,
+feature words and the other configuration matched the projection. The original
+image, registry and requests were restored exactly. The setup patches are
+research-only, not exposed as new raw-bit controls.
+The subsequent schema3 production Apply and durable Undo verified the selected
+entry through the normal transaction path. Undo restored the temporary setup,
+then the experiment restored and independently checked the full original image,
+registry and requests. No temporary setup patches remained active.
+
+Schema4 composes the independently established bit1 and bit3 projections for
+enabled-row aggregate XOR0Ah while retaining main support and bit4 presence.
+Only this schema reads both auxiliary blocks. Both projections are recomputed
+from the captured before state and bounded BIOS tables; Apply, Undo and recovery
+verify both independently. The bit3 contract still refuses unowned/fallback
+configured membership, and the bit1 contract still requires a supported peer
+as a query witness. A change that affects only one group is not accepted as a
+successful combined activation. Existing schema1/2/3 receipts keep their scopes.
+
+On the current5080, a temporary research setup cleared only row2's bit1, leaving
+all main and other flags intact. Disabling rows0/1 then changed the aggregate
+0Bh to01h: controller0 eligibility120h to0, bit3 role0 support/mask1/120h to0/0,
+controller feature10h cleared, and bit1 role0 became unavailable while its
+supported peers remained readable. Main controller support and all other
+captured peers/configuration matched the projection. The full original image,
+registry and requests were restored. Raw setup patches remain research-only;
+these observations do not establish physical residency or a bit4 enable path.
+The subsequent schema4 production Apply and durable Undo verified both selected
+entries. Independent captures checked both auxiliary groups and all controller
+peers, first after activation, then after Undo to the temporary baseline, and
+finally after restoration of the full original baseline. All checks passed.
+
+On the current5080, a separate research trial cleared rows0/1 while row2 retained
+main support and rawbit1. Controller0 eligibility changed120h to0, feature10h
+cleared and auxiliary role0 support/mask changed1/120h to0/0. Role1 retained
+support1 and mask120h. All22 controller support/other masks, other captured
+feature words, image, registry and remaining configuration matched the planned
+projection; Undo restored the complete baseline. This is configuration evidence
+on that adapter, not an Ampere mapping or a physical-residency measurement.
+The subsequent schema2 production preview, Apply and durable Undo passed the
+same independent projection. Both selected fields were reported as runtime
+verified on Apply and Undo; the complete original baseline was restored.
+
+On the tested5080, clearing only GR PG row1 bit0 changed its configured mask
+120h(P5/P8) to100h(P8). Independent full A7 and all22 support/mask reply bytes
+matched the projection, as did the image, registry and other configured
+requests. Undo restored the original mask and full baseline. This research
+trial used the generic image transaction; its success is separate from the
+production GR PG contract's automatic verification and does not establish
+physical power-gating execution or savings.
+
+The subsequent production GR PG trial passed normal preview/Apply and durable
+Undo with the same independent complete-packet projection. Both transactions
+reported `lpwr.gr_pg.1.enabled` as runtime verified, and the full original
+baseline was restored. The actual production preview callback also used real
+driver GETs with substituted text storage and showed P5/P8 to P8 eligibility;
+it changed neither registry nor active transaction while preparing that view.
+
+The candidate A801 activity attributes26h/28h are not used as residency
+telemetry. They select DWORDs at statistics offsets28h/2Ch and can include
+host accumulation. Their pre/post hooks perform per-query cache refresh, not
+an established sampling-registration protocol. A failed firmware-memory read
+at76FD2A is logged without propagating failure to the row-valid result; the
+refresh hook also ignores its helper's status. Outer RM success and a stable
+valid row cannot distinguish a fresh zero from an internal read failure.
+Zero retention requires the later host-carry contribution to be absent or
+zero; a nonzero carry can instead leave a valid-looking accumulated value.
+Producer units, reset epoch and reliable freshness remain unresolved. These
+limitations do not apply to the separately traced39h/36h configuration paths.
+[Updated PMU provenance and remaining boundaries](experiments/lpwr-telemetry-provenance-20261029.json).
+
+`voltage_bios_runtime.py` adds independent effective-policy contracts for
+constant VMIN equations. It binds each BIOS rail to the existing singleton-mask
+absolute rail getter and signed-offset getter, takes two stable policy samples,
+and retains paired identity, boost, offsets and every available peer policy.
+The live-voltage field is allowed to vary. A missing unrelated rail does not
+disable a valid selected rail. New receipts validate their complete contract
+before registry cleanup; older receipts remain recoverable without this field.
+
+On the tested 5080, BIOS VMIN 800000 -> 801000 uV produced an effective minimum
+of 805000 uV. That is evidence of quantization on this configuration, not a
+universal 5 mV rule. Production trials on NVVDD and MSVDD separately verified
+800000 -> 805000 -> 800000 uV, with all other reported policies, existing
+offsets, BIOS bytes and registry values restored exactly. A production 801000 uV
+request was then rejected by exact readback and automatically rolled back.
+The VMIN parser no longer treats a theoretical REL-chain minimum as the active
+upper limit: this adapter's original MSVDD VMIN was already above that
+conservative polynomial bound. It still requires an unshared constant and a
+complete understood REL chain; paired runtime limits qualify each operation.
+No workload or physical voltage measurement was used in these trials.
+
+Independent voltage-device INFO (0x2080B205) and rail INFO (0x2080B201)
+captures linked the two rails to their default devices. Both devices reported
+a first table interval of 5000 uV on this adapter. The installed driver sorts
+a device voltage table and supports ceiling/floor searches through its entries;
+the first interval alone does not establish a uniform grid or authorize a
+universal step-size rule. These INFO values remain research evidence; VMIN
+activation continues to require exact effective readback.
+
+`fan_policy_runtime.py` adds independent contracts for v20 fan-policy curve
+temperatures and fan-stop thresholds. Guarded INFO (0x20808532, 336 bytes),
+CONTROL GET (0x20808534, 1556 bytes) and routing INFO (0x20808547, 332 bytes)
+bind the policy group, class, current stop settings and both routing masks to
+the BIOS metadata and Fan2X cooler inventory. Two stable fresh reads retain
+all understood peer temperatures, duty/RPM values, stop flags and cooler
+bounds/PWM settings. Unrelated unknown policy classes remain inspectable;
+missing routing disables writes without discarding readable policy data.
+
+BIOS temperatures are unsigned 1/32 C units; current policy temperatures are
+signed Q8 Celsius, so each BIOS step is eight Q8 units. A policy flag can replace
+point 2's stored temperature with a thermal-table value plus signed offset;
+that point is preserved and cannot be written through its ignored field.
+Temperature and duty/RPM curve coordinates can be selected together; stop-enable
+and cooler metadata changes remain separate. Pure receipt validation binds selected values and
+peer state before activation or recovery, and legacy receipts without the new
+contract remain recoverable. Readback establishes loaded configuration, not
+physical fan response or the active winning policy.
+
+Production trials on the tested 5080 changed policy 0's stop-low temperature
+50 -> 50.03125 C, policy 1's middle curve temperature 70 -> 70.03125 C, and
+shared policy 4's final temperature 103 -> 103.03125 C. Each independent raw
+CONTROL capture showed exactly the expected eight-Q8-unit change and no peer
+policy or cooler change. Each undo restored all captured fan configuration,
+BIOS bytes, registry values and the 360 W board request. No workload was run.
+
+Curve-coordinate receipts additionally bind the output-mode selector and every
+mask-A cooler route. INFO row byte13 selects duty when 1 and RPM when 0; this
+matches the traced route/cooler mode consumers. All shared mask-A policies must
+agree, and selected coordinates must remain within every routed cooler's bounds.
+Mask-B references alone are not treated as output-mode relationships. BIOS duty
+coordinates use integer percent converted to rounded Q16 fractions, and RPM uses
+whole integers. The preview identifies a stored coordinate that is inactive in
+the current policy mode. Exact configured-coordinate readback does not establish
+physical fan response or which policy wins arbitration.
+
+On the tested 5080, policy0's middle RPM coordinate accepted 900 -> 901 -> 900,
+and its stored duty coordinate accepted 39 -> 40 -> 39 percent (Q16 25559 ->
+26214 -> 25559). Its RPM mode stayed unchanged. Independent raw captures changed
+only the selected CONTROL dword; all other fan metadata and cooler settings were
+preserved. New receipts require these coordinate contracts; earlier image-only
+coordinate receipts retain their exact registry undo path.
+
+Global zero-RPM research on the tested 5080 changed BIOS fan-policy flags bits
+1 and 2 across policies 0, 1, 4 and 5. After GPU restart, only INFO bytes 14/15
+and current CONTROL byte 0x48 changed in each policy; complete raw policy,
+routing and cooler packets otherwise matched. Undo restored the original bytes,
+registry state, image and 360 W board request. Platform stop capability is a
+separate loader condition; valid stored thresholds alone do not prove it.
+
+Auxiliary clock research binds v50 BIOS low-five-bit type 2 rows to native
+CLK_DOMAINS INFO type 16 using their constructor ordinal. INFO command
+0x20809019 has a 48-byte header and 32 allocated 384-byte rows; its correct
+NVAPI export-presence identifier is 0x57B5A5DF. Type 16 signed minimum/maximum
+MHz values occupy row offsets 0x26/0x28. The BIOS HAL selector and runtime
+header HAL identity are separate fields and are not required to be equal.
+The tested XBAR minimum accepted -1000 -> -999 -> -1000 MHz with exactly one
+INFO word changed, and full user-clock CONTROL, P-state, VF and board-request
+state preserved. This experiment establishes loaded bounds without measuring
+physical clock behavior under load.
+
+`clock_bios_runtime.py` retains full INFO and user-clock CONTROL packets and
+validates every selected v50 bound. The understood NVAPI CONTROL wrapper keeps
+the native ordinal, maps native type16 to public type15, and copies the signed
+kHz request into public row+0x114. Tightening checks only the selected domain's
+retained request; unrelated memory offsets do not constrain an XBAR range.
+New receipts bind exact v50 selection coverage and actual BIOS table metadata;
+legacy image-only receipts remain recoverable. GPC/DRAM additionally retain
+their existing independent public range checks.
+
+Production repeats verified minimum -1000 -> -999 -> -1000 MHz for XBAR, SYS,
+video, GPC and DRAM on this adapter. GPC/DRAM also update the corresponding
+native P-state bounds and their enabled public projections; an initial core
+comparison correctly detected those changes before its expectation was extended
+to the already traced P-state projection. The repeat checked those exact words
+while retaining every other packet byte, user request, VF field and power request.
+
+`fan_stop_runtime.py` saves all five complete policy/routing/cooler packets and
+projects only support/default/current flag bytes for the BIOS-selected policies.
+Every new global-stop receipt requires a typed contract; preflight compares its
+affected inventory against the running BIOS. A production nested transaction
+verified true -> false -> true, followed by both undo steps to the original
+configuration. Both enablement directions passed exact independent readback.
+An absent loaded support flag leaves platform capability unobserved until the
+driver accepts activation; it does not create a universal board support claim.
+
+Factory clock research connects v10 array-A records at BIT P+0x98 to the typed
+v50 clock-domain factory delta. In the inspected driver, loader 0x605AB0 reads
+an enable flag and signed-kHz value; the type16 branch stores the delta at
+object+0x15C/+0x160. INFO serializer 0x899F20 exposes these at row+0x2C/+0x30,
+separately from the BIOS-domain delta at row+0x34/+0x38. The core factory delta
+also propagates to XBAR when its enabled subentries include type1. Predicate
+0x89A770 uses object+0x194 and subentry types at +0x198+40*i; INFO exposes them
+at +0x3C and +0x40+24*i. Its serializer has seven slots, explicitly bounded by
+the loop at 0x89A229. These addresses are research evidence only; production
+uses the validated API layout, current BIOS binding and live domain inventory.
+The generic descriptor producer linking raw BIT P+0x98 to internal BIOS+0x448
+has not been completely traced; both selected records have independent
+change/readback/restore evidence.
+
+`factory_clock_runtime.py` binds each selected BIOS record to its current GPC
+or DRAM API domain and derives XBAR eligibility from the loaded INFO packet.
+It preserves every unselected INFO byte, the complete user-clock CONTROL packet
+and all 9248 bytes of the understood VF tuning-request packet. Both observations
+must be stable, identity-paired and bounded by allocation guards. New receipts
+require typed activation and restoration contracts; older image-only factory
+receipts remain recoverable. Factory changes are separate from other registry
+and BIOS edits so their overlapping readback expectations cannot conflict.
+
+Production trials on this 5080 verified core 75 -> 76 -> 75 MHz, memory
+0 -> 1 -> 0 MHz and core 75 -> 0 -> 75 MHz. Core changes affected both GPC and
+eligible XBAR factory deltas; memory affected DRAM. The +1 MHz memory trial
+also changed public/native P0 and P1 reported memory frequencies by 1000 kHz.
+Every production trial restored the complete independent baseline, original
+image, empty registry and 360 W board request. No workload was run.
+
+The first exploratory core trial recorded a temporary difference in 50
+evaluated VF frequencies after undo while all saved configuration and tuning
+requests already matched. A later read-only capture matched the entire original
+snapshot without another write or restart. The cause of that transient is not
+established. A subsequent +1 MHz core trial changed no evaluated curve points,
+whereas removing the 75 MHz factory offset changed derived frequencies. Thus
+the production contract verifies factory metadata and user requests; it does
+not assume an exact linear projection of evaluated VF/P-state frequencies.
+
+Rated base/boost research traces the v10 array-B records at BIT P+0x98.
+Loader 0x605FC0 maps records 0/1 to VPstate selectors 16/18, divides unsigned
+kHz by 1000 and passes whole MHz to 0x606F40. That function replaces the GPC
+frequency at word+0/+6 of each eight-byte domain entry in both active and
+original-copy groups. Selector17 follows only when its word+4 original
+frequency equals the selected record's original frequency. Equality of current
+frequencies is insufficient. All twelve inspected HAL family maps used these
+selectors; production uses current bindings and packet validation, not those
+binary addresses or a driver/device allowlist.
+
+Public `NvAPI_GPU_GetAllClockFrequencies` V2 modes 1/2 return base/boost.
+The inspected implementation reaches pointer-based RM 2080A016, marshalled to
+flat GET 2080A026 (0x214 bytes), with original-clock flag 0x10000000 and selectors
+0x800/0x400. Selector0x200 exposes the linked record. The actual GET handler is
+0x423A80 -> 0x420350 -> the VPstate serializer 0x7FE500; the NVOC descriptor's
+handler lies 16 bytes before its command ID. An earlier exploratory trace used
+the adjacent handler and is superseded by the corrected GET trace. No native
+setter or undocumented public clock mode is used.
+
+`rated_clock_runtime.py` retains full VPstate INFO (2080A0A4/0x10744) and active
+CONTROL (2080A0A6/0x87A0). INFO supplies the type3/v0x30 inventory, selector map
+and four-word original/current frequency tuple; CONTROL supplies the active
+copy. These are tied to the real GPC ordinal from clock INFO and its BIOS
+binding. Native/public queries must agree on GPC kHz. Exact contracts project
+only the selected/linked words and query fields, retaining every other byte,
+all user-clock CONTROL requests and the full VF request packet. Two stable,
+identity-paired, allocation-guarded reads precede preparation. Whole MHz in
+1..65535 avoids the loader's unsigned16 truncation; zero is displayed only as
+an inactive stored record, and undo restores the original enable flag and bytes.
+Legacy image-only receipts remain eligible for undo but require fresh typed
+contracts for activation.
+
+Independent root research on this 5080 observed base 2295 -> 2296 -> 2295 MHz
+and boost 2760 -> 2761 -> 2760 MHz. Base selected row1 alone; boost changed
+rows0/2 because their original GPC words matched. Both trials showed no live
+metadata change after registry staging; activation followed a GPU-only restart.
+The full original configuration was restored. Immediately after some restarts,
+a BOOST_LOW diagnostic control word differed transiently and then matched on
+bounded read-only followups; the original mismatches remain in the evidence.
+No workload or physical frequency/performance measurement was performed.
+
+Both rated changes were then repeated through production prepare/apply/restore,
+with independent full INFO/CONTROL/native/public packet projections. Base
+changed row1 and boost changed rows0/2, exactly as predicted. All original
+clock INFO, user offsets and VF tuning requests were preserved; evaluated
+VF/P-state snapshots also matched in these two small trials. Undo restored the
+original image, empty managed registry, no active receipt and 360 W board
+request; bounded read-only followups recovered the full original diagnostic
+snapshot. These results establish this adapter's metadata path only.
+
+## Constant OV and ALT equation controls
+
+`voltage_ceiling_runtime.py` binds compound BIOS `OV.constant` and `ALT.addend`
+fields to native loaded VFE definitions and independent absolute rail status.
+The parser updates the pinned constant's low clamp, high clamp and coefficient
+c0 together (BIOS equation offsets +3/+7/+11). OV must terminate; ALT must link
+to the same rail's complete REL equation. Native quadratic type3 corresponds
+to BIOS type1. INFO supplies the ROM ordinal, variable, output units and next
+link; CONTROL supplies float32 clamps at +4/+8 and c0 at +16. The two slopes
+must be zero. Whole microvolts must be exactly representable by float32.
+
+`vfe_equation_runtime.py` uses guarded E8192 INFO GET 2080A0B5/0xE0408 and
+CONTROL GET 2080A0B6/0x100408. Both have a 0x408 header with a 1024-byte mask;
+row strides are 0x70 and 0x80. Corresponding public export presence, paired
+identity, transport geometry and response envelopes are checked. All packet
+bytes are retained, including inactive and unknown peer rows. A saved projection
+changes exactly the selected constant's three CONTROL floats; INFO stays exact.
+
+Sharing analysis includes known VFE links and multivariate variable/coefficient
+term references, all understood rail selectors, and C+0C main clock roots.
+Type7 is a multivariate polynomial, not an edge-free equation: five-byte BIOS
+term type3 contains a u16 equation index. Unknown term kinds, truncated tables,
+cycles or unknown present clock geometry prevent compound constant writes.
+This scopes the sharing proof to those consumers; other BIOS consumers remain
+unverified. No device, subsystem, BIOS hash or driver version is an allowlist.
+
+`voltage_rail_control_runtime.py` independently preserves complete public rail
+CONTROL replies (0xAC8 bytes) for each available rail with a singleton mask.
+V2 falls back to V1 only on INCOMPATIBLE_STRUCT_VERSION. The four decoded signed
+offsets must agree with policy capture; additional offsets and opaque returned
+bytes remain exact across activation and undo. The separate 40-byte boost GET
+9DF23CA1 writes only byte+4. Bytes +5..39 are caller memory, not returned driver
+state. Druta uses a sentinel, validates caller-owned bytes and allocation guards,
+and captures only the meaningful percentage byte. Explicit unsupported status
+keeps OV available; ALT needs the shared request getter.
+
+Absolute rail status uses B202 (public 5D0634EE), whereas CONTROL uses B213
+(public A3070DB0). OV verifies constant plus retained offset. ALT verifies the
+previous reported ALT plus the requested addend delta; quantization mismatch
+triggers rollback. All unselected ALT/OV/VMIN values and complete control requests
+remain exact. ALT may recompute shared boost and all REL/effective status values;
+OV may recompute only the selected effective status. These derived outputs are
+recorded instead of predicting an unproven effective=min formula. Undo checks
+the complete captured baseline, with registry cleanup preceding GPU queries.
+
+The static host path derives shared boost from cached, voltage-table-quantized
+REL/ALT monitor gaps across rails. OV does not enter that calculation. Cached
+monitor values have not been proven interchangeable with public absolute status,
+so the implementation does not substitute them into a guessed formula. Trials
+verify loaded configuration and driver-reported limits without a workload or
+physical regulator-voltage measurement.
+
+Production tests on the RTX 5080 (621.01, BIOS 98.03.3b.c0.6f) independently
+changed and restored OV 1200000 -> 1195000 uV on each rail and ALT addend
+20000 -> 15000 uV on each rail. Each selected ALT status moved from 1060000 to
+1055000 uV. A further NVVDD OV 1200000 -> 1035000 uV trial reduced its reported
+effective ceiling 1040000 -> 1035000 uV, while REL remained 1040000 uV. This
+establishes a firmware-reported response at that operating point, not universal
+arbitration semantics. OV 1199000 uV was quantized to 1195000 uV and production
+verification automatically rolled back. Every trial restored the original
+registry, image and full captured baseline; some diagnostic flags needed bounded
+read-only settling after restart. User clock/VF requests and the 360 W power
+request were unchanged. These earlier constant-equation trials used 0% requested
+voltage boost. A subsequent production REL trial exercised nonzero boost and
+verified its restoration across Apply and Undo, as described below.
+
+The separate **Live OV and ALT values** panel uses
+`voltage_constants_live.VoltageConstantsController` and
+`vfe_equation_runtime.write_constants` for a session-only type3 write through
+`0x2080E0B7`. It binds the current loaded constant to the stored graph, variable,
+output units and next link, permitting repeated live edits without equating the
+stored value with the current value. Each call selects one complete row and
+changes only its two bounds and c0. The writer shares the guarded transport
+with the type6 writer, retains all other bytes, verifies complete fresh
+INFO/CONTROL, and never retries SET. The controller checks reported policy,
+complete rail requests, boost and readable clock requests, with the existing
+ALT shared-output allowances. Entered failures receive one original-row
+compensation and bounded GET-only verification of the full original state,
+including the evaluated curve. Optional absent peer APIs are listed separately
+from failures of present getters. Capability is evaluated per rail and role.
+
+Four source-product live trials on the same RTX 5080 changed and restored OV
+1200000 to 1195000 uV and ALT addend 20000 to 15000 uV independently on both
+rails. Each reported OV changed to 1195000 uV or reported ALT to 1055000 uV.
+Eight independent active snapshots over at least 20 seconds in each trial
+matched the full definition projection and configured peers. The full legacy
+rail packets and all six signed request words per rail stayed unchanged.
+The first evaluated-curve snapshot differed; the next and subsequent snapshots
+matched the initial curve. This bounds an observed transient rather than an
+exact settling time. All four trials recovered the complete original baseline
+after one explicit restoration. A separate live 1199000 uV OV request loaded
+that constant but reported 1195000 uV; exact policy verification rejected it and
+one automatic compensation restored the full baseline. These tests used 0%
+requested boost; nonzero retained-boost cases have offline coverage. There were
+no registry writes, driver restarts, workloads or physical voltage measurements.
+The [sanitized live-constant evidence](experiments/voltage-live-constants-20261028.json)
+records the tested scope. Arbitrary six-word replay, nonzero variable operand
+semantics, modern F219 effects and physical enforcement remain unqualified.
+
+The **Live voltage constants** panel also accepts the distinct VMIN role on
+each independently supported rail. Its terminal constant binding uses the
+current loaded value, preserving the stored value for display. The live branch
+builds the existing `voltage_bios_runtime` policy contract without changing
+persistent VMIN routing or receipt schemas. Loaded VMIN plus the retained signed
+VMIN offset must equal reported VMIN; the requested result must be positive and
+must not exceed any currently reported REL, ALT, OV or effective upper limit.
+The displayed maximum input subtracts the retained offset from that bound.
+Unlike ALT's shared-output allowances, VMIN verifies the complete policy with
+only the selected expected VMIN changed. Native packets, rail requests, boost,
+image and readable clock requests retain the same exact checks and compensation.
+
+Source-product trials independently raised NVVDD and MSVDD VMIN from 800000 to
+805000 uV without a restart. Eight independent captures per rail over at least
+20 seconds matched the complete definition projection, reported VMIN and all
+policy/request peers. The first evaluated-curve capture differed; later active
+captures matched. Each original-row restoration recovered the complete baseline,
+including the curve, after bounded GET-only settling. A further NVVDD request
+loaded 801000 uV but reported 805000 uV, so verification rejected it and one
+automatic compensation restored the original state. This is one rounding
+observation, not a universal step. Hardware trials used 0% requested boost and
+zero VMIN offset; signed-offset and nonzero retained-boost cases have offline
+coverage. The [VMIN and consumer follow-up](experiments/voltage-vmin-live-20261028.json)
+records scope and remaining requirements. No physical voltage measurement,
+workload, registry write or driver restart was involved.
+
+## REL upper-clamp controls
+
+`voltage_rel_runtime.py` uses the same combined voltage observation as OV/ALT,
+with a separate versioned receipt. BIOS type7 maps to native type6. Only the
+upper float at BIOS +7 / CONTROL +8 changes. INFO, lower clamp, active and
+inactive descriptor bytes, all coefficients and every peer row remain exact.
+One, two or three variables require three, six or ten coefficient descriptors.
+The current ROM supplies typed literal/variable/equation terms, ordinal, next
+link and microvolt units; no numerical evaluator is assumed.
+
+The parser computes reverse dependency closure across all understood VFE edges
+and binds every affected rail and documented clock root. The initial runtime
+contract admits affected REL/ALT roles with their own available policy/control
+readbacks; unknown affected roles or clock roots remain unsupported. An unrelated
+missing rail does not remove the selected capability. Full sharing scope remains
+limited to understood VFE edges, rail selectors and C+0C main roots.
+
+At zero requested boost, only affected REL/ALT outputs and their rails' effective
+limits may recompute. All boost contributions, unrelated rail limits, signed
+offsets and full raw control packets must stay exact. Nonzero boost has a wider
+derived dependency set. New OV/ALT/REL transactions capture complete replay
+contracts when the current interface supports them; a nonzero boost request
+requires that contract before registry writes. Legacy receipt cleanup remains
+available. Offsets are not classified as user requests merely because they are
+nonzero: driver initialization can supply an offset. Exact readback remains
+required for all captured requests.
+
+A loaded upper clamp does not predict the evaluated REL voltage: the polynomial
+may lie below it; next-equation accumulation, signed offsets and VID quantization
+also affect status. Clamp/chain evaluation order remains unproved. Verification
+accepts unchanged evaluated REL with an exact loaded clamp, records current
+firmware outputs separately, and requires the complete original state on undo.
+Legacy REL image-only receipts remain restore-only.
+
+Root research on RTX5080 / 621.01 lowered 1120000 uV to 1035000 uV separately on
+each rail. NVVDD reported REL/effective 1035000 and ALT 1055000 uV; MSVDD reported
+REL/effective 985000 and ALT 1055000 uV while retaining its -50000 uV REL offset.
+A 1036000 uV NVVDD clamp loaded exactly and reported REL 1035000 uV. The complete
+configuration was restored after each trial. These observations cover the tested
+adapter and operating point, without a workload or physical-voltage measurement.
+
+Production repeats verified NVVDD 1036000 uV and MSVDD 1035000 uV through
+prepare, persisted active-receipt reload, exact native projection and undo. A
+third production trial set NVVDD to 1100000 uV: the loaded upper clamp changed
+while every reported rail policy remained unchanged. This directly demonstrates
+a nonbinding clamp on this adapter. All three trials independently restored the
+full baseline; transient diagnostics settled through bounded read-only capture.
+
+An initial production trial exposed duplicated native packet data that exceeded
+the existing 8 MiB receipt-reader bound. Apply/undo and hardware restoration
+succeeded, but active receipt reload failed. The compact contract now stores
+INFO/CONTROL once per before/after observation and reconstructs the native
+contract from those packets. Regression coverage includes real atomic JSON
+prepare/active/undo reload under the unchanged size bound.
+
+## Fixed REL equation bounds
+
+`voltage.[01].REL.value` writes the same whole-microvolt float to BIOS type7
+lower/upper +3/+7 and native type6 CONTROL +4/+8. The typed descriptors,
+coefficients, INFO, next links and all peer bytes remain exact. Its initial
+input is the stored upper bound; an explicit UI selection is required even
+when only the lower bound will change. The preview displays both old bounds.
+
+`voltage_bounds` native contracts save `after_lower_uv` alongside the existing
+upper-clamp metadata. Mixed selections can pin one equation and change only
+another equation's upper clamp. Same-equation aliases are rejected. Existing
+upper-only receipts keep their original format. Full packet data remains
+stored once per before/after observation under the existing receipt size bound.
+
+The driver already accepts equal bounds on 49 type7 equations in the tested
+baseline. Independent root trials on the RTX5080 moved terminal NVVDD REL from
+1040000 to 1035000 and 1045000 uV, with ALT remaining 20000 uV higher. MSVDD
+head bounds of 1045000 uV reported REL 995000 and ALT 1065000 uV while retaining
+the -50000 uV REL offset and its temperature/IDDQ-dependent tail. All loaded
+definitions and retained requests matched the exact projection, and complete
+baseline restoration passed after bounded read-only settling. No workload or
+physical-voltage measurement was used. These observations establish the tested
+configuration; firmware clamp/chain evaluation order remains unresolved.
+
+The control fixes the selected equation's bounds. It does not claim that the
+whole linked equation list or reported rail REL equals the entered value.
+Reported REL/ALT/effective limits are recorded separately using the existing
+affected-root contract, while unrelated policy and all request bytes remain
+exact. Undo requires the complete captured original state.
+
+Production Apply/Undo repeated the 1045000 uV change on each rail, with exact
+independent native packets and active receipt reload. The MSVDD repeat retained
+a 1% boost request through both restarts; final cleanup restored 0% and the full
+original baseline. Both production receipts fit the unchanged 8 MiB reader
+bound. The complete regression suite passed 5330 tests after integration.
+
+## Voltage rail requests and explicit replay
+
+**Live rail controls:** The Controls page exposes the six legacy signed offset
+requests per captured rail: REL, ALT/OP, OV, VMIN, VCRIT low and VCRIT high.
+Values are entered in mV with whole-microvolt precision. Read the current
+requests, select a rail and field, then apply the offset for this driver session.
+Each write uses a fresh complete capture, preserves peer fields and boost, and
+requires exact independent request readback. Reading does not enable the request
+gate or write anything. VCRIT is labeled as a stored request with an unverified
+effective threshold; successful storage does not establish physical enforcement.
+There is no driver-version compatibility cutoff, automatic profile replay or
+new Undo mechanism.
+
+On the captured RTX 5080 with drivers 617.14 and 617.42, all six requests accepted
+individual small changes on both NVVDD and MSVDD. REL, ALT and OV used -5000 uV;
+VMIN used +5000 uV; both VCRIT words used -5000 uV. The first four changed their
+corresponding reported policies; REL also changed the effective ceiling. All
+requests read back exactly, and every trial restored the original full requests
+and policy, including the pre-existing MSVDD REL -50000 uV offset. No restart,
+registry write or workload was used. These observations do not qualify arbitrary
+ranges or physical voltage delivery. The compact evidence record is
+`experiments/voltage-rail-knobs-20261101.json`.
+
+A 617.42 follow-up applied +5000 uV REL separately to both rails. Reported REL
+and effective policy rose from 1040000 to 1045000 uV on NVVDD and from 990000
+to 995000 uV on MSVDD. Four separate -5000 uV VCRIT low/high trials retained
+exact request readback. Paired B212 INFO and B218 CONTROL GETs, repeated twice
+before, during and after all six trials, remained byte-identical. Thus this
+comparison found no responsive modern readback for VCRIT thresholds; it does
+not establish universal independence between the interfaces. All requests,
+reported policies, target binding, registry and VBIOS returned or remained
+exact. No modern SET, restart or workload was used. See
+`experiments/voltage-61742-unblocked-objectives-20261101.json`.
+
+**Observed suppression:** On the captured RTX 5080 with driver 621.01, the
+legacy rail-offset control did not apply the tested -5000 uV NVVDD REL request,
+despite reporting success. Changing any of its six signed request words is
+therefore not qualified on this configuration: REL, ALT_REL (ALT/OP), OV, VMIN,
+VCRIT_LOW and VCRIT_HIGH. The inspected setter can skip all six copies when its
+gate is set, but the live gate and the captured call's route were not observed;
+the test did not individually probe all six words. Separately, the VFE
+equation-head route has demonstrated REL, ALT_REL, OV and VMIN policy
+adjustments on both captured rails. VCRIT effective-threshold behavior remains unresolved.
+This limitation does not qualify a physical voltage change or extend to the
+separate boost and direct voltage-demand controls.
+
+`voltage_request_replay.py` captures native rail INFO (B201/0x98C), native
+CONTROL (B213/0x40C), independent V2 singleton NVAPI CONTROL packets, the small
+boost getter and reported voltage policy. Complete replay requires every active
+INFO rail to have an understood current identity and matching public/native
+control types: public0/native2, public2/native4 or public3/native5. Each rail
+retains its own discriminator, including mixed-type packets. Partial captures
+remain readable but cannot be replayed. The full INFO payload, routing, types
+and opaque CONTROL bytes must match; no driver or board list is used. All six
+signed microvolt request words are preserved. NVIDIA's legacy
+`voltDeltauV[6]` ABI names them REL, ALT REL, OV, VMIN, VCRIT low and VCRIT high;
+the installed public/native adapters preserve that ordering. Those names do not
+establish the physical threshold effects or make a suppressed SET operative.
+
+V1 absolute status uses a separate INFO identity, not the CONTROL discriminator.
+The current wrapper obtains that value from native INFO row+33h and converts
+codes1..8. Request capture pairs the status identity with the same-index fresh
+INFO value. Only the conventional index0/identity1 and index1/identity3 pairs
+retain the existing rail names; other identities use positional `Rail N`
+labels. Ordinary named BIOS/equation policy checks keep their existing role
+contracts. Invalid or mismatched peers remain partial and cannot be replayed.
+The identity byte comes from rail object+89h; object+88h instead supplies INFO
+row+32h. The V1 wrapper can skip identity conversion when its nested INFO call
+fails, so outer getter success alone does not establish a populated identity.
+
+NVAPI export `0x87C55C8A` accepts a zero-initialized V2 0xAC8 request containing
+the complete rail mask, BYTE8 percentage and each selected type plus six signed
+offsets. It wraps F214. Native GET header BYTE0 is a group discriminator, not an
+inventory mask; the row-tail byte is GET-only. Neither is copied as a SET input.
+The setter can update boost or some rows before failing. Success status can also
+accompany ignored offsets. Every attempt therefore requires independent complete
+request readback; status and caller-buffer integrity alone are insufficient.
+Readback errors identify each differing rail and offset, requested and observed
+values, whether a zero-status SET left that word unchanged, and separate boost
+or metadata differences. All six fields use their legacy ABI names and signed
+microvolt values. This diagnostic does not establish that arbitrary offset replay works.
+
+The additional public0/native2 and public2/native4 pairs share the traced
+six-word CONTROL getter and setter. Root reproduced 23 source windows and eight
+class4 callback joins. The 71 focused tests cover the added singleton types,
+mixed packets, contradictory metadata, partial inventory and ignored SETs.
+Complete current public3/native5 getter snapshots on both local rails matched
+the previous build with no SET. No local native2 or native4 adapter was captured;
+the format support is not runtime qualification of those adapters or proof of
+an effective voltage change. No saved-profile restoration integration was added.
+See the [request-format evidence](experiments/driver-transport-followup-20261028.json).
+
+The INFO-identity follow-up passed 76 focused request tests and 12 ordinary
+policy-reader tests. Its modeled integration uses the actual policy reader for
+alternate identities8/2 with mixed CONTROL pairs, projects six changed words
+per rail, and verifies the mocked SET readback. The default BIOS policy validator
+rejects that generic policy. On the local conventional identities1/3, complete
+snapshots from both modified modules matched the preceding aec27fa package.
+This was a read-only comparison, not another voltage-write experiment.
+
+`voltage_replay_worker.py` performs each capture or replay in a fresh process.
+It verifies the Windows device mapping and exact running BIOS hash before SET,
+saves exclusive request/attempt/result records, and attempts SET once. The
+registry transaction keeps the adapter mutex, journals the attempt, and retries
+only fresh observations. Apply and Undo replay captured requests after the new
+image is verified; rollback restarts the original image and replays the original
+requests. A failed or uncertain replay retains its recovery files. Receipts keep
+one compact capture and event links rather than duplicating worker observations;
+the existing 8 MiB receipt limit remains unchanged.
+
+On the tested RTX5080 / 621.01, 1% boost reported a 200 uV shared contribution.
+A GPU restart cleared the request to 0%; replay restored 1% and the complete
+previous policy. A production NVVDD REL clamp of 1035000 uV applied and undid
+with 1% retained after both restarts. Original 0%, all six offsets, registry,
+image, clock/VF requests and the full independent baseline were then restored.
+These observations establish request and reported-policy behavior at the tested
+operating point; no workload or physical-voltage measurement was used.
+
+The first broad comparison also detected changed PERF reliability client
+requests. The traced monitor refresh stores rail REL offset plus shared boost
+at CONTROL +0x0C. Research binds these rows by voltage request type, current rail
+ordinal and the independently captured equation root, preserving every other
+byte. It does not predict boost from a percentage or identify clients by labels.
+
+A separate -5000 uV offset request returned success but was ignored; exact
+readback rejected it and restored the original boost. The inspected local F214
+row setter skips offset copies when PERF+0x32C is set, and generated HAL initialization
+selects that flag for the inspected chip family. No qualified active flag readback
+was established. The captured call was not traced into this local implementation,
+so that guard is not established as the cause of the ignored request.
+This is distinct from the existing A030/A031 admission switch at PERF+0x2E5;
+changing that switch is not a demonstrated way to enable the offset copies.
+
+In a later no-restart trial on the same RTX5080 / 621.01, a SET returned zero
+while NVVDD REL remained 0 instead of the requested -5000 uV; boost changed
+from 0% to the requested 1%. The updated error identified the ignored word.
+The original requests, policy, image, registry and peers were restored exactly;
+there was no registry write or workload. The [sanitized report](experiments/voltage-replay-routing-20261027.json)
+records the trial and its scope. Arbitrary changing-offset replay and recovery
+remain unqualified.
+
+In the inspected local implementation, public and direct native rail SET routes
+converge on the same gated row callback. Pstates20 writes different records.
+Native legacy arbiter controls own different requests and reject the modern VOLT+0x16A path;
+the public escape's association with those native commands is not proven.
+F208 controls voltage-device fields and F212 controls voltage-policy fields;
+neither is established as an equivalent six-word replay. The modern group's
+B212 INFO and B218 CONTROL readbacks were separately captured
+on the current adapter. Its five entries have CONTROL types2,2,2,2,4, with zero
+current flags and values. These are adapter observations, not fixed indices or
+rail names. Their units, relationship to the legacy requests and F219 firmware
+SET effects remain unresolved; no modern SET has been attempted.
+
+On the inspected RTX 5080 / 621.01, a separate research no-op sent native
+VFE equation SET `0x2080E0B7` (size `0x100408`) with the unchanged type6 REL
+row3 and its known counts. Transport and RM returned zero, and full equation
+INFO and CONTROL matched exactly. However, 78 evaluated V/F frequency words
+(rows49–126) differed by -315 to -75 MHz. V/F voltage words, the complete
+per-point BoostTable delta requests and all other configured snapshot components
+remained byte-exact. One original-row restoration and fresh capture returned the
+full configured baseline exactly. In a timed repeat, eight GET-only control
+captures remained exact over 20.77 seconds. The first post-SET capture
+(0.003–0.798 seconds) contained the same changed curve; the next
+(2.858–3.650 seconds), all subsequent captures through 20.77 seconds, and the
+final comparison were fully exact without a restoration SET. This establishes
+a transient in that trial, not an exact settling time or its mechanism. The
+earlier restoration cannot be credited as the cause of curve recovery.
+
+A subsequent upper-only live trial changed row3's stored runtime upper float
+from 1120000 to 1035000 uV. Both independent CONTROL packets matched that
+one-word projection, while both policy readbacks reported NVVDD REL/effective
+1040000→1035000 uV and ALT 1060000→1055000 uV. Eight captures through
+20.74 seconds retained the new definition and policy values, unchanged peer
+requests, and unchanged OV/VMIN and MSVDD policy. The initial evaluated curve
+transient had disappeared by the next capture (2.852–3.651 seconds). One
+original-row SET and bounded GET-only recovery restored the full original
+baseline, including the curve. An earlier shorter trial stopped at the first
+observation because its comparator did not project mirrored diagnostic copies;
+the raw copies matched the intended change and its full baseline was restored.
+The interrupted result is retained separately from the completed timed trial.
+
+`vfe_equation_runtime.write_upper_clamps` dispatches one selected type6 row
+through `0x2080E0B7`, preserving all counts, terms and opaque bytes. It verifies
+fresh full INFO/CONTROL and delegates compensation to its caller.
+`voltage_rel_live.VoltageRelController` binds the ROM graph and terms to the
+current loaded upper bound, supporting repeated session edits without treating
+the original stored upper as the current value. It uses the existing REL policy
+contract, retains rail controls and readable clock requests, and reports
+evaluated policy separately. Dispatched errors get one original-row
+compensation; bounded GET-only recovery includes the original captured curve.
+Genuinely absent optional peer readbacks are listed; failures from present
+getters remain read failures. The Controls panel exposes read/apply/restore
+separately from the persistent BIOS/restart transaction.
+
+These operations used no registry change, restart, workload or physical
+measurement. The inspected callback through PERF+0x588 remains unnamed. Live
+upper-clamp behavior does not establish legacy six-word request replay, other
+equation writers, or physical voltage enforcement. See the
+[sanitized follow-up](experiments/voltage-replay-followup-20261028.json).
+
+A separate candidate copy path now has a conditional static ownership trace:
+the engine loader dispatches the constructed ClockManager interface through
+table slot `+0x30`; its thunk subtracts eight from the interface pointer before
+registering key `0x200` on the same root-relative list used by the later lookup.
+The dispatcher passes record destinations within a separately allocated
+`0x2A708`-byte buffer.
+An offset within that buffer does not identify the destination as PERF+`0x588`.
+Root reproduced the twelve bounded instruction windows and dispatch table;
+current runtime invocation, the actual PERF callback and voltage-request
+consumption remain unproved. See the [dispatch evidence](experiments/driver-transport-followup-20261028.json).
+
+The real PERF owner's base is separately bound on the enumerated class
+`0xED0B65` construction path. Successful construction returns its allocation
+root; the loader's exact-class lookup stores that pointer unchanged in
+GPU+`0x23C8`. The local equation handler loads its target from `[root+0x588]`,
+passing that same root in RDX and the GPU in RCX.
+The engine-dispatch interface is a distinct adjusted pointer. This conditional
+base proof does not observe the active runtime descriptor or identify the
+callback assignment. The traced equation group and child allocations retain
+their separate identities.
+
+An outer RM routing layer must be distinguished from those local handlers.
+The ten inspected voltage-command export records carry
+`RMCTRL_FLAGS_ROUTE_TO_PHYSICAL` (`0x40`). Under the installed runtime forwarding
+predicate, successful forwarding returns `NV_WARN_NOTHING_TO_DO` (`0x10006`);
+the dispatcher converts it to success and skips the local exported handler.
+The conditional endpoint builds a message whose ID `76` and payload layout
+match NVIDIA's `GSP_RM_CONTROL` schema. This outer control envelope is distinct
+from the VOLT group's downstream submissions and response-directory selectors.
+Neither the captured calls' live route nor their entry into the local F214
+`+0x32C` or E0B7 `+0x588` paths was observed. Documented GSP-mode and firmware
+queries returned unavailable values here; they do not establish a false
+forwarding predicate. Existing changed-definition, readback and Undo evidence
+remains interface-level evidence. See the [routing qualification](experiments/driver-transport-followup-20261028.json).
+
+The matching DriverStore firmware file also contains an embedded RV64 image
+with a validated Subdevice export array. Four entries match E0B7, F214, F219
+and B214, including their parameter sizes and executable handler pointers.
+The file is a candidate: its loaded identity, actual dispatch and handler
+effects are unproved. These records provide concrete firmware counterparts
+for further analysis without identifying the active route or qualifying a new SET.
+
+Further candidate-image tracing reaches concrete row operations. The legacy
+F214 construction path installs a setter which, after a successful type check,
+either copies six DWORDs from the selected packet row or skips all six while
+returning success. It tests byte `+0x334` of the pointer at GPU `+0x20C8`.
+A conditional child-creation path now joins the Perf class request, successful
+creation/cast and that slot. The constructor derives byte `+0x334` from a selector
+halfword on its reached-store paths. This does not observe the current selector,
+stored instance, flag value or later retention.
+The row accessor's runtime table and returned interface identity also remain unproved;
+this conditional body is not established as the cause of the captured no-op.
+
+The modern F219 candidate type2 path maps input rows at
+`request + 0x28 + 0x24 * index`. Its traced callback copies the input type byte
+and three additional bytes, plus four DWORDs, into its destination row. Exact
+source/destination offsets and the constructor/callback chain are retained in the
+[candidate-consumer evidence](experiments/driver-transport-followup-20261028.json).
+Those copies establish field transport on that path, not numerical units, rail
+identity or voltage application. Further construction tracing gives a `0x2C`
+serialized header and `0x24` row stride, submitted with selector `0x1F`. Three
+conditional backends copy that buffer or store its words at unclassified
+context-derived addresses; the active receiver and eventual consumption remain
+unbound. A default response path also copies selected fields into object state,
+subject to validation and callback retention. Neither image loading nor live
+handler selection was observed, and no modern F219 SET was performed.
+
+On the installed Windows/NVAPI images, public F219 wrapper0xC268BC22 requires
+version DWORD12348h (size2348h), with row base48h/stride118h. Its type3 branch
+copies six DWORDs unchanged to native row+8..+1C and maps a separate public
+discriminator to native byte+20. That modern object's constructor, serializer
+and getter are distinct from the legacy rail object. The inspected subtype
+getter does not copy the discriminator, and the five captured B218 objects
+were types2/2/2/2/4. Neither count nor copied words establishes voltage units.
+Both modern type2/type3 descriptor factories join an indexed mapped section
+with logical headerD0h, stride7A8h and selector19h; its payload writer and
+address space remain unresolved. The legacy PERF+32C gate is constructor-set
+from a resolved selector range41h..47h on the bound path, but its name, current
+value and later retention are unbound. The row validator can also return0
+after a type mismatch. Root reproduced27 instruction windows and one data
+descriptor. These bindings do not qualify arbitrary six-word replay or F219
+SET; exact input/owner boundaries are in the same evidence record.
+
+A later fixed A/B used the existing independent offsets: REL, ALT, OV and VMIN
+on both rails changed by the requested mixed +/-5 mV vector, then returned to
+zero. Both complete modern payloads (B212: 499,936 bytes; B218: 9,220 bytes)
+stayed identical in all ten rounds across original, zero, active, returned-zero
+and final phases. No payload fields were excluded. These host records did not
+mirror the working policy offsets in this configuration; that result does not
+establish their units, firmware behavior or a modern replacement for the six
+legacy requests. Legacy requests and boost stayed unchanged. Complete LPWR
+and mapping observations and configured client requests matched throughout;
+variable arbitration telemetry remains captured separately.
+
+The original image, registry and configured state were recovered after two
+GPU-only restarts. Final broad samples were false six times, then true twice
+under the existing configured-state comparison. The separate full clock curve
+retained 110 byte differences in each early sample before matching in the last
+two; the distinct curve-control packet matched all eight. No curve exclusions
+or cause are inferred, and no independent active broad window was captured.
+Root reproduced the independent raw audit and full-curve differences. The same
+[evidence record](experiments/driver-transport-followup-20261028.json) includes
+46 reproduced source windows, corrected initializer pointer provenance and the
+remaining numerical-consumer/writer boundaries. Arbitrary six-word replay and
+modern F219 SET remain unqualified; no product runtime code changed.
+
+The candidate equation parser maps source type7 to native type6 and installs
+the selected-row setter. That setter can copy both bounds before rejecting a
+later descriptor-count mismatch. Entered-attempt compensation and exact
+restoration therefore remain necessary even after an error. On one guarded
+same-Perf construction path, direct member `+0x590` is assigned a leaf that
+only returns success; this particular callback is not a numerical evaluator.
+Its live retention and invocation remain unobserved.
+
+An offline comparison independently decoded the saved native INFO/CONTROL
+packets and matched both REL term/bound bindings to the ROM-derived fields.
+This establishes definition equality, not coefficient order, polynomial
+evaluation, clamp/next composition or quantization. These earlier bindings do
+not qualify an additive REL control on that candidate path; the independent
+app-owned policy offsets use the separately qualified route described below.
+Known ALT sharing and the second REL chain are effects to account for, rather
+than automatic disqualifications.
+
+The candidate B202 effective-policy refresh now connects its destination
+buffer to a selected group entry and backing descriptor on a conditional
+same-instance path. The group is a separate allocation; an earlier private
+alias to an embedded object was corrected after following intervening register
+assignments. A guarded descriptor branch reaches a MemoryManager class-key
+lookup, but the original mapped-value writer and live route remain unknown.
+Separate receiver lifecycle callbacks update their own provider descriptors;
+they do not establish population of `EA=*(VOLT+0x118)`, `receiver=*(EA+0x60)`.
+These findings do not qualify modern voltage SET or arbitrary replay. The
+[evaluator/source checkpoint](experiments/driver-transport-followup-20261028.json)
+records the exact bindings, corrections, byte audits and remaining boundaries.
+
+A distinct candidate equation-load path now packs the typed descriptors into
+a serialized page with a `0x110` header, `0x100`-byte selection mask and `0x80`
+row stride. Its observed extent is `0x40110`; the mapper's separate `0x2000`
+index check does not establish that many rows in this backing. Native API
+capacity and serialized page geometry remain separate. The trace does not
+establish that earlier live E0B7 requests triggered this load or that firmware
+evaluated the equations.
+
+One constructor-bound alternate channel copies requests into mapped backing,
+then publishes an incremented control word modulo 16. A separate response
+path validates a header checksum and length, advances its response control
+word and updates state checked by the sender's wait predicate. The bus call
+between copying and publication is traced separately; its argument is not
+treated as proof of notification. The response-driving caller, producer and
+live channel selection remain unresolved.
+
+The documented read-only `GPU_GET_CONSTRUCTED_FALCON_INFO` command
+(`0x208001B0`, `0x504` parameter bytes) returned 15 entries on the tested
+adapter. Pinned NVIDIA descriptor definitions decode one entry as Pmu
+instance 0, with reported register base `0x8F4000`. The candidate request
+control offsets are `0x2800` and `0x2820` relative to that reported base;
+the response offsets are `0x24C8` and `0x24CC`. This arithmetic links the
+candidate constants to a current adapter report, rather than establishing
+the earlier calls' route, processor ISA, loaded firmware or numerical
+evaluation. No device-specific register base becomes a product support gate.
+
+The GET used a zero-initialized parameter buffer, preserved its paired adapter binding
+and passed envelope/guard checks. The complete compared configuration, curve,
+LPWR, Pstate and client requests matched before and after. No SET, registry
+change or driver restart was performed. The
+[equation queue and adapter record](experiments/driver-transport-followup-20261028.json)
+retains raw output, source provenance, conditional paths and the remaining
+evaluator/replay boundaries. No new voltage control follows from this GET.
+
+A separate variable investigation matched native INFO `0x2080A0B1`
+(`0xC364` bytes, header `0x28`, 255 rows of `0xC4`) and CONTROL
+`0x2080A0B3` (`0x2BFC` bytes, rows of `0x2C`) to the installed NVAPI
+converters. Both native packet rounds were byte-identical; native/public masks
+and translated type observations agreed for all 75 entries. For the 53
+type8/9/13 rows, the traced mode and two raw DWORDs matched their converted
+public fields; the other 22 rows had no additional field comparison.
+Native mode is at row+`0x20`,
+serialized to public row+`0x2C`; an older SINGLE structure's row+`0x0C` is
+not the installed native mode location. Native type10 at ordinal48 becomes
+public type15, so the earlier public-only inventory could not establish that
+native type10 was absent. Its selector byte2 remains semantically unclassified.
+
+INFO header byte `0x26` was 1, while CONTROL byte `0x26` was 20 and matched
+public CONTROL byte `0x24`. They have distinct sources. Variable SET
+`0x2080E0B4` stores the CONTROL polling byte before selected-row dispatch,
+so a request must preserve that captured byte even when a later row fails.
+The native type9 selected callback copies the actual mode and full operand
+container; the prior older-layout conclusion that it skipped mode was withdrawn.
+
+A root-run request changed only variable44's mode0 to mode2 while preserving
+all 16 zero operand bytes, bounds, other row bytes, header and peers. Eight
+captures through 20.87 seconds matched the full native/public one-byte
+projection. The initial 78-word evaluated-curve transient was absent in the
+next capture, completed at 3.71 seconds. Both complete legacy rail CONTROL
+packets, including all six signed request words per rail, stayed exact. One
+original-mode SET and bounded GET-only settling restored every captured
+definition, request and the full curve. This verifies zero-valued mode storage
+and recovery, not firmware consumption or a nonzero voltage effect.
+
+Current variable44 and variable48 feed recognized clock-programming roots;
+their parsed closures contain no recognized P+`0x68` rail roots. Unknown edges
+and consumers remain open. The installed public variable SET wrapper copies
+two raw DWORDs without establishing their numeric representation or units.
+Those facts do not qualify a nonzero operand or a substitute for six-word rail
+request replay. See the [native-variable evidence and remaining boundaries](experiments/voltage-variable-native-followup-20261028.json).
+
+Installed-NVAPI tracing binds public query `0x3FC4D4C8` to native B212 INFO
+GET and `0xE6AAED18` to native B218 CONTROL GET. The inspected local B218 body
+reads cached RM state; the captures do not establish local-cache servicing.
+The separate public
+query `0xC268BC22` dispatches native F219 SET; after successful SET transport,
+C98050 on the local path fetches its response, which may conditionally update
+the modern RM cache. The read-only captures exercised B212 and B218; no F219 SET or response
+capture was made. Native B214 is a distinct GET bound to public query
+`0xBE94281E`; one GET on the inspected adapter succeeded with status 0 and a
+populated type2 result. This is a narrow single-adapter read qualification; a
+separate typed VMIN comparison did not establish an active B214 correlation or
+field units.
+
+A subsequent GET-only control captured eight B214 responses whose call starts
+spanned 21.01 seconds. All sixteen per-call configured-state brackets, the
+baseline/final brackets and eight initial/eight final broad captures matched;
+all 34 compared full curves were exact. Every traced type2 record varied across
+the eight responses, exclusively in its code byte and associated DWORD. The
+finite relation `DWORD = 6250 * code` held for all 56 returned pairs, without
+establishing units or rail identity. No VMIN edit was made. This demonstrates
+response variability despite exact saved configuration checks and prevents
+treating the earlier single VMIN triplet as a stable configuration mapping.
+The producer, physical meaning and consumed write path remain unresolved.
+Raw inputs/outputs, timings, scope and independent audits are recorded in the
+[GET-only control](experiments/voltage-replay-followup-20261028.json).
+
+Further static tracing follows both sampled fields through the host copies.
+The inspected local type2 serializer copies its input byte and DWORD independently, and the
+complete public-wrapper path independently copies all seven sampled pairs.
+Those operations do not create the observed `6250` relationship: on this
+traced path it already exists at the serializer's input. The preceding transfer
+has runtime-selected backends whose source and callback behavior remain
+unbound, so this does not locate the original producer or establish units,
+rail identity or a write format. Root reproduced 31 response/transfer windows
+and 27 PERF instruction/data windows. Exact mappings, coverage limits and the
+remaining boundaries are in the [transport evidence](experiments/driver-transport-followup-20261028.json).
+
+The B212/B218 public getters use 32-entry masks: INFO is
+`0x10D48` bytes with version `0x10D48`, header `0x48`
+and stride `0x868`; CONTROL is `0x2348` bytes with version `0x12348`, header
+`0x48` and stride `0x118`. The complete INFO allocation cannot be derived from
+the version's low 16 bits. The B212/B218 native group remains E255; equivalence
+requires all native mask bits above 31 to be clear. Two guarded public/native
+B212/B218 captures were byte-identical within each format, with mask `0x1F` and
+matching traced type2 fields. Within those B212/B218 captures, the fifth native
+INFO type0 became public `0xFE`, while its CONTROL remained type4; those
+independent observations do not imply absence.
+The initial comparison used native CONTROL row+4 for its type. Re-analysis of
+the same saved packets corrected this to row+0, preserving the failed journal.
+Flags remain at native row+5..7 and four DWORDs at +8/+C/+10/+14. The observed
+zero fields cannot independently prove their offsets; the wrapper supplies
+that mapping. INFO's two enum converters establish a bounded 0/1/2 domain,
+without semantic names. Raw copies establish no numeric representation or units.
+No modern SET was called and the full configured before/after state matched.
+
+Further installed-image tracing conditionally connects B214's receiver to the
+same backing entry selected by the typed B202 rail-status path. Registration
+and iteration use the same F33840-owned list and install the section receiver
+into the exact voltage owner's config. Its kind2 item refers through the
+section's stored base pointer to the same base container returned to B202;
+both successful paths select its category0 entry. This requires the same
+successful setup calls and retained owners/pointers; active class and execution
+were not observed. The original section-constructor descriptor holds that base
+pointer at `+0x10`; a later item descriptor separately uses `+0x8`.
+
+The B202 constructor initializes offset `0x238970`, length `0xC10` and a zero
+flag selecting its alternate read helper. These are host constants, not a
+capture of live descriptor state. B214 GET instead selects section `0x1E`,
+distinct from F219 SET's post-transport response selector `0x1B`. Its mapped
+region starts at the parsed kind2 item's offset and is bounded by that item's
+extent; those directory values remain uncaptured. Shared backing therefore
+establishes neither overlapping regions nor a typed record correspondence.
+B214 units, rail identity, producer, F219 effects and arbitrary offset replay
+remain unresolved. The conditional path and arithmetic corrections are recorded
+in the [transport evidence](experiments/driver-transport-followup-20261028.json).
+
+The variable-group transport trace also found a separate short command after
+the initial large-buffer check. Under the documented constructor path it reaches
+the same endpoint interface as the modern group, but runtime instance selection,
+receiving processor and numeric consumer remain unproven. Independent PERF
+constructor and overlapping-store checks did not bind its post-group callback.
+Older NVIDIA-authored Tegra single-u32 structures differ from the current
+16-byte operand container and adjacent flag. These findings leave nonzero
+variable operands and six-word request replay unqualified; see the
+[follow-up evidence](experiments/voltage-vmin-live-20261028.json).
+
+A static trace identifies the deferred assignment of the modern group's
+receiver: a list consumer recovers the registered configuration owner and fills
+the `config+0x60` slot after construction. The constructor installs a generic
+indexed accessor. The selected population callbacks and insertion are bound;
+each created section's owner reference points back through the constructed
+container to the earlier base container used by the second lookup. The base
+population constructs kind-3 backing entries, while a separate category field
+determines selection: the reader selects category zero. The selected entry
+leads to a bounded child MemoryDescriptor. Window construction and the later
+bulk read are distinct operations; the inspected generic read path establishes
+no voltage conversion. The source wrapper has conditional independent-allocation
+and original-descriptor subview factories. Its original data writer remains
+unbound. Exact public NVOC class IDs and the reserved-offset branch structure
+identify the conditional source calculation as KernelPmu reserved-memory
+backing, with KernelFsp and MemoryManager dependencies. That ownership does not
+identify the writer of each voltage record. These are conditional host paths,
+not proof of execution on the captured GPU or the mapped values' types, units,
+rails or firmware effects.
+The power-status transport descriptor and response parser use the same group
+buffer, at a distinct offset within a common selected mapping on the traced
+direct path. A candidate manager was excluded after resolving a class-specific
+accessor to a different field. The correct manager's construction, population,
+category-zero selection and later mapping call are now connected conditionally.
+The metadata descriptor also reaches an upstream base-and-size provider, but
+actual runtime selection, original data production and the numerical conversion
+remain unresolved. A 0x700-byte metadata read is separate from the full backing
+allocation. No new tuning operation follows from these transport findings. See the
+[transport checkpoint and exact remaining boundaries](experiments/driver-transport-followup-20261028.json).
+
+The reviewed constructor paths also bind logical directory geometry and final
+read callbacks:
+
+| Backing payload | Mask | Logical header | Row stride | Buffers | Callback offsets |
+| --- | --- | --- | --- | --- | --- |
+| Base directory | 32 bits | `0x10` | `0x28` | 1 | `0x100` |
+| Section directory | 256 bits | `0x2C` | `0x18` | 1 | `0x100` |
+| F219 post-SET response backing (static path) | Unclassified here | `0x2C` | `0x24` | 2 | `0x100`, `0x2600` |
+
+These offsets are added to the logical requested offset; source-context
+offsets apply separately. Base and section directory read lengths span through
+the highest set mask bit, including unset rows within that span. The static
+post-SET F219 response fetch uses directory selector `0x1B`; its wire group
+byte is `0x17`. The installed callbacks replace the generic failure defaults,
+and this response-fetch path uses before/after DWORD samples
+for buffer selection and consistency. Header kind, source-row kind, category
+and selector remain separate fields. Actual runtime records, unclassified
+header bytes, writer identity and numerical voltage semantics remain open.
+
+The public [mVolt v0.50.8 release notes](https://github.com/b00nz/mVolt/releases/tag/v0.50.8)
+describe an experimental BIOS voltage-offset option, without specifying its
+mechanism. Our inspected PERF+0x32C writer and type4/type5 rail routes have not
+established a BIOS switch for this behavior.
+
+## FixBlackScreenIssue startup adjustment research
+
+The inspected driver reads `FixBlackScreenIssue` from the adapter software key
+before its global fallbacks. On current Windows the global path uses the driver
+PersistentState and Parameters keys; the legacy service-root path is conditional
+on older OS branches. Explicit 1 forces the startup adjustment; 2 suppresses it.
+Absent values can inherit another scope or defer to BIOS matching. Explicit 0
+is not identical to absence: a successful lookup stops fallback before applying
+the BIOS-match decision.
+
+The traced initializer clears the six rail offsets, then the selected HAL
+callback subtracts 50000 uV from the REL offset of each rail whose active INFO
+domain selector at row+0x33 is 3. Getter support and that selector alone do not
+prove callback activation. Current runtime offsets also do not establish their
+origin, because other paths can replace them.
+
+A root-owned 1 -> 2 -> 1 -> original-absence trial on RTX5080 / 621.01 verified
+the complete startup differential. Value1 retained MSVDD REL offset -50000 uV;
+value2 changed it to 0. Reported MSVDD REL/effective moved 990000 -> 1040000 uV
+and returned. The five remaining offsets, the other rail, ALT/OV/VMIN, loaded
+equations and other configuration remained exact. Staging alone changed no live
+voltage state. Original registry absence and the full baseline were restored.
+Transient BOOST_LOW diagnostics settled through bounded read-only captures.
+
+`voltage_startup_runtime.py` now supplies the direct control contract. It owns
+only the first REL offset of current INFO-selector3 rails. Complete VFE
+definitions are stored once; all other rail words, INFO and opaque bytes remain
+exact. At zero boost only affected REL/effective policy can recompute; nonzero
+boost can also change shared boost and other REL/effective policy. ALT/OV/VMIN
+remain preserved. The runtime policy is observed without a predicted formula.
+
+The registry transaction applies an explicit DWORD1 or2 separately from other
+changes. It proves the initializer effect before replay, then checks the full
+projected requests. Undo restores the original registry type/value or absence,
+replays the original capture and requires exact original definitions and policy.
+A successful SET that ignored an offset fails readback and leaves recovery
+required if the original requests cannot be reproduced. This control does not
+claim that arbitrary preexisting runtime offsets are always recoverable.
+
+The UI uses explicit force/suppress choices and a leave-unchanged choice; it does
+not infer the active registry selection from a voltage number.
+
+## Independent VFE voltage-policy offsets
+
+`voltage_offset_scaffold.py` creates an independent constant head for each
+selected REL, ALT, OV or VMIN rail selector. Each new head adds a signed value
+to the selector's original equation. Original equations, internal links,
+variables and terms remain unchanged; in particular, ALT's original link to
+REL does not point to the new independent REL head. This keeps the four direct
+policy adjustments independent on the tested configuration.
+
+The planner validates the current VFE/rail layouts, owners, graph, native
+inventory and an existing loaded constant template with a present variable.
+It uses only canonical inactive slots inside the declared table capacity.
+For the understood v30 65-byte type-1 rail rows, the confirmed VFE word
+selectors are at +13/+15/+17/+19/+33/+35. The fields at +21 and +23 are decoded
+independently as bytes. Their namespaces remain unresolved: matching active
+VFE ordinals are retained as possible dependencies, and matching inactive
+slots are excluded from new-head allocation. Their neighboring bytes and
+other opaque regions remain unchanged. Treating those regions as additional
+16-bit selectors could falsely invalidate the graph or mark equations shared;
+the parser and offset planner now use the same width rules. Modeled alternate
+metadata tests pass, and the complete previously tested eight-head plan is
+byte-identical. This does not identify those bytes as VCRIT thresholds.
+
+These row offsets are decimal. A focused follow-up binds full WORD selectors
+33/35 to rail members +0x2E/+0x34 and native B201 INFO row +0x12/+0x18.
+Two read-only rounds matched the captured selectors and loaded definitions.
+Selector 33 has no proven evaluated role; its historical `INFO_VMIN.maximum`
+keys remain stable, but the visible label now says "unclassified rail equation
+ceiling" and explains the unverified role. The field stays read-only.
+Selector 35 has a conditional monitoring path. `4CD030` allocates or reuses a
+reference-counted slot (0..15), storing its handle in rail member +0x38;
+`4CD4B0` releases that handle. The numerical result is refreshed and read
+separately. Refresh can return success without a transfer when its enable
+condition is false, so registration success does not prove a current value.
+This corrects the earlier description of the handle as an evaluator result or
+Perf-state index. Selector 35 was absent on both captured rails; its voltage
+units, event and timing remain unproven. Earlier header field order does not
+establish boot/margin or VCRIT equivalence. Root reproduced seven additional
+source windows for this correction; the preceding selector-width and label
+change passed all 65 selected parser/scaffold tests. The
+[evidence record](experiments/driver-transport-followup-20261028.json) preserves
+the offset-convention erratum and these limits. Existing independent policy
+controls retain their qualification; arbitrary six-word replay is unresolved.
+
+Activation composes registry ROM overrides and performs one selected-GPU PnP
+restart. All heads start at zero. No table growth, VBIOS flash or Windows reboot
+is involved. Capability checks use the current inputs; tested GPU/BIOS/driver
+identities are not compatibility allowlists.
+
+`voltage_offsets_live.py` recognizes the installed heads against saved original
+definitions and fresh adapter-bound readbacks. It changes each signed constant
+through the existing native equation SET (`0x2080E0B7`) and verifies the full
+equation packets, exact selected reported-policy delta and retained requests.
+Effective limits are observed independently. Later recognition permits changes
+outside the owned VFE and rail regions; initial activation requires the whole
+planned image. Existing live edits to the original equations must be returned
+to their saved definitions before this recognition can succeed.
+
+With a confirmed zero voltage-boost request, the selected direct policy delta
+and other direct policies remain exact. For REL/ALT changes with nonzero or
+unavailable boost, the driver can recompute REL, effective limits and
+`boost_uv` on both rails. Those three outputs are retained as observations;
+the exact native head, selected ALT delta, all other ALT/OV/VMIN policies and
+retained rail/boost requests remain verified. An unavailable boost reading is
+not interpreted as zero and does not remove independently supported controls.
+
+A root-run fixed 25% boost trial verified all eight REL/ALT ±5 mV cases and
+their zero native-definition returns. Four rail-1 zero-return observations
+differed in derived fields; the recorded values remain available individually.
+The preceding trial stopped at its fifth case because its full zero-return
+comparison included changed `boost_uv` metadata; its failure is retained.
+Both trials restored the original complete voltage snapshot, image and registry.
+No physical voltage or universal boost formula is established.
+
+The panel's Apply and legacy offset-file Load now use a pre-write callback after
+validating the whole selected operation. It saves only changed prior offsets,
+with no snapshot for an unchanged request; a save failure prevents dispatch.
+These schema-2 `voltage_offsets` autosaves store signed, exactly representable
+microvolt values, slot and device metadata, never equations or opaque packets.
+**Profiles > Undo last write** manually restores the selected fields through the
+existing recognized-scaffold setter. A scoped load saves its selected pre-values
+and stops on the first failed offset. UUID/slot and the current scaffold are
+checked; driver/VBIOS labels are descriptive. No startup or post-reset replay is
+added. The existing native-picker schema-1 files remain compatible.
+
+The Undo integration has offline coverage. The local adapter had no installed
+offset scaffold during this increment, so live replay was not qualified and no
+registry activation or driver restart was performed merely to test Undo.
+[Voltage offset Undo evidence](experiments/voltage-offset-undo-20261102.json).
+
+The CLI and Controls panel expose read, set, capture and explicit profile
+replay. Profiles hold app-owned offsets, not the six cached legacy rail words.
+A driver restart reloads zero heads while the saved profile remains available
+for explicit replay. Values use signed int32 microvolts exactly representable
+as float32 constants. The type range does not establish a physical voltage
+range, and these offsets are not automatically included in ordinary tuning
+profiles or registry-transaction request replay.
+
+On the captured RTX 5080 configuration, eight new heads occupied inactive
+ordinals 1860–1867; eight selectors and their new rows changed 56 image bytes.
+All sixteen independent +5000/-5000 µV cases shifted the selected reported
+policy exactly, preserved the other direct policies and requests, and returned
+each head to zero. The immediate broad post-restart comparisons in those
+research runs failed; subsequent GET-only captures matched the original state.
+Those initial differences remain recorded and are not presented as passing
+full-broad comparisons.
+
+A separate root-run product CLI workflow enabled the heads, applied eight mixed
+signed offsets, captured a slot-bound profile, restarted the GPU, verified zero
+live offsets with the saved mixed values retained, and replayed the profile.
+All five CLI commands exited 0. Replay reproduced the complete mixed native
+voltage snapshot; final voltage, image and registry matched the original.
+An independent offline audit reconstructed whole INFO/CONTROL packets and
+verified that only the selected heads' constant words changed. A separate real
+Dear PyGui callback trial applied REL0 -5 mV and ALT1 +5 mV, saved a profile,
+zeroed those offsets and replayed the exact mixed native voltage snapshot.
+Only the native file-picker return path was substituted; physical input and
+the activation helper's GUI reopen were not exercised by this trial. This is one
+configuration and operating point without a physical voltage measurement or
+workload. Legacy six-word replay and modern F219 field semantics remain
+unqualified. See the updated
+[voltage follow-up](experiments/voltage-replay-followup-20261028.json).
+
+## PERF limit voltage requests and status
+
+The native PERF limit STATUS getter (`0x2080A023`) returns a 336,228-byte
+parameter block with a 512-bit selection mask and 512 rows at +0x964, stride
+0x28C. A fresh INFO inventory supplies the selection. The inspected type-6
+prefetch callback supplies the object type without reading tuning values from
+the caller's row; its staged status-query transport matches the existing B202
+rail-status path. Query staging and status-cache refresh are expected.
+
+Two root captures returned 244 type-6 rows, with 19 distinct raw row payloads.
+Both complete STATUS payloads matched. INFO and CONTROL readbacks before and
+after each STATUS query were byte-identical; root audited all ten complete
+request/response packets and reproduced twenty source windows. That raw query
+capture performed no SET, registry edit, GPU restart or workload. The
+[evidence record](experiments/driver-transport-followup-20261028.json) retains
+the geometry, packet hashes, comparisons and limits.
+
+These PMU-derived type-6 rows differ from the host type-0 voltage-request
+object. The latter has processed voltage debug outputs, but matching offsets
+do not give the type-6 fields the same meanings. Type-6 CONTROL also has
+different getter and setter copy offsets: its 0xB0-byte client-input block is
+returned at row +4 and imported from row +0. A base type mismatch can log and
+still return success. The row +0x1F4 field has no verified voltage meaning.
+No effective voltage writer or arbitrary six-word replay is qualified.
+
+The inspected PMU-capable GSP constructor supplies STATUS backing rows at
+buffer +0x750 + index * 0x1F0, for indices 0 through 511. Its final group
+serializer retains a 64-byte copy from backing +0x50 to payload +0x1C4.
+The type-6 serializer copies one backing-row client block to both STATUS row
++4 and +0xB4; those duplicate blocks are not independent results. These are
+conditional static paths, not a live loaded-handler observation.
+
+The selected STATUS row +0xB4 client block feeds the current type-4 voltage
+converter. It matches the source's rail, element count,
+signed global microvolt delta and 20-byte VFE element layout. The eight captured
+REL/ALT/OV/VMIN inputs have matching CONTROL and STATUS request fields; monitor
+indices and debug voltage outputs are separate fields. The debug outputs do
+not themselves establish fresh evaluation or sensed voltage.
+
+Two fixed +5 mV VMIN request experiments exercised the traced E025 row-offset
+transform. CONTROL and STATUS stored the intended delta, but the reported VOLT
+policy remained unchanged and the debug outputs were zero, including after a
+fixed five-second hold. Thus neither experiment qualifies an effective voltage
+writer. Original CONTROL and registry matched after cleanup, and the legacy
+reported VOLT policy stayed unchanged. Debug outputs remained zero in the
+immediate cleanup read; later reads matched the original selected client blocks
+and arbitration-shaped region. Root audited all 64 PERF limit packets across these
+experiments. No registry edit, restart or workload was used. The cause and
+timing of the later refresh remain unresolved; five seconds is not an interface
+latency guarantee. Older SDK sync-flag documentation does not establish that
+the inspected current setter honors that field.
+
+A further offline audit of both completed tests and the later read-only
+capture reports STATUS version 8 and the same 27 bits at +0x1C4. Those bits
+exactly match rows with a nonzero client-input tag at row +4 in these captures.
+In each test, the DWORD at +0x4C increments once after applying the request and
+once after cleanup, while the aggregate header bytes +0x50 through +0x963 stay
+identical. Neither this counter nor the bitmap proves numerical evaluation or
+identifies an arbitration winner. Root reproduced 16 static byte windows and
+independently checked both terminal trials.
+
+The candidate's default queue receiver now has a traced normal reply path:
+it processes a state-2 record, copies the command response, derives its status
+and then resets the record. The synchronous sender returns the mapped response
+status unchanged for a valid family and index. This submission's destination
+is a 20-byte command header; a received flag can select a local 16-byte header
+instead. That copy is separate from the large STATUS buffer. Its setup helper,
+on the constructor's initial descriptor branch, derives the backing pointer
+from a selected resource's +0x40 base plus offset 0x27BF10. The transport
+validator checks a different +0x38 field. The base allocation, active runtime
+dispatch and receiver-side numerical voltage evaluator remain unbound.
+Root independently reproduced 11 further byte windows. These offline audits
+made no new GPU call or mutation and do not qualify arbitrary voltage replay.
+
+Two subsequent fixed, read-only `FLCN_GET_ENGINE_ARCH` queries (`0x20803118`,
+8-byte parameters, PMU engine `0x29`) returned 3, named `RISCV_EB` by NVIDIA,
+on the captured RTX 5080. Both complete exchanges matched and returned zero
+transport/RM status. This establishes the API-reported architecture, not an
+exact loaded image or voltage effect. The candidate image's inspected
+materialization, staging and fallback bodies copy bytes without a visible CPU
+decoder; the shown selector-2 ordinary copy request leaves its optional
+secure-copy gate disabled.
+These observations do not classify the payload's encoding. The matching
+descriptor prefix's +0x4C value, 0x71F000, is `fbReservedSize` in NVIDIA's header:
+space for the image and reserved memory, not a decoded-output length. No tuning
+SET, registry edit, restart or workload was used in the architecture query.
+
+An offline comparison of NVIDIA-signed 617.14 package data with the installed
+621.01 driver identifies a specific legacy write-suppression path. The older
+`Perf` constructor clears the gate byte tested by its six-word rail setter.
+The current constructor sets the corresponding gate for its compiled GB20x
+selectors; when nonzero, the setter skips all six request-word copies and can
+return success. Root followed named class metadata to both chip initializers
+and evaluated all seven GB20x mappings independently in each binary. GB203 maps
+to selector 0x42 in both, so this is not inferred from stable selector numbers.
+The older type-5 factory, group dispatch and inherited setter chain are also
+traced. Root reproduced 28 source windows for the corrected comparison.
+
+This establishes constructor and setter behavior in the inspected code, not a
+live gate value, the current local/firmware dispatch route or physical voltage
+enforcement. Later gate changes remain unverified. The original comparison used
+an extracted older package; subsequent installed 617.14 and 617.42 live trials
+confirmed all six request words could be changed on both rails, as documented
+above. Candidate
+firmware comparisons retain separate layout and loaded-image limitations.
+
+The [mVolt+ public guide](https://github.com/b00nz/mVolt/blob/2a78e42fb7026dd3d068b03d9e017bb58368f0f4/docs/guide.md#driver-62101-and-later)
+reports this symptom for RTX 50 on 621.01 and later. That author claim is context,
+not a compatibility rule or independent proof of the cause. Product capability
+checks remain independent of driver-version allowlists. The working independent
+REL/ALT/OV/VMIN equation-head controls retain their qualification. Legacy request
+storage is now demonstrated on 617.14 and 617.42, while VCRIT effective thresholds
+remain unresolved. The owner confirms 617.42 was the final release before
+621.01, correcting the earlier reference to an intervening 620 release. Combined
+with the live results, that identifies 621.01 as the first suppressed release in
+that sequence for the captured RTX 5080 configuration. Recovery and profile-restoration work
+remain deferred.
+
+## Live client power requests
+
+When the modern INFO packet is rejected with INVALID_ARGUMENT, a Pascal,
+Turing or Ampere adapter may expose a smaller 32-row client layout. Druta tries
+that known
+read-only layout and requires an exact semantic-role/native-INFO binding, a
+stable restorable FE request, matching native CONTROL, and PCI pairing before
+enabling a SET. Packet sizes are capability checks, not driver-version or
+device-ID allowlists. Ada's smaller INFO packet has an independent trace, but
+the 184-byte native CONTROL rows and SET have been validated here on the
+RTX 3070 Ti; packet rejection remains an independent unsupported result.
+
+`LEGACY_GROUP_ARCHITECTURES` lists the generations whose client power-policy
+semantics have been validated against a live adapter and may therefore take
+this fallback. Generation decides whether the semantics are understood at all;
+*which* group a card speaks is still decided by read-only INFO acceptance and
+exact readback. Widening that list is a hardware-validation result, never
+something a refused modern INFO infers on its own.
+
+### The captured transport and the current-policy record layout are separate
+
+Druta borrows a paired RM transport from an unmodified power getter and reuses
+its handles. `_CURRENT_LIMIT_LAYOUTS` separately maps that getter's packet and
+parameter sizes to a *current-policy record* layout — the A618/A619/A61A/E61B
+sizes, bases and strides behind the current (A) sliders.
+
+`GPU._rm_power_transport` answers only the first question. It validates the
+envelope it has to reuse: a 17-word header of a known command family whose
+packet length is its parameter length plus the 68-byte prologue.
+`GPU._current_limit_transport_layouts` then selects the record layout on top
+of it, and a parameter size no entry describes raises
+`CurrentLimitUnsupported` without discarding the captured transport.
+
+The client-power group does not consult that table at all, because it selects
+its own packet sizes by read-only INFO acceptance. So a driver whose
+current-policy records are unknown loses the current (A) sliders and keeps
+live power (W). The loss is reported as an unsupported interface rather than a
+failed read, so profiles stay complete and "Reset all to stock" does not fail.
+PERF diagnostics keep their own independent transport restrictions.
+
+A Gigabyte GTX 1060 6GB (GP106) on driver 576.80 presents an A612 transport of
+11740/11672 bytes, which no earlier entry described, and reaches the same
+1160-byte client group and 124-byte native controls as Turing 581.42. Role 1
+uniquely bound client row 0 to native policy 2 with 90/180/200 W bounds. Idle
+190/201/250 W requests, the latter two above the reported maximum and behind
+XOC, passed exact readback and full restoration of the captured 180 W state.
+See the [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md) and
+its sanitized report. These are idle software observations on one adapter and
+one driver; they do not establish physical enforcement under load.
+
+### Generation lists are per packet family, and stay separate
+
+Two constants record which GPU generations have had their client power-policy
+semantics qualified against a live adapter: `LEGACY_GROUP_ARCHITECTURES` for
+the smaller A6xx client group and `RM26_ARCHITECTURES` for the `20802612`
+families. They are `(4, 6, 7)` and `(4, 6)` and are deliberately not merged —
+a generation qualified against one packet family is not thereby qualified
+against the other, and merging would silently claim Ampere on RM26.
+
+Generation decides only whether a family's policy semantics are understood at
+all. Which packet sizes a card speaks is still decided by read-only
+acceptance and validated by exact binding and readback.
+
+### A wrong parameter size is refused with RM 0x1F or RM 0x3A
+
+Which one a driver uses is a property of **that driver**, not of the command
+family: 516.94 returns `0x3A` on the A612 family that 572.83 and 576.80
+answer with `0x1F`. `SIZE_REFUSALS` carries both, and both select the next
+candidate size; anything else stays transient and selects nothing.
+
+### A transport's identity is its command and its packet geometry
+
+`_CURRENT_LIMIT_LAYOUTS` is keyed on `(command, packet_bytes,
+parameter_bytes)`. 3548/3480 is one record layout under `20802612` and a
+different one under `2080A612` — different role, native INFO and native
+STATUS records — so size alone cannot identify a layout.
+
+For the same reason the client group tracks its command family (`_rm26`,
+which selects the 26xx wire commands) separately from its record layout
+(`_rm26_records`, which selects the compact bases, strides and mask words).
+The 26xx transports imply both; `A612_COMPACT_SIZES` is a driver that answers
+the A612 family with compact records.
+
+### The role GET size fixes the native policy record stride
+
+`2080A61C` returns a 4-byte semantic selector followed by exactly one native
+policy INFO record, so the size it accepts fixes that record's stride:
+264/260, 232/228, 220/216, 136/132 and 120/116 across every ABI measured.
+`_definition_stride` therefore derives the stride from the accepted role size
+instead of carrying it per table, and `_native_geometry` records it on the
+binding as `native_info_stride` only when it differs from that layout's usual
+record size, so bindings captured on previously supported ABIs stay
+byte-identical.
+
+The derived value is never trusted on its own. The role definition must still
+bind to exactly one occupied native policy, which is the check a wrong stride
+fails. The role GET also negotiates its size: a refusal with RM `0x1F` — a
+definite answer about the request's shape — tries the one other understood
+small-group record size, while a transient error selects nothing, matching
+the existing client and native INFO fallbacks.
+
+A GP106 on driver 572.83 presents an A612 transport of 3676/3608 bytes with a
+220-byte role GET and an 8236-byte native INFO block of 216-byte records,
+while sharing the 1160-byte client group, the 4432-byte native CONTROL and
+the 171048-byte native STATUS with the 11740/11672 transport. See the
+[572.83 evidence](experiments/pascal-gp106-driver57283-20261102.md).
+
+### A shared info and control block does not imply a shared status block
+
+The 11740/11672 entry added for that adapter shares the 8620-byte info and
+4432-byte control blocks, and their headers and strides, with the 11748/11680
+entry. It does not share the status block. This driver refuses the 172080-byte
+status GET with RM `0x1F`; 171048 is the only size it accepts across a
+140000..210000 sweep at 4-byte steps.
+
+The record geometry was solved from live data rather than carried over. With
+the mask at word 1 the driver populates the block; across every `(base,
+stride)` with base 0..2048 and stride up to 12000 at 4-byte steps, exactly one
+pair makes all ten occupied policies' status type bytes equal their info type
+bytes and puts every effective value inside that policy's own info bounds:
+base `0x68`, stride `0x1434`, against Turing's `0x70` and `0x1454`.
+
+This matters because `_current_limit_state` reads the status record for three
+things a wrong stride would silently corrupt: the type cross-check, the
+effective limit, and the live value. `set_current_limit_ma` then gates on the
+effective limit before writing and verifies it after, so the status block is
+load-bearing for writes and not merely telemetry. `tests/
+test_current_limits_pascal_status.py` asserts one case per status field that
+carrying the Turing value over breaks the read.
+
+Turing is also eligible to probe the smaller client layout. After explicit
+RM INVALID_ARGUMENT rejection of the 8632-byte native INFO, the controller
+tries 8620-byte INFO with the same 88-byte header / 228-byte rows, paired with
+4432-byte native CONTROL (20-byte header / 124-byte rows) and 172080-byte
+STATUS (112-byte header / 5204-byte rows). Binding retains `layout=legacy32`
+and records `native_layout=policy124`. Request projection, peer validation and
+restoration use the selected native stride. No size fallback follows a
+transient error; no board identity or driver string selects the ABI.
+
+Paired GETs on a Gigabyte RTX 2080 SUPER AORUS Xtreme / 581.42 uniquely bound
+role1 client row0 to native policy2 with 105/250/350 W bounds. Idle 349/351/400 W
+requests and production-backend current-pin replay restored the full captured
+350 W initial state after every trial. A 400 W request derived 378 A core
+current against its advertised 360 A maximum. Turing now retains that
+observation under the same exact matching-table and requested/effective checks
+as Ampere; new current requests remain bounded. These software observations do
+not establish physical enforcement under load. See the
+[Turing evidence](experiments/turing-tu104-live-power-20261028.md) and sanitized
+report for complete geometry, sample values and restoration hashes.
+
+The [offline driver ABI comparison](experiments/turing-driver-abi-review-20261028.md)
+records the investigation before the supplied 431.60 and 621.01 drivers were
+installed. The subsequent [live comparison](experiments/turing-driver-live-comparison-20261028.md)
+qualified configured-request acceptance, readback and restoration through both
+interfaces on the same P0-sensitive board without a Windows reboot. The
+[431.60 static layout evidence](experiments/turing-43160-static-layout-20261028.md)
+adds exact wrapper/kernel instruction bytes, RVAs, hashes and command-table
+entries. Binary identities identify evidence; they do not select support.
+
+The short `20802612` transport is 2524/2456 bytes, independent of the previously
+supported 3548/3480-byte transport. The accepted short geometry is:
+
+| Operation | Wire command | Parameters | Mask and rows |
+| --- | --- | ---: | --- |
+| Client INFO | `20802630` | 644 | Mask +0; rows `4 + 20*i` |
+| Client CONTROL GET / SET | `20802632` / `20802633` | 388 | Mask +0; rows `4 + 12*i`, request +4, caller +8 |
+| Role INFO | `2080261C` | 120 | Selector 1; 116-byte native definition +4 |
+| Native INFO | `20802618` | 5008 | Mask +4; rows `52 + 116*i` |
+| Native CONTROL GET / SET | `2080261A` / `2080261B` | 2108 | Mask +0; rows `4 + 52*i`, request +4 |
+| Native STATUS | `20802619` | 14148 | Mask +0; rows `12 + 372*i`, effective +4 |
+
+The 32-bit occupancy masks bound row capacity independently of unused packet
+tails. Native policy type, units and bounds retain row offsets +4, +6 and
++8/+12/+16. The short CONTROL has a one-word header; selected-mask construction,
+header validation, current writes, full-policy writes, pin replay and
+restoration use its mask offset. Recognizing this power transport does not
+enable modern PERF diagnostic commands on it.
+
+The distinct 3548/3480-byte `20802612` transport was qualified on the same
+TU104 with 472.12 in 1.9.05. Its accepted geometry is:
+
+| Operation | Wire command | Parameters | Mask and rows |
+| --- | --- | ---: | --- |
+| Client INFO | `20802630` | 900 | Mask +0; rows `4 + 28*i` |
+| Client CONTROL GET / SET | `20802632` / `20802633` | 388 | Mask +0; rows `4 + 12*i`, request +4, caller +8 |
+| Role INFO | `2080261C` | 136 | Selector 1; 132-byte native definition +4 |
+| Native INFO | `20802618` | 5520 | Mask +4; rows `60 + 132*i` |
+| Native CONTROL GET / SET | `2080261A` / `2080261B` | 2124 | Classic header, mask +16; rows `20 + 52*i`, request +4 |
+| Native STATUS | `20802619` | 69148 | Mask +0; rows `100 + 2088*i`, effective +4 |
+
+Role1 uniquely bound existing FE client0 to native policy2 with a 250 W
+request and 105/250/350 W ordinary limits. The client and native indices are
+observations, not eligibility conditions. Selection follows exact captured
+transport geometry and validated definitions; this layout remains separate
+from the short interface and modern command families.
+
+On the observed 431.60 interface, role1 uniquely bound client row0 to native
+policy2. The raw FE caller returned the existing 250000 mW request. The public
+NVAPI wrapper's separately traced F8 conversion does not redefine that raw RM
+caller; Druta changes the existing validated FE request, without seeding a
+missing caller. These local row numbers are evidence, not compatibility gates.
+
+On 621.01, the accepted modern INFO/CONTROL/STATUS sizes were
+20512/13876/397048 bytes, carrying a v30 firmware definition in 260-byte native
+INFO rows. Firmware table version and RM packet capacity are independent.
+Selected role/native definitions must match exactly; the modern packet accepts
+the understood v30 or v40 definition, while unknown versions remain refused.
+
+For v30 firmware definitions in any understood packet family, a board SET can
+recalculate other occupied policies. Druta validates their type, units, bounds
+and changed request words while preserving all other bytes; it re-applies this
+session's user-pinned values. A failed SET compensates the board request and
+restores changed peer requests, reporting whether the complete captured state
+was recovered. The selected native geometry drives both checks and recovery.
+Derived current above an advertised maximum requires an extended v30 board
+request and matching complete native INFO/CONTROL snapshots. Effective current
+must equal the stored request or saturate at that policy's reported maximum.
+The latter observation is supported in 1.9.05; it does not admit an independent
+above-maximum current request. Independent writes remain bounded by their own
+descriptors, and applying a value equal to the saturated effective limit still
+writes when the stored request differs.
+Arbitration details can remain unavailable independently of the request
+control.
+
+Both 431.60 and 621.01 accepted and read back idle 349/351/400 W configured
+requests against the same 105/250/350 W ordinary range. Paired native STATUS
+captures on 431.60 first reported effective board limits of 349/350/350 W,
+then settled within about 0.3 seconds at 359.906/360.938/360.938 W. Four further
+samples per request agreed with the settled value; core current remained at
+324 A throughout. The plateau is consistent with a 350 W clamp plus a driver
+status uplift, rather than a strict 350 W reported effective cap. Configured
+request acceptance therefore does not qualify downstream override on that
+interface or resolve physical behavior. On 621.01, all five samples per request
+reported native effective limits of 359.906/361.969/412.5 W and core current was
+359.640/360.360/378 A. This reports
+software headroom above the ordinary maximum, not measured physical power.
+The control view independently shows the NVML enforced limit alongside the
+configured request; these reported controls do not measure actual power draw.
+Production 351 W checks on both drivers re-applied a separate 350 A pin
+after a repeated board request and refused an independent 360.001 A request.
+Every trial restored its complete captured 250 W client/native baseline with
+the V/F hold unchanged and P0 verified. The original 581.42 trials above had a
+350 W initial baseline. No workload or calibrated physical-power measurement
+was used in these driver comparisons. The separate
+[owner FurMark observation](experiments/turing-owner-furmark-ab-20261028.md)
+supports an operative limit increase during the preceding 581.42 session;
+physical enforcement on 431.60 and 621.01 remains unmeasured.
+
+On 472.12, 349/351/400 W configured requests passed exact readback and complete
+client/native restoration to the 250 W baseline. NVML's enforced getter echoed
+349/351/400 W. The new native effective getter initially returned 349/350/350 W,
+then four settled samples per request returned 359.906/360.938/360.938 W. Raw
+STATUS reads followed the getter and were already settled. Core-current stored
+requests were 359640/360360/378000 mA while effective values were
+359640/360000/360000 mA. The exact v30 proof above retains those observations;
+independent requests remain bounded at the reported 360000 mA maximum. A
+separate 350 A pin survived a repeated 351 W board request. All four power
+trials restored the complete captured client/native state and P0 hold without
+a Windows reboot. The native plateau leaves downstream override unqualified;
+these readings do not measure physical power. See the
+[472.12 evidence](experiments/turing-47212-compatibility-20261028.md).
+
+On the ASUS Strix RTX 3070 Ti / 595.97, the production setter accepted and
+read back 381 W against a reported 380 W maximum at idle. A 65.9 W pinned
+peer survived the board request after reapplication. The original 310 W board
+request and complete captured controls were restored. No physical board-power
+or downstream firmware enforcement measurement was made; this board is shunt
+modified. See `experiments/ampere-live-client-power-20261027.md`.
+
+`client_power_runtime.py` binds the unique milliwatt client-role1 inventory to
+semantic-role INFO and an identical occupied native policy row. The external
+client index and native policy index are distinct namespaces. Two complete
+stable INFO/CONTROL observations establish the existing FE request. The live
+`0x2080E633` setter, or short-interface `0x20802633`, changes that request once and verifies the exact client and
+selected native CONTROL; other native bytes are preserved except for the
+validated v30 peer request words described above. A dispatched failure
+attempts one compensating original SET and exact restoration readback. Optional
+power STATUS is diagnostic; it never replaces accepted-request readback.
+
+`GPU.set_power_limit_mw` retains NVML for ordinary requests. Established live
+extensions, a return from an active extended request, and an unavailable NVML
+setter use the paired live controller. No second setter is attempted after a
+live dispatch fails. The existing XOC switch admits positive whole mW requests
+up to Druta's 1999 W software cap, widened to retain a higher ordinary maximum
+or observed endpoint. This is not a physical ceiling or a claim of PMU bypass.
+With XOC off, only the normal range and the observed extended endpoint remain.
+A prior capability can retain its UI range after a transient observation failure;
+any SET still requires fresh complete readback. Missing NVML range metadata can
+be populated from the live binding; absent unrelated STATUS does not remove it.
+
+After Power Apply, the frontend reads the configured request again and
+synchronizes both slider and numeric input to it. A mismatch is a reported
+failure even if a setter returned success. Missing readback is explicitly
+unverified; any retained slider value is labeled as this adapter's last verified
+value until a fresh valid poll resolves it. This status is separate from the
+NVML-reported enforced limit and native effective limit.
+
+`GPU.read_native_power_limit_mw` reads native effective status independently of
+NVML. It requires the live role binding, identical complete native INFO and
+CONTROL snapshots, an occupied matching policy type, milliwatt units and a
+selected CONTROL request matching the configured board request. The selected
+STATUS type must also match. A failed, changed or malformed native read remains
+unavailable; NVML agreement cannot substitute for that read, and its absence
+does not disable the ordinary power slider. None of these configured or status
+values establishes actual electrical power draw.
+
+With a v40 firmware definition, peer CONTROL remains exact and existing pin
+bookkeeping is retained without adding pin writes. A policy Stock action under an extended board request writes
+its selected default and verifies the board request stayed exact; it reports
+that host-derived limits were not recomputed. It does not send an intermediate
+ordinary board request. Profiles validate against the same bounds, and capture
+marks an extended carryover as requiring XOC for later replay.
+
+The 1999 W request envelope does not imply a monotonic native effective limit.
+An eight-point idle sweep on one RTX 3070 Ti exactly fit
+`round_half_up(request_mW * 33 / 32) modulo 2^20` for settled native board
+status, while NVML retained the complete request and eight coupled peers
+continued extrapolating from their advertised endpoints. The 1999 W hold lasted
+thirty seconds and restored the complete baseline. This is evidence of a wrap
+along the native status path; the conversion site and physical enforcement
+remain unproven. The observations do not select an architecture-wide cap or
+alter decoder widths. See `experiments/ampere-live-client-power-20261027.md`
+and its sanitized numerical summary for the full scope and timings.
+
+The root production controller trial on RTX 5080 / 621.01 accepted 249 W,
+451 W and 999 W and restored the exact original 360 W request after every
+round. Independent full BIOS, registry and retained configuration matched the
+original baseline. At 999 W, source PMU request was 999 W while downstream
+policy2/7 arbitration remained 450 W. No GPU restart, registry write, workload
+or Windows reboot was used. These observations do not measure electrical
+power enforcement or identify mVolt's implementation.
+
+The same-slider frontend trial additionally verified XOC-on 999 W, XOC-off
+movement to 950 W, rejection of a subsequent upward request, exact 451.001 W
+profile replay, and capture of extended carryover with XOC required. Returning
+to 360 W restored the complete independent baseline without a driver restart.
+
+
+## Original power range coloring
+
+`power_range_baseline.py` resolves the original minimum/maximum for the existing
+power knob from the dynamically bound client-role1 policy. Its read-only metadata
+path requires client INFO, semantic-role INFO and matching native INFO; it does
+not depend on an editable current request or power STATUS. The current BIOS must
+match that binding. With active Druta overrides, the existing receipt chain and
+hashed ROM backups establish the earliest original image. Preexisting external
+BIOS overrides without a trustworthy original remain unknown. Missing provenance
+affects coloring only; it does not remove the existing power control.
+
+The reader also understands the existing smaller client/role/native INFO
+layout. BIOS table version and native packet format are checked separately.
+For supported v30 table geometries, the full policy class combines the low
+nibble at row+0 with the low nibble at row+0x42. Only full class 1 has a traced
+translation to runtime class 0; other v30 classes remain unmapped. The
+[signed-driver trace](experiments/power-v30-class1-20261028.json) follows that
+class through construction and both native INFO serializers. Exact policy
+index, class, channel, units and all three bounds must still match. The same
+class binding can satisfy the existing persistent power contract for editable
+layouts. The RTX 3070 Ti read-only capture identified a shorter
+`0x30/0x2C/0x47` table. Its bounded common fields support inspection and
+original-range comparison. The persistent planning follow-up below remains
+separate from this read-only target qualification.
+The selected full class 1 row, channel, units and all three limits matched the
+actual native/client policy; the original-range getter returned 100–380 W with
+`live-bios` provenance and unchanged image, registry and configured requests.
+This establishes the current live-image baseline, not a manufacturing-stock
+flash or persistent activation/restart behavior. Original receipts and ROM
+hashes remain required when an image override is active.
+[Target qualification and limits](experiments/ampere-provenance-qualified-20261029.json).
+
+The shorter row is explicitly accepted by the same signed driver: 5A4402
+selects descriptor `2b8d3b2w1b6d1b1d`, and 5A466E calls the decoder directly.
+It consumes 0x47 source bytes into 24 DWORD slots (0x60 bytes); the caller's
+0x74-byte initialization is buffer capacity, not decoded size. The decoder
+checks the row against the backing image and the caller rejects its error.
+The planner retains stricter complete-table bounds. Full class1 uses the same
+class0 constructor and native INFO mapping for its three limit DWORDs. The
+separately consumed row+43 DWORD and every other byte remain unchanged.
+
+Only that shorter-row class's minimum/rated/maximum fields now accept plans.
+Other full classes remain read-only. Existing typed contracts require the
+current adapter's complete native class, channel, units and bounds to match;
+Apply verifies the exact loaded image and selected/peer metadata, and Undo
+retains its existing durable recovery path. This source implementation and its
+offline tests do not qualify activation/restart on the 3070 Ti. The remote task
+uses `experiments/validate_short_power_override.py`: default GET-only preflight,
+then explicit `--run` for one 1000 mW maximum increase and durable Undo. Complete
+client/native buffers are projected independently and full fresh snapshots are
+retained for peer review. No workload or physical enforcement is claimed.
+[Short-row consumer and pending target validation](experiments/power-v30-short-row-20261029.json).
+
+`power_slider_style.py` tints only the portions of the native slider outside
+those original bounds and colors the adjacent numeric input amber for an
+out-of-range requested value. Original endpoints are inclusive. The native slider
+still handles input; the drawing follows its bounds, position, clipping and UI
+scale. Per-frame and input/mirror refreshes cover programmatic values and rebuilds.
+Colors describe the original range, not electrical safety or measured power.
+
+The opt-in developer capture commands exercise DearPyGUI rendering and selected
+programmatic callbacks. `--ui-capture NEW_DIRECTORY` requires a new directory,
+pauses ordinary callback dispatch and refresh while capturing, restores staged
+widget state, and performs read-only live-panel checks; its synthetic error frames
+are labeled and rejected before a writer. Recovery capture uses an accepted
+result envelope and does not itself invoke Apply or Undo. The scoped trial
+variants require their documented target, snapshot and restoration checks. They
+are developer evidence tools, not ordinary startup behavior or physical-input
+qualification. Framebuffer output must be assessed alongside the recorded state:
+pixels do not independently prove receipt, button or hardware state.
+
+The developer capture modes are opt-in. Initial output directories must be
+new and their parent directories must already exist. Capture modes cannot be
+combined with each other or `--startup-profile`; the recovery modes require an
+accepted `--recovery-result`, while ordinary capture modes cannot use one.
+Registry trial continuations use the saved receipt and selection through their
+helper relaunches. These commands stage input programmatically, not with
+physical mouse or keyboard input.
+
+| Mode | Operation and prerequisites |
+| --- | --- |
+| `--ui-capture NEW_DIRECTORY` | Display-only walkthrough with read-only live-panel checks and labeled synthetic parser errors; it does not invoke a tuning or registry writer. |
+| `--ui-capture-recovery NEW_DIRECTORY` | Read-only presentation of an accepted recovery result, registry receipt/Undo state and control log; no Apply, Undo or live-voltage callback. |
+| `--ui-capture-recovery-undo NEW_DIRECTORY` | Invokes the normal RegistryPanel Restore path for an accepted pending recovery receipt, including the selected-GPU restart and helper relaunch. |
+| `--ui-capture-live-vmin NEW_DIRECTORY` | Applies +5 mV to the unique ready rail-0 VMIN row through the live panel, captures and restores it. Requires the device-derived maximum and exact controller readbacks; interruption cleanup attempts the captured original. No registry write or GPU restart. |
+| `--ui-capture-live-rel-bounds RAIL VALUE_UV NEW_DIRECTORY` | Fixes both REL head bounds through the live panel, captures and restores them. Rail must be 0 or 1 and the value a positive signed-32-bit microvolt integer; understood original bounds are required and a fixed no-op is rejected. A guarded fallback is identity-bound and refuses a changed target, image or selected equation. |
+| `--ui-capture-pstates-trial NEW_DIRECTORY` | Previews, applies and restores the all-P-state editability Boolean through normal registry callbacks and durable helper/receipt flow, with selected-GPU refreshes. |
+| `--ui-capture-power-trial NEW_DIRECTORY` | Previews, applies and restores a +5000 mW board-policy maximum through the normal registry workflow. Requires a role-1 policy with independently matching editable mW bounds and native maximum contracts; transformed maxima are refused. It does not issue a live client-power SET. |
+| `--ui-capture-lpwr-trial FAMILY NEW_DIRECTORY` | Previews, applies and restores enabled editable row 0 for `gr_pg`, `ms`, `nvdec`, `nvenc`, `ofa` or `nvjpg`, using the selected family's understood enable bit and normal receipt/helper path. |
+| `--ui-capture-lpwr-rows FAMILY ROWS NEW_DIRECTORY` | The same registry workflow for distinct comma-separated enabled editable row indices 0–4; selection is preserved across helper relaunches. |
+
+The saved trials include actual source rollback, helper recovery and GUI Restore
+paths, plus a historical pending-result replay. A clipped log and early state
+or curve differences remain recorded; later matching observations do not prove
+a general settling time or cover every failure path, adapter or physical
+input. Numeric power and live-panel captures similarly establish only the
+specified frames and readbacks. See [recovery and presentation evidence](experiments/ui-recovery-result-qualified-20261029.json),
+[power capture](experiments/ui-render-capture-20261028.json),
+[live-panel capture](experiments/ui-live-panels-capture-20261028.json), and
+[registry power qualification](experiments/ui-registry-power-qualified-20261029.json).
+
+## Configured low-power contracts and qualification
+
+LPWR, MS, NVDEC, media and GRPG BIOS contracts validate the selected table
+geometry, paired adapter identity, current runtime capabilities and independent
+native routing before an edit. Their projections use current adapter metadata;
+tested board identities are not allowlists. Apply checks the exact image and
+selected and understood peer outcomes after the selected GPU refresh. Undo
+restores the captured registry/image and repeats the applicable checks. Unknown
+bytes, unavailable peers and opaque packet tails are not treated as proof of
+an outcome. A valid zero mask is distinct from an unavailable query. Previously
+prepared image-only receipts may remain undoable; new semantic edits require a
+fresh typed preview.
+
+The MS v10 table at BIT P+0x84/object 0x3A supplies six runtime slots. Its rows are
+stepped by their declared size: 16 bytes on the 5080 ROM, 15 on the RTX 3090 Ti
+Kingpin's legacy-table ROM, which has no object owner; flags stay at row+0 and the
+selector at row+8. The DIFR witness is read the same way. The loaded
+P-state LPWR index selects byte 2 of its index row, with slot 5
+as fallback. Controller support, configured P-state masks, type-1 role 1 and
+type-7 role 1 are separate outcomes. The qualified projections require the
+current support, feature, auxiliary and DIFR witnesses; unavailable or
+contradictory dependencies refuse that projection rather than assuming a
+missing peer. They include aggregate-preserving changes, full shutdown,
+selected partial aggregate losses with retained contributors, the separately
+bounded no-DIFR case, and mapping-covered retained-role cases. Selector
+coverage is derived from the adapter's mapping, not a fixed device table.
+Full shutdown can make the entire type-7 query group unavailable; this is not
+an independently verified empty group mask. Other aggregate losses, support
+cascades, mixed dependencies and unknown layouts remain unqualified.
+
+An earlier MS research projection omitted a shared controller and failed before
+the corrected model; another missed the type-1 role change. The retained
+negative trials restored their original state. Later source trials and packaged
+programmatic callbacks verified the specifically documented cases, including
+partial and full shutdown, with full packet and image comparisons. Some early
+BOOST_LOW or curve samples differed before later exact observations; no fields
+were excluded and no universal settling delay or cause follows. The packaged
+callback checks do not establish physical input, physical residency, savings or
+all adapters. See [MS configured-state evidence](experiments/ms-configured-qualified-20261029.json),
+[mapping-covered loss](experiments/ms-mapping-loss04-qualified-20261030.json),
+[neighbor losses](experiments/ms-mapping-neighbors-qualified-20261030.json),
+[loss 0x20](experiments/ms-loss20-qualified-20261101.json), and
+[retained mapping class](experiments/ms-retained-class-qualified-20261101.json).
+
+The NVDEC and NVENC/OFA/NVJPG v10 tables use their own row, flag and
+controller mappings. Their contracts validate supported primary controller,
+feature and type-4 role outcomes; unsupported alternates must be independently
+established where required. NVJPG's relevant flag differs from the other media
+rows, so an ignored bit is not substituted for its enable field. Last-role
+shutdown can make type-4 queries unavailable; a query failure is not reclassified
+as an empty mask. Unrelated supported roles and native peers retain their own
+checks. No-peer and compound profiles remain bounded by their recorded support,
+routing and fresh readback conditions, not by one board's values.
+[Scoped NVDEC evidence](experiments/nvdec-configured-qualified-20261029.json),
+[media evidence](experiments/media-lpwr-configured-qualified-20261029.json), and
+[last-role qualification](experiments/media-type4-last-role-qualified-20261029.json)
+record the source and packaged results, including retained negative observations.
+
+GRPG type-4 availability is also conditional on its group and supported roles;
+contracts compare the actual exposed availability and other independently
+readable masks rather than inventing an unavailable group value. The scoped
+[GRPG availability evidence](experiments/grpg-bit1-availability-qualified-20261029.json)
+records source transitions and their limits. The opt-in LPWR UI trial uses the
+normal panel preview and transaction callbacks only for selected editable rows;
+it captures before, preview, active and restored frames and retained readbacks.
+Its [qualification](experiments/ui-lpwr-configured-qualified-20261029.json) is
+limited to the selected transitions and programmatic input. It does not prove
+physical gating or cover every family, failure, device or operating point.
+
 ## Source for a binary release
 
 Every tagged release on GitHub carries the Corresponding Source for the
@@ -1625,3 +5268,40 @@ source that goes with a given build.
 "Druta" and "Thermetery" are trademarks of Thermetery Technology Co Limited.
 The GPL grants no rights in them: you may redistribute and fork the code, but
 not use these names to brand a derivative.
+
+## PMU statistics provenance
+
+The saved host trace identifies a controller-specific address handoff used by
+the existing scalar/64-byte statistics readers. The producer, units,
+reset/latch behavior, wrap and independent freshness contract remain unknown.
+A conditional host construction path narrows the possible endpoint on the
+captured architecture; it is not evidence that a particular firmware receiver
+ran or a basis for a device-specific compatibility gate. The available public
+index did not match the installed bundle's metadata ordering, so its labels
+cannot be assigned by ordinal. Current diagnostics describe configured support
+and masks, not physical residency. [Source provenance and limits](experiments/lpwr-telemetry-provenance-20261029.json).
+
+## Live fixed REL equation bounds
+
+The live controller's `set_fixed` changes only the lower and upper CONTROL
+floats of an understood type-7/native-type-6 REL root; `restore_bounds`
+restores both from the current ROM definition. The existing upper-only setter
+remains separate. Each operation binds the current identity, graph, terms and
+complete peer packets, uses the existing E0B7 transport and verifies the full
+definition. A dispatched failure attempts one compensation to the captured
+pre-write row and retains the error and recovery result. Apply and Restore also
+require independent boost and affected-rail policy readbacks. Exact definition
+readback does not establish the final chained limit or physical voltage.
+
+The source trials and later packaged programmatic callback trials exercised
+both rails and restored their captured requests and definitions. Early active or
+post-Restore curve differences were retained; subsequent matching observations
+do not prove a general settling interval. An initial packaged BOOST_LOW request
+difference was also reproduced by a separate display-only process, while one
+warmed isolated GET sequence did not reproduce it. Its driver producer and
+physical effect remain unbound; no comparison was relaxed. These trials cover
+the documented configurations and programmatic callbacks, not physical input,
+other devices or general fault recovery. Later six-word legacy request limits
+are described under **Voltage rail requests and explicit replay**; VCRIT
+effective thresholds remain unverified.
+[Source trials, investigation and qualification](experiments/voltage-live-bounds-20261029.json).

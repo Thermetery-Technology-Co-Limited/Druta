@@ -123,6 +123,10 @@ one rail-limit write that does not need it is the V/F hold headroom raise
 (Clocks > Keep headroom above a held point, on by default): only reliability,
 alt-reliability and overvoltage, upward, to exactly the held point + margin,
 for as long as the hold lasts.
+The normal/XOC bound applies to the held voltage before adding that margin:
+with the default 25 mV headroom, a 1200 mV hold can temporarily request a
+1225 mV ceiling without XOC. The current rail ceiling must already permit
+the held voltage; automatic headroom does not enable a higher held point.
 The user-selected rail request bounds are **1200 mV normally / 1500 mV
 with XOC**, including overvoltage. NVVDD offset permits **+200 / +500 mV**
 respectively. These are software request limits, not verified hardware maxima.

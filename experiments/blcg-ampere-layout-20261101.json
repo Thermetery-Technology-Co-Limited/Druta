@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "date": "2026-11-01",
+  "scope": "Source-derived GA10x BLCG layout and offline controller support. Ampere hardware qualification pending.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "native_architecture": "0x170",
+  "implementations": [
+    2,
+    3,
+    4,
+    6,
+    7
+  ],
+  "chip_hal_ordinals": [
+    "0x2b",
+    "0x2c",
+    "0x2d",
+    "0x2e",
+    "0x2f"
+  ],
+  "layout": "ga10x-blcg",
+  "source_production_values": {
+    "0x4041f0": 50758,
+    "0x409890": 127,
+    "0x4098b0": 127,
+    "0x405bf0": 50244,
+    "0x407000": 1073791554
+  },
+  "disabled_value": 0,
+  "source_chain": {
+    "table": "Graphics+1030=A31410 ->381810 ->GPU+798=679920 ->table11BCA60,key400000 ->11BC968,five address/value pairs.",
+    "graphics_aperture": "Graphics classD334DF instance+1230 ->3B3660; +7C0=A30900 setsbase400000,size200000;125860 constructs in-place IoAperture40549C using parentGPU+1FC8.",
+    "writer": "Interface+58 points toembedded RegisterAperture at+40; interface+40 ->304260 ->derived+B0=125E40. Parentbase/mappingStart0,childbase400000; relative table offsets becomeoriginalglobaladdresses.",
+    "read": "Public20800122 descriptorE61990(size48)->4D3F70; READ32opcode0 ->4D24B0. Either126650device0/instance0 orzero-base Graphics+1328 aperture ->EB3D0 using originalglobaloffset andsamemapping.",
+    "policy": "Disable writeswholezero; finalrelease nativepolicy34FE00(feature7,graphicskeyD334DF00) selectsproductionvaluesorzero. No unconditional inverse or peer-bit preservation claim."
+  },
+  "runtime_contract": [
+    "Current native architecture/implementation selects source layout; no board or driver-version allowlist.",
+    "Require stable complete five-register readback, no bits outside source table values and at leastone nonzero baseline before allocation.",
+    "Named BLCG profiler Hold requires exactzero inallfivewords; duplicateHold mustretainzero withnoextrarequest.",
+    "Release dropsownrequest and verifiescapturedinitialvalues; mismatchesreported, ownobjectfreed.",
+    "Raw register operations are read-only. Session-only requests; no restart replay, recovery or profile work.",
+    "Registerconfiguration witness only; no physicalgating,residency,power-saving or Ampere hardwareeffectclaim."
+  ],
+  "artifacts": [
+    {
+      "path": "experiments/registry-overrides/functional-backlog-audit-terra-20261101/ampere-blcg-hal-61742.json",
+      "sha256": "b66940e1d6c21668d945f500894659698421ea11901c089b42d48870accafaf5",
+      "root_verified_native_windows": 33
+    },
+    {
+      "path": "experiments/registry-overrides/functional-backlog-audit-terra-20261101/ampere-blcg-graphics-aperture.json",
+      "sha256": "92bea6d92cd2c1d38f74fc55a17878bfe52a3c7adffb7d8680976a0917e66d75",
+      "root_verified_native_windows": 10
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/ampere-blcg-ioaperture-join.json",
+      "sha256": "3631c09a5869704b883184e125214faf89f0c2277106d50d8e4eb848110dc22e",
+      "root_verified_native_windows": 15
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/blcg-global-read-join.json",
+      "sha256": "03e1361c80f530bdd7f6c9f4e206883d2fe6e3a2f107831dbe96db3b49bac112",
+      "root_verified_native_windows": 27
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-root-20261101/ampere-blcg-policy-audit.json",
+      "sha256": "ba4ed497e26c7b08ee3ad0730cd6437c30eb99e40610a667293ce1a3861f4955",
+      "root_verified_native_windows": 7
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-getters-sol-20261101/graphics-ioaperture-source-join.json",
+      "sha256": "9bd47154d8f6d2aa4204f2717b4aa8f15d7c05445d9d6a0e85c4947fcdd647e5",
+      "root_verified_native_windows": 0
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-getters-sol-20261101/nvoc-exported-method-layout.json",
+      "sha256": "eafad609d3caa999f07f29685dbdac04fd6f1a5a4ce16bff829e76f2699ed119",
+      "root_verified_native_windows": 0
+    }
+  ],
+  "blackwell_regression": {
+    "artifact": "experiments/registry-overrides/profiler-more-root-20261101/blcg-ga10x-source-blackwell.json",
+    "sha256": "4f32effe902861f522de4085217469a54ab37951d0a7e66387def90cc0c7a72d",
+    "checks": {
+      "duplicate_subunit_hold_no_write": true,
+      "duplicate_block_hold_no_write": true,
+      "duplicate_engine_hold_no_write": true,
+      "independent_subunit_release_verified": true,
+      "independent_block_release_verified": true,
+      "independent_release_verified": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "engine_masks_restored": true,
+      "subunit_registers_restored": true,
+      "block_registers_restored": true,
+      "power_masks_restored": true
+    },
+    "scope": "Existingfourcontrolproduction trial; not Amperehardwarequalification."
+  },
+  "validation": {
+    "targeted_tests_passed": 827,
+    "blcg_api_cases": 48,
+    "blcg_panel_cases": 2,
+    "collector_offline_cases": 13,
+    "ruff_passed": true,
+    "local_collector_read_success": true,
+    "local_collector_mutations": 0
+  },
+  "remote_validation": {
+    "script": "experiments/blcg_live_validation.py",
+    "read_only_command": "python experiments/blcg_live_validation.py --gpu 0000:01:00.0 --out experiments/blcg-read.json",
+    "trial_command": "python experiments/blcg_live_validation.py --gpu 0000:01:00.0 --out experiments/blcg-trial.json --trial",
+    "ampere_hardware_trial": false
+  }
+}

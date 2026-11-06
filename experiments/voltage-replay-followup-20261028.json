@@ -1,0 +1,1893 @@
+{
+  "schema": 1,
+  "date_utc": "2026-10-28",
+  "scope": "Clean-room follow-up using NVIDIA-authored interface definitions, the installed driver, public release documentation, and a bounded root-run experiment. No proprietary mVolt code or binaries were used.",
+  "tested_configuration": {
+    "gpu": "GeForce RTX 5080",
+    "driver": "621.01",
+    "limitation": "One tested configuration and operating point; no board or driver compatibility gate follows."
+  },
+  "status": "Live REL bounds/constants remain integrated. Independent signed VFE policy offsets now support activation, read, set, capture and explicit replay. All eight direct roles passed independent +/-5000 uV tests; the product CLI reproduced a mixed profile after a GPU restart. Arbitrary legacy six-word rail-request replay remains unresolved.",
+  "new_public_lead": {
+    "source": "https://github.com/b00nz/mVolt/releases/tag/v0.50.8",
+    "claim": "The release describes an experimental voltage-offset BIOS override enabled after a GPU restart.",
+    "limit": "The public description does not establish its implementation or a way to clear the independently traced PERF offset-copy suppression flag."
+  },
+  "static_findings": [
+    "The inspected local F214 path's PERF+0x32C constructor assignment comes from the GPU HAL index. The bounded follow-up found no proven BIOS or registry control for that flag.",
+    "The two inspected local F214 BIOS rail subtype paths converge on the same gated six-word row setter. Changing subtype alone is not an established bypass.",
+    "NVIDIA's NVOC exported-method record stores its function pointer 0x10 bytes before methodId. The local export entry for equation SET 0x2080E0B7 names handler 0x4CE4C0; the local variable SET 0x2080E0B4 entry names 0x4CE910 in this inspected image.",
+    "The inspected local equation SET body selects existing rows in the same 8192-entry, 0x80-byte-row geometry returned by the independent CONTROL getter. The traced row path can write bounds before a later error, and the group may repeat its internal update. A successful status is insufficient.",
+    "The local equation handler's post-call through PERF+0x588 remains unnamed. No physical-voltage or firmware-consumer conclusion is drawn."
+  ],
+  "experiment": {
+    "operation": "Unchanged selected REL equation row; no bound, coefficient, BIOS or registry change requested",
+    "command": "0x2080E0B7",
+    "parameter_bytes": 1049608,
+    "header_bytes": 1032,
+    "mask_bytes": 1024,
+    "capacity": 8192,
+    "row_bytes": 128,
+    "selected_ordinal": 3,
+    "runtime_row_type": 6,
+    "transport_status": 0,
+    "rm_status": 0,
+    "equation_info_exact": true,
+    "equation_control_exact": true,
+    "initial_full_configured_comparison_exact": false,
+    "difference": {
+      "field": "Evaluated frequency word in V/F curve entries",
+      "changed_words": 78,
+      "entry_range": [
+        49,
+        126
+      ],
+      "frequency_delta_khz_range": [
+        -315000,
+        -75000
+      ],
+      "curve_voltage_words_unchanged": true,
+      "curve_other_words_header_and_tail_unchanged": true,
+      "full_per_point_boost_delta_request_table_unchanged": true,
+      "other_configured_snapshot_components_unchanged": true
+    },
+    "recovery": {
+      "explicit_original_row_restore_attempts": 1,
+      "restore_transport_status": 0,
+      "restore_rm_status": 0,
+      "full_original_configured_baseline_exact": true,
+      "cleanup_errors": []
+    },
+    "followup_get_only_captures": {
+      "count": 3,
+      "all_configured_equal_within_followup": true,
+      "set_attempted": false
+    },
+    "registry_write": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false,
+    "physical_voltage_measured": false
+  },
+  "timed_get_only_followup": {
+    "operation": "One further unchanged-row SET, preceded by a timed GET-only control and followed by GET-only observation before any restoration decision",
+    "control": {
+      "captures": 8,
+      "last_capture_finished_seconds": 20.773854200262576,
+      "all_full_configured_comparisons_exact": true
+    },
+    "set": {
+      "transport_status": 0,
+      "rm_status": 0,
+      "completion": 1,
+      "routing_and_target_exact": true
+    },
+    "post_set": {
+      "captures": 8,
+      "first_capture_interval_seconds": [
+        0.0026712999679148197,
+        0.7982050999999046
+      ],
+      "first_difference": "The same 78 evaluated frequency words and byte-identical changed curve as the earlier trial; every other retained configured component, equation packet and complete BoostTable remained exact",
+      "next_capture_interval_seconds": [
+        2.8583474000915885,
+        3.6502697998657823
+      ],
+      "next_and_all_later_full_configured_comparisons_exact": true,
+      "last_capture_finished_seconds": 20.774221200030297
+    },
+    "recovery": {
+      "restore_set_attempts": 0,
+      "final_full_original_configured_baseline_exact": true,
+      "cleanup_errors": []
+    },
+    "registry_write": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false,
+    "physical_voltage_measured": false,
+    "limitation": "Capture intervals do not identify the exact settling instant. This one timed repeat demonstrates recovery without a second SET on the tested configuration, not a universal delay or the callback's mechanism."
+  },
+  "interpretation": "The timed no-op repeat returned to the full captured baseline without restoration. A changed live REL upper bound then produced exact independent definition readbacks and the observed REL/ALT policy change throughout a 20-second window, followed by full original-state recovery. The assembled product controller independently passed apply and same-controller restore. This supports the separate live upper-clamp control on the tested configuration; the post-group callback remains unnamed, physical voltage was not measured, and neither arbitrary legacy rail request replay nor mVolt implementation is established.",
+  "next_required_evidence": [
+    "Identify the still-unnamed post-group callback and extend operation-specific evidence for other equation writes without treating this one upper-clamp trial as their qualification.",
+    "Find and verify an independently understood voltage-offset enabling mechanism or alternative request path; no BIOS toggle follows from a public feature name.",
+    "For changing-offset capability, verify all six actual request words and peers, restoring original requests while the enabling capability remains active before reverting it."
+  ],
+  "live_upper_bound_trial": {
+    "operation": "One selected type6 REL upper float; all other row and packet bytes preserved",
+    "original_upper_uv": 1120000,
+    "desired_upper_uv": 1035000,
+    "set": {
+      "completion": 1,
+      "ok": true,
+      "rm_status": 0,
+      "routing_exact": true,
+      "target_exact": true,
+      "transport_status": 0
+    },
+    "post_set_captures": 8,
+    "last_capture_finished_seconds": 20.74030219996348,
+    "all_full_definition_projections_and_mirrors_exact": true,
+    "rail0_policy_before_uv": {
+      "alt_reliability": 1060000,
+      "effective": 1040000,
+      "overvoltage": 1200000,
+      "reliability": 1040000,
+      "vmin": 800000
+    },
+    "rail0_policy_after_uv": {
+      "alt_reliability": 1055000,
+      "effective": 1035000,
+      "overvoltage": 1200000,
+      "reliability": 1035000,
+      "vmin": 800000
+    },
+    "rail1_policy_unchanged": true,
+    "curve": {
+      "first_capture_interval_seconds": [
+        0.002119199838489294,
+        0.7862522997893393
+      ],
+      "first_changed_frequency_words": 78,
+      "next_capture_interval_seconds": [
+        2.8523951000534,
+        3.6507680998183787
+      ],
+      "next_and_later_curve_bytes_exact": true
+    },
+    "restore_set": {
+      "completion": 1,
+      "ok": true,
+      "rm_status": 0,
+      "routing_exact": true,
+      "target_exact": true,
+      "transport_status": 0
+    },
+    "final_full_original_baseline_exact": true,
+    "cleanup_errors": [],
+    "prior_interrupted_trial": {
+      "preserved": true,
+      "reason": "The first comparator did not project mirrored equation and policy diagnostic copies; it stopped and restored. Independent raw-byte analysis found only the intended one-word definition projection, graph-affected policy values and computed curve differences.",
+      "full_original_baseline_restored": true
+    },
+    "registry_write": false,
+    "gpu_restart": false,
+    "windows_reboot": false,
+    "workload_started": false,
+    "physical_voltage_measured": false,
+    "scope": "One tested rail, bound and operating point. No physical enforcement, universal policy formula, fixed delay, type3 write or other-rail hardware result is inferred."
+  },
+  "product_end_to_end": {
+    "controller": "druta.voltage_rel_live.VoltageRelController",
+    "writer": "druta.vfe_equation_runtime.write_upper_clamps",
+    "ui": "Controls / Live REL upper bounds",
+    "product_changed_call_returned": true,
+    "product_original_bound_restore_invoked": true,
+    "same_controller_used_for_changed_and_original_bound": true,
+    "independent_active_snapshots": 2,
+    "full_original_baseline_exact": true,
+    "error": null,
+    "restore_error": null,
+    "repeat_edit_binding": "The ROM graph, terms and lower bound stay bound; the current loaded upper comes from fresh native readback.",
+    "failed_write_recovery": "One original-row compensation after native entry, bounded GET-only recovery, retained original error and explicit recovery status.",
+    "unavailable_peers": "Absent optional getters remain listed independently; failures from present getters use bounded read-only recovery.",
+    "six_word_offset_replay_qualified": false
+  },
+  "product_validation": {
+    "full_test_suite": {
+      "passed": 6375,
+      "duration_seconds": 112.88
+    },
+    "focused_runtime_and_panel_suite": {
+      "passed": 654,
+      "duration_seconds": 34.86
+    },
+    "ruff": "passed",
+    "hardware_product_apply_restore": "passed",
+    "physical_measurement": false
+  },
+  "B214_no_VMIN_control_20261029": {
+    "scope": "One captured RTX5080 configuration and operating point; transport-backed GET-only control, no VMIN edit or physical measurement. No compatibility gate follows.",
+    "execution": {
+      "root_session": 79757,
+      "root_shell_PID": 17752,
+      "exit_code": 0,
+      "started_utc": "2026-10-29T17:26:03.4547761Z",
+      "finished_utc": "2026-10-29T17:27:14.9645226Z",
+      "GUI_closed": true
+    },
+    "request": {
+      "query": "0xBE94281E",
+      "size": "0xC0C8",
+      "version": "0x1C0C8",
+      "selection": 1,
+      "input_sha256": "542f184194b2c158b53499b3c441c5ac6aa304dfebdae9c4c354cf64bbde6997",
+      "other_input_bytes_zero": true,
+      "current_native_B212_bit0_required": true
+    },
+    "observations": [
+      {
+        "index": 0,
+        "start_offset_seconds": 0.0,
+        "output_sha256": "0ca59c82a469c35f462947c43fa9a9fc93eb730d2035a192391c69b183aa5dcc",
+        "changed_byte_count_from_first": 0,
+        "changed_offsets_from_first": [],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 127,
+            "dword_88": 793750
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 127,
+            "dword_88": 793750
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "start_offset_seconds": 2.9984255000017583,
+        "output_sha256": "b422188f38f968898df3b632becdbdc27e6e73be1c429ea433636738229cc8b8",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          445,
+          448,
+          449,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 127,
+            "dword_88": 793750
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 126,
+            "dword_88": 787500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "start_offset_seconds": 5.999543699901551,
+        "output_sha256": "d72ed014ffd18d986e4fe8c609255552238b9f23f6cf0d2265c13fe3a6291525",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "start_offset_seconds": 9.007012200076133,
+        "output_sha256": "f81f0634ccca8f31ef36baa6e314718ad64655056b9e59e03cb2379c5a8b608d",
+        "changed_byte_count_from_first": 18,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          }
+        ]
+      },
+      {
+        "index": 4,
+        "start_offset_seconds": 12.003284700214863,
+        "output_sha256": "06f5ca8107050f50b90710a39276203434409846d9bec00f1d5b4f30422fc7aa",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 5,
+        "start_offset_seconds": 15.04057089984417,
+        "output_sha256": "3f706d5e1f09df1e269427449dd185120739ae2f3727cbb8e1999c0fda82d4f3",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          445,
+          448,
+          449,
+          605,
+          608,
+          609,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          }
+        ]
+      },
+      {
+        "index": 6,
+        "start_offset_seconds": 18.005903200246394,
+        "output_sha256": "0177b5afb7d85643f377aacbb1547b2e0f4cd1121f16288d6130dce4c4783c77",
+        "changed_byte_count_from_first": 18,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          525,
+          528,
+          529,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 128,
+            "dword_88": 800000
+          }
+        ]
+      },
+      {
+        "index": 7,
+        "start_offset_seconds": 21.014656600076705,
+        "output_sha256": "32722103ee08f123268ba9f2811c212309ecb6fb54847a58536dd29bcae0c21c",
+        "changed_byte_count_from_first": 15,
+        "changed_offsets_from_first": [
+          365,
+          368,
+          369,
+          605,
+          608,
+          609,
+          685,
+          688,
+          689,
+          765,
+          768,
+          769,
+          845,
+          848,
+          849
+        ],
+        "records": [
+          {
+            "record": 2,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 3,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          },
+          {
+            "record": 4,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 5,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 6,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 7,
+            "byte_84": 1,
+            "byte_85": 129,
+            "dword_88": 806250
+          },
+          {
+            "record": 8,
+            "byte_84": 1,
+            "byte_85": 130,
+            "dword_88": 812500
+          }
+        ]
+      }
+    ],
+    "raw_field_layout": {
+      "row_base": "0x48",
+      "record_stride": "0x50",
+      "records": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "flag": "+0x84",
+      "code": "+0x85",
+      "DWORD": "+0x88"
+    },
+    "finite_result": "All eight responses are distinct. Every traced record varies across the eight reads. Differences from response0 occur only in the recorded byte+85/DWORD+88 fields; byte+84 remains1. Across56 returned records, DWORD=6250*code. This is a numerical relation, not a voltage unit or rail mapping.",
+    "comparisons": {
+      "initial_broad_exact": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "final_broad_exact": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "per_call_brackets": 16,
+      "all_per_call_brackets_exact": true,
+      "baseline_and_final_brackets_exact": true,
+      "all34_saved_compared_full_curves_exact": true,
+      "retained": [
+        "full native VFE definitions",
+        "legacy native/public six request words and boost",
+        "native B212/B218 INFO/CONTROL readbacks",
+        "public INFO/CONTROL raw payloads",
+        "LPWR raw packets",
+        "full client request",
+        "Pstate raw packet"
+      ],
+      "complete_compared_original": true
+    },
+    "interpretation": "Observed B214 response variability remains even when every saved configured-state comparison passes. The earlier single VMIN triplet cannot establish a stable configuration mapping. No new VMIN intervention is qualified by this control.",
+    "limitations": [
+      "One device/configuration and finite sample window; samples do not observe all events between calls.",
+      "No units, physical voltage, rail identity, actual producer, request consumption or exclusive cause follows from these values/status0.",
+      "GET may have internal driver/firmware effects; zero explicit SETs is not proof of endpoint inertness.",
+      "Guard checks returned without error, but raw sentinels were not saved for independent reconstruction.",
+      "Public B212 INFO raw mask is retained; native B212 bit0, not public/native inventory equality, is the selection prerequisite.",
+      "Broad comparisons retain their existing configured-state scope; dynamic telemetry normalization is unchanged."
+    ],
+    "explicit_configuration_SETs": 0,
+    "registry_write": false,
+    "GPU_restart": false,
+    "Windows_reboot": false,
+    "workload": false,
+    "physical_measurement": false,
+    "review": "Luna reviewed invoked source/data shapes before the run; Terra independently audited terminal raw files; root reproduced the audit JSON exactly and independently decoded all56 field pairs.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/b214-control.py": "5c6a25977ec3bb5e1b613666525fd3ece0175a777e87299fd5d71250593f7125",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/root-control-1/journal.json": "ca8d0d50e10432c11c0917cf24264c65e4c1eddad51b44b0884f0a353afac199",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/root-control-1-lifecycle.json": "4f80ca3ec5810e4539903041a01b89b1e85a81cd2bfb1608206a17b8f6ac478a",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/audit-b214-control.py": "8fc83cf84960924778803f534caf659c766b64ae849b5a61dfe97df774df0eca",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/root-control-1-audit.json": "34c276029cc6e54fd32dca0e80613976eb5571b87772bc3bd35739e0ff33f3f0",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/review/root-control-1-root-audit.json": "34c276029cc6e54fd32dca0e80613976eb5571b87772bc3bd35739e0ff33f3f0",
+      "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/luna-audit-20261029/findings.json": "bf78a571683c534f9e7d49689ca98d64d5ac1c78eb872377f607e68a257e45a0"
+    }
+  },
+  "routing_qualification_20261029": {
+    "reference": "driver-transport-followup-20261028.json RM_routing_and_candidate_firmware_20261029",
+    "meaning": "Installed export flags and prologue permit successful forwarding that skips local handlers. The captures establish statuses/readbacks/restoration, not entry into localF214 CACC70/PERF32C or localE0B7/PERF588. Those local paths are not established causes of the ignored request or curve changes. GSP diagnostic N/A and virtualization None do not identify current routing.",
+    "candidate_firmware": "Four native-command counterparts were validated in the co-located RV64 file; loaded identity, actual execution, provider semantics and replay remain unproven.",
+    "preserved": "All original experiment, timed followup, live-bound, product trial and validation objects remain unchanged as parsed data; raw journals and packet artifacts are preserved."
+  },
+  "candidate_firmware_consumer_qualification_20261029": {
+    "evidence": "driver-transport-followup-20261028.json:candidate_firmware_consumers_20261029",
+    "legacy": "A candidate setter conditionally skips six copies with successful return, but runtime accessor identity, gate owner/value, loaded image and captured-call path remain unproved. It is not established as the cause of the prior ignored request.",
+    "modern": "A conditional type2 row callback copies specific fields to its destination row. Field units/rails, enclosing destination/later consumer and live selection remain unproved; no F219 SET was issued.",
+    "preserved": "All earlier experiment/capture objects are retained. This qualification adds no replay or physical-effect claim."
+  },
+  "candidate_firmware_flow_qualification_20261029": {
+    "evidence": "driver-transport-followup-20261028.json:candidate_firmware_flow_20261029",
+    "legacy": "Conditional class creation/cast now stores Perf in GPU20C8 and constructor334 formula is traced; current flag/selector, retention/accessor and actual captured execution remain unproved.",
+    "modern": "Input-to-serialized-buffer and default response-to-object copies are traced; backend selection, actual receiver and eventual consumption/units/rails remain unproved. No modern SET, replay or physical effect is claimed.",
+    "preserved": "Earlier raw objects and trial results retained unchanged."
+  },
+  "independent_policy_offsets_20261030": {
+    "mechanism": "Zero constant heads in declared inactive VFE slots, one for each selected rail REL/ALT/OV/VMIN selector; live SET changes the new signed constants.",
+    "preserved": "Original equation rows, terms, variables, internal links and all other native packet bytes. The original ALT-to-REL link continues to use its original REL equation.",
+    "compatibility": "Current adapter-bound layout, ownership, inventory, template, variable and exact readback checks; no GPU, VBIOS or driver identity allowlist.",
+    "tested_configuration": {
+      "gpu": "GeForce RTX 5080",
+      "driver": "621.01",
+      "scope": "One captured configuration and operating point"
+    },
+    "captured_geometry": {
+      "new_heads": [
+        1860,
+        1861,
+        1862,
+        1863,
+        1864,
+        1865,
+        1866,
+        1867
+      ],
+      "changed_image_bytes": 56,
+      "table_relocated_or_grown": false
+    },
+    "independent_cases": {
+      "count": 16,
+      "values_uv": [
+        -5000,
+        5000
+      ],
+      "roles_per_rail": [
+        "REL",
+        "ALT",
+        "OV",
+        "VMIN"
+      ],
+      "rails": [
+        0,
+        1
+      ],
+      "all_selected_reported_deltas_exact": true,
+      "other_direct_policies_and_requests_preserved": true,
+      "all_heads_returned_to_zero": true,
+      "initial_broad_after_cleanup_exact": false,
+      "later_get_only_original_state_exact": true,
+      "limitation": "Immediate broad post-restart comparison failures remain recorded; later exact GET observations do not turn those earlier failures into passing comparisons."
+    },
+    "product_cli_workflow": {
+      "commands": [
+        {
+          "command": "enable",
+          "returncode": 0
+        },
+        {
+          "command": "set",
+          "returncode": 0
+        },
+        {
+          "command": "capture",
+          "returncode": 0
+        },
+        {
+          "command": "read",
+          "returncode": 0
+        },
+        {
+          "command": "replay",
+          "returncode": 0
+        }
+      ],
+      "captured_values_uv": {
+        "voltage.0.ALT.offset": 5000,
+        "voltage.0.OV.offset": -5000,
+        "voltage.0.REL.offset": -5000,
+        "voltage.0.VMIN.offset": 5000,
+        "voltage.1.ALT.offset": -5000,
+        "voltage.1.OV.offset": -5000,
+        "voltage.1.REL.offset": 5000,
+        "voltage.1.VMIN.offset": 5000
+      },
+      "after_restart_live_values_all_zero": true,
+      "after_restart_saved_values_retained": true,
+      "full_replayed_voltage_snapshot_exact": true,
+      "reported_before_uv": {
+        "0": {
+          "alt_reliability": 1060000,
+          "effective": 1040000,
+          "overvoltage": 1200000,
+          "reliability": 1040000,
+          "vmin": 800000
+        },
+        "1": {
+          "alt_reliability": 1060000,
+          "effective": 990000,
+          "overvoltage": 1200000,
+          "reliability": 990000,
+          "vmin": 800000
+        }
+      },
+      "reported_replayed_uv": {
+        "0": {
+          "alt_reliability": 1065000,
+          "effective": 1035000,
+          "overvoltage": 1195000,
+          "reliability": 1035000,
+          "vmin": 805000
+        },
+        "1": {
+          "alt_reliability": 1055000,
+          "effective": 995000,
+          "overvoltage": 1195000,
+          "reliability": 995000,
+          "vmin": 805000
+        }
+      },
+      "final_checks": {
+        "active_receipt_absent": true,
+        "image_original_exact": true,
+        "registry_original_exact": true,
+        "target_original_exact": true,
+        "voltage_original_exact": true
+      },
+      "test_profile_removed": true,
+      "gpu_restarts": 3,
+      "windows_reboot": false,
+      "workload_started": false,
+      "raw_artifact_sha256": "b52eb1bc1e2760f571d9ef8050fe08be3adf93f28bec3a08409220ac98062788",
+      "independent_packet_audit_sha256": "50f692c83deff674ed0369c53e4ed331f0f30d2e051b541e1d1d8b9bb6d57c3b"
+    },
+    "limitations": [
+      "Reported policy and definition readbacks are not a physical regulator-voltage measurement.",
+      "Signed int32 values exactly representable as float32 are the numeric contract, not a measured operating range.",
+      "This app-owned state does not substitute for arbitrary replay of the six cached legacy rail-control words.",
+      "VCRIT low/high and modern F219 fields are not controlled by this feature.",
+      "Saved offset profiles require explicit replay and are separate from ordinary tuning profiles and registry-transaction replay.",
+      "Activation currently requires no existing active registry transaction; simultaneous use with other original-equation live edits is not established."
+    ],
+    "product_gui_callbacks": {
+      "interaction": "Programmatic real Dear PyGui panel callbacks in a rendered viewport; only native file-picker return path substituted.",
+      "physical_input_or_native_picker_claimed": false,
+      "offsets_uv": {
+        "voltage.0.REL.offset": -5000,
+        "voltage.1.ALT.offset": 5000
+      },
+      "actions": [
+        "Read offsets",
+        "Apply Rail 0 REL=-5 mV",
+        "Apply Rail 1 ALT=+5 mV",
+        "Save offset profile",
+        "Apply both offsets=0",
+        "Load and apply offset profile"
+      ],
+      "full_replayed_voltage_snapshot_exact": true,
+      "saved_profile_exact": true,
+      "final_checks": {
+        "active_receipt_absent": true,
+        "image_original_exact": true,
+        "registry_original_exact": true,
+        "target_original_exact": true,
+        "voltage_original_exact": true
+      },
+      "app_test_profile_removed": true,
+      "gpu_restarts": 2,
+      "windows_reboot": false,
+      "workload_started": false,
+      "raw_artifact_sha256": "d38af6d8e0a8266f0f7c40bd10ead63123603a9d11cc7233cf3960ea9cbf7dd6",
+      "activation_helper": "Parent-exit wait and GUI reopen paths verified with mocks; actual helper/reopen workflow is not covered by this callback trial.",
+      "independent_packet_audit_sha256": "6699ba1bcdfe87f973dfba8d9899f5b1df2f5d9e9611e0d7d431b3360415697f"
+    },
+    "nonzero_boost_live_controls": {
+      "request_percent": 25,
+      "roles": [
+        "REL",
+        "ALT"
+      ],
+      "rails": [
+        0,
+        1
+      ],
+      "offsets_uv": [
+        -5000,
+        5000
+      ],
+      "cases": [
+        {
+          "key": "voltage.0.REL.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1050000,
+                  "overvoltage": 1200000,
+                  "reliability": 1050000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.0.REL.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1040000,
+                  "overvoltage": 1200000,
+                  "reliability": 1040000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.0.ALT.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1065000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.0.ALT.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1055000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": true
+        },
+        {
+          "key": "voltage.1.REL.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 5000,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1000000,
+                  "overvoltage": 1200000,
+                  "reliability": 1000000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        },
+        {
+          "key": "voltage.1.REL.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 990000,
+                  "overvoltage": 1200000,
+                  "reliability": 990000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        },
+        {
+          "key": "voltage.1.ALT.offset",
+          "delta_uv": 5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1065000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        },
+        {
+          "key": "voltage.1.ALT.offset",
+          "delta_uv": -5000,
+          "active_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1055000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_policy": {
+            "identity": {
+              "architecture": 10,
+              "device_id": 11266,
+              "slot": "0000:01:00.0",
+              "subsystem_id": 2313031747
+            },
+            "rails": {
+              "0": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "NVVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": 0,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 1045000,
+                  "overvoltage": 1200000,
+                  "reliability": 1045000,
+                  "vmin": 800000
+                },
+                "type": 1
+              },
+              "1": {
+                "boost_uv": 3750,
+                "control_type": 3,
+                "name": "MSVDD",
+                "offsets_uv": {
+                  "alt_reliability": 0,
+                  "overvoltage": 0,
+                  "reliability": -50000,
+                  "vmin": 0
+                },
+                "policy_uv": {
+                  "alt_reliability": 1060000,
+                  "effective": 995000,
+                  "overvoltage": 1200000,
+                  "reliability": 995000,
+                  "vmin": 800000
+                },
+                "type": 3
+              }
+            }
+          },
+          "zero_full_observation_exact": false
+        }
+      ],
+      "all_selected_native_definitions_exact": true,
+      "all_zero_native_definition_returns_exact": true,
+      "boost_request_and_rail_controls_exact": true,
+      "selected_ALT_delta_and_ALT_OV_VMIN_peers_exact": true,
+      "derived_observations": [
+        "REL",
+        "effective",
+        "boost_uv"
+      ],
+      "derived_scope": "Both rails after REL/ALT changes with nonzero or unavailable boost; no numerical formula is imposed. Confirmed zero retains the earlier strict direct-policy comparisons.",
+      "unavailable_boost": "Unknown, not zero; independently supported controls remain available with derived outputs recorded.",
+      "initial_trial": {
+        "state": "failed",
+        "complete_cases": 4,
+        "fifth_active_native_projection_verified": true,
+        "failure": "The fifth zero return matched full native definitions, retained requests and direct policies, but reported boost_uv changed from 5000 to 3750 on both rails; the original full zero-return comparison failed.",
+        "raw_sha256": "049085d25061a73348b7eff67a0deed3546b57cde0ca240de3a0a596880e8191",
+        "audit_sha256": "00f46275705216b09d11c69259275d5606ba04ce298a650977e809e871d8004b",
+        "final_checks": {
+          "active_receipt_absent": true,
+          "image_exact": true,
+          "registry_exact": true,
+          "target_exact": true,
+          "voltage_exact": true
+        }
+      },
+      "completed_trial": {
+        "state": "verified",
+        "complete_cases": 8,
+        "zero_full_observation_exact_count": 4,
+        "zero_returns_with_derived_differences": 4,
+        "raw_sha256": "6f4b23e145878cc75e4e27aa16094a8d04cae8788ecbd38baa0e7b7b16f8e43a",
+        "audit_sha256": "d9c01e45fd4327db728db8ab34178d4e3c846c5c6b4602a6e9d0be77904e8b7e",
+        "final_checks": {
+          "active_receipt_absent": true,
+          "image_exact": true,
+          "registry_exact": true,
+          "target_exact": true,
+          "voltage_exact": true
+        },
+        "test_profile_removed": true
+      },
+      "scope": "One captured configuration and operating point. No workload, physical voltage measurement or universal boost formula. This changes live controls only; named-profile restoration/integration is deferred.",
+      "gpu_restarts_total": 4,
+      "windows_reboot": false
+    }
+  }
+}

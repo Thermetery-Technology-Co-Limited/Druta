@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "date_utc": "2026-11-02",
+  "scope": "Source-qualified Ada layouts with offline API and collector coverage. Ada and Ampere hardware trials remain pending. Blackwell regression is separately scoped.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "native_architecture": "0x190",
+  "implementations": [
+    2,
+    3,
+    4,
+    6,
+    7
+  ],
+  "chip_hal_ordinals": [
+    "0x34",
+    "0x35",
+    "0x36",
+    "0x37",
+    "0x38"
+  ],
+  "blcg": {
+    "layout": "ad10x-blcg",
+    "source_production_values": {
+      "0x4041f0": 50758,
+      "0x409890": 127,
+      "0x4098b0": 127,
+      "0x405bf0": 50244,
+      "0x407000": 1073791554
+    },
+    "disable_value": 0,
+    "provider": "GPU+798 selects 679940; table11BD010 key400000 entry11BD0B8 selects five rows11BCE08. Rows are byte-identical to Ampere11BC968.",
+    "aperture": "Graphics+1030 selects A31410; Graphics+7C0 selects A30900, base400000 size200000. Same IoAperture writer and both public GLOBAL read paths as independently audited Ampere chain.",
+    "contract": "Reject unknown baseline bits and require a positive nonzero witness before allocation. Hold and duplicate Hold require all five words zero. Release drops the own request and compares with captured initial values; native policy may produce a mismatch."
+  },
+  "slcg": {
+    "layout": "ad10x-slcg",
+    "source_disabled_values": {
+      "0x248018": 3,
+      "0x251a18": 3,
+      "0x251818": 3
+    },
+    "release_value": 0,
+    "provider": "OBJHWPM+108 selects B30E40 route260000; GPU+7A0 selects679B60/table11CD9F0; route11CDCA8 selects four rows11CD708. Address248018 occurs twice. Rows are byte-identical to Ampere11CC768.",
+    "translation": "GPU+7B8 selects679FE0; route260000 uses direct writer. LPWR+100 is61B0 no-op for all five ordinals.",
+    "contract": "Stable usable zero baseline and at least one valid register required. Every valid register must read3 after Hold and0 after Release; unavailable peers remain explicit. No-op or success-only status cannot qualify a transition."
+  },
+  "limits": [
+    "Native implementation F and other unbound native pairs remain unsupported; no fallback to a different family.",
+    "Source mapping does not guarantee current-adapter permissions, actual request execution, complete gating coverage, physical gating, residency or power savings.",
+    "Runtime capability, identity, packet geometry and independent readbacks remain mandatory; there is no driver-version or board-ID allowlist.",
+    "Requests are session-only and are never automatically reapplied after a GPU driver restart. No recovery/profile integration is added."
+  ],
+  "source_artifacts": [
+    {
+      "path": "experiments/registry-overrides/functional-backlog-audit-terra-20261101/ada-blcg-hal-61742.json",
+      "sha256": "e916a07bb881b2cab8d3b6161ad599bc07c2c680de5b555ec25bdcbfa0714560",
+      "root_verified_source_windows": 19
+    },
+    {
+      "path": "experiments/registry-overrides/profiler-more-terra-20261101/ada-slcg-hal-61742.json",
+      "sha256": "786f5a5233af8cdc7686ae9b83fdcb33c457c5fb12460fac1173bc5181f0a50b",
+      "root_verified_source_windows": 14
+    }
+  ],
+  "blackwell_regression": {
+    "path": "experiments/registry-overrides/profiler-more-root-20261101/ada-gating-source-blackwell-20261102.json",
+    "sha256": "d8ed6d92451da937d4cbea860aa278bc3089aaafe45b3186671cf4cf30f4dcc6",
+    "checks": {
+      "duplicate_subunit_hold_no_write": true,
+      "duplicate_block_hold_no_write": true,
+      "duplicate_engine_hold_no_write": true,
+      "independent_subunit_release_verified": true,
+      "independent_block_release_verified": true,
+      "independent_release_verified": true,
+      "voltage_unchanged": true,
+      "configured_lpwr_unchanged": true,
+      "engine_masks_restored": true,
+      "subunit_registers_restored": true,
+      "block_registers_restored": true,
+      "power_masks_restored": true
+    }
+  },
+  "validation": {
+    "targeted_tests_passed": 857,
+    "blcg_api_tests": 57,
+    "slcg_api_tests": 69,
+    "blcg_collector_tests": 18,
+    "slcg_collector_tests": 14,
+    "ruff_passed": true,
+    "local_read_only_collectors": {
+      "blcg": {
+        "read_success": true,
+        "mutation_count": 0,
+        "sha256": "bbb8df535d243851c90d00d207c1246e6fb482b9a8cac0c3c60b0701d3462258"
+      },
+      "slcg": {
+        "read_success": true,
+        "mutation_count": 0,
+        "sha256": "b76923e74bdfbe92623ef252e6b1cc25450e95a2f6ddf034aa4de620820a48ad"
+      }
+    }
+  },
+  "remote_validation": {
+    "hardware_qualified": false,
+    "commands": [
+      "python experiments/blcg_live_validation.py --gpu 0000:01:00.0 --out experiments/blcg-trial.json --trial",
+      "python experiments/slcg_live_validation.py --gpu 0000:01:00.0 --out experiments/slcg-trial.json --trial"
+    ],
+    "notes": "Use the target adapter PCI slot and new output files. Both collectors accept matching native170/ga10x or native190/ad10x pairs; omit --trial for read-only inventory."
+  }
+}

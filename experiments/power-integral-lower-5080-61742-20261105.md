@@ -1,0 +1,15 @@
+# Policy 2 lower bound and count probe on RTX 5080
+
+On one RTX 5080 with driver 617.42 and VBIOS 98.03.3b.c0.6f, the policy 2 active lower ratio request changed from 3072 to 3113 and read back exactly in three observations. The complete captured native/client request and definition state restored to baseline afterward. The reported policy 2 effective limit remained 370811 mW before, during and after; unchanged idle status does not establish lower-bound enforcement or suppression. The board request was 360 W, with P8 and 5% GPU utilization at the start.
+
+The following past-count request 43→44 returned RM `0x65`; later STATUS and INFO GETs returned `0x23`, preventing restoration through that readback path at the time. The saved packet changed only the intended count byte and selection mask. No readback established that 44 was retained, and the future-count field was not attempted. This failure does not establish a general count-write limitation.
+
+Before the authorized GPU-only reset, INFO and CONTROL GETs had recovered and the recorded active fields were back at baseline: mode 2, past 43, next 7, lower 3072, upper 4219. The reset succeeded with `reboot_required: false`; the post-reset full captured native/client request and definition state matched the original baseline exactly. This recovery observation does not reveal what happened inside the failed SET.
+
+These are observations on one adapter at idle, not physical power measurements or a general controller formula. The manual lower control subsequently passed a separate [production-path trial](power-integral-lower-production-20261105.json): three exact 3113 readbacks, upper and counts unchanged, effective limit still 370811 mW, and complete request-state restoration. The panel displays counts read-only. The focused suite passed 324 tests; the full application rendered both bound controls and current/default readbacks successfully. Neither bound is included in saved profiles or Undo yet.
+
+The compact [machine-readable evidence](power-integral-lower-5080-61742-20261105.json) includes SHA-256 hashes for the source trial, packet audit, harness, reset and post-reset captures. The raw records are under `experiments/registry-overrides/power-integral-remaining-terra-20261105/`.
+
+A subsequent [profile/Undo increment](power-integral-profiles-20261105.json)
+adds manual saved feedback bounds and selected-field Undo. The earlier
+production receipt above describes the implementation before that increment.

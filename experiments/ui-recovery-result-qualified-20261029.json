@@ -1,0 +1,1184 @@
+{
+  "schema": 1,
+  "scope": "One captured configuration: source transaction with a controlled application-side exception, followed by a separate packaged read-only recovery-result presentation.",
+  "source_rollback": {
+    "source_commit": "37da67d7271532fa023f264101dee3830c153d75",
+    "session": 69131,
+    "exit_code": 0,
+    "selected_change": {
+      "lpwr.nvdec.0.enabled": false
+    },
+    "image_sha256": {
+      "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+      "active": "eda7b5d7b91c17f5a19b27de62c9e2c79bbab5f2d22fc048d61dd4dfc8c479f7"
+    },
+    "patches": [
+      {
+        "offset": 254627,
+        "before": "eb",
+        "after": "ea",
+        "field_keys": [
+          "lpwr.nvdec.0.enabled"
+        ]
+      }
+    ],
+    "real_verification_calls": [
+      {
+        "real_verifier_succeeded": true,
+        "restore": true
+      },
+      {
+        "real_verifier_succeeded": true,
+        "restore": false
+      },
+      {
+        "real_verifier_succeeded": true,
+        "restore": true
+      }
+    ],
+    "injected_exception_count": 1,
+    "injection": "Labeled application exception raised after successful actual active verification; not a native failure.",
+    "result": "Durable rolled-back receipt, ok false; original image, registry and complete captured peers restored, active pointer cleared.",
+    "receipt_sha256": "7c27f8ed3ae2abb059587a792824ab17966eda36e427514f5862860e297af03d",
+    "GPU_only_restarts": 2,
+    "before_strict": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "final_strict": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "final_difference_paths": [
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "all_16_before_final_curves_exact": true,
+    "source_sha256": {
+      "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+      "registry_recovery.py": "7afaedba59250f678747b53d34b6a1a84236d7f552728483ec4321d462ef16d2",
+      "registry_ui_trial.py": "2dc273fb893bc46be20e03abb05c000143e6fa5e133167f9e7a08eb05dc9c943",
+      "registry_panel.py": "de6c89f7f96fb42473b01b8036c68c0ac3d5448f735328984d639bb7ab995e4d",
+      "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+      "vbios_fields.py": "68d6e3bff5ef194f9cfd751ec12fb62683c72ed863d8ceb564f590bd8443532e",
+      "startup.py": "626faddb6f02c80e3c27bee0bc117935aa0aaffe9be037f528297086d4dad121",
+      "devicereset.py": "ba447a461cb28dc4cd7c9524df969a01882f2e0fe457499489ebf0d652f6505a",
+      "devicerecovery.py": "f2f8b76e1f729d6354e712993a089a77d849dcc0c25468e0591038f599db202c"
+    },
+    "limitations": "No native fault or packaged helper/relaunch claim from this source trial."
+  },
+  "packaged_presentation": {
+    "command": "--recovery-result RESULT --ui-capture-recovery NEW_DIRECTORY",
+    "source_commit": "b5d727218c54abfef94aee0f2cadf05293e8f556",
+    "executable_sha256": "633e6adc778a6d2be1b8f86d53be8f00fd4ed33d96b1fedc89fbc7a9beffedc0",
+    "source_manifest_files": 463,
+    "compiled_modules_verified": 21,
+    "process_id": 29032,
+    "exit_code": 0,
+    "envelope_origin": "Root-created from the actual durable rollback result; not helper-created and not proof of helper-initiated relaunch or native failure.",
+    "envelope_sha256": "0b0b85be433b8d46bfac617af5fc58caa03b43c086639602b3042cfd04a47d2c",
+    "manifest": "Complete, two separate real framebuffer views; receipt metadata null and Undo enabled metadata false. Panel pixels alone do not prove disabled state.",
+    "frames": {
+      "recovery-panel": {
+        "sha256": "ceada87185394d35430626bdcb6024ed0d691d33a96458c057e900fe6fe5cc05",
+        "width": 1528,
+        "height": 1261
+      },
+      "recovery-log": {
+        "sha256": "225861784ba9ef08808d666dc5b3d554321ffe449629dd473fddc6e0be278cd7",
+        "width": 1528,
+        "height": 1261
+      }
+    },
+    "visual": "Root and Luna inspected panel and log frames. Complete existing failure message and Details path are visible; no synthetic rewritten log.",
+    "before_exact": true,
+    "final_exact": [
+      false,
+      true
+    ],
+    "final_difference_paths": [
+      [
+        "voltage.broad.broad.driver_flags.control_sha256",
+        "voltage.broad.broad.driver_flags.entries[13].control_hex"
+      ],
+      []
+    ],
+    "all_3_curves_exact": true,
+    "GPU_restart": false,
+    "requested_write_callbacks": false,
+    "original_control_sha256": "0d6e2d38e2fe31cd0e7589afccc35a6bfdee5cb9803f2e7e616a9394dbe2b4a1",
+    "peer_control_sha256": "de28868d687b7ee9b1cdb2bc5e905a1e9659c6ba5e1119885950320f80304bb4",
+    "source_sha256": {
+      "druta.py": "a821a2a1b9d03f85e1c21efc9565f93e9ff71e2dc8a82160ce70e42836c4dee8",
+      "recovery_ui_capture.py": "e6fac40fc77d81341ce5379f8acc414ee850f80b16c5149d17eaaedb3b638b29",
+      "ui_capture.py": "2e0332e6f67d60072b5c28f17babcc89c30b6693332429a22463118aec8b9af2",
+      "registry_panel.py": "de6c89f7f96fb42473b01b8036c68c0ac3d5448f735328984d639bb7ab995e4d",
+      "devicerecovery.py": "f2f8b76e1f729d6354e712993a089a77d849dcc0c25468e0591038f599db202c"
+    }
+  },
+  "validation": "Full suite 6976 passed in 123.70 seconds; 156 focused tests and new-file Ruff passed. Existing druta.py has 26 unchanged legacy Ruff findings.",
+  "Windows_reboot": false,
+  "workload_started": false,
+  "physical_input": false,
+  "physical_effects_measured": false,
+  "pending": [
+    "Spontaneous or other post-execution helper Apply/recovery errors and failed restart",
+    "Other recovery-required states and failure cases",
+    "Unavailable-backend cases and native faults",
+    "Physical input, other DPI/adapters and physical effects"
+  ],
+  "private_evidence_sha256": {
+    "experiments/registry-overrides/ui-recovery-root-20261029/probe.py": "08ee5b5499a856ffb074c90500f22c66e9a921c7d5d7365507713b481766610b",
+    "experiments/registry-overrides/ui-recovery-root-20261029/audit_v2.py": "e034020fda2c25d84e39c2940d45a8aa3445f1888d0663aecefb7d3767b63494",
+    "experiments/registry-overrides/ui-recovery-root-20261029/execution-reference.json": "1ace58ae31df94884d10115e17a229e893422cf37e13c28dde553fa7e30c32b9",
+    "experiments/registry-overrides/ui-recovery-root-20261029/source-nvdec-rollback-1.json": "755f542d6e170d44829a278571de8fbf5185818a826485464438178eb739d273",
+    "experiments/registry-overrides/ui-recovery-root-20261029/root-audit.json": "e0c494ccedb015fa0204ad1381aa6f8b4179bf7316e2e8400a0bd42d1ebadc73",
+    "experiments/registry-overrides/ui-recovery-root-20261029/terra-audit.json": "e0c494ccedb015fa0204ad1381aa6f8b4179bf7316e2e8400a0bd42d1ebadc73",
+    "experiments/registry-overrides/ui-recovery-root-20261029/root-terminal-review.json": "e668b01a0ac617a5c1a2efd60778cb8359015c046618e2fec73a7c6a4e32a411",
+    "experiments/registry-overrides/ui-recovery-root-20261029/preflight-1-root-review.json": "076fc06df01417e591a1926a194264a4807fdbf27abd289fd4d46948e5530d1a",
+    "experiments/registry-overrides/ui-recovery-root-20261029/final-state-comparison.json": "ad1fe242375651f817b3ffb020d83b1032026a361ac5543be92b763f3aaab2e9",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/run_capture.py": "4bd8409c7e31305645f93e3491003087928847d3293649461e8725ff31cb464d",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/terra-audit.py": "455d24f8f88aaed74f8d8ca05d25e4b97c9f3882e1da7463960c77cc778f3134",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/compiled-trial-package-check.json": "b6bfeb80edf3fa2e36012fc691ee55ac8ca269943b0ba7b054610352273f0a2a",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/archive-trial-validation.json": "bba10a33d782c0521636580f9a529f7126f8358e41d00ed333bc2d10d211a116",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/packaged-recovery-1-supervisor.json": "e3d502c111472d958e2e27af7d0d0613d617cb0fc12987d2ebe35317de510129",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/root-audit.json": "bdf5e986640bf5ae7784ad5ad315ebb257ea427fe9e158f2b8dad982c3b9ee48",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/terra-audit.json": "bdf5e986640bf5ae7784ad5ad315ebb257ea427fe9e158f2b8dad982c3b9ee48",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/root-visual-review.json": "1e01efd30c1a7fb0c54d21a8da2e08a0fccf638fa66a9d51518ece968a579931",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/luna-visual-review.json": "29ce2fb48190802bdb28090479317a60c6075180b8a3c355018088b043f2ea8a",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/packaged-recovery-1/manifest.json": "803963f2c3b9415afc2cd24aac00ae1254b0278d084c9fb3ec7e7bf5ea2d97b8",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/packaged-recovery-1/recovery-panel.png": "ceada87185394d35430626bdcb6024ed0d691d33a96458c057e900fe6fe5cc05",
+    "experiments/registry-overrides/ui-recovery-capture-root-20261029/packaged-recovery-1/recovery-log.png": "225861784ba9ef08808d666dc5b3d554321ffe449629dd473fddc6e0be278cd7",
+    "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/root-control-1/original.json": "0d6e2d38e2fe31cd0e7589afccc35a6bfdee5cb9803f2e7e616a9394dbe2b4a1",
+    "experiments/registry-overrides/voltage-b214-discriminating-plan-20261029/root-control-1/bracket-baseline.json": "de28868d687b7ee9b1cdb2bc5e905a1e9659c6ba5e1119885950320f80304bb4"
+  },
+  "pending_source_and_helper_recovery_20261029": {
+    "scope": "One source pending-receipt trial with two injected application exceptions, followed by actual packaged registry-recover and separately launched read-only presentations. No native fault or physical-input/effect claim.",
+    "source_pending": {
+      "session": 11281,
+      "exit_code": 0,
+      "selected_change": {
+        "lpwr.nvdec.0.enabled": false
+      },
+      "injection": "Two labeled application exceptions after actual successful active and rollback verifiers. The second leaves a durable recovery-required receipt; original registry and image were already restored before helper recovery.",
+      "verification_calls": [
+        {
+          "real_verifier_succeeded": true,
+          "restore": true
+        },
+        {
+          "real_verifier_succeeded": true,
+          "restore": false
+        },
+        {
+          "real_verifier_succeeded": true,
+          "restore": true
+        }
+      ],
+      "receipt_events": [
+        "begin",
+        "registry-verified",
+        "restart",
+        "failure",
+        "registry-rollback-verified",
+        "restart",
+        "rollback-failure"
+      ],
+      "receipt_state": "recovery-required",
+      "pending_receipt_copy": "experiments/registry-overrides/ui-recovery-helper-root-20261029/source-pending-1-pending-receipt.json",
+      "pending_receipt_sha256": "8fbaa5ed6e1c396325d42727e9bb3e50925da6219bcf5398f35dd455ee2b2640",
+      "GPU_only_restarts": 2,
+      "broad_samples": {
+        "before_broad": [
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          }
+        ],
+        "final_broad": [
+          {
+            "exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": false,
+            "difference_paths": [
+              "voltage.broad.broad.driver_flags.control_sha256",
+              "voltage.broad.broad.driver_flags.entries[13].control_hex"
+            ],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          },
+          {
+            "exact": true,
+            "difference_paths": [],
+            "curve_changed_bytes": 0
+          }
+        ]
+      }
+    },
+    "packaged_helper": {
+      "command": "--registry-recover SLOT",
+      "helper_pid": 23568,
+      "helper_exit_code": 0,
+      "normal_GUI_pid": 29048,
+      "normal_GUI_observation": "Actual OS process command line identified the selected --gpu slot and the helper-generated --recovery-result; no startup-profile argument. The normal GUI was closed after observation; its pixels were not captured.",
+      "receipt_transition": "The durable event prefix remains intact; added begin restore, registry-verified, one successful GPU-only restart, and verified.",
+      "restored_receipt_sha256": "6f5c48d7482afe9c0cbc932626a6a0fc88bb47341c7e8fc942d0b84953230be9",
+      "added_receipt_events": [
+        {
+          "action": "restore",
+          "event": "begin",
+          "time": 1793319374.3385284
+        },
+        {
+          "event": "registry-verified",
+          "time": 1793319374.3444247
+        },
+        {
+          "event": "restart",
+          "result": {
+            "message": "GPU PnP restart completed and Windows reports the device started",
+            "ok": true,
+            "reboot_required": false,
+            "returncode": 0
+          },
+          "time": 1793319375.2069535
+        },
+        {
+          "event": "verified",
+          "observed_image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "time": 1793319377.8277154
+        }
+      ],
+      "GPU_only_restarts": 1,
+      "pending_envelope_origin": "Root-created from the durable pending source result, not helper-generated.",
+      "pending_envelope_sha256": "a58f717e73e79e39a66a6437ef6893c573a48e4891ebf542499046036b3c4254",
+      "success_envelope_origin": "Actual helper-generated success result passed to the observed normal GUI; later framebuffer capture used the same unchanged result in a separate read-only launch.",
+      "success_envelope_sha256": "101f3f16f0f8ecf14b10626d8e7774b00ca74dd4e89da9de14e9bf863d0c2084",
+      "source_commit": "1e4844befb8cfdfb868e7b51069b8a532c0b9aa1",
+      "executable_sha256": "633e6adc778a6d2be1b8f86d53be8f00fd4ed33d96b1fedc89fbc7a9beffedc0",
+      "compiled_package_check": "experiments/registry-overrides/ui-recovery-capture-root-20261029/compiled-final-fixed-package-check.json",
+      "historical_package_note": "Historical auditor and package binding were checked before the later build; they were not rerun against the new executable.",
+      "frames": {
+        "pending_capture": {
+          "recovery-panel": {
+            "sha256": "c1efd00caf16190bd91abb38fccf1630554e980df8ed1a5709d31d5569249161",
+            "width": 1528,
+            "height": 1261
+          },
+          "recovery-log": {
+            "sha256": "c4b6b5dbe98475838f47714f915e215dd53c0e4ecba5774fa0d9e07882a9feb1",
+            "width": 1528,
+            "height": 1261
+          }
+        },
+        "success_capture": {
+          "recovery-panel": {
+            "sha256": "164a0d00e2835aecdb1d3aec7446782ceac7b51af5564107212249dd025aeac8",
+            "width": 1528,
+            "height": 1261
+          },
+          "recovery-log": {
+            "sha256": "f78772e6beb1e40cb5561d1cab334651cc30afaa6179babf0bbec0fda5ee6370",
+            "width": 1528,
+            "height": 1261
+          }
+        }
+      },
+      "final_samples": [
+        {
+          "exact": false,
+          "difference_paths": [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": false,
+          "difference_paths": [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        }
+      ],
+      "pending_log_visual_negative": "Original pending log is clipped after NVDEC rollba; manifest preserves full message. This negative is retained.",
+      "pending_panel": "Actual pending read-only capture records receipt recovery-required and Undo enabled; button appearance alone does not prove enabled state.",
+      "success_panel": "Separate success capture records no active receipt and Undo disabled; helper success text and Details are readable in its log.",
+      "historical_archive_sha256": "d4a1839d0becb9fdfc51fcb548307d579bd234506077e850c2f20f6886d87269",
+      "historical_package_proof": "experiments/registry-overrides/ui-recovery-helper-root-20261029/historical-package-proof.json"
+    },
+    "fixed_historical_replay": {
+      "source_commit": "35625a00d25146e06909c6147d7a03bac415062f",
+      "executable_sha256": "db61c40322c953e3874e652c06877c3e59e678dcea183ac144db17135291e845",
+      "source_manifest_files": 464,
+      "compiled_modules_verified": 21,
+      "process_id": 14500,
+      "exit_code": 0,
+      "GPU_restart": false,
+      "envelope_sha256": "a58f717e73e79e39a66a6437ef6893c573a48e4891ebf542499046036b3c4254",
+      "provenance": "The same unchanged root-created historical pending envelope was replayed after recovery; current receipt is absent and Undo disabled. No new source injection, helper recovery or GPU restart.",
+      "visual": "Root and Luna saw the complete historical failure and Details path in wrapped panel text. Original log line remains clipped; no hidden log text is inferred.",
+      "frames": {
+        "recovery-panel": {
+          "sha256": "7fa0558d279bc86d2a93550b4ebf07f646f6c8014195fb750b717d85a5fa879e",
+          "width": 1528,
+          "height": 1261
+        },
+        "recovery-log": {
+          "sha256": "44b0622f665046fd4a6e0065867882c5a21217d34ff01d2da16dc88e13249486",
+          "width": 1528,
+          "height": 1261
+        }
+      },
+      "before_exact": true,
+      "before_curve_changed_bytes": 0,
+      "final_samples": [
+        {
+          "exact": false,
+          "difference_paths": [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          "curve_changed_bytes": 0
+        },
+        {
+          "exact": true,
+          "difference_paths": [],
+          "curve_changed_bytes": 0
+        }
+      ]
+    },
+    "count_scope": "Two source GPU-only restarts plus one actual helper recovery restart; read-only framebuffer captures and historical replay request none. Windows reboot and workload were not used.",
+    "validation": "Full suite 6979 passed in 120.44 seconds; 223 focused tests and four-file Ruff passed after wrapped-result fix.",
+    "pending": "Actual failed helper-origin Apply/recovery error, other recovery-required states, GUI Restore callback execution, physical input, unavailable backend/native faults, other adapters/layouts and physical effects remain pending.",
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/source-pending-1.json": "5d6a5262a875fb637241bc3fcc63ec6f0564aea3b386d33486d71fc89f81ac39",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/source-pending-1-pending-receipt.json": "8fbaa5ed6e1c396325d42727e9bb3e50925da6219bcf5398f35dd455ee2b2640",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-source-audit.json": "49f1419ad119a52b9ec5ce141e26882b55ee7262685514d8d433adae84ae1163",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/terra-source-audit.json": "49f1419ad119a52b9ec5ce141e26882b55ee7262685514d8d433adae84ae1163",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-source-review.json": "5a7ad21e35193cb515d8afb49c7da432b8d9fd50f78db6652b651d1289ec270e",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-current-pending-proof.json": "5a9b7db0e53b2619f90097c5952e665da84b978d40bade02811e25117d75c3d5",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/source_probe.py": "61c0d5fb013ac0338ccf683a40a554ceefc2792c093173b7d500c777b60c7db2",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/source_audit.py": "e06f7917d3fdf17ce6ec04d5ae21b6bae44f84777194903f60def56f1da14249",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-supervisor.json": "dc9b2850d83d98f8ac24667d87fb6b3595c59eba467c268ea6e3790e9c2938d6",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-helper-audit.json": "d85e6f32ec829702a99f7336b67351582bb4147d8956758701371ab8f1ed8ffb",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/terra-helper-audit.json": "d85e6f32ec829702a99f7336b67351582bb4147d8956758701371ab8f1ed8ffb",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-visual-review.json": "c1e59cd6e3914ce9d1e78ecab3744edab62f7459f594e57a8ec90030a9b51fc7",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/luna-visual-review.json": "3ca25cf6e0cda786c6bc418f6feff527f3e34236f3d02ceb43106be6022618be",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/supervisor.py": "ce5ea46bf6acd3cad70d7d315b3e569d90fad587261748342d153d7f4ecc3c5c",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/audit_v2.py": "99f1c13b48fb033f8b96a78cab91f6c547305a80fd0e1052b382fe97ee66edf6",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-pending/manifest.json": "6f8584c0087d69c498d036a396c7094ce9eafa4130fe57e8e37ba902365de960",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-pending/recovery-panel.png": "c1efd00caf16190bd91abb38fccf1630554e980df8ed1a5709d31d5569249161",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-pending/recovery-log.png": "c4b6b5dbe98475838f47714f915e215dd53c0e4ecba5774fa0d9e07882a9feb1",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-recovered/manifest.json": "fcd937f07369915c326669669a0ef9f7c2143d084eaf0971f73a08cdaac568a9",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-recovered/recovery-panel.png": "164a0d00e2835aecdb1d3aec7446782ceac7b51af5564107212249dd025aeac8",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-helper-1-recovered/recovery-log.png": "f78772e6beb1e40cb5561d1cab334651cc30afaa6179babf0bbec0fda5ee6370",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/compiled-fixed-trial-package-check.json": "6bca6c9781dfd997335fb398973dfdca0943d7ea672ad4ba10ce686b71d82a10",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/archive-fixed-trial-validation.json": "27c6431fb86a81226e9eaa5d978a42620c7b33003ca15826bcb4c897b9a443db",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-wrapped-replay-1-supervisor.json": "7e0b588834766bcc96d7aad18a960b9f96c29f32b076d8234daae386a03722c9",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-replay-audit.json": "7c1270a86589a0839159742eec656b62997c9a498309951d3aebe961fb5026fe",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/terra-replay-audit.json": "7c1270a86589a0839159742eec656b62997c9a498309951d3aebe961fb5026fe",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/root-replay-visual-review.json": "fb436f4e1ec9b2bfc23bcccfebadb626cefec01cd119326fce881c7b2d5e319f",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/luna-replay-visual-review.json": "8b3637db584ea63f95cb12fb70f76a4c81b0f1244a970a879bed1da9a53326f2",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/replay_supervisor.py": "d52b252abf7248cc13ca2df445f8f423eb7a7a463ac6085a53ac50a2b0ee12aa",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/replay_audit.py": "4398fe48ecdf94b2d9cce762bebe77057dd443fbeef9f285994cb522464e5998",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-wrapped-replay-1/manifest.json": "be0ad865c25ab08604309d5cc86ba937fe29639f3d97739cba2d2fca208dfe0e",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-wrapped-replay-1/recovery-panel.png": "7fa0558d279bc86d2a93550b4ebf07f646f6c8014195fb750b717d85a5fa879e",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/packaged-wrapped-replay-1/recovery-log.png": "44b0622f665046fd4a6e0065867882c5a21217d34ff01d2da16dc88e13249486",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/full-tests.log": "5047ed77b5c13252d3411e931bd0739953d8b47ca51f6c9db8b83fd7e498f58c",
+      "experiments/registry-overrides/ui-recovery-capture-root-20261029/compiled-final-fixed-package-check.json": "eabd6f8bb2fab2553c92784a2f2b601a7842e62517af02c1098c7d0d5c6c3ff2",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/historical-package-proof.json": "090fd5a2254e1858bcb60c3b5a55b790270700aa14c72fab82573f68be976fe4",
+      "experiments/registry-overrides/ui-recovery-helper-root-20261029/verify_historical_package.py": "58d582486117f6c3c072940481f6f3815f558c0f62844e178315e9465bbb3c98"
+    }
+  },
+  "gui_restore_callback_20261029": {
+    "scope": "One captured adapter and operating point; actual programmatic GUI Restore callback on an application-injected recovery-required receipt, followed by real helper and resumed GUI.",
+    "source_commit": "13b0ad920ee96b5fd41b0db7c8e88f5032b45aa8",
+    "executable_sha256": "aa7a732ebbe14ea3114c07efcdd2fcc473bc6831930a16d0de7ac82e26b4679e",
+    "trial_package": "467 sources and 22 compiled modules verified for this trial build; no claim about a subsequent final package.",
+    "source_pending": {
+      "session": 13806,
+      "exit_code": 0,
+      "selected_change": {
+        "lpwr.nvdec.0.enabled": false
+      },
+      "image_sha256": {
+        "original": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+        "active": "eda7b5d7b91c17f5a19b27de62c9e2c79bbab5f2d22fc048d61dd4dfc8c479f7"
+      },
+      "patches": [
+        {
+          "offset": 254627,
+          "before": "eb",
+          "after": "ea",
+          "field_keys": [
+            "lpwr.nvdec.0.enabled"
+          ]
+        }
+      ],
+      "verification_calls": [
+        {
+          "real_verifier_succeeded": true,
+          "restore": true
+        },
+        {
+          "real_verifier_succeeded": true,
+          "restore": false
+        },
+        {
+          "real_verifier_succeeded": true,
+          "restore": true
+        }
+      ],
+      "receipt_state": "recovery-required",
+      "receipt_events": [
+        "begin",
+        "registry-verified",
+        "restart",
+        "failure",
+        "registry-rollback-verified",
+        "restart",
+        "rollback-failure"
+      ],
+      "pending_receipt_sha256": "61b1ecfbc372ac5da04a7e4644082a7ca16aa5676b9aeb20c88cde35a73a6be4",
+      "GPU_only_restarts": 2,
+      "broad_exact": {
+        "before_broad": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_broad": [
+          false,
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      "difference_paths": {
+        "before_broad": [
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "final_broad": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ]
+      },
+      "all_16_curves_exact": true,
+      "scope": "Two labeled application exceptions follow successful actual active and rollback verifiers. Original registry and image already restored when durable recovery-required pointer is retained; this is not a native restart failure."
+    },
+    "packaged_GUI_restore": {
+      "session": 56665,
+      "exit_code": 0,
+      "initial_GUI_pid": 29624,
+      "helper_pid": 13204,
+      "resumed_GUI_pid": 23456,
+      "callback": "Actual initial panel RegistryPanel.restore invoked once; existing helper --registry-overrides receipt --action restore --parent-pid 29624 --ui-pstates-trial-resume DIR reopened the actual resumed GUI.",
+      "receipt_events_added": [
+        {
+          "action": "restore",
+          "event": "begin",
+          "time": 1793321429.6484654
+        },
+        {
+          "event": "registry-verified",
+          "time": 1793321429.6538749
+        },
+        {
+          "event": "restart",
+          "result": {
+            "message": "GPU PnP restart completed and Windows reports the device started",
+            "ok": true,
+            "reboot_required": false,
+            "returncode": 0
+          },
+          "time": 1793321430.5168886
+        },
+        {
+          "event": "verified",
+          "observed_image_sha256": "80d7d77fd21d19af6a3008e4c7386a06c26b6d79c17df34c7d5c17d691bad202",
+          "time": 1793321433.1284516
+        }
+      ],
+      "receipt_preservation": "Durable prefix preserved; only outcome/runtime keys events, message, ok, runtime_policies, runtime_verified_fields and state changed. Receipt restored, active pointer absent.",
+      "helper_result_sha256": "68ce4d842870595d32615ccba2d39d71a0a00e43a4c9e14a544c9a335eb62701",
+      "frames": {
+        "initial": {
+          "recovery-panel": {
+            "sha256": "2766255586c84b814d01202b8030ffd187a887c9d19bbf9b840bf308103679a8",
+            "width": 1528,
+            "height": 1261
+          },
+          "recovery-log": {
+            "sha256": "a5f962a5b478e7685bf8d138c8ac547084f20c0bdb870ebce5bfab8abcd2fe9c",
+            "width": 1528,
+            "height": 1261
+          }
+        },
+        "restoring": {
+          "recovery-panel": {
+            "sha256": "3431731f6af5310ffe9f43f489792196b03312bde8ebfac69e3cf49e783a0988",
+            "width": 1528,
+            "height": 1261
+          },
+          "recovery-log": {
+            "sha256": "04b46d197fb343539f31e7891db7f74af7d3bfed2e4396a50dd7e6dd552893f6",
+            "width": 1528,
+            "height": 1261
+          }
+        }
+      },
+      "visual": "Root and Luna inspected four actual initial/resumed GUI frames. Pending panel shows full wrapped failure and Details; raw pending log clips its end. Resumed panel and log show full success and Details. Button enablement is independently manifest metadata, not inferred from styling.",
+      "final_exact": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "final_difference_paths": [
+        [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "all_8_curves_exact": true,
+      "GPU_only_restarts": 1
+    },
+    "full_state": "Independent audits verify full LPWR raw/opaque peers, Pstate and client/native requests, exact original registry/image and pointer restoration. No curve exclusions; early driver flag differences retained.",
+    "GPU_only_restarts": 3,
+    "count_scope": "Two source transaction restarts plus one GUI helper restore restart; separate from earlier CLI qualification.",
+    "Windows_reboot": false,
+    "workload_started": false,
+    "physical_input": false,
+    "physical_effects_measured": false,
+    "validation": "Full suite 6986 passed in 121.48 seconds; 271 focused tests and new-file Ruff passed.",
+    "pending": "Actual failed helper-origin Apply or recovery errors, other recovery-required states, unavailable-backend/native faults, physical input, other adapters/layouts and physical effects.",
+    "runtime_source_sha256": {
+      "registry_overrides.py": "b67080f4b635d7ae7903a87e0fc2da6a224f7424064459a09e29d14941c0bd29",
+      "nvdec_runtime.py": "bf234e1876b29d537485acadf1248c9bd8affff05028bdb461abd928e0efe0c6",
+      "registry_recovery.py": "7afaedba59250f678747b53d34b6a1a84236d7f552728483ec4321d462ef16d2",
+      "devicerecovery.py": "f2f8b76e1f729d6354e712993a089a77d849dcc0c25468e0591038f599db202c",
+      "registry_panel.py": "641f210c53c7978467d065a1e80c52a04cd013b466572ef6e7e3b2b3d57edd47",
+      "druta.py": "2300ad74d5c9f07fc2b66860471d65f93496586d46c02cbf55bb9108c3f5a8d9",
+      "recovery_ui_capture.py": "fcadb8d27df61b1a96cfbb7f05cfc2507c76155b9fa9a2b9572accd59c590c61",
+      "recovery_undo_ui_trial.py": "9bfe1da45cde3f452bca5bbf9ef180ca664f92f36927aa396af6e9e47c4bc90e"
+    },
+    "private_evidence_sha256": {
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/execution-reference.json": "bd564387c482c0c6ee853f4bca4022d914993789dce0ce0a4f9c79b344cd229c",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/source-pending-1.json": "581ef20aa8fef0a7d8b6f47e2ba06e46fc0375c031755c1c678d3766207bd584",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/source-pending-1-pending-receipt.json": "61b1ecfbc372ac5da04a7e4644082a7ca16aa5676b9aeb20c88cde35a73a6be4",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/root-source-audit-canonical.json": "5853f677e76ac9bfb872422ece9e122d0bd05a8521648ae17d56bb1ba102b834",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/terra-source-audit.json": "5853f677e76ac9bfb872422ece9e122d0bd05a8521648ae17d56bb1ba102b834",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/root-source-review.json": "4a788aa7c7b53a21e48c93af16f8d44874f3f7f6aa90cf17a09005d678fa251e",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1-supervisor.json": "171422dad831ac646032ca2fa88c36d378c3a89925a235519f069710d64d1c0c",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/root-gui-audit.json": "19a2c9735b23c48ee61237f039a493754bdeac1c8da0b276404e5fa319c85489",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/terra-gui-audit.json": "19a2c9735b23c48ee61237f039a493754bdeac1c8da0b276404e5fa319c85489",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/root-final-review.json": "8b0a6882f2846f9deaee9c7e5f3c86f1fa15fcbb9fc22003d5126f19de7f5700",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/root-visual-review.json": "2a9aee82624abb0d74a1358d3091435d3ec1324d6d9638abfe247de1cfe45522",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/luna-visual-review.json": "b71731962f4140c3bff396ce0504e8d1e3c531a3493367dc9cebc89324190822",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/compiled-trial-package-check.json": "80b82fa10a801c5d01b00bf7c9dc829db6e71c3175b52e676643487781131301",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/archive-trial-validation.json": "92e4116e74c8943c4ad3b91973bfd1c2e7b6c1d71b5cc411dcc4c5df1a33ba96",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/trial.json": "e7be8830ff12535a151b1b62db865b8bb0702b92488f8a16dbf7cc8d9a669db9",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/trial-result.json": "73779a36d5e2135210177446e255f2c009c3ef2ca1552d81ba53b9f29b3ccadb",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/initial/manifest.json": "ec611413fa4f8a62ad4753f769d574678062a2a26c87b61a9ca1cf49820f0973",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/initial/recovery-panel.png": "2766255586c84b814d01202b8030ffd187a887c9d19bbf9b840bf308103679a8",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/initial/recovery-log.png": "a5f962a5b478e7685bf8d138c8ac547084f20c0bdb870ebce5bfab8abcd2fe9c",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/restoring/manifest.json": "e4866fc0a75c0d431c77208d681a6c27afdfc2ec492a2c40e5baa20df7489c9e",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/restoring/recovery-panel.png": "3431731f6af5310ffe9f43f489792196b03312bde8ebfac69e3cf49e783a0988",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/packaged-gui-undo-1/restoring/recovery-log.png": "04b46d197fb343539f31e7891db7f74af7d3bfed2e4396a50dd7e6dd552893f6",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/audit.py": "555098c84f3d78dea82628b0973ef65350af125f6e72d08b118219ae0f3a131f",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/build_package.py": "adc18bc3334d3673e46648932f21f859640a08265efadfa26d2269a983cc6e1a",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/check_full.py": "11958994824da6b765b50d34ee37d03db163c8cc65b2ae1b36f579a27098d917",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/review_preflight.py": "ee3b79ee86afbd59b2a6cebf2130151d582b80b5915c220b5a8711cb50038e1b",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/source_audit.py": "e06f7917d3fdf17ce6ec04d5ae21b6bae44f84777194903f60def56f1da14249",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/source_probe.py": "61c0d5fb013ac0338ccf683a40a554ceefc2792c093173b7d500c777b60c7db2",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/supervisor.py": "a3594f5484483b71ecd677bd13439a67523d8a0e538cefff6e2b784ee89eeed4",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/verify_final_state.py": "863f973d68d05104db44aabf8d155bfc21f712d3057883739bf2154a78b18a98",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/verify_package_final.py": "52d39ff86e877950902b733b0d0a66bcc8aab1e02821e71d065867dd31eee6c6",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/root_review.py": "f75699693771de22b41fc8d713c6c9e06fa1b7260345bc042552b339f9e8e90c",
+      "experiments/registry-overrides/ui-recovery-undo-root-20261029/full-tests.log": "62a2a21b44c1d01902eda23352800b19536a287a75cf09148f00ff60c9694665"
+    }
+  },
+  "helper_receipt_load_failure_20261029": {
+    "scope": "Two packaged helper receipt-load failures on one adapter and operating point; no physical input or native/device fault claim. Neither case entered a registry transaction.",
+    "source_commit": "806f17e82492e54ce4ccc2c7db40352388feac7c",
+    "trial_executable_sha256": "a4180ba55fcf32ad6e2157644de6dc0041964ac84cfc2c42444c446237cc06a2",
+    "trial_package": "468 committed sources and 22 compiled modules verified for the trial package; no assertion about a later final package.",
+    "code_fix": "Helper waits for parent exit before receipt load, carries expected selected slot to failure relaunch, refuses mismatched receipt targets before execute, and validates the optional read-only capture path before wait/load. A software-mock reproduction records the prior parent/load ordering bug.",
+    "cases": [
+      {
+        "name": "missing-helper-1",
+        "classification": "Invalid receipt path rejected before file access",
+        "parent_gui_pid": 14632,
+        "helper_pid": 2604,
+        "helper_exit_code": 1,
+        "relaunched_gui_pid": 10536,
+        "relaunched_gui_exit_code": 0,
+        "selected_slot": "0000:01:00.0",
+        "helper_result_sha256": "c18502e703bfbb1ee7d80e87f0cfe85325a1c6393c7cfb9ad1106eb950ac98f0",
+        "helper_result_origin": "Actual helper-generated failure result accepted by actual helper-relaunched GUI.",
+        "waiting_parent": "Immutable marker and OS observations bind the actual helper and still-running parent before root closed that parent.",
+        "receipt_metadata": null,
+        "undo_enabled": false,
+        "frame_review": "Panel and raw log show the complete invalid-path error and Details.",
+        "before_broad_exact": true,
+        "final_broad_exact": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "all_nine_curves_exact": true,
+        "raw_LPWR_Pstate_client_exact": true,
+        "no_receipt_file_created": true
+      },
+      {
+        "name": "valid-missing-helper-1",
+        "classification": "Valid state-directory UUID path absent; file stat produced WinError 2 before transaction",
+        "parent_gui_pid": 23596,
+        "helper_pid": 11260,
+        "helper_exit_code": 1,
+        "relaunched_gui_pid": 24388,
+        "relaunched_gui_exit_code": 0,
+        "selected_slot": "0000:01:00.0",
+        "helper_result_sha256": "38d8d8d644590fdcb31d53798583dce72bd70ff0592b4714d0cea945417c07cd",
+        "helper_result_origin": "Actual helper-generated failure result accepted by actual helper-relaunched GUI.",
+        "waiting_parent": "Immutable marker and OS observations bind the actual helper and still-running parent before root closed that parent.",
+        "receipt_metadata": null,
+        "undo_enabled": false,
+        "frame_review": "Panel shows complete wrapped WinError 2 and Details. Raw log clips the long error-line tail; its separate Details line is complete.",
+        "before_broad_exact": true,
+        "final_broad_exact": [
+          false,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "final_difference_paths": [
+          [
+            "voltage.broad.broad.driver_flags.control_sha256",
+            "voltage.broad.broad.driver_flags.entries[13].control_hex"
+          ],
+          [],
+          [],
+          [],
+          [],
+          [],
+          [],
+          []
+        ],
+        "all_nine_curves_exact": true,
+        "raw_LPWR_Pstate_client_exact": true,
+        "no_receipt_file_created": true
+      }
+    ],
+    "qualification_limits": [
+      "The first case is path validation refusal, not file-not-found.",
+      "The second is file-not-found at a syntactically valid location before Apply or Undo; it does not qualify a post-execution failure, rollback failure, native fault or recovery-required state.",
+      "The wrapped message is a pixel finding. Receipt and Undo state are capture metadata, not inferred from button styling.",
+      "Both cases retain the first final driver-flags mismatch; no full-curve exclusions were made.",
+      "No physical mouse or keyboard input, physical effect, configuration SET, registry transaction, GPU restart, Windows reboot or workload was requested."
+    ],
+    "validation": {
+      "full_suite": "6996 passed in 121.87 seconds",
+      "focused": "267 passed",
+      "ruff": "Two changed files clean",
+      "two_independent_audit_pairs_equal": true,
+      "total_saved_curves_exact": 18
+    },
+    "private_evidence_sha256": [
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/supervisor.py",
+        "sha256": "fafcd623503ee0178187d9beb7339491161db151b97e959bf80e523804fc96f2"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/audit.py",
+        "sha256": "5042f211233d2ac78f3ec71ea01b75ff45dc0a04e123693800df27d1ca13c88f"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/supervisor_v2.py",
+        "sha256": "9967b7a533a46c2e9dfa9168d163128aab4c71d0193b7d90de7d731294b0fd26"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/audit_v2.py",
+        "sha256": "6cc47dea66bed96fa356f0f99a9f43b1b4ac701b13c261603659b8edad054d03"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/parent-load-reproduction.json",
+        "sha256": "b29a140fc8b931ec379c56d38f06e4df6ae8dad0bb5dd0b156091fc1105cbcdf"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/reproduce_parent_load.py",
+        "sha256": "d3f0a65434c88f20a3cc25e827cc6c6bafe74d784834533321dc01ac2e8a2e76"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/review_execution.py",
+        "sha256": "7f04c82722697b5b48a3906df0f861d50dd72f0e0f8cb967b3488657a87d3f9e"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-execution-review.json",
+        "sha256": "91a238afe4eac2fc8701feb8f59d7fdbb6f298c142792ae1104be194e29a615b"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/compiled-trial-package-check.json",
+        "sha256": "d0e981590e0a1aa2d59eb8971fd85c5ef3ddbd6743766c83322234d2e470d000"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/archive-trial-validation.json",
+        "sha256": "153d95db2bfd79ad8f7c7a4b0be1ff63f15b67dbeb13bfdb263a8eab505abec2"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/full-tests.log",
+        "sha256": "cd24ac8a5dc439088533393c42f745754d79ac0d85192232ffe58f7b55e85b6d"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1-launch.json",
+        "sha256": "479384af03509dacbf91979e36fdf94d2a8d00d47f5e6dde429c674a7652701c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1-supervisor.json",
+        "sha256": "1436366998d5120fe2470939545687d5a713f280cdec88fc1daa1b6972fd10e8"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-helper-audit.json",
+        "sha256": "0912d9ff5b49ceda947fbf1fb247097abba5de0d72792989c3320724d34b4e82"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/terra-helper-audit.json",
+        "sha256": "0912d9ff5b49ceda947fbf1fb247097abba5de0d72792989c3320724d34b4e82"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-visual-review.json",
+        "sha256": "f619ab0ba14ea2256fde58856ab156c03ff2b23056b3363ecf0c20b243c916c6"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/luna-visual-review.json",
+        "sha256": "7cada67e3bde61a14a6c40e731c19afb043dbf4085f669aacd50eb043268b7e7"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1/manifest.json",
+        "sha256": "ec80aa2d772be39801561e8dbdfe68367e786939ed69c3f0dcfa689bc07209c9"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1/recovery-panel.png",
+        "sha256": "f0ebd8b542a09cdb47c3fa15984f94f7126e9f1568e202f9aea08ba9e7cdec2c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/missing-helper-1/recovery-log.png",
+        "sha256": "e84d39fd750939b29279fb568e3e88523977128ad53471945a21f0d8da87cfb9"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1-launch.json",
+        "sha256": "99c1a405d1741660d9b28cd87ba9397f196bf2bc9d1ef4e76e6f33152461485e"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1-supervisor.json",
+        "sha256": "9d635297213fbb8fcdc4a7f1142a74bb2f1e45fe96813bf3a70c400a49c37ea7"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-valid-missing-audit.json",
+        "sha256": "f8ea21105dd44a991a649b856c129e940e544b8ac2fe00d5ccb33ebe659d382a"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/terra-valid-missing-audit.json",
+        "sha256": "f8ea21105dd44a991a649b856c129e940e544b8ac2fe00d5ccb33ebe659d382a"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/root-valid-missing-visual-review.json",
+        "sha256": "91e56e065b5b1b9263dfb5ce83e8435770a41f6cf4ba780d4dcf7e0984dae4dd"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/luna-valid-missing-visual-review.json",
+        "sha256": "905bf3e6d08b9c33968ad6cf6314a49beee140ae63dc1a224027a2caf30b36eb"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1/manifest.json",
+        "sha256": "ee65de6690e9482115d7138a251cd70d3221db989dd180cf6cfb23de3b6f6b61"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1/recovery-panel.png",
+        "sha256": "4819ddf46520a46f2f3df0bb4d69a2702813a44edb804a9ff1ac1298c5a3c338"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/valid-missing-helper-1/recovery-log.png",
+        "sha256": "347a3f36321da7c2d409a295100c5ce65e9852f9b564175d66e41cbbbc68effc"
+      }
+    ]
+  },
+  "helper_post_execution_failure_20261029": {
+    "scope": "One packaged helper Apply and automatic rollback on one adapter, with an intentionally incorrect test-only expected image digest. This is not a spontaneous driver mismatch or native fault.",
+    "trial_package_commit": "c13ca4ca309fbc49d8e8c4a3a7d449887ad3934d",
+    "trial_executable_sha256": "a4180ba55fcf32ad6e2157644de6dc0041964ac84cfc2c42444c446237cc06a2",
+    "trial_package": "468 source files and 22 compiled modules verified; this identifies the trial package, not a later final build.",
+    "fixture": {
+      "field": "lpwr.nvdec.0.enabled",
+      "desired": false,
+      "normal_receipt_sha256": "e0bb51f99cf6243abe1fee08d723749ccd36771d34a96d2f6a85b385b06c5004",
+      "injected_receipt_sha256": "5b0b8cdc05b158e85ec30b8247f3a6fe8a23fbc7c953677756712858a6d527ef",
+      "copy_differences": [
+        "id",
+        "path",
+        "after_image_sha256"
+      ],
+      "injected_field": "after_image_sha256",
+      "plan_patch": [
+        {
+          "after": "ea",
+          "before": "eb",
+          "field_keys": [
+            "lpwr.nvdec.0.enabled"
+          ],
+          "offset": 254627
+        }
+      ],
+      "scope": "The copied receipt changes identity for a fresh valid receipt and deliberately supplies a false expected digest; its plan, actual preimage, target, contracts and registry projections are preserved."
+    },
+    "actual_flow": {
+      "supervisor_session": 22241,
+      "supervisor_exit_code": 0,
+      "parent_gui_pid": 18164,
+      "helper_pid": 6756,
+      "helper_exit_code": 1,
+      "relaunched_gui_pid": 15408,
+      "relaunched_gui_exit_code": 0,
+      "event_sequence": [
+        "begin",
+        "registry-verified",
+        "restart",
+        "failure",
+        "registry-rollback-verified",
+        "restart",
+        "rollback-verified"
+      ],
+      "GPU_only_restarts": 2,
+      "receipt_state": "rolled-back",
+      "ok": false,
+      "helper_result_sha256": "e25b1e992e8d96c3190b73588d0af8140594527c967d0b255b4f8c0e123babb9",
+      "result_origin": "Actual helper-generated failure result passed to the actual selected-slot relaunched GUI.",
+      "immutable_receipt_bytes": "Normal and injected receipts were saved before helper launch; their bytes and exact parsed contents are bound to the immutable launch marker.",
+      "unobserved": "The image mismatch precedes the active NVDEC verifier. No independent active image or complete active peer snapshot was saved."
+    },
+    "observations": {
+      "before_exact": true,
+      "before_samples_exact": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "final_samples_exact": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "final_difference_paths": [
+        [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        [
+          "voltage.broad.broad.driver_flags.control_sha256",
+          "voltage.broad.broad.driver_flags.entries[13].control_hex"
+        ],
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "all_17_full_curves_exact": true,
+      "LPWR_Pstate_client_raw_exact": true,
+      "final_active_receipt": null,
+      "GUI_metadata": "Actual captured result, null receipt and disabled Undo were verified from manifest, not inferred from pixels.",
+      "frame_visual_review": "Root and Luna independently viewed both captured frames: complete comparison failure, restored suffix and Details path visible without clipping at this viewport."
+    },
+    "limits": [
+      "Deliberately incorrect expectation; this does not establish an actual corrupted driver image or native failure.",
+      "The actual active image and full active peer snapshot and active NVDEC verifier are not available.",
+      "Actual failure/recovery under different conditions, failed restart, native faults, other adapters and physical input remain unqualified.",
+      "Early final driver flag differences are retained; no curve exclusions."
+    ],
+    "evidence": [
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/supervisor_v2.py",
+        "sha256": "2b2967a4aa3cad2d135a77cfa78cb7976ddc455011c8677c615f37743cac4c49"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/audit_v4.py",
+        "sha256": "360c5b18020588728416273a41613bbc8f4b37660995e9da33df3b55e892699c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/plan_v2.json",
+        "sha256": "e32d19cb93c11bb132e9b43e04d532f66f5aed8c362260c2dccc42a97ad5776c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/test_expected_digest.py",
+        "sha256": "55037f7c696ce71d73ca1f29bcecc1c2e6a8fd8c2b0b68a9311b668712b76073"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1-supervisor.json",
+        "sha256": "40b8bce867d2d2b93575742e64589606eb5847850e1e6b05c2e1e0531fee3b7e"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1-launch.json",
+        "sha256": "7a7b15cb6e7b6bbfe37285842f90001af7ad844608947dd22ef12646fcbf682c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1-normal-receipt-before.json",
+        "sha256": "e0bb51f99cf6243abe1fee08d723749ccd36771d34a96d2f6a85b385b06c5004"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1-injected-receipt-before.json",
+        "sha256": "5b0b8cdc05b158e85ec30b8247f3a6fe8a23fbc7c953677756712858a6d527ef"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1/manifest.json",
+        "sha256": "61d82d3024fbe73792c4d103258db5d05c485247a71f3bcfa6cb0bf89d10cb66"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1/recovery-panel.png",
+        "sha256": "2874a76024f493652ca1cd27de90e5ad17dbc0c5195f235236945329561e9720"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/postexec-helper-1/recovery-log.png",
+        "sha256": "b537dc66ef0cac0b19b6f86e11ad761ff659509957dc3710bf71ccc1c0658ac7"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/terra-audit.json",
+        "sha256": "2c06943ce67eff3c8e59e02ab6dca9e459afa27b66223583c66ac5efcd24c016"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-root-20261029/review_launch.py",
+        "sha256": "d7fd699020adebe3b17e1edb2cea800011961df748f1163c401e2fe8f7a2af2c"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-root-20261029/launch-review.json",
+        "sha256": "4147488dbab16886139c82331f0f812ad2572360e7cf83f8842d2b36b8ec3328"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-root-20261029/review_terminal.py",
+        "sha256": "1defb75bceae555e9cb7a95318db7ac1cbe0652d64fba6f382e6abc197fbc70f"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-root-20261029/root-terminal-review.json",
+        "sha256": "e8b7537beb031c6a4a5b25779164370ffbdb2d9ba103bf30b0f8ca37f4cf830d"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-root-20261029/root-audit.json",
+        "sha256": "17ee513b266b59bf2f37ee8cbb0a6c596bb33f7e22e442ff49d66ec8f77760d7"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-load-failure-root-20261029/compiled-final-package-check.json",
+        "sha256": "c1a1e098926c1793e60cdcc680a80bb0a74bfec3c3d3eba4591a12a5fcf586ae"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-terra-20261029/visual-review.json",
+        "sha256": "2f8b83630e04d04d8000e4fa1160468cb69f558b863e28af05f2ca9d9716205f"
+      },
+      {
+        "path": "experiments/registry-overrides/helper-post-execution-root-20261029/root-visual-review.json",
+        "sha256": "7f5773052775d2dd50f362f4be591b5bb0dd0d84cbb161e95747843f4cf8b5c0"
+      }
+    ]
+  }
+}

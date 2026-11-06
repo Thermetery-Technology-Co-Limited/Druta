@@ -1,0 +1,810 @@
+{
+  "scope": "First idle request for MS and media controllers on one RTX 5080/617.42; software-request qualification, not physical latency, residency or power.",
+  "driver_sha256": "db407b964c11441642a1642a0922c35990de974c267a08537c3432765365f84b",
+  "controllers": {
+    "4": {
+      "literal": "RMLpwrMsIdleThresholdUs",
+      "group_field": "0x544",
+      "parent_field": "0x42c"
+    },
+    "12": {
+      "literal": "RMLpwrVidNvdecRpgIdleThresholdUs",
+      "group_field": "0xd84",
+      "parent_field": "0xabc",
+      "later_possible_writer": 17
+    },
+    "13": {
+      "literal": "RMLpwrVidNvencRpgIdleThresholdUs",
+      "group_field": "0xe8c",
+      "parent_field": "0xaf8",
+      "later_possible_writer": 18
+    },
+    "14": {
+      "literal": "RMLpwrVidOfaRpgIdleThresholdUs",
+      "group_field": "0xf94",
+      "parent_field": "0xb34",
+      "later_possible_writer": 19
+    },
+    "15": {
+      "literal": "RMLpwrVidNvjpgRpgIdleThresholdUs",
+      "group_field": "0x109c",
+      "parent_field": "0xb70"
+    }
+  },
+  "source_findings": [
+    "734600 dispatches the relevant controller index to the listed RMLpwr...IdleThresholdUs literal and reads into group+124+index*108. The Us suffix is source naming, not independent authoritative physical-unit or residency proof.",
+    "B98AC0 receives parent LPWR in RDX and loads group=[parent+12C0] into RSI. For controller 4 or 12..15, B9AC66..B9AE66 checks controller support and copies a nonzero group field to the listed parent field. The 737120 controller-index switch reads the same parent field as the first default-generator input; the same mode-dependent conversion/rounding limits established for controller0 apply.",
+    "Controller 17 can later overwrite parent+ABC after controller12; controller18 can overwrite +AF8 after13; controller19 can overwrite +B34 after14, if the respective alternate controller is supported and its own group value is nonzero. Thus the field is shared in source and current effective default is not attributed solely to 12/13/14. No claim is made that alternate controller support or override is active locally.",
+    "Controllers 10 and 11 have direct RMLpwrMsDifrSwAsrIdleThresholdUs and RMLpwrMsDifrCgIdleThresholdUs group-row producers and 737120 first-default selectors parent+974/+978, respectively. No group-to-parent writer for these cases was identified in this bounded pass, so the same complete naming join is not claimed for 10/11.",
+    "The live E802 type3 attribute3A common conversion accepts a selected controller index, but exact per-controller availability, factor, before/hold readback, peer and supported response must be checked through current adapter before treating any individual control as operational. No physical power or residency claim follows from the name."
+  ],
+  "source_windows": [
+    {
+      "label": "controller_registry_dispatch",
+      "rva": "0x734600",
+      "length": 107,
+      "bytes_hex": "40535556574883ec38488b057053a6004833c44889442428488bb150250000488bea418bc0488bd94869f808010000c7442420000000004803fa4183f8150f87db030000488d0db5b98cff418bc08b9481504a73004803d1ffe20faee84c8d8724010000488bcb488d15b2",
+      "sha256": "0fca3f0afa7603c84b4c49ebabd73a11fb976c573ba73dba2a74b59c4ea32f1a"
+    },
+    {
+      "label": "controller_registry_switch",
+      "rva": "0x734a50",
+      "length": 88,
+      "bytes_hex": "5a467300384a7300b84673001f4a7300234773008748730069487300384a7300384a7300c3487300e1487300ff4873001d4973003b497300594973007749730095497300b3497300ce497300e9497300044a7300a5487300",
+      "sha256": "67314576087db79677b5c96019ca15b8e1bbae0713dc279e7e2a08233cd7bd1e"
+    },
+    {
+      "label": "ms_registry",
+      "rva": "0x734728",
+      "length": 25,
+      "bytes_hex": "0faee84c8d8724010000488bcb488d15642e5e00e88f63a3ff",
+      "sha256": "83805baec5322ac24ad2dce55ad83164fcaf5754230d9178687917e640cbbc12"
+    },
+    {
+      "label": "difr_registry",
+      "rva": "0x7348e1",
+      "length": 56,
+      "bytes_hex": "0faee84c8d8724010000488bcb488d15db2d5e00e8d661a3ffe9390100000faee84c8d8724010000488bcb488d15ed2d5e00e8b861a3ffe9",
+      "sha256": "721061275c07d2ede71841f8ebe71812df5b3b1bdfb64999b1f9e39b5244dcd6"
+    },
+    {
+      "label": "media_registry",
+      "rva": "0x73491d",
+      "length": 116,
+      "bytes_hex": "0faee84c8d8724010000488bcb488d15ef2d5e00e89a61a3ffe9fd0000000faee84c8d8724010000488bcb488d15012e5e00e87c61a3ffe9df0000000faee84c8d8724010000488bcb488d15132e5e00e85e61a3ffe9c10000000faee84c8d8724010000488bcb488d15152e5e00e84061a3ffe9",
+      "sha256": "683dc3a7986bf723ae57e277c90d6483f29b5953bbc9d30b3ef8ce9fffcd17be"
+    },
+    {
+      "label": "parent_group_prologue",
+      "rva": "0xb98ac0",
+      "length": 120,
+      "bytes_hex": "488bc4535741574881ec00010000488968e0488bda488b9158230000488bf9488970d84c8960d04c8968c84c8970c0488b81202100004889442478488b814825000048898424c000000048899424c80000004885db744a488b83d8120000488babc8120000488b8bd0120000488bb3c01200004c8ba3f012",
+      "sha256": "6f9c670382200626de5d992a885f30a44e8a07b615a41c3a1cb445a784daf5aa"
+    },
+    {
+      "label": "ms_group_to_parent",
+      "rva": "0xb9ac66",
+      "length": 37,
+      "bytes_hex": "41b804000000488bd6488bcfe879d7b9ff84c074358b864405000085c0742b89832c040000",
+      "sha256": "7d990354645bd09da0394932abb98ff312be918cd0f967206e2486db09e2213c"
+    },
+    {
+      "label": "media_12_17",
+      "rva": "0xb9acd5",
+      "length": 148,
+      "bytes_hex": "41b80c000000488bd6488bcfe80ad7b9ff84c074358b86840d000085c0742b8983bc0a00004885ed7420488bd5488bcfe8967bd5ff84c0741141b804000000488bd5488bcfe881acd5ff41b811000000488bd6488bcfe8c0d6b9ff84c074358b86ac12000085c0742b8983bc0a00004885ed7420488bd5488bcfe84c7bd5ff84c0741141b808000000488bd5488bcfe837acd5ff",
+      "sha256": "6cfd2f0b82e59f69379f47a4afdd2eab8de6cf9c436e2e5379295b49ae945a60"
+    },
+    {
+      "label": "media_13_18",
+      "rva": "0xb9ad69",
+      "length": 148,
+      "bytes_hex": "41b80d000000488bd6488bcfe876d6b9ff84c074358b868c0e000085c0742b8983f80a00004885ed7420488bd5488bcfe8027bd5ff84c0741141b805000000488bd5488bcfe8edabd5ff41b812000000488bd6488bcfe82cd6b9ff84c074358b86b413000085c0742b8983f80a00004885ed7420488bd5488bcfe8b87ad5ff84c0741141b809000000488bd5488bcfe8a3abd5ff",
+      "sha256": "1a1fc0dec3c036aa5dfd6143b8b7cc62d2b106cec7a64dc0a39aaca15b5ee1f3"
+    },
+    {
+      "label": "media_15_14_19",
+      "rva": "0xb9adfd",
+      "length": 222,
+      "bytes_hex": "41b80f000000488bd6488bcfe8e2d5b9ff84c074358b869c10000085c0742b8983700b00004885ed7420488bd5488bcfe86e7ad5ff84c0741141b806000000488bd5488bcfe859abd5ff41b80e000000488bd6488bcfe898d5b9ff84c074358b86940f000085c0742b8983340b00004885ed7420488bd5488bcfe8247ad5ff84c0741141b807000000488bd5488bcfe80fabd5ff41b813000000488bd6488bcfe84ed5b9ff84c074358b86bc14000085c0742b8983340b00004885ed7420488bd5488bcfe8da79d5ff84c0741141b80a000000488bd5488bcfe8c5aad5ff",
+      "sha256": "f2ce407c5043d77f2f453ab60bf070f777442c2ae5d4dbe9478793db024c4a9f"
+    },
+    {
+      "label": "default_generator",
+      "rva": "0x737120",
+      "length": 462,
+      "bytes_hex": "48895c240848896c24104889742418574883ec20488bb950250000498bf1488ba9b0230000bb701101004d85c9750ab81f000000e98001000080b99609000000741441c701f0d2000041c7410440420f00e96101000080b94653000000741441c701e803000041c7410400093d00e9440100004183f8150f8784000000488d155c8e8cff418bc08b8c82f07273004803caffe18b9f7c030000eb7f8b9fd4030000eb77bb64000000eb708b9f2c040000eb688b9fec080000eb60bbb8880000eb598b9f70090000eb518b9f74090000eb498b9f78090000eb418b9f600e0000eb398b9fbc0a0000eb318b9ff80a0000eb298b9f340b0000eb218b9f700b0000eb19ba00103d15b9329b890ee8609a9affb93e150000e8c69c9dff4885ed0f849400000080bd55060000008bc3744f8b8f1413000049b977be9f1a2fdd2406480fafc8498bc148f7e1498bc1482bca48d1e94803ca48c1e909890e8b8f141300004c69c140420f0049f7e04c2bc249d1e84c03c249c1e80944894604eb3a8b8d280e000049b8db34b6d782de1b43480fafc8498bc048f7e1498bc048c1ea1289168b8d280e00004869d140420f0048f7e248c1ea1289560433c0488b5c2430488b6c2438488b7424404883c4205fc3",
+      "sha256": "448b36c05bf94aa3d3e5b030edb8ce5afaa459f56bcbabcbca21ee9752211028"
+    },
+    {
+      "label": "default_generator_switch",
+      "rva": "0x7372f0",
+      "length": 88,
+      "bytes_hex": "b3717300c3717300bb71730021727300ca717300d2717300ca717300c3717300c3717300e1717300e9717300f171730001727300097273001172730019727300f9717300017273000972730011727300c3717300da717300",
+      "sha256": "0d21351151793a6c0aaf47812370ea01de830ac4336c962613b0ecd882618e84"
+    },
+    {
+      "label": "first_field_conversion",
+      "rva": "0x738200",
+      "length": 224,
+      "bytes_hex": "4053555657415641574883ec48488b056c17a6004833c448894424304c8bb950250000498bf9458bf0488bea488bf14d85c90f840401000041833900750b41837904000f84f300000033d2488d4c242041b810000000e895779aff8b0749ba77be9f1a2fdd240641bb0100000085c0742c458b8f181300004c0fafc8498bc249f7e14c2bca49d1e94c03ca49c1e9094585c9450f44cb44894c2420eb05448b4c24208b4f0485c9742c458b8718130000498bc24c0fafc149f7e04c2bc249d1e84c03c249c1e8094585c0450f44c34489442424eb05448b442424488b96b02300",
+      "sha256": "8c60cb8e617f756695a6b02ee6b797a1d17d9b130ffc57d047a5bc60a83ab9e6"
+    }
+  ],
+  "named_literals": [
+    {
+      "rva": "0xd175a0",
+      "length": 24,
+      "bytes_hex": "524d4c7077724d7349646c655468726573686f6c64557300",
+      "text": "RMLpwrMsIdleThresholdUs",
+      "sha256": "814be7a12c5e58e11713e947d8f149f731aeb4cbb7109678cf1b45ba557c441b"
+    },
+    {
+      "rva": "0xd17720",
+      "length": 33,
+      "bytes_hex": "524d4c7077725669644e7664656352706749646c655468726573686f6c64557300",
+      "text": "RMLpwrVidNvdecRpgIdleThresholdUs",
+      "sha256": "77183f7523a3853ff81aaca944d5f33d78c6ccd05c026bcb59719acf1fedd14f"
+    },
+    {
+      "rva": "0xd17750",
+      "length": 33,
+      "bytes_hex": "524d4c7077725669644e76656e6352706749646c655468726573686f6c64557300",
+      "text": "RMLpwrVidNvencRpgIdleThresholdUs",
+      "sha256": "c276fa51b34ceb844b0cffa85e13f45f5db380ebc994b67bc8a31e34a8d2c04b"
+    },
+    {
+      "rva": "0xd17780",
+      "length": 31,
+      "bytes_hex": "524d4c7077725669644f666152706749646c655468726573686f6c64557300",
+      "text": "RMLpwrVidOfaRpgIdleThresholdUs",
+      "sha256": "1c19721edcb09aa6335ca08af20066d42719017f2108282e49f77c69040a65d7"
+    },
+    {
+      "rva": "0xd177a0",
+      "length": 33,
+      "bytes_hex": "524d4c7077725669644e766a706752706749646c655468726573686f6c64557300",
+      "text": "RMLpwrVidNvjpgRpgIdleThresholdUs",
+      "sha256": "b0b1882debbc34d490454cf95953adffc4bf0abbec0a85680e723e4a4a54a3ad"
+    }
+  ],
+  "transport": {
+    "set": "2080E802, 0x404-byte attribute packet, one type3 row with selected controller index and attribute 0x3A; caller DWORD supplies first scaled input and conversion constructs the selected first value with zero peer.",
+    "raw_get": "20801706, 0x10-byte outer block count u32+0 and entries pointer+8; 12-byte entries [selector,index,value], selectors 1 and 2 return first and second raw values. Check support and exact returned row values; unsupported rows can be skipped.",
+    "scaled_get": "A801 type3 3A and 3B return first and second scaled values; 20801706 selectors 0x303 and 0x304 use the same scaled helper. Scaled helper ignores its underlying provider status; do not treat alone as raw proof.",
+    "scope": "Reuse the established GR transport and unique-factor/readback checks; packet behavior must be validated for the selected controller on the current adapter. Parent default aliasing does not change selected controller index in SET."
+  },
+  "individual_trials": {
+    "4": {
+      "scale": 108000,
+      "original": 150,
+      "target": 151,
+      "expected_raw": 16308,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    },
+    "12": {
+      "scale": 108000,
+      "original": 100,
+      "target": 101,
+      "expected_raw": 10908,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    },
+    "13": {
+      "scale": 108000,
+      "original": 100,
+      "target": 101,
+      "expected_raw": 10908,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    },
+    "14": {
+      "scale": 108000,
+      "original": 100,
+      "target": 101,
+      "expected_raw": 10908,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    },
+    "15": {
+      "scale": 108000,
+      "original": 100,
+      "target": 101,
+      "expected_raw": 10908,
+      "qualified_trial": true,
+      "selected_transition_and_all_raw_peers_unchanged": true,
+      "exact_threshold_restoration": true,
+      "voltage_unchanged": true,
+      "lpwr_unchanged": true
+    }
+  },
+  "production_panel_trial": {
+    "coexisting_requested_changes": {
+      "0": [
+        100,
+        101,
+        100
+      ],
+      "4": [
+        150,
+        151,
+        150
+      ],
+      "12": [
+        100,
+        101,
+        100
+      ],
+      "13": [
+        100,
+        101,
+        100
+      ],
+      "14": [
+        100,
+        101,
+        100
+      ],
+      "15": [
+        100,
+        101,
+        100
+      ]
+    },
+    "all_eight_raw_pairs_checked_at_each_step": true,
+    "selected_index_readback_checked": true,
+    "mutation_count": 12,
+    "coexisting_requests_verified": true,
+    "exact_threshold_restoration": true,
+    "voltage_unchanged": true,
+    "lpwr_unchanged": true,
+    "active_steps": [
+      {
+        "index": 0,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 4,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 12,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 13,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10908,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 14,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10908,
+            108000000
+          ],
+          "14": [
+            10908,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 15,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10908,
+            108000000
+          ],
+          "14": [
+            10908,
+            108000000
+          ],
+          "15": [
+            10908,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      }
+    ],
+    "restore_steps": [
+      {
+        "index": 15,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10908,
+            108000000
+          ],
+          "14": [
+            10908,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 14,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10908,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 13,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10908,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 12,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16308,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 4,
+        "raw_pairs": {
+          "0": [
+            10908,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      },
+      {
+        "index": 0,
+        "raw_pairs": {
+          "0": [
+            10800,
+            108000000
+          ],
+          "4": [
+            16200,
+            108000000
+          ],
+          "10": [
+            16200,
+            108000000
+          ],
+          "11": [
+            16200,
+            108000000
+          ],
+          "12": [
+            10800,
+            108000000
+          ],
+          "13": [
+            10800,
+            108000000
+          ],
+          "14": [
+            10800,
+            108000000
+          ],
+          "15": [
+            10800,
+            108000000
+          ]
+        },
+        "all_peers_match": true
+      }
+    ]
+  },
+  "validation": {
+    "tests_passed": 289,
+    "ruff": "passed"
+  },
+  "remaining_fields": {
+    "second_threshold": [
+      "E802 type3 attr3B handler 738B88 puts zero in first payload word and caller value in second, then invokes 738200. The second nonzero input uses the same LPWR+1318 multiplication and divide-by-1000 scale as the first. A801 3B returns the same provider second word scaled by floor(raw*1000/factor); 20801706 selector 2 returns the raw second word. This establishes shared numerical units with the first input under the same factor, not the distinct functional meaning.",
+      "The ordinary 737120 controller0 default path selects parent+37C for its first word but hardcodes 1000000 as second input before the same scale; special GPU-property branches bypass the ordinary path and include alternate constants. The local threshold raw observation is consistent with this ordinary default but does not prove that branch ran.",
+      "NVIDIA gk20a source calls a register pwr_pmu_pg_ppuidlefilth and programs it using named PMU_PG_POST_POWERUP_IDLE_THRESHOLD=1000000 (hw_pwr_gk20a.h:721, pmu_gk20a.h:974, pmu_gk20a.c:2317). That older GPU uses 0x10A6E8+4*i, whereas pinned Blackwell provider reads 0x8F7180+4*hardware-ID. Equal default value and adjacent first/second layout are suggestive, but no register lineage or firmware ABI establishes equivalence. Do not label attr3B post-powerup from this alone.",
+      "No selected source path supplies a name or actual consumer for the current second word beyond firmware request 02/03/04 and the raw provider. A matched GB register definition or the current matching firmware receiver and its consumption semantics is the concrete missing join. A write/readback trial can establish a transition and peer preservation, not that missing meaning; no second-control trial is proposed on present evidence."
+    ],
+    "second_field_source_windows": [
+      {
+        "name": "ordinary_default_and_special_cases",
+        "rva": "0x737120",
+        "length": 121,
+        "bytes": "48895c240848896c24104889742418574883ec20488bb950250000498bf1488ba9b0230000bb701101004d85c9750ab81f000000e98001000080b99609000000741441c701f0d2000041c7410440420f00e96101000080b94653000000741441c701e803000041c7410400093d00e9440100004183f8150f87",
+        "sha256": "27bb47f95e4dfa2f66b99ffa6bdef053ceceacd28b5bf57fcb9736de433b16f3"
+      },
+      {
+        "name": "both_default_conversions",
+        "rva": "0x73723a",
+        "length": 157,
+        "bytes": "4885ed0f849400000080bd55060000008bc3744f8b8f1413000049b977be9f1a2fdd2406480fafc8498bc148f7e1498bc1482bca48d1e94803ca48c1e909890e8b8f141300004c69c140420f0049f7e04c2bc249d1e84c03c249c1e80944894604eb3a8b8d280e000049b8db34b6d782de1b43480fafc8498bc048f7e1498bc048c1ea1289168b8d280e00004869d140420f0048f7e248c1ea12895604",
+        "sha256": "c57650ea274c616bc23d82b1e4c182d525cd47706d9d8b636c51eb9efefd26c5"
+      },
+      {
+        "name": "e802_second_payload",
+        "rva": "0x738b88",
+        "length": 33,
+        "bytes": "418b4108458bc64c8d4c2430895c2430488bd589442434488bcfe859f6ffff8bd8",
+        "sha256": "bd9346f04cb27955b8b632923cb868b34a00bdffe02a6846ecb9cad82db151c2"
+      },
+      {
+        "name": "same_pair_conversion",
+        "rva": "0x73825b",
+        "length": 128,
+        "bytes": "8b0749ba77be9f1a2fdd240641bb0100000085c0742c458b8f181300004c0fafc8498bc249f7e14c2bca49d1e94c03ca49c1e9094585c9450f44cb44894c2420eb05448b4c24208b4f0485c9742c458b8718130000498bc24c0fafc149f7e04c2bc249d1e84c03c249c1e8094585c0450f44c34489442424eb05448b44242448",
+        "sha256": "4903c1c313bcf68871b0f540a2ac447d6ccb654cc1e7464aa2465028a23a00ff"
+      },
+      {
+        "name": "firmware_packet",
+        "rva": "0x73acfd",
+        "length": 112,
+        "bytes": "41b910000000895c2450418bd1488d4c24544c8bc7e8a94a9aff33d2488d4c244041b810000000e8c74c9aff488b95b02300004c8d44244033c966c74424410304c64424400241b9240000000fb68629130000488b92381000008844243048894c242866894c2420488bcde87391c1ff",
+        "sha256": "185791bbdc560bf9652b479f4b43cab136349f08ddea93d1b063541c1897cd5b"
+      },
+      {
+        "name": "same_provider_both_raw",
+        "rva": "0xb8fb80",
+        "length": 211,
+        "bytes": "4889742410574883ec30418bc0498bf14869f8080100004803fa0fb687f00000003cff7529ba00008a00b92717bd0ee8dc1055ffb98a000000e8020557ffb8ffff0000488b7424484883c4305fc348895c2440448d0c8500718f00488d991044000048c744242000000000488bcb4533c033d2e8586a59ff89064533c0440fb68ff000000033d2488bcb48c744242000000000468d0c8d80718f00e8306a59ff833e00488b5c24408946047719ba00009000b92717bd0ee8541055ffb990000000e87a0457ff488b74244833c04883c4305fc3",
+        "sha256": "604f3ee9fed983334df21cd6516339dd56c9e89b32263785a9770eb47890570f"
+      },
+      {
+        "name": "read_raw_second",
+        "rva": "0x4f3568",
+        "length": 28,
+        "bytes": "4c8d4c2438448bc6498bd6498bcfe8c54a24008bf88b44243c894308",
+        "sha256": "4fcb9dab440b167097a97ebad9af3378abd9a09e8aa9812875e1d6fc3c6ca73c"
+      }
+    ],
+    "difr10_11": "Subsequently qualified through the indexed common first-field route in experiments/live-difr-idle-thresholds-20261102.json. Missing registry-to-parent copy limits initialization provenance."
+  },
+  "private_audit_sha256": {
+    "experiments\\registry-overrides\\other-idle-thresholds-terra-20261102\\idle-first-controller-join-61742.json": "830ae74db03fbf1afb864f473b27f7df87ff4b30308ed4a6117e4b7cb2787918",
+    "experiments\\registry-overrides\\gr-second-threshold-terra-20261102\\second-threshold-source-61742.json": "31085294e8e11002c2b53716683b3b1b0c388997193ce5e9f4b2f5a08cd70f0b",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\additional-idle-thresholds-product-trial-20261102.json": "9402c2b28ec19d9ae4c53e6bad7e7d440e50adff987c676c69282c5d2e9d8151",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-4-trial-20261102.json": "3687efe649ae7dab1b762df887098365a03096e15bfe8caac2396942ca4f9107",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-12-trial-20261102.json": "833ae8bc04885806f28a86d402b58965cf529f550688639ac7d5717c0111eaae",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-13-trial-20261102.json": "8a4b76000a5a71fa007b7bb5de88abf8a46bf6c00d8f2a41ee2392680f853a2e",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-14-trial-20261102.json": "4a62705082304809e822e370043ca0dd97150aa5248efff40292424c335e5a8f",
+    "experiments\\registry-overrides\\profiler-more-root-20261101\\idle-threshold-15-trial-20261102.json": "2a9a382f4fb81ddad36adcc53842e096807ad1bbff9d0c6b3ca7db3bc40514a2"
+  },
+  "auxiliary_policy_followup": "Later source audit found conditional auxiliary reason-bit changes for some GR/MS/media requests. Numeric-threshold restoration is not proof of auxiliary-policy restoration. See experiments/live-difr-idle-thresholds-20261102.json."
+}

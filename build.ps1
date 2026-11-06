@@ -32,13 +32,20 @@
 #>
 
 [CmdletBinding()]
-param()
+param(
+    # Build beside an existing running bundle when reviewing local changes.
+    [string]$DistDirectory = 'dist'
+)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $root      = $PSScriptRoot
-$distDir   = Join-Path $root 'dist'
+$distDir   = if ([IO.Path]::IsPathRooted($DistDirectory)) {
+    [IO.Path]::GetFullPath($DistDirectory)
+} else {
+    [IO.Path]::GetFullPath((Join-Path $root $DistDirectory))
+}
 $bundleDir = Join-Path $distDir 'Druta'
 $exePath   = Join-Path $bundleDir 'Druta.exe'
 $specPath  = Join-Path $root 'Druta.spec'
@@ -70,6 +77,15 @@ function Get-SourceSnapshot {
         'RELEASE-NOTES-1.8.0c.md',
         'RELEASE-NOTES-1.8.0.md',
         'RELEASE-NOTES-1.8.1.md',
+        'RELEASE-NOTES-1.9.0a.md',
+        'RELEASE-NOTES-1.9.0b.md',
+        'RELEASE-NOTES-1.9.03.md',
+        'RELEASE-NOTES-1.9.04.md',
+        'RELEASE-NOTES-1.9.05.md',
+        'RELEASE-NOTES-1.9.06.md',
+        'RELEASE-NOTES-1.9.07.md',
+        'RELEASE-NOTES-1.9.08.md',
+        'RELEASE-NOTES-1.9.1.md',
         'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md', 'ADA-VALIDATION.md',
         'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
@@ -78,9 +94,106 @@ function Get-SourceSnapshot {
         'experiments/current-limits-titan-47212-20260908.json',
         'experiments/I2C-VOUT-VALIDATION.md',
         'experiments/strix-3070ti-mp2888-20261015.md',
+        'experiments/ampere-live-client-power-20261027.md',
+        'experiments/ampere-four-digit-policy-summary-20261027.json',
+        'experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md',
+        'experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.json',
+        'experiments/turing-tu104-live-power-20261028.md',
+        'experiments/turing-tu104-live-power-20261028.json',
+        'experiments/validate_turing_live_power.py',
+        'experiments/pascal-gp106-live-power-20261102.md',
+        'experiments/pascal-gp106-live-power-20261102.json',
+        'experiments/validate_pascal_live_power.py',
+        'experiments/pascal-gp106-driver57283-20261102.md',
+        'experiments/pascal-gp106-driver57283-20261102.json',
+        'experiments/pascal-gp106-driver47212-20261102.md',
+        'experiments/pascal-gp106-driver47212-20261102.json',
+        'experiments/pascal-gp106-driver51694-20261102.md',
+        'experiments/pascal-gp106-driver51694-20261102.json',
+        'experiments/turing-driver-abi-review-20261028.md',
+        'experiments/turing-driver-abi-review-20261028.json',
+        'experiments/turing-43160-static-layout-20261028.md',
+        'experiments/turing-43160-static-layout-20261028.json',
+        'experiments/turing-driver-live-comparison-20261028.md',
+        'experiments/turing-43160-live-power-20261028.json',
+        'experiments/turing-62101-live-power-20261028.json',
+        'experiments/turing-owner-furmark-ab-20261028.md',
+        'experiments/validate_turing_clock_compat.py',
+        'experiments/turing-43160-clock-compat-20261028.json',
+        'experiments/turing-47212-clock-compat-20261028.json',
+        'experiments/turing-47212-live-power-20261028.json',
+        'experiments/turing-47212-compatibility-20261028.md',
+
+        'experiments/power-policy-integral-upper-5080-61742-20261105.md',
+        'experiments/power-policy-integral-upper-5080-61742-20261105.json',
+        'experiments/power-integral-production-20261105.json',
+        'experiments/power-integral-lower-5080-61742-20261105.md',
+        'experiments/power-integral-lower-5080-61742-20261105.json',
+        'experiments/power-integral-lower-production-20261105.json',
+        'experiments/power-integral-profiles-20261105.json',
+        'experiments/power-integral-count-failure-20261105.md',
+        'experiments/power-integral-count-failure-20261105.json',
+        'experiments/power-relationship-formula-5080-20261105.md',
+        'experiments/power-relationship-formula-5080-20261105.json',
+        'experiments/pcie-speed-5080-61742-20261105.md',
+        'experiments/pcie-speed-5080-61742-20261105.json',
+        'experiments/pcie-and-idle-boundaries-61742-20261105.md',
+        'experiments/pcie-and-idle-boundaries-61742-20261105.json',
+        'experiments/pcie-speed-profiles-20261105.json',
+        'experiments/power-relationship-info-20261105.md',
+        'experiments/power-relationship-info-20261105.json',
+        'experiments/power-explicit-source-20261105.md',
+        'experiments/power-explicit-source-20261105.json',
+        'experiments/nvvdd-offset-profiles-20261105.md',
+        'experiments/nvvdd-offset-profiles-20261105.json',
+        'experiments/policy-intermediate-delay-5080-61742-20261105.md',
+        'experiments/policy-intermediate-delay-5080-61742-20261105.json',
+        'experiments/power-weight-override-5080-61742-20261105.md',
+        'experiments/power-weight-override-5080-61742-20261105.json',
+        'experiments/linked-current-weight-composition-5080-61742-20261105.md',
+        'experiments/linked-current-weight-composition-5080-61742-20261105.json',
+        'experiments/power-type33-relationship-ranges-20261105.md',
+        'experiments/power-type33-relationship-ranges-20261105.json',
+        'experiments/power-v30-class1-20261028.json',
+        'experiments/power-v30-short-row-20261029.json',
+        'experiments/validate_short_power_override.py',
+        'experiments/ampere-short-power-handoff-20261029.json',
+        'experiments/grpg-bit4-qualified-20261029.json',
+        'experiments/grpg-bit4-combined-qualified-20261029.json',
+        'experiments/ui-render-capture-20261028.json',
+        'experiments/ui-current-controls-capture-20261102.json',
+        'experiments/ui-live-panels-capture-20261028.json',
+        'experiments/ui-registry-power-qualified-20261029.json',
+        'experiments/ms-configured-qualified-20261029.json',
+        'experiments/ms-mapping-loss04-qualified-20261030.json',
+        'experiments/ms-mapping-neighbors-qualified-20261030.json',
+        'experiments/ms-loss20-qualified-20261101.json',
+        'experiments/ms-retained-class-qualified-20261101.json',
+        'experiments/grpg-main-complete-qualified-20261030.json',
+        'experiments/grpg-bit4-no-peer-qualified-20261029.json',
+        'experiments/nvdec-configured-qualified-20261029.json',
+        'experiments/media-lpwr-configured-qualified-20261029.json',
+        'experiments/grpg-bit1-availability-qualified-20261029.json',
+        'experiments/media-type4-last-role-qualified-20261029.json',
+        'experiments/ui-lpwr-configured-qualified-20261029.json',
+        'experiments/ui-recovery-result-qualified-20261029.json',
+        'experiments/lpwr-telemetry-provenance-20261029.json',
+        'experiments/voltage-live-bounds-20261029.json',
+        'experiments/driver-transport-followup-20261028.json',
+        'experiments/iddq-model-response-20261030.json',
+        'experiments/voltage-replay-followup-20261028.json',
+        'experiments/capture_power_provenance.py',
+        'experiments/ampere-provenance-handoff-20261028.json',
+        'experiments/ampere-provenance-qualified-20261029.json',
+        'experiments/voltage-live-constants-20261028.json',
+        'experiments/voltage-vmin-live-20261028.json',
         'experiments/validate_strix_mp2888_production.py',
         'experiments/validate_strix_mp2888_production.json',
         'experiments/meter_strix_mp2888_production.json',
+        'experiments/ampere-ga102-kingpin-grpg-61742-20261105.md',
+        'experiments/ampere-ga102-kingpin-grpg-61742-20261105.json',
+        'experiments/ampere-ga102-kingpin-ms-61742-20261105.md',
+        'experiments/ampere-ga102-kingpin-ms-61742-20261105.json',
         'experiments/kepler-p0-fan-ui-gtx770-47212-20260909.json',
         'experiments/gating-refresh-gtx770-47212-20260909.json',
         'experiments/i2c-direct-vmon-worker-gtx770-47212-20260909.json',
@@ -123,6 +236,21 @@ function Get-SourceSnapshot {
         'experiments/power-5080-20260908/POLICY14-MAXIMUM-RESULT.md',
         'experiments/power-5080-20260908/MP29816-VALIDATION.md',
         'experiments/voltage-rails-20260906.json',
+        'experiments/voltage-rail-knobs-20261101.json',
+        'experiments/voltage-request-profiles-20261102.json',
+        'experiments/voltage-control-profiles-20261102.json',
+        'experiments/lowpower-request-profiles-20261102.json',
+        'experiments/clock-vf-profiles-20261102.json',
+        'experiments/voltage-offset-undo-20261102.json',
+        'experiments/ordinary-tuning-undo-20261102.json',
+        'experiments/combined-profiles-20261102.json',
+        'experiments/combined-full-profiles-20261102.json',
+        'experiments/ordinary-named-profiles-20261102.json',
+        'experiments/rail-limit-profiles-20261105.json',
+        'experiments/rail-limit-held-intent-20261105.json',
+        'experiments/clock-vf-smoothing-profile-20261105.json',
+        'experiments/shared-power-profile-boundary-20261102.json',
+        'experiments/voltage-61742-unblocked-objectives-20261101.json',
         'experiments/runtime-rails-47212.json',
         'experiments/runtime-rails-56636.json',
         'experiments/runtime-i2c-ui-58097.json',
@@ -203,7 +331,7 @@ Write-Host "==> [1/5] python -m PyInstaller --noconfirm Druta.spec"
 
 Push-Location $root
 try {
-    python -m PyInstaller --noconfirm $specPath
+    python -m PyInstaller --noconfirm --distpath $distDir $specPath
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller exited with code $LASTEXITCODE"
     }

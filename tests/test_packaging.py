@@ -87,7 +87,8 @@ class DistributionAssets(unittest.TestCase):
         unpacked.mkdir()
         with tarfile.open(self.sdist) as archive:
             for member in archive.getmembers():
-                self.assertTrue((unpacked / member.name).resolve().is_relative_to(unpacked))
+                resolved = (unpacked / member.name).resolve()  # is_relative_to is 3.9+
+                self.assertTrue(resolved == unpacked.resolve() or unpacked.resolve() in resolved.parents)
             # The archive was just built locally and all member paths were checked.
             archive.extractall(unpacked)
         source = next(unpacked.iterdir())
@@ -95,6 +96,10 @@ class DistributionAssets(unittest.TestCase):
         self.assertTrue((source / "src/run_druta.py").is_file())
         self.assertTrue((source / "tests/__init__.py").is_file())
         self.assertTrue((source / "build.ps1").is_file())
+        self.assertTrue((source / "RELEASE-NOTES-1.9.0a.md").is_file())
+        self.assertTrue((source / "RELEASE-NOTES-1.9.0b.md").is_file())
+        evidence = Path("experiments/ui-recovery-result-qualified-20261029.json")
+        self.assertEqual((source / evidence).read_bytes(), (ROOT / evidence).read_bytes())
         self.run_build(source, "build_wheel")
         self.assert_wheel_assets(self.direct_wheel)
 

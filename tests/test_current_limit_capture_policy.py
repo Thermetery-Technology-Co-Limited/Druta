@@ -61,7 +61,8 @@ def reset_steps(gpu):
 
 def unknown_transport(gpu, packet_bytes=30000):
     gpu._capture_current_limit_transport = Mock(return_value=None)
-    gpu._current_limit_observed_transport = {"command": "0x2080A612", "packet_bytes": packet_bytes,
+    gpu._current_limit_observed_transport = {"command": "0x2080A612", "command_id": 0x2080A612,
+                                             "packet_bytes": packet_bytes,
                                              "parameter_bytes": packet_bytes - 68}
 
 
@@ -198,7 +199,7 @@ class MissingAdapterApisTests(NotUnderstoodCase):
         del gpu._capture_current_limit_transport               # the real capture
         del gpu._legacy_clk_gdi                                 # the real export check
         gpu.nvapi.PowerPolInfo = Mock()
-        with patch.object(n.ctypes, "WinDLL", return_value=gdi) as loader:
+        with patch.object(n.ctypes, "WinDLL", return_value=gdi, create=True) as loader:
             self.assertEqual(gpu.get_current_limits(), [])
         self.assertTrue(loader.call_args_list)
         self.assertTrue(all(c.args == ("gdi32.dll",) for c in loader.call_args_list))
@@ -288,6 +289,63 @@ class FailedReadsStillBlockTests(unittest.TestCase):
         gpu.get_current_limits()
         state.info[1] = 0
         self.assert_blocking(gpu, "policy 13 was read earlier this session")
+
+
+class TransportOutlivesAnUnknownRecordLayoutTests(unittest.TestCase):
+    """The captured power GET is a TRANSPORT, borrowed for its handles.
+
+    Live power (W) rides on it with packet sizes the client group negotiates
+    for itself, so it must not disappear because this driver's current (A)
+    record layout is absent from _CURRENT_LIMIT_LAYOUTS. The geometry below is
+    deliberately one no entry describes, so that adding a real entry later
+    cannot quietly turn these tests into assertions about a supported driver.
+    """
+
+    def unknown_geometry(self, arch=n.GPU.ARCH_PASCAL, packet=30000, param=29932,
+                         command=0x2080A612):
+        self.assertNotIn((packet, param), n.GPU._CURRENT_LIMIT_LAYOUTS,
+                         "this case needs a geometry Druta does not describe")
+        gpu, _ = fixture(arch)
+        header, fields = gpu._capture_current_limit_transport.return_value
+        header[2], header[14], header[15] = packet, command, param
+        return gpu, header, fields
+
+    def test_an_unknown_parameter_size_still_yields_a_usable_transport(self):
+        gpu, header, fields = self.unknown_geometry()
+        self.assertEqual(gpu._rm_power_transport(), (header, fields))
+        with self.assertRaises(n.CurrentLimitUnsupported):
+            gpu._current_limit_transport_layouts()
+        # Still captured afterwards: the envelope is understood and other
+        # callers reuse it; only the current-policy records are unknown.
+        self.assertEqual(gpu._current_limit_transport, (header, fields))
+
+    def test_only_the_current_sliders_go_away_and_not_as_a_failed_read(self):
+        gpu, _, _ = self.unknown_geometry()
+        self.assertEqual(gpu.get_current_limits(), [])
+        self.assertIn("unvalidated current-policy transport geometry",
+                      gpu._current_limit_error)
+        self.assertEqual(gpu._current_limit_read_error, "")
+        self.assertEqual(capture_problems(gpu), [])
+        self.assertEqual(reset_steps(gpu), [])
+
+    def test_a_malformed_envelope_is_not_a_transport_at_all(self):
+        for name, kwargs in (
+                ("packet is not parameters plus the prologue", {"param": 11000}),
+                ("command is outside the known families", {"command": 0x2080A613}),
+        ):
+            with self.subTest(name):
+                gpu, _, _ = self.unknown_geometry(**kwargs)
+                with self.assertRaises(n.CurrentLimitUnsupported):
+                    gpu._rm_power_transport()
+                # Dropped, so the next attempt captures afresh.
+                self.assertIsNone(gpu._current_limit_transport)
+
+    def test_a_known_geometry_still_selects_its_record_layout(self):
+        gpu, _ = fixture(n.GPU.ARCH_PASCAL)                 # 11748/11680
+        self.assertEqual([row["policy"] for row in gpu.get_current_limits()], [13])
+        self.assertEqual(gpu._current_limit_error, "")
+        layouts = gpu._current_limit_transport_layouts()
+        self.assertEqual(layouts[0]["sizes"][A618], 8620)
 
 
 class UnchangedTests(unittest.TestCase):
