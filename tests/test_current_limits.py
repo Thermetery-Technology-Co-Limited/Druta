@@ -562,6 +562,54 @@ class CurrentLimitTests(unittest.TestCase):
         self.assertFalse(g.set_current_limit_ma(13, 600001)[0])
         self.assertTrue(g.set_current_limit_ma(13, 300000)[0])
 
+    @staticmethod
+    def raise_default(state, policy, default, maximum):
+        """Give a policy a driver default above the generation's normal cap,
+        the request and effective limit sitting at that default."""
+        meta = (0x58 + policy * 0xE4) // 4
+        record = (0x14 + policy * 0x7C) // 4
+        status = (0x70 + policy * 0x1454) // 4
+        state.info[meta + 3:meta + 5] = [default, maximum]
+        state.control[record + 1] = state.dynamic[status + 1] = default
+
+    def test_default_above_normal_cap_stays_reachable_without_xoc(self):
+        # RTX 3090 Ti Kingpin shape: core default and maximum 845 A, 500 A cap.
+        g, state = fixture()
+        self.raise_default(state, 13, 845000, 845000)
+        row = next(r for r in g.get_current_limits() if r["policy"] == 13)
+        self.assertEqual((row["default_ma"], row["normal_maximum_ma"]), (845000, 845000))
+        self.assertTrue(g.set_current_limit_ma(13, 844200)[0])
+        ok, message = g.set_current_limit_ma(13, 845000)
+        self.assertTrue(ok, message)
+        self.assertIn("845 A", message)
+        self.assertTrue(g.set_current_limit_ma(13, 400000)[0])
+        self.assertTrue(g.set_current_limit_ma(13, 845000)[0])
+        writes = len(state.writes)
+        ok, message = g.set_current_limit_ma(13, 845001)
+        self.assertFalse(ok)
+        self.assertIn("0.001 and 845 A", message)
+        self.assertEqual(len(state.writes), writes)
+
+    def test_default_between_cap_and_api_maximum_bounds_normal_mode(self):
+        g, state = fixture()
+        self.raise_default(state, 13, 700000, 5001000)
+        self.assertTrue(g.set_current_limit_ma(13, 300000)[0])
+        self.assertTrue(g.set_current_limit_ma(13, 700000)[0])
+        self.assertTrue(g.set_current_limit_ma(13, 300000)[0])
+        writes = len(state.writes)
+        self.assertFalse(g.set_current_limit_ma(13, 700001)[0])
+        self.assertEqual(len(state.writes), writes)
+        g.voltage_xoc_enabled = True
+        self.assertTrue(g.set_current_limit_ma(13, 5001000)[0])
+        self.assertFalse(g.set_current_limit_ma(13, 5001001)[0])
+
+    def test_default_below_cap_leaves_normal_bound_unchanged(self):
+        g, state = fixture()
+        row = next(r for r in g.get_current_limits() if r["policy"] == 13)
+        self.assertEqual((row["default_ma"], row["normal_maximum_ma"]), (300000, 500000))
+        self.assertFalse(g.set_current_limit_ma(13, 500001)[0])
+        self.assertEqual(state.writes, [])
+
     def test_large_current_messages_preserve_milliamp_precision(self):
         g, state = fixture()
         g.voltage_xoc_enabled = True

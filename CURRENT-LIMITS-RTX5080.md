@@ -16,12 +16,14 @@ separate diagnostics; writes still select only one understood policy.
 | Turing core, policy 13 | 350.780 A | 390 A | 390 A |
 | Blackwell core, policy 13 | 300 A | 500 A | 5,001 A |
 | Blackwell other rail, policy 14 | 120 A | 200 A | 5,001 A |
-| Ampere core, policy 13 | 243 A on the tested 3070 Ti | API maximum, at most 500 A | API maximum |
+| Ampere core, policy 13 | 243 A on the tested 3070 Ti; 845 A on the tested 3090 Ti Kingpin | API maximum, at most 500 A or the default if higher | API maximum |
 
 Values are displayed in amperes and passed to the driver in milliamps.
 **Apply** changes one rail limit; **Stock** restores that policy's reported
 default. Readouts show measured current and the effective limit. Normal
-caps come from the backend row and apply in both the UI and backend. XOC uses
+caps come from the backend row and apply in the UI, the backend and Max all.
+A policy whose own default exceeds the generation cap keeps that default as
+its normal cap, so a lowered limit can be set back to it without XOC. XOC uses
 each policy's advertised API maximum, subject to the generation layout.
 
 Turning XOC off does not rewrite the GPU. A previously applied higher value
