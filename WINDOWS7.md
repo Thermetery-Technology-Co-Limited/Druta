@@ -278,9 +278,17 @@ client-power controls read through the same captured RM transport as the
 current limits. On Windows 7 `gdi32` lacks `D3DKMTEnumAdapters2`, which this
 branch already classifies as an unsupported capability. Those controls
 therefore stay unavailable here with that reason; they are not retried as
-failed reads. Registry overrides and the GPU restart use SetupAPI and
-Configuration Manager functions that Windows 7 has, but they were not
-exercised on Windows 7 for this update.
+failed reads.
+
+The registry and VBIOS overrides take effect only through Druta's verified
+GPU restart, which uses `pnputil /restart-device` (Windows 10 version 2004 or
+later; see "GPU device restart (PnP)" above). Windows 7 cannot run it, so
+these overrides cannot be activated here. Main's Registry overrides panel
+does not check restart support before **Apply and restart GPU**. On this
+platform, by reading the code (not tested), Apply would stage the registry
+values, have the restart refused, and then attempt main's exact rollback of
+what it staged. The branch adds no separate refusal. A check before staging
+belongs in main, where it would also cover Windows 10 builds before 2004.
 
 **Validation of this update.** It was checked on Linux only: the
 hardware-free suite on CPython 3.13 and 3.8 matches main's 3.13 baseline
