@@ -187,6 +187,24 @@ class CurrentLimitUiTests(unittest.TestCase):
         self.assertEqual(self.maximum("current13"), 500)
         self.assertEqual(dpg.get_value("sl_current13"), 450)
 
+    def test_default_above_normal_cap_can_be_returned_to_without_xoc(self):
+        # Real backend rows and setter: an 845 A default above the 500 A cap.
+        from tests.test_current_limits import CurrentLimitTests, fixture
+        gpu, state = fixture()
+        CurrentLimitTests.raise_default(state, 13, 845000, 845000)
+        self.app.gpu.get_current_limits = gpu.get_current_limits
+        self.app.gpu.set_current_limit_ma = Mock(wraps=gpu.set_current_limit_ma)
+        self.build()
+        self.assertEqual(self.maximum("current13"), 845)
+        self.app.apply_current_limit(13, 844.2)
+        self.assertEqual(self.maximum("current13"), 845)
+        self.assertNotIn("current13", self.app._carryover_hi)
+        self.app.apply_current_limit(13, 845)
+        self.assertEqual(self.app.gpu.set_current_limit_ma.call_args.args, (13, 845000))
+        self.assertEqual(self.app.log.call_args.args[1], True)
+        self.assertEqual(dpg.get_value("sl_current13"), 845)
+        self.assertEqual(next(r for r in gpu.get_current_limits() if r["policy"] == 13)["limit_ma"], 845000)
+
     def test_finite_inputs_and_write_gate_are_enforced_before_call(self):
         self.build()
         for value in (float("inf"), float("nan"), "invalid"):

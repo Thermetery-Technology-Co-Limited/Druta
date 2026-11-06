@@ -5365,7 +5365,11 @@ class GPU:
             channel = info[meta + 1] >> 8 & 255
             unit = info[meta + 1] >> 16 & 255
             minimum, default, maximum = info[meta + 2:meta + 5]
-            normal_maximum = min(max(spec["normal_maximum_ma"], minimum), maximum)
+            # The highest request without XOC: the generation's normal cap,
+            # raised to the policy's own default so a lowered limit can always
+            # be typed back to the driver's value (default sits above 500 A on
+            # some boards). The setter, Max all and the slider all use this.
+            normal_maximum = min(max(spec["normal_maximum_ma"], minimum, default), maximum)
             # A record of another type or unit, or whose three blocks disagree
             # about its type, is a policy this build does not understand: no
             # control is offered for it. Values outside the record's own range
