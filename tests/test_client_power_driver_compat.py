@@ -93,10 +93,10 @@ def test_modern_packets_with_v30_definition_write_and_restore_exact_state(
     assert bytes.fromhex(result["after"]["native_control_hex"]) == expected_native
     for key in ("identity", "binding", "info_hex", "role_info_hex", "native_info_hex"):
         assert result["after"][key] == before[key]
-    # V4-only arbitration diagnostics must not erase a valid V3 power control.
+    # Arbitration diagnostics decode the V3 row and report the written request.
     policy = next(row for row in result["after"]["arbitration"]["policies"]
                   if row["policy"] == native)
-    assert not policy["available"]
+    assert policy["available"] and policy["requested"] == requested
 
     controller.set_request(gpu.original)
     assert cp._state(controller.read()) == cp._state(before)

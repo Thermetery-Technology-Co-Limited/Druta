@@ -8,6 +8,8 @@ import math
 import struct
 from pathlib import Path
 
+from .registry_panel import ADVANCED_PAGE, ADVANCED_TAB, SECTIONS, section_of
+
 
 # Only read callbacks are used by these display stages.
 _CURRENT_CONTROLS = (
@@ -43,6 +45,8 @@ class UiCapture:
         self.snapshot = None
         self.panel = None
         self.live_scroll = None
+        self.live_page = ADVANCED_PAGE
+        self.page_frames = 0
         self.live_original = {}
         self.manifest = {"schema": 1, "state": "capturing", "captures": [], "skipped": [], "errors": [],
                          "bounds_provenance": getattr(app, "_power_slider_baseline", None)}
@@ -50,6 +54,8 @@ class UiCapture:
         try:
             self.snapshot = {"tab": dpg.get_value("tabs"), "scroll": dpg.get_y_scroll("page_control"),
                              "clocks": dpg.get_value("ctl_clocks")}
+            if dpg.does_item_exist(ADVANCED_PAGE):
+                self.snapshot["advanced_scroll"] = dpg.get_y_scroll(ADVANCED_PAGE)
             if all(dpg.does_item_exist(tag) for tag in ("sl_pl", "in_pl")):
                 config = dpg.get_item_configuration("sl_pl")
                 self.snapshot.update(slider=dpg.get_value("sl_pl"), input=dpg.get_value("in_pl"),
@@ -71,10 +77,12 @@ class UiCapture:
                 self.bounds = None
                 self.manifest["skipped"].append("Power range stages: original BIOS bounds or slider unavailable.")
             panel = getattr(app, "_registry_panel", None)
-            headers = ("registry_header", "reg_rel_live_header", "reg_constants_live_header")
+            headers = ("live_voltage_header", "reg_rel_live_header", "reg_constants_live_header")
             self.panel = panel if panel and all(dpg.does_item_exist(tag) for tag in headers) else None
             if self.panel:
-                self.snapshot["headers"] = {tag: dpg.get_value(tag) for tag in headers}
+                # Every Advanced section that exists, since stages open them.
+                self.snapshot["headers"] = {tag: dpg.get_value(tag) for tag in (*SECTIONS, *headers)
+                                            if dpg.does_item_exist(tag)}
                 self.live_original = {kind: dpg.get_value("reg_" + kind + "_live_select")
                                       for kind in ("rel", "constants")}
                 self.stages.append("live-prepare")
@@ -92,6 +100,9 @@ class UiCapture:
                         self.manifest["skipped"].append(name + ": header or read callback unavailable.")
                         continue
                     self.snapshot["headers"].setdefault(header, dpg.get_value(header))
+                    section = section_of(header)
+                    if section and dpg.does_item_exist(section):
+                        self.snapshot["headers"].setdefault(section, dpg.get_value(section))
                     if name == "individual":
                         for index in (0, 4, 10, 11, 12, 13, 14, 15):
                             row_status = f"individual_power_gating_{index}_status"
@@ -148,6 +159,39 @@ class UiCapture:
                 dpg.set_value(tag, value)
         self._restore_power()
 
+    def _reveal(self, header):
+        """Bring one Advanced-tab control on screen: tab, its section, header."""
+        dpg = self.dpg
+        dpg.set_value("tabs", ADVANCED_TAB)
+        section = section_of(header)
+        if section and section != header:
+            dpg.set_value(section, True)
+        dpg.set_value(header, True)
+        self.live_page = ADVANCED_PAGE
+        self.page_frames = 0
+
+    def _page_settled(self):
+        """True once the page to scroll has rendered for two frames.
+
+        A tab chosen with set_value shows on the next frame, and a child
+        window's scroll range comes from the frame before. Scrolling earlier
+        clamps to 0 and leaves the target off the captured frame.
+        """
+        try:
+            # is_item_visible does not support child windows; their state
+            # carries "visible" where DearPyGui reports it.
+            visible = self.dpg.get_item_state(self.live_page).get("visible", True)
+        except Exception:
+            visible = True
+        self.page_frames = self.page_frames + 1 if visible else 0
+        return self.page_frames >= 2
+
+    def _restore_scroll(self):
+        dpg, saved = self.dpg, self.snapshot
+        dpg.set_y_scroll("page_control", saved["scroll"])
+        if "advanced_scroll" in saved:
+            dpg.set_y_scroll(ADVANCED_PAGE, saved["advanced_scroll"])
+
     def _restore_power(self):
         saved, dpg = self.snapshot, self.dpg
         if saved and "slider" in saved and dpg.does_item_exist("sl_pl") and dpg.does_item_exist("in_pl"):
@@ -159,7 +203,7 @@ class UiCapture:
     def _prepare_live(self):
         self._restore_power()
         dpg = self.dpg
-        dpg.set_value("registry_header", True)
+        self._reveal("live_voltage_header")
         cases = []
         for kind in ("rel", "constants"):
             try:
@@ -203,6 +247,7 @@ class UiCapture:
         dpg = self.dpg
         for header in ("reg_rel_live_header", "reg_constants_live_header"):
             dpg.set_value(header, header == "reg_" + kind + "_live_header")
+        self._reveal("reg_" + kind + "_live_header")
         dpg.set_value("reg_" + kind + "_live_select", label)
         getattr(self.panel, "select_" + kind + "_live")()
         if invalid:
@@ -215,9 +260,8 @@ class UiCapture:
         header, target, method, status, _, index = self.current_cases[name]
         dpg = self.dpg
         for tag in self.snapshot["headers"]:
-            if tag != "registry_header":
-                dpg.set_value(tag, tag == header)
-        dpg.set_value("registry_header", True)
+            dpg.set_value(tag, tag == header)
+        self._reveal(header)
         try:
             if index is not None:
                 getattr(target, method)(user_data=index)
@@ -246,7 +290,7 @@ class UiCapture:
         if name == "restored-display":
             self._restore_widgets()
             dpg.set_value("tabs", self.snapshot["tab"])
-            dpg.set_y_scroll("page_control", self.snapshot["scroll"])
+            self._restore_scroll()
         else:
             lo, hi = self.bounds
             step = max(1.0, (hi - lo) * 0.05)
@@ -280,9 +324,13 @@ class UiCapture:
             plot_just_visible = plot_visible and not self.plot_visible
             self.plot_visible = plot_visible
             if self.live_scroll is not None:
+                if not self._page_settled():
+                    return
                 scroll = self.dpg.get_item_pos(self.live_scroll)[1]
-                self.dpg.set_y_scroll("page_control", max(0, min(scroll, self.dpg.get_y_scroll_max("page_control"))))
+                self.dpg.set_y_scroll(self.live_page, max(0, min(scroll, self.dpg.get_y_scroll_max(self.live_page))))
                 self.live_scroll = None
+                self.page_frames = 0
+                self.wait = max(self.wait, 2)
             if self.pending is not None:
                 path, name, requested_frame, request_tick = self.pending
                 if path.is_file() and self.frames - request_tick >= 2:
@@ -343,8 +391,7 @@ class UiCapture:
     def _finish(self, error=None):
         actions = [self._restore_widgets]
         if self.snapshot is not None:
-            actions.extend((lambda: self.dpg.set_y_scroll("page_control", self.snapshot["scroll"]),
-                            lambda: self.dpg.set_value("tabs", self.snapshot["tab"])))
+            actions.extend((self._restore_scroll, lambda: self.dpg.set_value("tabs", self.snapshot["tab"])))
         for action in actions:
             try:
                 action()
@@ -410,9 +457,8 @@ class LiveVminCapture(UiCapture):
     def _stage(self, name):
         if name == "restored-display":
             return super()._stage(name)
-        self.dpg.set_value("registry_header", True)
         self.dpg.set_value("reg_rel_live_header", False)
-        self.dpg.set_value("reg_constants_live_header", True)
+        self._reveal("reg_constants_live_header")
         self.live_scroll = "reg_constants_live_header"
         if name == "vmin-before":
             self.panel.refresh_constants_live()

@@ -13,6 +13,7 @@ include RELEASE-NOTES-1.9.05.md
 include RELEASE-NOTES-1.9.06.md
 include RELEASE-NOTES-1.9.07.md
 include RELEASE-NOTES-1.9.08.md
+include RELEASE-NOTES-1.9.1.md
 include MAXWELL-PASCAL-VALIDATION.md
 include BLACKWELL-VALIDATION.md
 include ADA-VALIDATION.md
@@ -59,6 +60,8 @@ include experiments/release-1.7.0-smoke-titan-rtx-61088.md
 include experiments/strix-3070ti-mp2888-20261015.md
 include experiments/ampere-live-client-power-20261027.md
 include experiments/ampere-four-digit-policy-summary-20261027.json
+include experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md
+include experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.json
 include experiments/turing-tu104-live-power-20261028.md
 include experiments/turing-tu104-live-power-20261028.json
 include experiments/validate_turing_live_power.py
@@ -93,3 +96,7 @@ include experiments/turing-47212-compatibility-20261028.md
 include experiments/validate_strix_mp2888_production.py
 include experiments/validate_strix_mp2888_production.json
 include experiments/meter_strix_mp2888_production.json
+include experiments/ampere-ga102-kingpin-grpg-61742-20261105.md
+include experiments/ampere-ga102-kingpin-grpg-61742-20261105.json
+include experiments/ampere-ga102-kingpin-ms-61742-20261105.md
+include experiments/ampere-ga102-kingpin-ms-61742-20261105.json

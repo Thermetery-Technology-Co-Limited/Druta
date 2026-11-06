@@ -1767,6 +1767,15 @@ the firmware minimum vote was 360 W; policy 9 requested 45 A while its firmware
 minimum vote was 36.002 A. These are idle observations, not workload enforcement
 measurements. Malformed vectors remain unavailable independently of readable peers.
 
+The arbitration, integral-bound and relationship decoders accept INFO rows that
+record a v30 or v40 BIOS table; other versions stay unavailable. The RM row
+layout is the same for both. On an RTX 3090 Ti Kingpin (v30, 617.42) every
+arbitration vector was self-consistent, and each integral row's effective limit
+was floor((request x upper + 2048) / 4096). Writing policy 5's upper word
+4301 -> 4300 -> 4301 moved effective status to the predicted value and back
+([evidence](experiments/ampere-ga102-kingpin-v30-policy-rows-61742-20261105.md)).
+Relationship-weight editing still requires a v40 BIOS power table.
+
 A separate 360 -> 361 -> 360 W request trial changed only policy 8's CONTROL
 request. Its firmware client-8 votes on policies 2 and 7 followed the change,
 matching independently decoded relationship edges on this BIOS image. All 18
@@ -2116,8 +2125,10 @@ this INFO record. A successful RM status with version zero is capability
 absence, not an initialized inventory.
 
 The contract joins the actual loaded selectors to the bounded v10 LPWR index
-table at BIT P+74, then its row byte10 to the DIFR table at BIT P+E8. The supported
-owned layouts have header/row sizes 6/18 and 11/18 respectively. Invalid selectors
+table at BIT P+74, then its row byte10 to the DIFR table at BIT P+E8. The index
+table declares its own row size and is stepped by it: the 5080 ROM has 18-byte rows,
+the RTX 3090 Ti Kingpin ROM 10-byte rows, which carry the GRPG (byte 1) and MS
+(byte 2) routes but no DIFR or media route. The DIFR table is 11/18. Invalid selectors
 choose runtime fallback slot5. The traced fresh host construction leaves that
 slot's DIFR flags zero: allocation, constructors, separate table loaders and both
 HAL alternatives have been checked. A consumed index below6 that lacks a loaded
@@ -4955,8 +4966,8 @@ The latter observation is supported in 1.9.05; it does not admit an independent
 above-maximum current request. Independent writes remain bounded by their own
 descriptors, and applying a value equal to the saturated effective limit still
 writes when the stored request differs.
-Arbitration details requiring v40 definitions and original-BIOS provenance can
-remain unavailable independently of the request control.
+Arbitration details can remain unavailable independently of the request
+control.
 
 Both 431.60 and 621.01 accepted and read back idle 349/351/400 W configured
 requests against the same 105/250/350 W ordinary range. Paired native STATUS
@@ -5186,8 +5197,11 @@ an outcome. A valid zero mask is distinct from an unavailable query. Previously
 prepared image-only receipts may remain undoable; new semantic edits require a
 fresh typed preview.
 
-The MS v10 table at BIT P+0x84/object 0x3A supplies six runtime slots. The loaded
-P-state LPWR index selects byte 2 of the understood 18-byte index row, with slot 5
+The MS v10 table at BIT P+0x84/object 0x3A supplies six runtime slots. Its rows are
+stepped by their declared size: 16 bytes on the 5080 ROM, 15 on the RTX 3090 Ti
+Kingpin's legacy-table ROM, which has no object owner; flags stay at row+0 and the
+selector at row+8. The DIFR witness is read the same way. The loaded
+P-state LPWR index selects byte 2 of its index row, with slot 5
 as fallback. Controller support, configured P-state masks, type-1 role 1 and
 type-7 role 1 are separate outcomes. The qualified projections require the
 current support, feature, auxiliary and DIFR witnesses; unavailable or

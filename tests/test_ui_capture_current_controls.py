@@ -8,7 +8,8 @@ from tests.test_ui_capture import FakeDpg, app
 
 def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
     dpg, application = FakeDpg(), app(None)
-    dpg.values.update(registry_header=False, reg_rel_live_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False,
                       reg_constants_live_header=False, reg_rel_live_select='',
                       reg_constants_live_select='', voltage_requests_select='original rail',
                       gr_idle_threshold_value='original threshold',
@@ -121,7 +122,8 @@ def test_current_control_frames_use_readbacks_and_restore_display(tmp_path):
 
 def test_missing_current_panels_are_recorded_as_skipped(tmp_path):
     dpg, application = FakeDpg(), app(None)
-    dpg.values.update(registry_header=False, reg_rel_live_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False,
                       reg_constants_live_header=False, reg_rel_live_select='', reg_constants_live_select='')
     application._registry_panel = SimpleNamespace()
     capture = UiCapture(dpg, application, tmp_path / 'missing')
@@ -132,7 +134,8 @@ def test_missing_current_panels_are_recorded_as_skipped(tmp_path):
 
 def test_read_exception_is_recorded_without_a_writer():
     dpg = FakeDpg()
-    dpg.values.update(registry_header=False, reg_block_clock_gating_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_block_clock_gating_header=False,
                       block_clock_gating_status='not read')
     target = SimpleNamespace(read=Mock(side_effect=RuntimeError('read failure')),
                              hold=Mock(side_effect=AssertionError('writer')))

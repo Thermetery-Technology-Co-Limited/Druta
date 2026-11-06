@@ -1,58 +1,11 @@
 # Druta
 
-**Version 1.9.08 prerelease** — [release notes](RELEASE-NOTES-1.9.08.md).
-Brings the registry and live-tuning controls together with the 1.9.03–1.9.07
-power work. New: manual profiles and Undo across voltage, low-power, V/F
-policy and ordinary controls; power-policy feedback adjustment; and further
-live voltage, engine power-gating, PCIe and profiler controls. Board power
-requests now save an Undo point too.
-
-1.9.07 — [release notes](RELEASE-NOTES-1.9.07.md). On Pascal, a role INFO GET
-refused for its size no longer removes live power and the current sliders, the
-RM26 packet families are no longer gated to Turing, and with XOC ticked Max All
-asks for the extended envelope. Qualified on one GTX 1060 under
-[576.80](experiments/pascal-gp106-live-power-20261102.md),
-[572.83](experiments/pascal-gp106-driver57283-20261102.md),
-[472.12](experiments/pascal-gp106-driver47212-20261102.md) and
-[516.94](experiments/pascal-gp106-driver51694-20261102.md). Under load on
-472.12 the binding limit was **core current** at its 95 A ceiling, not board
-power.
-
-1.9.06 — [release notes](RELEASE-NOTES-1.9.06.md).
-Superseded 1.9.05 and carried its Turing work forward. The XOC power-limit
-slider now extends on Pascal, and core current limits work there too: a
-captured power-GET transport is no longer withheld because the driver's
-current-policy record layout is unrecognized, Pascal may take the smaller
-client-power group, and that driver's measured current-policy layout is now
-described. A Gigabyte GTX 1060 6GB on 576.80 accepted idle 201 W and 250 W
-requests above its 200 W reported maximum with exact readback and full
-restoration, reads Core current at 1/86.8/95 A, and reports a 185.625 W native
-effective limit. Physical enforcement is unmeasured. See the
-[Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
-
-Carried forward from 1.9.05: clock offsets can use the validated Pstates20
-fallback
-when an exported NVML setter reports that the capability is unsupported.
-Rejected or unmatched power requests return the slider to configured readback;
-unavailable readback stays explicitly unverified. The control view distinguishes
-the configured request, NVML-reported enforced limit and native effective limit,
-and warns when the native limit is lower even if NVML echoes the request.
-
-On one Gigabyte RTX 2080 SUPER AORUS Xtreme, 431.60 native power status settled
-at the same 360.938 W for 351 W and 400 W requests; on 621.01, it rose to
-361.969 W and 412.5 W respectively. On 472.12, configured and NVML-reported
-enforced 400 W still produced settled native status of 360.938 W. Its
-[clock and power comparison](experiments/turing-47212-compatibility-20261028.md)
-records accepted requests, offset checks and captured-state restoration.
-Physical power enforcement on these drivers remains unmeasured. On 431.60,
-clock-offset and curve/hold records were restored,
-but the changed observed memory clock remains under investigation. See the
-[driver comparison and reversible idle validation](experiments/turing-driver-live-comparison-20261028.md)
-and the separate [owner-reported FurMark A/B result](experiments/turing-owner-furmark-ab-20261028.md).
-Work in progress: registry-backed NVIDIA overrides, live power/VF/voltage-device
-controls, and DIFR configuration. The release notes describe the published package; see the current
-[manual](MANUAL.md) and [draft PR #39](https://github.com/Thermetery-Technology-Co-Limited/Druta/pull/39)
-for later branch functionality and remaining qualification limits.
+**Version 1.9.1** — latest stable release, [release notes](RELEASE-NOTES-1.9.1.md).
+Supersedes 1.8.1 and the 1.9 prereleases. Adds registry/BIOS overrides with
+durable Undo, session-only live voltage and power-saving controls, extended
+power requests and Pascal core current limits, profiles and Undo across the
+tuning controls, Ampere GA102 table support, and an Advanced tab that groups
+everything beyond daily tuning by scope.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and

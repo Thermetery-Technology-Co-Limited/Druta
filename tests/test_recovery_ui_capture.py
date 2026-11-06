@@ -13,7 +13,9 @@ from tests.test_ui_capture import FakeDpg, app, run
 class RecoveryDpg(FakeDpg):
     def __init__(self):
         super().__init__()
-        self.values.update({"registry_header": False, "reg_rel_live_header": False,
+        self.values.update({"registry_header": False, "live_voltage_header": False,
+                            "live_power_header": False, "diagnostics_header": False,
+                            "reg_rel_live_header": False,
                             "reg_constants_live_header": False, "reg_rel_live_select": "",
                             "reg_constants_live_select": "", "reg_status": "Read fields",
                             "reg_last_recovery": "Last device recovery (historical): rollback completed",
@@ -22,7 +24,7 @@ class RecoveryDpg(FakeDpg):
         self.stop_dearpygui = Mock()
 
     def get_item_state(self, tag):
-        if tag == "page_control":
+        if tag in ("page_control", "page_advanced"):
             return {"pos": (8, 200)}
         return {"rect_min": (8, 800 if tag == "registry_header" else 1800)}
 

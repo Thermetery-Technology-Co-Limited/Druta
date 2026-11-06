@@ -167,7 +167,7 @@ def test_inconsistent_output_is_reported_without_silently_replacing_it():
 def test_wrong_row_identity_does_not_hide_other_rows(block):
     args = packets((4, 29))
     if block == "info_version":
-        args[1][(0xCC + 4 * 0x104) // 4] = 0x30
+        args[1][(0xCC + 4 * 0x104) // 4] = 0x50
     elif block == "control_type":
         args[2][(0x14 + 4 * 0xC4) // 4] = 17
     else:
@@ -176,6 +176,32 @@ def test_wrong_row_identity_does_not_hide_other_rows(block):
     assert result["available"]
     assert not result["policies"][0]["available"]
     assert result["policies"][1]["available"]
+
+
+@pytest.mark.parametrize("version", [0x30, 0x40])
+def test_v3_and_v4_rows_decode_identically(version):
+    # A V3 row from the Kingpin's integral policy 5: effective follows
+    # floor((request x upper + 2048) / 4096) with upper 4301.
+    args = packets((5,))
+    i, s, c = (0xCC + 5 * 0x104) // 4, (0x9C + 5 * 0x1730) // 4, (0x14 + 5 * 0xC4) // 4
+    args[1][i], args[1][i + 1] = version, 3 | (4 << 8)
+    args[2][c : c + 2] = [3, 378000]
+    args[3][s : s + 3] = [3, 396918, 21561]
+    vector(args[3], 5, 0x40, [(254, 378000)], output=378000)
+    vector(args[3], 5, 0xE0, [(254, 378000)], output=378000)
+    result = row(args)
+    assert result["available"] and result["unit"] == "mW"
+    assert result["host"]["consistent"] and result["pmu"]["consistent"]
+    assert result["effective"] == (378000 * 4301 + 2048) // 4096
+
+
+@pytest.mark.parametrize("version", [0x00, 0x20, 0x31, 0x41, 0x50])
+def test_unknown_row_versions_remain_unavailable(version):
+    args = packets()
+    args[1][(0xCC + 9 * 0x104) // 4] = version
+    result = row(args)
+    assert not result["available"] and "V3 or V4" in result["reason"]
+    assert not result["host"]["available"] and not result["pmu"]["available"]
 
 
 @pytest.mark.parametrize(

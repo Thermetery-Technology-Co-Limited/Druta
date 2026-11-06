@@ -127,8 +127,9 @@ class PowerIntegralController:
             diag = diagnostics.get(i, {})
             unit = {0: "mW", 1: "mA"}.get(unitcode)
             reason = None
-            if ib[a] != 0x40 or struct.unpack_from("<I", cb, b)[0] != kind or (diag and not diag.get("available")):
-                reason = "Policy types or V4 format are not understood"
+            if (ib[a] not in power_arbitration.ROW_FORMATS or struct.unpack_from("<I", cb, b)[0] != kind
+                    or (diag and not diag.get("available"))):
+                reason = "Policy types or table format are not understood"
             elif unit is None:
                 reason = "Policy unit is not understood"
             elif mode != 2 or not past or not nxt or default_mode != 2 or not default_past or not default_next:
