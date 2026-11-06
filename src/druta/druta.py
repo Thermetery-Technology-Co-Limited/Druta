@@ -15202,6 +15202,9 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["--self-check"]:
+        from . import diagnostics
+        return diagnostics.cli(argv[1:])
     # Handled first and exclusively: the smoke test never opens a GPU backend,
     # so it cannot be combined with --restart-gpu or any card selection.
     if "--smoke-test" in argv or "--smoke-output" in argv:

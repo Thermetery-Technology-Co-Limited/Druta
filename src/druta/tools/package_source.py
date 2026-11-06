@@ -18,6 +18,7 @@ FILES = (
     'CURRENT-LIMITS-RTX5080.md',
     'DEBUG-SUMMARY-RTX5080.md',
     'DRIVER-COMPATIBILITY.md',
+    'Druta-Diagnose.cmd',
     'Druta-win7.spec',
     'Druta.spec',
     'MANIFEST.in',

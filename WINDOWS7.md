@@ -230,6 +230,99 @@ The compact and portable Windows 7 packages were not rebuilt for this update;
 the packages described above predate it. The Windows 7 guest and
 physical-GPU checks were not repeated.
 
+## Shared feature update (2026-11-06): Druta 1.9.1
+
+The draft now carries the shared Druta 1.9.1 source (main `fa6ee83`, through
+#79): registry and VBIOS overrides through a verified GPU restart, the live
+session controls, extended live power, Pascal core current limits, profiles
+and Undo for the new controls, Ampere GA102 table layouts and the Advanced
+tab. Each keeps main's capability, packet, identity and readback checks; the
+release notes' measurements come from the cards and drivers named there and
+are not Windows 7 hardware results.
+
+**Why 1.9.1 itself cannot start here.** The regular 1.9.1 package uses
+CPython 3.14. Its `python314.dll` imports `api-ms-win-core-path-l1-1-0.dll`,
+an API set that Windows 7 does not have, so the loader stops before any
+Druta code runs ("Failed to load Python DLL ... python314.dll"). Running
+`src/druta/tools/pe_import_manifest.py` on the published
+`Druta-1.9.1-win64.zip` lists exactly that import, plus `api-ms-win-crt-*`
+forwarders that this build does not bundle. Windows 7 needs this separate
+CPython 3.8 build.
+
+**Python 3.8 changes.** Main's new modules use several 3.9 to 3.11 language
+features. Static and test-suite checks found these in the shipped source:
+
+- `zip(..., strict=...)` (3.10) appears in 25 places, including
+  verification code that must reject length mismatches. On Python before
+  3.10, `druta.legacy_python` now installs a `zip` that implements `strict`
+  exactly, before any Druta module loads, instead of editing main's call
+  sites.
+- `dict | dict` (3.9) in `second_level_clock_gating_live.py` ran at import
+  time, so on 3.8 that module could not load. This and one more case in
+  `power_integral_profiles.py` now use `{**a, **b}`, as does
+  `int.bit_count()` (3.10) in the engine clock-gating panel.
+- `BaseException.add_note()` (3.11) is used by seven cancellation handlers
+  (voltage, clock-VF, REL, client-power and power-integral rollback). On 3.8
+  the call would raise inside the handler and replace the user's
+  KeyboardInterrupt before the rollback result was attached. These now use
+  `legacy_python.add_note`, which falls back to PEP 678's `__notes__` list.
+
+`src/druta/tools/py38_compat.py` reports every such construct in a source
+tree; `tests/test_legacy_diagnostics.py` keeps `src/druta` clean so the next
+propagation fails a test instead of failing on the legacy machine. Test-only
+uses (parenthesized `with` blocks, `dict |`, `str.removeprefix`) were
+rewritten so the whole suite also runs on 3.8.
+
+**Windows 7 behavior of the new controls.** The live PERF, power-saving and
+client-power controls read through the same captured RM transport as the
+current limits. On Windows 7 `gdi32` lacks `D3DKMTEnumAdapters2`, which this
+branch already classifies as an unsupported capability. Those controls
+therefore stay unavailable here with that reason; they are not retried as
+failed reads. Registry overrides and the GPU restart use SetupAPI and
+Configuration Manager functions that Windows 7 has, but they were not
+exercised on Windows 7 for this update.
+
+**Validation of this update.** It was checked on Linux only: the
+hardware-free suite on CPython 3.13 and 3.8 matches main's 3.13 baseline
+except for tests that need Windows' `ctypes.WinDLL`. No Windows 7 package was
+built and nothing was run on Windows 7 or on a physical GPU. The diagnostics
+below exist so the first Windows 7 run reports every remaining problem at
+once.
+
+## Diagnostics
+
+Every legacy package carries `Druta-Diagnose.cmd` and `Druta-imports.txt`.
+On the Windows 7 machine, run `Druta-Diagnose.cmd` from the extracted folder.
+It is read-only and writes a `Druta-diagnostics-<time>` folder (or one in
+`%TEMP%` when the Druta folder is not writable). Send that whole folder back:
+
+- `summary.txt`: every finding in one place.
+- `imports-check.txt`: each DLL that the bundle's EXE, DLL and PYD files
+  import from Windows, and whether this machine has it. This names a
+  missing-DLL loader failure even when Python cannot start.
+  `Druta-imports.txt` is written at build time by
+  `src/druta/tools/pe_import_manifest.py`.
+- `os.txt`, `hotfixes.txt` (with checks for KB2533623, KB3063858, KB2999226,
+  KB2670838 and KB971644), `gpu.txt`, `system-dlls.txt` and
+  `bundle-files.txt`.
+- `self-check.txt`: `Druta.exe --self-check` runs independent read-only
+  probes and writes each result as soon as it is known. It covers the Python
+  runtime, the runtime DLLs actually loaded, every Windows export Druta
+  binds, an import of every application module, NVML/NVAPI/CUDA enumeration,
+  recent Windows crash events for Druta (faulting module and offset) and the
+  Direct3D renderer. A failing probe does not stop the next one.
+- `logs\`: Druta's session logs. Every run, not only the self-check, writes
+  `logs\druta-<time>-<pid>.log` beside `Druta.exe` (else under
+  `%LOCALAPPDATA%\Thermetery\Druta\logs` or `%TEMP%\Druta-logs`). Each log has
+  the startup stages, every uncaught exception (including worker threads) and,
+  through `faulthandler`, the Python stack of a native crash such as an
+  access violation inside a driver DLL. The newest 20 logs are kept.
+
+The collector does not record user or computer names: the Python reports
+replace the Windows user name, profile path and computer name, and the
+script does not run `systeminfo`. PCI device IDs and driver versions are
+included.
+
 ## Verification
 
 Run this on the target Windows 7 installation:

@@ -47,6 +47,11 @@ try {
     if (-not $portablePath) {
         Copy-Item -Path (Join-Path $bundle '_internal\licenses\*') -Destination $licenses -Recurse -Force
     }
+    # Diagnostics for machines nobody can debug on: the collector script, and
+    # the list of DLLs this exact bundle expects Windows to provide.
+    Copy-Item -LiteralPath (Join-Path $root 'Druta-Diagnose.cmd') -Destination $bundle -Force
+    & $Python src/druta/tools/pe_import_manifest.py --bundle $bundle
+    if ($LASTEXITCODE -ne 0) { throw 'Could not write the bundle import manifest.' }
     & $Python -m pip freeze | Set-Content -LiteralPath (Join-Path $bundle 'BUILD-DEPENDENCIES.txt') -Encoding UTF8
     if ($LASTEXITCODE -ne 0) { throw 'Could not record build dependencies.' }
     & $Python src/druta/tools/package_source.py package --root $root --snapshot $sourceSnapshot --bundle $bundle
