@@ -18,11 +18,13 @@ DEFAULT_CHANGES = {"lpwr.gr_pg.0.enabled": False}
 ROUTES = ((3, 0x40, 0, 1), (12, 0x2, 1, 0), (27, 0x400, 2, 255), (31, 0x100, 3, 2))
 
 
-def bios(*, flags=(0x1B, 0x1B, 0x1B), selectors=(1, 0, 2), first=(7, 255, 4), device=0x4321):
-    index = bytearray(6 + 18 * len(selectors))
-    index[:6] = bytes((0x10, 6, 18, len(selectors), 31, 7))
+def bios(*, flags=(0x1B, 0x1B, 0x1B), selectors=(1, 0, 2), first=(7, 255, 4), device=0x4321, row_size=18):
+    # Other sizes fill non-route bytes with noise, so stepping rows by any size
+    # but the declared one reads a wrong route and fails the membership check.
+    index = bytearray([0 if row_size == 18 else 0xEE]) * (6 + row_size * len(selectors))
+    index[:6] = bytes((0x10, 6, row_size, len(selectors), 31, 7))
     for number, selector in enumerate(selectors):
-        index[6 + number * 18 + 1] = selector
+        index[6 + number * row_size + 1] = selector
     grpg = bytearray(10 + 5 * len(flags))
     grpg[:4] = bytes((0x10, 10, 5, len(flags)))
     grpg[4:10] = b"opaque"
@@ -513,7 +515,7 @@ def test_alternate_indices_identity_and_nondefault_pstate_bits(monkeypatch):
 
 @pytest.mark.parametrize(
     "offset,value",
-    [(0x4500, 0x20), (0x4501, 7), (0x4503, 6), (0x4601, 9), (0x4602, 6), (0x4603, 6), (0x4800, 0x60), (0x4802, 0)],
+    [(0x4500, 0x20), (0x4501, 7), (0x4503, 6), (0x4601, 9), (0x4602, 6), (0x4603, 6), (0x4801, 13), (0x4802, 0)],
 )
 def test_bounded_table_geometry_is_required(monkeypatch, offset, value):
     image = bytearray(bios())
@@ -1644,3 +1646,61 @@ def test_legacy_main_receipt_stays_narrow_when_new_prepare_adds_candidate(monkey
     expanded = make_main_contract(monkeypatch, image=image, obs=obs, changes=changes)
     assert expanded["schema"] == 10 and len(expanded["after_profiles"]) > len(legacy)
     gr.validate_contracts(changes, saved)
+
+
+@pytest.mark.parametrize("row_size", [10, 24])
+def test_index_rows_are_stepped_by_their_declared_size(monkeypatch, row_size):
+    # Pre-Blackwell ROMs declare shorter LPWR index rows; the GRPG route is still byte 1.
+    expected = make_contract(monkeypatch)
+    saved = make_contract(monkeypatch, image=bios(row_size=row_size))
+    assert saved["selected"] == expected["selected"]
+    assert saved["after"] == expected["after"]
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+
+
+def test_declared_index_row_size_must_match_the_stored_rows(monkeypatch):
+    saved = make_contract(monkeypatch, image=bios(row_size=10))
+    raw = bytearray.fromhex(saved["tables"]["index"]["raw_hex"])
+    raw[2] = 9
+    saved["tables"]["index"]["raw_hex"] = raw.hex()
+    with pytest.raises(gr.GrpgError, match="geometry differs"):
+        gr.validate_contracts(DEFAULT_CHANGES, saved)
+
+def test_non_v70_perf_is_fingerprinted_by_its_declared_header(monkeypatch):
+    # Pre-Blackwell ROMs carry other PERF versions; their rows are not parsed.
+    image = bytearray(bios())
+    image[0x4800] = 0x60
+    saved = make_contract(monkeypatch, image=bytes(image))
+    perf = saved["tables"]["perf"]
+    header = bytes(image[0x4800 : 0x4800 + 14])
+    assert perf["header_hex"] == header.hex() and perf["row_first_hex"] == ""
+    assert perf["table_sha256"] == hashlib.sha256(header).hexdigest()
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+    tampered = copy.deepcopy(saved)
+    tampered["tables"]["perf"]["header_hex"] = (header[:5] + b"\x00" + header[6:]).hex()
+    with pytest.raises(gr.GrpgError, match="fingerprint differs"):
+        gr.validate_contracts(DEFAULT_CHANGES, tampered)
+
+
+def test_non_v70_perf_needs_a_declared_header(monkeypatch):
+    image = bytearray(bios())
+    image[0x4800], image[0x4801] = 0x60, 3
+    with pytest.raises(gr.GrpgError, match="header is not understood"):
+        make_contract(monkeypatch, image=bytes(image))
+
+def test_legacy_table_rom_contract_has_no_object_owners(monkeypatch):
+    # A pre-Blackwell ROM: no object directory, 10-byte index rows, PERF v60.
+    image = bytearray(bios(row_size=10))
+    image[0x2000:0x2002] = b"\x00\x00"
+    image[0x4800] = 0x60
+    saved = make_contract(monkeypatch, image=bytes(image))
+    assert {saved["tables"][name]["owner"] for name in ("index", "grpg", "perf")} == {None}
+    assert saved["selected"] == make_contract(monkeypatch)["selected"]
+    assert gr.verify(observed(saved), saved) == list(DEFAULT_CHANGES)
+    gr.validate_contracts(DEFAULT_CHANGES, json.loads(json.dumps(saved, allow_nan=False)))
+    wrong = copy.deepcopy(saved)
+    wrong["tables"]["grpg"]["owner"] = 0x24
+    with pytest.raises(gr.GrpgError, match="owner differs"):
+        gr.validate_contracts(DEFAULT_CHANGES, wrong)

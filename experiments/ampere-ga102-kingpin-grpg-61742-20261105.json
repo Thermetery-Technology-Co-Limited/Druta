@@ -1,0 +1,208 @@
+{
+ "schema": 1,
+ "date": "2026-11-05",
+ "adapter": {
+  "name": "EVGA GeForce RTX 3090 Ti Kingpin",
+  "gpu": "GA102",
+  "pci_device": "0x2203",
+  "subsystem": "0x49983842",
+  "vbios": "94.02.a0.00.a7",
+  "driver": "617.42",
+  "rom_family": "legacy-tables (no BIOS object directory)"
+ },
+ "rom_tables": {
+  "lpwr_index": "v0x10, header 6, five 10-byte rows",
+  "lpwr_grpg": "v0x10, header 10, five 5-byte rows",
+  "perf": "v0x60, header 10 (rows not parsed; header fingerprinted)"
+ },
+ "change": {
+  "lpwr.gr_pg.0.enabled": false
+ },
+ "firmware_selector_policy": "preserve",
+ "patches": [
+  {
+   "after": "e6",
+   "before": "e7",
+   "field_keys": [
+    "lpwr.gr_pg.0.enabled"
+   ],
+   "offset": 544798
+  }
+ ],
+ "contract": {
+  "schema": 1,
+  "selected": {
+   "lpwr.gr_pg.0.enabled": {
+    "after_byte": 230,
+    "before_byte": 231,
+    "index": 0,
+    "offset": 544798
+   }
+  },
+  "loaded_pstates": [
+   {
+    "index": 0,
+    "pstate_id_mask": 256,
+    "lpwr_index": 0
+   },
+   {
+    "index": 6,
+    "pstate_id_mask": 1,
+    "lpwr_index": 4
+   }
+  ],
+  "before": {
+   "0": {
+    "available": true,
+    "configured_pstate_mask": 256,
+    "states_available": true,
+    "supported": true
+   },
+   "1": {
+    "available": true,
+    "configured_pstate_mask": 256,
+    "states_available": true,
+    "supported": true
+   },
+   "2": {
+    "available": true,
+    "configured_pstate_mask": null,
+    "states_available": false,
+    "supported": false
+   },
+   "4": {
+    "available": true,
+    "configured_pstate_mask": 256,
+    "states_available": true,
+    "supported": true
+   },
+   "5": {
+    "available": true,
+    "configured_pstate_mask": 257,
+    "states_available": true,
+    "supported": true
+   },
+   "6": {
+    "available": true,
+    "configured_pstate_mask": null,
+    "states_available": false,
+    "supported": false
+   }
+  },
+  "projected_after": {
+   "0": {
+    "available": true,
+    "configured_pstate_mask": 0,
+    "states_available": true,
+    "supported": true
+   },
+   "1": {
+    "available": true,
+    "configured_pstate_mask": 256,
+    "states_available": true,
+    "supported": true
+   },
+   "2": {
+    "available": true,
+    "configured_pstate_mask": null,
+    "states_available": false,
+    "supported": false
+   },
+   "4": {
+    "available": true,
+    "configured_pstate_mask": 256,
+    "states_available": true,
+    "supported": true
+   },
+   "5": {
+    "available": true,
+    "configured_pstate_mask": 257,
+    "states_available": true,
+    "supported": true
+   },
+   "6": {
+    "available": true,
+    "configured_pstate_mask": null,
+    "states_available": false,
+    "supported": false
+   }
+  }
+ },
+ "image_sha256": {
+  "before": "668ffaa4a14e905d0a99a81b91234d261f36a38612084f85285c8ee6d6d0ef49",
+  "after": "f05503bdf5e81585cae21e2f8041aeefbd9ec7ec0ca7894cfdda7b73cd6337f5"
+ },
+ "events": [
+  {
+   "action": "apply",
+   "event": "begin",
+   "time": 1793921122.6366422
+  },
+  {
+   "event": "registry-verified",
+   "time": 1793921122.6412084
+  },
+  {
+   "event": "restart",
+   "result": {
+    "message": "GPU PnP restart completed and Windows reports the device started",
+    "ok": true,
+    "reboot_required": false,
+    "returncode": 0
+   },
+   "time": 1793921123.0685866
+  },
+  {
+   "event": "verified",
+   "observed_image_sha256": "f05503bdf5e81585cae21e2f8041aeefbd9ec7ec0ca7894cfdda7b73cd6337f5",
+   "time": 1793921125.1205614
+  },
+  {
+   "action": "restore",
+   "event": "begin",
+   "time": 1793921143.072767
+  },
+  {
+   "event": "registry-verified",
+   "time": 1793921143.0775292
+  },
+  {
+   "event": "restart",
+   "result": {
+    "message": "GPU PnP restart completed and Windows reports the device started",
+    "ok": true,
+    "reboot_required": false,
+    "returncode": 0
+   },
+   "time": 1793921143.5698304
+  },
+  {
+   "event": "verified",
+   "observed_image_sha256": "668ffaa4a14e905d0a99a81b91234d261f36a38612084f85285c8ee6d6d0ef49",
+   "time": 1793921145.6833508
+  }
+ ],
+ "independent_reads": {
+  "applied": {
+   "controller_0_mask": 0,
+   "controller_1_mask": 256,
+   "controller_4_mask": 256,
+   "controller_5_mask": 257,
+   "controllers_2_6": "unsupported",
+   "rom_byte_0x8501E": "0xe6",
+   "managed_registry_values": [
+    "romOverride00"
+   ]
+  },
+  "restored": {
+   "controller_0_mask": 256,
+   "controller_1_mask": 256,
+   "controller_4_mask": 256,
+   "controller_5_mask": 257,
+   "rom_byte_0x8501E": "0xe7",
+   "image_sha256_prefix": "668ffaa4a14e905d",
+   "managed_registry_values": []
+  }
+ },
+ "scope": "One board on one driver at idle. Configured controller membership, not gating residency or power."
+}

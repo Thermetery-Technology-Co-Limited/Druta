@@ -63,6 +63,68 @@ def _hex(value, size):
     return raw
 
 
+# The v10 LPWR index table at BIT P+0x74 declares its own row size in header
+# byte 2. Each feature reads one fixed route byte per row (GRPG 1, MS 2, DIFR 10,
+# NVDEC 13, ...), so a shorter row is not malformed: it carries no route for the
+# later features. Rows are stepped by the declared size, never a fixed width.
+INDEX_POINTER, INDEX_OWNER, INDEX_HEADER = 0x74, 0x24, 6
+INDEX_SHAPES = tuple((0x10, INDEX_HEADER, stride) for stride in range(1, 256))
+
+
+def index_rows_valid(raw):
+    """True for a complete v10 index table: header, declared rows, nothing extra."""
+    return (len(raw) >= 4 and raw[0] == 0x10 and raw[1] == INDEX_HEADER and raw[2] > 0
+            and 0 < raw[3] < 6 and len(raw) == INDEX_HEADER + raw[2] * raw[3])
+
+
+def table_owner(parsed, owner):
+    """The owner a table must report: its BIOS object on object-directory ROMs,
+    None on legacy-table ROMs, where ownership is image containment instead."""
+    return owner if parsed.objects else None
+
+
+def owner_valid(value, owner):
+    """Saved evidence names either the expected BIOS object or no object."""
+    return value is None or (type(value) is int and value == owner)
+
+
+def perf_header_evidence(parsed):
+    """Evidence for a non-v70 PERF table, or None when its declared header is
+    not a bounded table header. Its row layout is untraced, so only the header
+    is fingerprinted; loaded selectors come from the live P-state reply, which
+    each contract checks against its BIOS model."""
+    at = parsed.pointer("P", 0)
+    header_size = parsed.span(at, 2)[1]
+    owner = table_owner(parsed, 0x0E)
+    if header_size < 4 or parsed.own(at, header_size, 0x0E) != owner:
+        return None
+    header = parsed.span(at, header_size)
+    return {"offset": at, "owner": owner, "header_hex": header.hex(), "row_first_hex": "",
+            "table_sha256": hashlib.sha256(header).hexdigest()}
+
+
+def perf_header_end(perf, header):
+    """Image end of saved non-v70 PERF evidence, or None when it differs."""
+    if (header[1] != len(header) or perf["row_first_hex"] != ""
+            or perf["table_sha256"] != hashlib.sha256(header).hexdigest()):
+        return None
+    return perf["offset"] + len(header)
+
+
+def index_route(index, selector, byte):
+    """Feature slot for one loaded selector, or None when its rows lack that byte.
+
+    Selectors of 6 or more and route values of 6 or more use fallback slot 5. A
+    selector addressing an absent row is the caller's error to report.
+    """
+    if byte >= index[2]:
+        return None
+    if selector >= 6:
+        return 5
+    slot = index[INDEX_HEADER + index[2] * selector + byte]
+    return slot if slot < 6 else 5
+
+
 def selected(changes):
     """Select only this category; no selected keys requires no capability GET."""
     if not isinstance(changes, Mapping) or any(not isinstance(key, str) for key in changes):
@@ -285,13 +347,14 @@ def read(gpu, *, features=False):
 def _tables(image):
     parsed = vbios_fields._Image(image)
     result = {}
-    for name, pointer, owner, hs in (("index", 0x74, 0x24, 6), ("difr", 0xE8, 0x8E, 11)):
-        table = parsed.table("lpwr_" + name, "P", pointer, ((0x10, hs, 18),), owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+    for name, pointer, owner, shapes in (("index", INDEX_POINTER, INDEX_OWNER, INDEX_SHAPES),
+                                         ("difr", 0xE8, 0x8E, ((0x10, 11, 18),))):
+        table = parsed.table("lpwr_" + name, "P", pointer, shapes, owner)
+        if table["object_id"] != table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise LpwrError("LPWR table lacks the understood bounded object ownership")
         result[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
@@ -300,12 +363,12 @@ def _tables(image):
         raise LpwrError("DIFR projection requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != table_owner(parsed, 0x0E):
         raise LpwrError("PERF table lacks its bounded object owner")
     raw = parsed.span(at, size)
     result["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -318,18 +381,21 @@ def _table_data(tables):
     if not isinstance(tables, dict) or set(tables) != {"index", "difr", "perf"}:
         raise LpwrError("Missing bounded LPWR model tables")
     decoded, spans = {}, []
-    for name, owner, hs in (("index", 0x24, 6), ("difr", 0x8E, 11)):
+    for name, owner in (("index", INDEX_OWNER), ("difr", 0x8E)):
         value = tables[name]
         if not isinstance(value, dict) or set(value) != {"offset", "owner", "raw_hex"}:
             raise LpwrError("Malformed LPWR table evidence")
         at = _int(value["offset"], 0, 16 * 1024 * 1024)
-        if type(value["owner"]) is not int or value["owner"] != owner:
+        if not owner_valid(value["owner"], owner):
             raise LpwrError("LPWR table owner differs")
         text = value["raw_hex"]
-        if not isinstance(text, str) or not 2 * (hs + 18) <= len(text) <= 2 * (hs + 5 * 18):
+        if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * (11 + 5 * 255):
             raise LpwrError("LPWR table extent is invalid")
         raw = _hex(text, len(text) // 2)
-        if raw[:3] != bytes((0x10, hs, 18)) or not 0 < raw[3] < 6 or len(raw) != hs + 18 * raw[3]:
+        if name == "index":
+            if not index_rows_valid(raw):
+                raise LpwrError("LPWR table geometry differs")
+        elif raw[:3] != bytes((0x10, 11, 18)) or not 0 < raw[3] < 6 or len(raw) != 11 + 18 * raw[3]:
             raise LpwrError("LPWR table geometry differs")
         decoded[name] = raw
         spans.append((at, at + len(raw)))
@@ -337,7 +403,7 @@ def _table_data(tables):
     if not isinstance(perf, dict) or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}:
         raise LpwrError("Malformed PERF aggregation evidence")
     at = _int(perf["offset"], 0, 16 * 1024 * 1024)
-    if type(perf["owner"]) is not int or perf["owner"] != 0x0E:
+    if not owner_valid(perf["owner"], 0x0E):
         raise LpwrError("PERF table owner differs")
     header = _hex(perf["header_hex"], 14)
     if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
@@ -365,13 +431,11 @@ def _model(tables, pstates, disable=()):
     masks = {str(i): 0 for i in CONTROLLERS}
     for row in pstates["rows"]:
         selector = row["lpwr_index"]
-        if selector >= 6:
-            slot = 5
-        else:
-            if selector >= index[3]:
-                raise LpwrError("A valid LPWR selector addresses an unloaded index row")
-            slot = index[6 + 18 * selector + 10]
-            slot = slot if slot < 6 else 5
+        if selector < 6 and selector >= index[3]:
+            raise LpwrError("A valid LPWR selector addresses an unloaded index row")
+        slot = index_route(index, selector, 10)
+        if slot is None:
+            raise LpwrError("The LPWR index rows carry no DIFR route")
         if slot != 5 and slot >= len(flags):
             # Unloaded DIFR slots retain the traced zero construction flags.
             continue

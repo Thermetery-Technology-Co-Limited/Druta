@@ -24,7 +24,8 @@ from .registry_flags import _same_state
 
 KEY = re.compile(r"lpwr\.gr_pg\.(0|[1-9][0-9]*)\.enabled\Z")
 CONTROLLERS = tuple(range(22))
-_TABLES = (("index", 0x74, 0x24, 6, 18), ("grpg", 0x80, 0x39, 10, 5))
+# A None stride means the table declares its own row size (the LPWR index).
+_TABLES = (("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_HEADER, None), ("grpg", 0x80, 0x39, 10, 5))
 _AUX_KEYS = ((0, 1), *((role, 0x800) for role in range(4)), *((role, 0x806) for role in range(4)))
 _BIT1_ROLES = tuple(range(11))
 _BIT4_KEYS = ((0, 1), *((role, 0x801) for role in range(3)), (0, 0x805), (1, 0x805))
@@ -310,26 +311,34 @@ def _tables(image):
     parsed = vbios_fields._Image(image)
     result = {}
     for name, pointer, owner, hs, stride in _TABLES:
-        table = parsed.table("lpwr_" + name, "P", pointer, ((0x10, hs, stride),), owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+        shapes = lp.INDEX_SHAPES if stride is None else ((0x10, hs, stride),)
+        table = parsed.table("lpwr_" + name, "P", pointer, shapes, owner)
+        if table["object_id"] != lp.table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise GrpgError("GRPG model lacks understood bounded object ownership")
         result[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
+    if parsed.span(at, 1)[0] != 0x70:
+        perf = lp.perf_header_evidence(parsed)
+        if perf is None:
+            raise GrpgError("PERF table header is not understood")
+        result["perf"] = perf
+        _table_data(result)
+        return result
     header = parsed.span(at, 14)
     if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
         raise GrpgError("GRPG projection requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != lp.table_owner(parsed, 0x0E):
         raise GrpgError("PERF table lacks its bounded object owner")
     raw = parsed.span(at, size)
     result["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": lp.table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -347,13 +356,16 @@ def _table_data(tables):
         if not isinstance(value, dict) or set(value) != {"offset", "owner", "raw_hex"}:
             raise GrpgError("Malformed GRPG table evidence")
         at = lp._int(value["offset"], 0, 16 * 1024 * 1024)
-        if type(value["owner"]) is not int or value["owner"] != owner:
+        if not lp.owner_valid(value["owner"], owner):
             raise GrpgError("GRPG table owner differs")
         text = value["raw_hex"]
-        if not isinstance(text, str) or not 2 * (hs + stride) <= len(text) <= 2 * (hs + 5 * stride):
+        if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * (hs + 5 * 255):
             raise GrpgError("GRPG table extent is invalid")
         raw = lp._hex(text, len(text) // 2)
-        if raw[:3] != bytes((0x10, hs, stride)) or not 0 < raw[3] < 6 or len(raw) != hs + stride * raw[3]:
+        if stride is None:
+            if not lp.index_rows_valid(raw):
+                raise GrpgError("GRPG table geometry differs")
+        elif raw[:3] != bytes((0x10, hs, stride)) or not 0 < raw[3] < 6 or len(raw) != hs + stride * raw[3]:
             raise GrpgError("GRPG table geometry differs")
         decoded[name] = raw
         spans.append((at, at + len(raw)))
@@ -361,17 +373,26 @@ def _table_data(tables):
     if not isinstance(perf, dict) or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}:
         raise GrpgError("Malformed PERF aggregation evidence")
     at = lp._int(perf["offset"], 0, 16 * 1024 * 1024)
-    if type(perf["owner"]) is not int or perf["owner"] != 0x0E:
+    if not lp.owner_valid(perf["owner"], 0x0E):
         raise GrpgError("PERF table owner differs")
-    header = lp._hex(perf["header_hex"], 14)
-    if header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
-        raise GrpgError("PERF v70 composite geometry is not understood")
-    first = lp._hex(perf["row_first_hex"], header[3])
-    if all(value == 255 for value in first):
-        raise GrpgError("PERF is not on the populated aggregation branch")
     if not isinstance(perf["table_sha256"], str) or not lp._HEX256.fullmatch(perf["table_sha256"]):
         raise GrpgError("Missing exact PERF table fingerprint")
-    spans.append((at, at + 14 + (header[2] + header[4] * header[5]) * header[3]))
+    text = perf["header_hex"]
+    if not isinstance(text, str) or len(text) % 2 or not 8 <= len(text) <= 2 * 255:
+        raise GrpgError("Malformed PERF aggregation evidence")
+    header = lp._hex(text, len(text) // 2)
+    if header[0] != 0x70:
+        end = lp.perf_header_end(perf, header)
+        if end is None:
+            raise GrpgError("PERF header fingerprint differs")
+        spans.append((at, end))
+    else:
+        if len(header) != 14 or header[:2] != b"\x70\x0e" or not header[2] or not header[3]:
+            raise GrpgError("PERF v70 composite geometry is not understood")
+        first = lp._hex(perf["row_first_hex"], header[3])
+        if all(value == 255 for value in first):
+            raise GrpgError("PERF is not on the populated aggregation branch")
+        spans.append((at, at + 14 + (header[2] + header[4] * header[5]) * header[3]))
     spans.sort()
     if any(end > 16 * 1024 * 1024 for _, end in spans) or any(
         a[1] > b[0] for a, b in zip(spans, spans[1:], strict=False)
@@ -497,12 +518,11 @@ def _derive(changes, before, tables, *, full_scope=False, expanded_main=False):
     untouched, routes = 0, []
     for row in core["pstates"]["rows"]:
         selector = row["lpwr_index"]
-        slot = 5
-        if selector < 6:
-            if selector >= index[3]:
-                raise GrpgError("A valid LPWR selector addresses an unloaded index row")
-            slot = index[6 + 18 * selector + 1]
-            slot = slot if slot < 6 else 5
+        if selector < 6 and selector >= index[3]:
+            raise GrpgError("A valid LPWR selector addresses an unloaded index row")
+        slot = lp.index_route(index, selector, 1)
+        if slot is None:
+            raise GrpgError("The LPWR index rows carry no GRPG route")
         routes.append((slot, row["pstate_id_mask"]))
         if slot < len(flags):
             mask = row["pstate_id_mask"]

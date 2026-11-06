@@ -241,7 +241,8 @@ def test_unloaded_difr_and_fallback_are_zero_but_unloaded_index_is_unqualified(m
     [
         (0x4500, 0x20),
         (0x4501, 7),
-        (0x4502, 17),
+        (0x4502, 0),     # no declared row size
+        (0x4502, 10),    # rows too short to carry the DIFR route byte
         (0x4503, 6),
         (0x4601, 10),
         (0x4603, 6),
@@ -561,3 +562,22 @@ def test_sw_asr_loss_removes_dependent_cg(monkeypatch):
     assert expected['controllers']['11'] == controller(False)
     assert expected['features'] == {'9': 0xF}
     lp.verify(observed(saved), saved)
+
+
+def test_index_route_follows_declared_rows_and_lacks_later_bytes():
+    index = bytes((0x10, 6, 10, 2, 0, 0)) + bytes(range(10)) + bytes((7,) * 10)
+    assert lp.index_rows_valid(index)
+    assert lp.index_route(index, 0, 1) == 1
+    assert lp.index_route(index, 1, 2) == 5          # route values of 6 or more use slot 5
+    assert lp.index_route(index, 6, 1) == 5          # so do selectors of 6 or more
+    assert lp.index_route(index, 0, 10) is None      # a 10-byte row carries no DIFR byte
+    assert not lp.index_rows_valid(index[:-1])
+    assert not lp.index_rows_valid(bytes((0x10, 7)) + index[2:])
+
+
+def test_difr_model_refuses_index_rows_without_a_difr_route():
+    tables = lp._tables(bios())
+    short = bytearray((0x10, 6, 10, 3, 31, 7)) + bytearray(30)
+    tables["index"]["raw_hex"] = short.hex()
+    with pytest.raises(lp.LpwrError, match="no DIFR route"):
+        lp._model(tables, observation()["pstates"])

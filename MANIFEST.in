@@ -87,3 +87,7 @@ include experiments/turing-47212-compatibility-20261028.md
 include experiments/validate_strix_mp2888_production.py
 include experiments/validate_strix_mp2888_production.json
 include experiments/meter_strix_mp2888_production.json
+include experiments/ampere-ga102-kingpin-grpg-61742-20261105.md
+include experiments/ampere-ga102-kingpin-grpg-61742-20261105.json
+include experiments/ampere-ga102-kingpin-ms-61742-20261105.md
+include experiments/ampere-ga102-kingpin-ms-61742-20261105.json

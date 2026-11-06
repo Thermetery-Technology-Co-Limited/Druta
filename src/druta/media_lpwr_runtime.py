@@ -51,16 +51,16 @@ def read(gpu):
 def _tables(image, family):
     parsed = vbios_fields._Image(image)
     tables = {}
-    for name, ptr, owner, hs, stride in (
-        ("index", 0x74, 0x24, 6, 18),
-        (family, _PROFILES[family][0], _PROFILES[family][1], 10, 2),
+    for name, ptr, owner, shapes in (
+        ("index", lp.INDEX_POINTER, lp.INDEX_OWNER, lp.INDEX_SHAPES),
+        (family, _PROFILES[family][0], _PROFILES[family][1], ((0x10, 10, 2),)),
     ):
-        table = parsed.table("lpwr_" + name, "P", ptr, ((0x10, hs, stride),), owner)
-        if table["object_id"] != owner or not 0 < table["count"] < 6:
+        table = parsed.table("lpwr_" + name, "P", ptr, shapes, owner)
+        if table["object_id"] != lp.table_owner(parsed, owner) or not 0 < table["count"] < 6:
             raise MediaLpwrError("Media LPWR table ownership or row count is not understood")
         tables[name] = {
             "offset": table["offset"],
-            "owner": owner,
+            "owner": table["object_id"],
             "raw_hex": parsed.span(table["offset"], table["size"]).hex(),
         }
     at = parsed.pointer("P", 0)
@@ -69,12 +69,12 @@ def _tables(image, family):
         raise MediaLpwrError("Media LPWR requires the populated PERF v70 aggregation path")
     stride = header[2] + header[4] * header[5]
     size = 14 + stride * header[3]
-    if parsed.own(at, size, 0x0E) != 0x0E:
+    if parsed.own(at, size, 0x0E) != lp.table_owner(parsed, 0x0E):
         raise MediaLpwrError("PERF owner is not understood")
     raw = parsed.span(at, size)
     tables["perf"] = {
         "offset": at,
-        "owner": 0x0E,
+        "owner": lp.table_owner(parsed, 0x0E),
         "header_hex": header.hex(),
         "row_first_hex": bytes(raw[14 + i * stride] for i in range(header[3])).hex(),
         "table_sha256": hashlib.sha256(raw).hexdigest(),
@@ -87,19 +87,24 @@ def _table_data(tables, family):
     if not isinstance(tables, dict) or set(tables) != {"index", family, "perf"}:
         raise MediaLpwrError("Missing Media LPWR table evidence")
     data, spans = {}, []
-    for name, owner, hs, stride in (("index", 0x24, 6, 18), (family, _PROFILES[family][1], 10, 2)):
+    # A None stride means the table declares its own row size (the LPWR index).
+    for name, owner, hs, stride in (("index", lp.INDEX_OWNER, lp.INDEX_HEADER, None),
+                                    (family, _PROFILES[family][1], 10, 2)):
         item = tables[name]
-        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or item["owner"] != owner:
+        if not isinstance(item, dict) or set(item) != {"offset", "owner", "raw_hex"} or not lp.owner_valid(item["owner"], owner):
             raise MediaLpwrError("Malformed Media LPWR table evidence")
         at = lp._int(item["offset"], 0, 16 * 1024 * 1024)
         text = item["raw_hex"]
-        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * stride):
+        if not isinstance(text, str) or not 2 * hs <= len(text) <= 2 * (hs + 5 * (stride or 255)):
             raise MediaLpwrError("Malformed Media LPWR table bytes")
         try:
             raw = lp._hex(text, len(text) // 2)
         except (ValueError, lp.LpwrError) as exc:
             raise MediaLpwrError("Malformed Media LPWR table bytes") from exc
-        if (
+        if stride is None:
+            if not lp.index_rows_valid(raw):
+                raise MediaLpwrError("Media LPWR table geometry differs")
+        elif (
             len(raw) < hs
             or raw[:3] != bytes((0x10, hs, stride))
             or not 0 < raw[3] < 6
@@ -112,7 +117,7 @@ def _table_data(tables, family):
     if (
         not isinstance(perf, dict)
         or set(perf) != {"offset", "owner", "header_hex", "row_first_hex", "table_sha256"}
-        or perf["owner"] != 0x0E
+        or not lp.owner_valid(perf["owner"], 0x0E)
     ):
         raise MediaLpwrError("Malformed PERF table evidence")
     at = lp._int(perf["offset"], 0, 16 * 1024 * 1024)
@@ -195,11 +200,9 @@ def _derive(changes, before, tables):
     before_mask = after_mask = 0
     for row in core["pstates"]["rows"]:
         p = row["lpwr_index"]
-        slot = 5
-        if p < index[3]:
-            slot = index[6 + p * 18 + route_byte]
-            if slot >= 6:
-                slot = 5
+        slot = lp.index_route(index, p, route_byte) if p < index[3] else 5
+        if slot is None:
+            raise MediaLpwrError("The LPWR index rows carry no route for this media family")
         if slot < len(flags) and contributes(flags[slot]):
             before_mask |= row["pstate_id_mask"]
             if slot not in disabled:
