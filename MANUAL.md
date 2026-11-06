@@ -479,7 +479,12 @@ use the controller's Stock/Auto action or a full power cycle as appropriate.
 
 ## Registry and BIOS overrides
 
-Open **Controls > Registry / BIOS overrides**, then **Read current fields**.
+Open **Advanced > Registry / BIOS overrides**, then **Read current fields**.
+The **Advanced** tab groups everything beyond daily tuning into **Power
+policies**, **Registry / BIOS overrides** (persistent; applying restarts the
+GPU), **Live voltage controls** and **Live power-saving & PCIe** (this driver
+session only), and read-only **Diagnostics**. Its top line repeats the newest
+log entry, so a refused write there is visible without switching tabs.
 The panel shows understood BIOS fields and sensed silicon-model inputs for the
 selected adapter. Direct Speedo and IDDQ substitutions are writable when their
 live input identity, range and effective readback are available. IDDQ values
@@ -1186,7 +1191,7 @@ higher). This is a software request range. It does not change BIOS limits,
 and firmware can still enforce a lower limit. Ordinary requests keep the
 existing driver path. Extended requests take effect without restarting the
 GPU or Windows. The configured request and measured draw remain separate;
-**Registry / BIOS overrides > Power/current arbitration** shows host and
+**Advanced > Diagnostics > Power/current arbitration** shows host and
 firmware votes and effective limits.
 
 On adapters using v30 firmware power-policy definitions, changing the board
@@ -1280,7 +1285,7 @@ limited by another power or current policy.
 
 ### Power-policy feedback adjustment
 
-Under **Power policies**, **Power-policy feedback adjustment** exposes the
+Under **Advanced > Power policies**, **Power-policy feedback adjustment** exposes the
 active lower and upper adjustment bounds for understood integral-control
 policies. Press **Read**, select a policy, enter **Lower adjustment (%)** or
 **Upper adjustment (%)**, and press its **Apply now** button. Each **Use reported

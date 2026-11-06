@@ -103,9 +103,8 @@ class LiveRelBoundsCapture(UiCapture):
     def _stage(self, name):
         if name == "restored-display":
             return super()._stage(name)
-        self.dpg.set_value("registry_header", True)
-        self.dpg.set_value("reg_rel_live_header", True)
         self.dpg.set_value("reg_constants_live_header", False)
+        self._reveal("reg_rel_live_header")
         self.live_scroll = "reg_rel_live_header"
         if name == "rel-before":
             self.panel.refresh_rel_live()

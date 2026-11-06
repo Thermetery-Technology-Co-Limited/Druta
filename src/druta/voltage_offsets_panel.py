@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 
 import dearpygui.dearpygui as dpg
 
-from . import devicereset, paths, profiles, startup
+from . import devicereset, paths, profiles, startup, ui_sections
 from . import voltage_offsets_live as offsets
 
 
@@ -18,7 +18,8 @@ class VoltageOffsetsPanel:
         self.choices = {}
 
     def build(self):
-        with dpg.collapsing_header(label="Voltage policy offsets", tag="voltage_offsets_header"):
+        with ui_sections.section("Voltage policy offsets", level=1, scale=getattr(self.app, "scale", 1.0),
+                                 tag="voltage_offsets_header", default_open=False, ui=dpg):
             dpg.add_text(
                 "Independent offsets for REL, ALT, OV and VMIN policies. Enable once to install the "
                 "offset definitions and restart the selected GPU. Live changes do not restart the GPU. "

@@ -54,7 +54,7 @@ class FakeDpg:
         self.config[item].update(kwargs)
 
     def get_item_pos(self, item):
-        return (0, 100 if item == "page_control" else 300)
+        return (0, 100 if item in ("page_control", "page_advanced") else 300)
 
     def get_item_parent(self, item):
         return 0
@@ -63,7 +63,7 @@ class FakeDpg:
         return ""
 
     def get_item_rect_min(self, item):
-        return (0, 100 if item == "page_control" else 400)
+        return (0, 100 if item in ("page_control", "page_advanced") else 400)
 
     def get_y_scroll_max(self, item):
         return 1000
@@ -209,7 +209,8 @@ def test_live_reads_selection_invalid_and_restoration_are_display_only(tmp_path,
     from druta import registry_panel
 
     dpg, application = FakeDpg(), app()
-    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=True,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False, reg_constants_live_header=True,
                       reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
                       reg_constants_live_value="", reg_rel_live_status="", reg_constants_live_status="")
     monkeypatch.setattr(registry_panel, "dpg", dpg)
@@ -264,7 +265,8 @@ def test_live_reads_selection_invalid_and_restoration_are_display_only(tmp_path,
 
 def test_live_missing_role_does_not_hide_ready_peer(tmp_path):
     dpg, application = FakeDpg(), app()
-    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
                       reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
                       reg_constants_live_value="", reg_rel_live_status="Unavailable", reg_constants_live_status="")
     panel = SimpleNamespace(rel_live_choices={}, constants_live_choices={"peer": {"rail": 1, "role": "VMIN"}},
@@ -286,7 +288,8 @@ def live_panel(monkeypatch, *, maximum=900000, fail_apply=False, offset=0):
     from druta import registry_panel, voltage_constants_live
 
     dpg, application = FakeDpg(), app()
-    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
                       reg_rel_live_select="", reg_constants_live_select="", reg_rel_live_value="",
                       reg_constants_live_value="", reg_rel_live_status="", reg_constants_live_status="",
                       reg_constants_live_inventory="")
@@ -459,7 +462,8 @@ def test_live_vmin_transient_cleanup_read_uses_one_existing_restore(tmp_path, mo
 
 def setup_trial(monkeypatch):
     dpg, application = FakeDpg(), app()
-    dpg.values.update(registry_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_rel_live_header=False, reg_constants_live_header=False,
                       reg_rel_live_select="", reg_constants_live_select="", reg_status="", reg_preview="")
     target = SimpleNamespace(slot="fake", instance_id="id", driver_key="key")
     from dataclasses import dataclass
@@ -806,23 +810,27 @@ def test_power_trial_scroll_uses_settled_nested_rectangles(monkeypatch, tmp_path
     calls = []
     # The field's local position is not the page coordinate; the page is a
     # child window with pos but no rect_min. Its first-frame maximum is stale.
-    dpg.get_item_pos = lambda item: (0, 264 if item == "page_control" else 1647)
+    dpg.get_item_pos = lambda item: (0, 264 if item in ("page_control", "page_advanced") else 1647)
     dpg.get_item_rect_min = lambda item: (0, 1911) if item == capture.tag else (_ for _ in ()).throw(KeyError(item))
+    # The Advanced tab shows one frame after it is selected, and its first
+    # rendered frame still reports the previous (empty) scroll range.
+    dpg.get_item_state = lambda item: {"visible": dpg.frame >= 2}
     def scroll_max(item):
         calls.append(dpg.frame)
-        return 643 if dpg.frame < 2 else 1200
+        return 0 if dpg.frame < 3 else 1200
     dpg.get_y_scroll_max = scroll_max
+    for _ in range(2):
+        dpg.frame += 1
+        capture.tick()
+        assert not calls and not dpg.output_values
     dpg.frame += 1
     capture.tick()
-    assert not calls and not dpg.output_values
-    dpg.frame += 1
-    capture.tick()
-    assert calls == [2] and dpg.scroll == 1200
+    assert calls == [3] and dpg.scroll == 1200
     assert not dpg.output_values
     while not dpg.output_values:
         dpg.frame += 1
         capture.tick()
-    assert dpg.output_viewports[0][0] == 1200 and dpg.frame > 2
+    assert dpg.output_viewports[0][0] == 1200 and dpg.frame > 3
 
 
 def test_power_trial_numeric_prepare_relaunch_and_restore(monkeypatch, tmp_path):
@@ -994,7 +1002,8 @@ def setup_lpwr_trial(monkeypatch, family="gr_pg", multi=False):
     from dataclasses import dataclass
 
     dpg, application, panel, _ = setup_trial(monkeypatch)
-    dpg.values.update(registry_header=False, reg_preview="", reg_status="")
+    dpg.values.update(registry_header=False, live_voltage_header=False, live_power_header=False,
+                      diagnostics_header=False, reg_preview="", reg_status="")
     field = f"lpwr.{family}.0.enabled"
     tag = "reg_field_" + field
     identity = {"slot": "fake", "instance_id": "id", "driver_key": "key"}
@@ -1402,8 +1411,7 @@ def test_lpwr_all_readonly_rows_anchor_selected_text_and_open_section(monkeypatc
     assert dpg.values["idle-section"] is True
     assert capture.scroll_tag == capture.tag and capture.power_scroll_pending == 2
     assert capture.manifest["widgets"]["active"]["values"] == dict.fromkeys(fields, False)
-    dpg.frame += 1
-    capture.tick()
-    dpg.frame += 1
-    capture.tick()
+    for _ in range(3):  # countdown, then two frames for the page to settle
+        dpg.frame += 1
+        capture.tick()
     assert dpg.scrolls and capture.power_scroll_pending == 0

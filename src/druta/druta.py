@@ -418,6 +418,11 @@ class Druta:
     def s(self, n):
         return int(round(n * self.scale))
 
+    def section(self, label, level=0, **kwargs):
+        """A collapsing section styled for its nesting level (see ui_sections)."""
+        from . import ui_sections
+        return ui_sections.section(label, level=level, scale=self.s(1000) / 1000, ui=dpg, **kwargs)
+
     def step_khz(self):
         """This card's core-clock grid in kHz - 15000 on TU102, 12657 on GP102.
 
@@ -508,11 +513,13 @@ class Druta:
             dpg.set_value("log", "\n".join(reversed(self.log_lines[-40:])))
         # mirror onto the V/F tab: its buttons write to the GPU, and the log
         # lives on the Control tab - without this a refused write is silent
-        if dpg.does_item_exist("vf_status"):
-            dpg.set_value("vf_status", self.log_lines[-1])
-            dpg.configure_item("vf_status",
-                               color=BAD if ok is False
-                               else (GOOD if ok else DIM))
+        # and the same for the Advanced tab, whose writes also log there.
+        for mirror in ("vf_status", "adv_status"):
+            if dpg.does_item_exist(mirror):
+                dpg.set_value(mirror, self.log_lines[-1])
+                dpg.configure_item(mirror,
+                                   color=BAD if ok is False
+                                   else (GOOD if ok else DIM))
 
     def report(self, res):
         ok, msg = res
@@ -643,6 +650,7 @@ class Druta:
     # this process instead of becoming a second taskbar window.
     TEAR_PAGES = (
         ("tab_control", "page_control", "Control"),
+        ("tab_advanced", "page_advanced", "Advanced"),
         ("tab_monitor", "page_monitor", "Monitor"),
         ("tab_tim", "page_timings", "Timings"),
     )
@@ -2146,6 +2154,9 @@ class Druta:
         if dpg.does_item_exist("vlim_status"):
             dpg.set_value("vlim_status", message)
             dpg.configure_item("vlim_status", color=GOOD if available else WARN)
+        if dpg.does_item_exist("vlim_badge"):
+            dpg.set_value("vlim_badge", "Rail limits: " + ("ready" if available else "unavailable"))
+            dpg.configure_item("vlim_badge", color=GOOD if available else WARN)
 
     def rail_limits_available(self):
         """Whether this built UI currently has a fresh writable rail."""
@@ -2749,8 +2760,8 @@ class Druta:
             self._policy_synced[policy] = row["requested"]
             return
         amount = lambda v: GPU._policy_amount(v, row["unit"])            # noqa: E731
-        why = ("set with Power limit (W) above" if row["board"] else
-               "set with its current-limit slider above" if row["named_current"] else
+        why = ("set with Power limit (W) on the Control tab" if row["board"] else
+               "set with its current-limit slider on the Control tab" if row["named_current"] else
                f"no range to write ({amount(row['minimum'])} .. {amount(row['maximum'])})"
                if row["minimum"] >= row["maximum"] else
                f"read-only: {GPU.power_policy_unwritable_reason(row)}")
@@ -3090,8 +3101,8 @@ class Druta:
         return sum(RISK_WEIGHT[f] for f in self.risk_features())
 
     def _bind_risk_theme(self, theme):
-        """Tint the pinned strip and the Control page together."""
-        for tag in ("gate_bar", "tab_control"):
+        """Tint the pinned strip and both write pages together."""
+        for tag in ("gate_bar", "tab_control", "tab_advanced"):
             if dpg.does_item_exist(tag):
                 dpg.bind_item_theme(tag, theme)
 
@@ -3218,6 +3229,10 @@ class Druta:
                 dpg.add_checkbox(label="Unlock controls", tag="unlock",
                                  default_value=True,
                                  callback=lambda s, a, u: self.sync_lock_ui())
+                with dpg.tooltip("unlock"):
+                    dpg.add_text("Writes are enabled while this is ticked; untick for "
+                                 "read-only.\nI2C changes can persist through a reboot: "
+                                 "use Reset or power off.")
                 dpg.add_spacer(width=self.s(24))
                 # Default OFF. Only an explicitly loaded profile (or the
                 # user's opt-in startup copy) can restore these modes.
@@ -3240,15 +3255,15 @@ class Druta:
                 # sits with the gate, not inside a knob group: it undoes every
                 # group at once (and the curve), so it stays on the pinned strip
                 dpg.add_button(label="Reset controls", callback=self.reset_all,
-                               width=self.s(200), height=self.s(28))
-                dpg.add_spacer(width=self.s(20))
+                               width=self.s(150), height=self.s(28))
+                dpg.add_spacer(width=self.s(12))
                 if self.vf_applicable() and not self.legacy_p0_supported():
                     # Beside 'Reset all to stock' deliberately: they are the two
                     # ends of the same axis, and the way back should never be
                     # further from the hand than the way out.
                     dpg.add_button(label="Max it  (fan + power + volts + curve)",
                                    tag="go_ocmax", callback=self.oc_max,
-                                   width=self.s(330), height=self.s(28))
+                                   width=self.s(290), height=self.s(28))
                     # ORANGE. Not red - red in this app means "this writes the
                     # memory controller and can hang the machine" (tw_apply) and
                     # that meaning should not be diluted. Not green either: green
@@ -3326,20 +3341,27 @@ class Druta:
                                    callback=self.release_p0,
                                    width=self.s(110), height=self.s(28))
                     track("go_p0release")
-            with dpg.group(horizontal=True):
-                dpg.add_text("Checking whether this GPU can safely use rail limits…",
-                             tag="vlim_status", color=DIM,
-                             wrap=self.s(360))
-                dpg.add_button(label="Retry detection", tag="vlim_retry",
+                # Rail-limit detection on the same row: a short badge, the full
+                # driver message in its tooltip (vlim_status keeps that text).
+                dpg.add_spacer(width=self.s(12))
+                dpg.add_text("Rail limits: checking…", tag="vlim_badge", color=DIM)
+                with dpg.tooltip("vlim_badge"):
+                    dpg.add_text("Checking whether this GPU can safely use rail limits…",
+                                 tag="vlim_status", wrap=self.s(420))
+                dpg.add_button(label="Retry", tag="vlim_retry",
                                callback=self.refresh_capabilities)
                 dpg.add_button(label="Copy info", tag="vlim_copy",
                                callback=self.copy_rail_limit_diagnostics)
-            dpg.add_text("writes ENABLED - untick for read-only. "
-                         "I2C changes can persist through reboot; use Reset or power off",
-                         tag="unlock_note", color=DIM)
-            dpg.add_text("Drag a Control, Monitor, or Timings tab off the selector "
-                         "to float that page in this window. Dock back returns it.",
-                         tag="tear_hint", color=DIM, wrap=self.s(980))
+                # Was a permanent line above the tabs. Not a tooltip on the tab
+                # labels: a tab's tooltip fires over its whole page.
+                dpg.add_spacer(width=self.s(12))
+                dpg.add_text("(?)", tag="tear_hint_marker", color=DIM)
+                with dpg.tooltip("tear_hint_marker"):
+                    dpg.add_text("Drag a Control, Advanced, Monitor or Timings tab off the "
+                                 "selector to float that page in this window.\n"
+                                 "Dock back returns it.", tag="tear_hint")
+            # Shown only while read-only: that is the state worth a line.
+            dpg.add_text("", tag="unlock_note", color=WARN, show=False)
 
     def build_control(self):
         st = self.gpu.static
@@ -3403,7 +3425,7 @@ class Druta:
                         # voltage knob on the other. Constraining the group is what
                         # stops it - the header has no width argument of its own.
                         with dpg.group(width=self.knob_col_width()):
-                            with dpg.collapsing_header(label="Clock offsets", default_open=True):
+                            with self.section("Clock offsets", default_open=True):
                                 with dpg.table(header_row=False, no_host_extendX=True,
                                                policy=dpg.mvTable_SizingFixedFit,
                                                tag="clock_offset_table"):
@@ -3475,7 +3497,7 @@ class Druta:
                             # Voltage boost is grouped with the limits, not the offsets: it moves
                             # no clock at all, it raises a ceiling the arbiter is allowed to
                             # reach - the same shape of knob as the power limit.
-                            with dpg.collapsing_header(label="Limits", default_open=True):
+                            with self.section("Limits", default_open=True):
                                 with dpg.table(header_row=False, no_host_extendX=True,
                                                policy=dpg.mvTable_SizingFixedFit):
                                     self.knob_cols()
@@ -3510,7 +3532,7 @@ class Druta:
                             # together on their own terms anyway: everything here acts on a
                             # VOLTAGE RAIL rather than on a clock or a budget, and two of them
                             # reach hardware by routes the driver never sees.
-                            with dpg.collapsing_header(label="Rails", default_open=True):
+                            with self.section("Rails", default_open=True):
                                 with dpg.table(header_row=False, no_host_extendX=True,
                                                policy=dpg.mvTable_SizingFixedFit):
                                     self.knob_cols()
@@ -3560,25 +3582,16 @@ class Druta:
                                                 "request, not a measured voltage. An inert result on one "
                                                 "5080/580.97 does not establish behavior on your board.",
                                                 wrap=self.s(400))
-                # Every limit in the driver's power-policy table, not only the ones
-                # above. Closed by default: most are derived from the board limit.
-                if callable(getattr(self.gpu, "read_power_policies", None)):
-                    with dpg.collapsing_header(label="Power policies", tag="power_policy_header",
-                                               default_open=False):
-                        self.build_power_policy_section()
-                with dpg.collapsing_header(label="Registry / BIOS overrides", tag="registry_header", default_open=False):
-                    from .registry_panel import RegistryPanel
-                    self._registry_panel = RegistryPanel(self)
-                    self._registry_panel.build()
+                # Power policies and the registry/live/diagnostic panels are on
+                # the Advanced tab: this page keeps what is tuned every session.
                 if railctl is not None:
-                    with dpg.collapsing_header(label="I2C regulator", tag="i2c_regulator_header",
-                                               default_open=bool(getattr(self, "_rail_candidates", []))):
+                    with self.section("I2C regulator", tag="i2c_regulator_header",
+                                      default_open=bool(getattr(self, "_rail_candidates", []))):
                         with dpg.group(tag="i2c_candidates"):
                             self.build_i2c_candidates()
 
                 if self.vf_applicable():
-                    with dpg.collapsing_header(label="V/F curve editor",
-                                               default_open=True):
+                    with self.section("V/F curve editor", default_open=True):
                         self.build_vf()
 
                 dpg.add_separator()
@@ -3586,6 +3599,39 @@ class Druta:
                 dpg.add_input_text(tag="log", multiline=True, readonly=True,
                                    width=-1, height=self.s(150))
                 self.bind("log", "mono")
+            finally:
+                dpg.pop_container_stack()
+
+    def build_advanced(self):
+        """Everything beyond daily tuning, in sections that say their scope.
+
+        Power policies first (live, like the Limits it extends), then the
+        registry/BIOS editor (persistent, restarts the GPU), the session-only
+        voltage and power-saving controls, and read-only diagnostics.
+        """
+        with dpg.tab(label="  Advanced  ", tag="tab_advanced"):
+            dpg.add_child_window(tag="page_advanced", width=-1, height=-1,
+                                 border=False)
+            dpg.push_container_stack("page_advanced")
+            try:
+                dpg.add_text("Every section states whether its changes last for this "
+                             "driver session or persist across GPU restarts.",
+                             color=DIM, wrap=self.s(900))
+                # The log is on the Control tab; mirror its newest line here so
+                # a refused or failed write on this page is never silent.
+                dpg.add_text("", tag="adv_status", color=DIM, wrap=self.s(900))
+                dpg.add_spacer(height=self.s(4))
+                # Every limit in the driver's power-policy table, not only the
+                # Limits on Control. Closed: most derive from the board limit.
+                if callable(getattr(self.gpu, "read_power_policies", None)):
+                    with self.section("Power policies", tag="power_policy_header",
+                                      default_open=False,
+                                      note="This driver session only. A GPU restart "
+                                           "returns these to the driver's values."):
+                        self.build_power_policy_section()
+                from .registry_panel import RegistryPanel
+                self._registry_panel = RegistryPanel(self)
+                self._registry_panel.build()
             finally:
                 dpg.pop_container_stack()
 
@@ -4093,7 +4139,8 @@ class Druta:
                           "READ-ONLY - every write control below is disabled"
                           + (" (curve edits are still staged, not written)"
                              if self.vf_applicable() else ""))
-            dpg.configure_item("unlock_note", color=DIM if on else WARN)
+            # Enabled is the normal state and lives in the checkbox tooltip.
+            dpg.configure_item("unlock_note", color=DIM if on else WARN, show=not on)
 
     # ---- write handlers (identical backend calls to the Tk build) ---------- #
     def apply_core(self, v):
@@ -8526,10 +8573,9 @@ class Druta:
         # of the button row also keeps the plan banner and 'Apply to GPU' on
         # screen together, which three more rows of always-visible widgets would
         # have cost (see relayout).
-        with dpg.collapsing_header(tag="hdf_hdr",
-                                   label="Hard de-flatten  (needs an external "
-                                         "voltage mod - read this before using)",
-                                   default_open=False):
+        with self.section("Hard de-flatten  (needs an external voltage mod - "
+                          "read this before using)", level=1, tag="hdf_hdr",
+                          default_open=False):
             # THE GATE, and it is a checkbox rather than a tooltip on purpose: a
             # tooltip is something you can decline to read, and this one is a
             # statement about the user's soldering, not about the software.
@@ -14671,7 +14717,8 @@ deliberately does not put behind a button."""
             self._gate_flashes = {}
             self._tab_press = None
             for tag in ("hdr_row", "gate_bar", "tab_content", "tabs",
-                        "win_page_control", "win_page_monitor", "win_page_timings",
+                        "win_page_control", "win_page_advanced", "win_page_monitor",
+                        "win_page_timings",
                         "menubar", "win_device", "win_save",
                         "win_profiles", "win_keys", "win_about",
                         "win_licence", "win_testsign", "win_ts_done",
@@ -14722,6 +14769,7 @@ deliberately does not put behind a button."""
             # second. Timings last and labelled, because it is the only tab
             # that needs a separate tool installed to do anything at all.
             self.build_control()      # the V/F editor lives inside this tab
+            self.build_advanced()     # registry, live session controls, diagnostics
             self.build_monitor()
             self.build_timings()
 

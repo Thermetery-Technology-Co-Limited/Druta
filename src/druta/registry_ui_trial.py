@@ -257,7 +257,7 @@ class RegistryUiTrial(UiCapture):
         return receipt
 
     def _stage(self, name):
-        self.dpg.set_value("registry_header", True)
+        self._reveal("registry_header")
         self.live_scroll = "registry_header"
         if name == "before":
             self.panel.refresh()
@@ -492,12 +492,18 @@ class RegistryUiTrial(UiCapture):
             self.power_scroll_pending -= 1
             if self.power_scroll_pending:
                 return
+            if not self._page_settled():
+                # The Advanced page has not rendered long enough to scroll.
+                self.power_scroll_pending = 1
+                return
             try:
                 item_y = self.dpg.get_item_rect_min(self.scroll_tag)[1]
-                page_y = self.dpg.get_item_pos("page_control")[1]
-                scroll = self.dpg.get_y_scroll("page_control") + item_y - page_y - (240 if self.kind == "lpwr" else 80)
-                self.dpg.set_y_scroll("page_control", max(0, min(scroll, self.dpg.get_y_scroll_max("page_control"))))
+                page = self.live_page
+                page_y = self.dpg.get_item_pos(page)[1]
+                scroll = self.dpg.get_y_scroll(page) + item_y - page_y - (240 if self.kind == "lpwr" else 80)
+                self.dpg.set_y_scroll(page, max(0, min(scroll, self.dpg.get_y_scroll_max(page))))
                 self.power_scroll_pending = 0
+                self.page_frames = 0
                 # Let the scroll render before requesting the framebuffer.
                 self.wait = max(self.wait, 2)
             except Exception as exc:

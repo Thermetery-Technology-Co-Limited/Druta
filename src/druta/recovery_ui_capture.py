@@ -34,14 +34,17 @@ class RecoveryUiCapture(UiCapture):
                 self.dpg.set_value(tag, value)
 
     def _stage(self, name):
-        self.dpg.set_value("registry_header", True)
         if name == "recovery-panel":
+            self._reveal("registry_header")
             self.panel.recover()
             status = self.dpg.get_value("reg_status")
             if status.startswith("Could not discover saved undo:"):
                 raise RuntimeError(status)
             self.scroll_target = "registry_header"
         else:
+            # The log stays on the Control page.
+            self.dpg.set_value("tabs", "tab_control")
+            self.live_page = "page_control"
             self.scroll_target = "log"
         self.scroll_wait = 2
         log = self.dpg.get_value("log")
@@ -62,12 +65,16 @@ class RecoveryUiCapture(UiCapture):
         if self.active and self.scroll_wait:
             try:
                 self.scroll_wait -= 1
-                if not self.scroll_wait:
+                if not self.scroll_wait and not self._page_settled():
+                    self.scroll_wait = 1
+                elif not self.scroll_wait:
+                    self.page_frames = 0
                     target = self.dpg.get_item_state(self.scroll_target)["rect_min"][1]
-                    origin = self.dpg.get_item_state("page_control")["pos"][1]
-                    current = self.dpg.get_y_scroll("page_control")
-                    maximum = self.dpg.get_y_scroll_max("page_control")
-                    self.dpg.set_y_scroll("page_control", max(0, min(current + target - origin, maximum)))
+                    page = self.live_page
+                    origin = self.dpg.get_item_state(page)["pos"][1]
+                    current = self.dpg.get_y_scroll(page)
+                    maximum = self.dpg.get_y_scroll_max(page)
+                    self.dpg.set_y_scroll(page, max(0, min(current + target - origin, maximum)))
                 return
             except Exception as exc:
                 self._finish(exc)
