@@ -395,9 +395,10 @@ Druta closes, restarts that exact Windows device, and opens a fresh window. It
 does not reapply a profile or reboot Windows. The result appears in the log and
 is saved in `%LOCALAPPDATA%\Druta\device-recovery`. If Windows needs a reboot,
 Druta reports that requirement. This is not a guarantee of recovery from a
-hardware hang or of stock settings. Administrator rights and Windows 10 version
-2004 or later are required; on an older Windows version Druta stays open and
-logs that requirement.
+hardware hang or of stock settings. Administrator rights are required. Windows
+10 version 2004 and later use `pnputil /restart-device`; older Windows uses
+SetupAPI's property-change restart of the same device, which Windows may defer
+to a reboot. When neither is available Druta stays open and logs why.
 
 From an elevated shell, after closing existing Druta windows, the same operation
 is available as `Druta.exe --restart-gpu 0000:01:00.0`; replace the PCI slot with
