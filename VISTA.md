@@ -182,9 +182,8 @@ All of it applies to Vista:
 
 - The live PERF, power-saving and client-power controls stay unavailable
   for the same missing `gdi32` export, and report it as unsupported.
-- Registry and VBIOS overrides cannot be activated, because Druta's GPU
-  restart needs Windows 10 version 2004. Main's panel does not check this
-  before staging; that is reported for main rather than refused here.
+- Registry and VBIOS overrides are activated through the SetupAPI GPU
+  restart described in the next section.
 
 `build-vista.ps1` now copies `Druta-Diagnose.cmd` into the package and
 writes `Druta-imports.txt` after the optional nvtune files are added, so the
@@ -197,6 +196,19 @@ This update was checked on Linux only, with CPython 3.13 and stock CPython
 3.8 (not the patched Vista runtime). The hardware-free suite matches main's
 3.13 baseline except for tests that need Windows' `ctypes.WinDLL`. No Vista
 package was built and nothing was run on Vista or on a physical GPU.
+
+## GPU restart through SetupAPI (2026-11-06)
+
+Merged from main's PR #80 through the Windows 7 branch; see
+[the Windows 7 record](WINDOWS7.md#gpu-restart-through-setupapi-2026-11-06).
+Vista has no `pnputil /restart-device`, so the Panic button, **Device >
+Restart GPU device (PnP)**, the "Voltage limits still raised" restart and
+registry/VBIOS override activation now restart the same device instance
+through SetupAPI's property-change request. The Vista package is x64, so the
+WOW64 restriction does not apply. When Windows defers the restart to a
+reboot, Druta reports it and does not reboot. The earlier statements below
+that the restart needs Windows 10 version 2004 describe the builds before
+this change. Not yet run on Vista hardware.
 
 ## Shared feature update (2026-10-19)
 

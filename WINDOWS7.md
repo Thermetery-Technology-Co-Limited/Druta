@@ -217,7 +217,8 @@ them gets a refusal that main does not have:
   restoring the headroom it raised, now offers it too. On Windows 7, choosing
   any of them closes Druta, restarts nothing and reopens it. A startup
   profile that was waiting does not run, and the dialog returns. Choose
-  **Keep them for now** instead.
+  **Keep them for now** instead. (Superseded on 2026-11-06: Windows 7 now
+  restarts the GPU through SetupAPI; see "GPU restart through SetupAPI".)
 
 On a Windows 10 host, the merged source passed 2,143 tests with stock CPython
 3.8.10, where the three wheel and sdist tests skip, and 2,146 with Python
@@ -281,14 +282,35 @@ therefore stay unavailable here with that reason; they are not retried as
 failed reads.
 
 The registry and VBIOS overrides take effect only through Druta's verified
-GPU restart, which uses `pnputil /restart-device` (Windows 10 version 2004 or
-later; see "GPU device restart (PnP)" above). Windows 7 cannot run it, so
-these overrides cannot be activated here. Main's Registry overrides panel
-does not check restart support before **Apply and restart GPU**. On this
-platform, by reading the code (not tested), Apply would stage the registry
-values, have the restart refused, and then attempt main's exact rollback of
-what it staged. The branch adds no separate refusal. A check before staging
-belongs in main, where it would also cover Windows 10 builds before 2004.
+GPU restart. On Windows 7 that restart now goes through SetupAPI, as
+described in the next section, so these overrides can be activated here.
+That path has not been run on Windows 7 yet. If Windows refuses the restart
+or defers it to a reboot, main's existing rollback of the staged values runs.
+
+## GPU restart through SetupAPI (2026-11-06)
+
+Merged from main's PR #80 (`fix/legacy-device-restart`). `pnputil
+/restart-device` exists only from Windows 10 version 2004, so Druta now
+picks the restart method from the running Windows. Windows 10 2004 and later
+keep PnPUtil. Older Windows, including Windows 7, restarts the same device
+instance with SetupAPI's property-change request (`DIF_PROPERTYCHANGE` with
+`DICS_PROPCHANGE`), the class-installer path that DevCon's restart also uses.
+It is used when every needed SetupAPI export is present and Druta is a native
+process; this build is x64, so it is never WOW64.
+
+This makes the Panic button, **Device > Restart GPU device (PnP)**, the
+"Voltage limits still raised" restart and registry/VBIOS override activation
+available on Windows 7. The same-device check before the restart and the
+started-without-problem check after it are unchanged. When Windows sets
+`DI_NEEDREBOOT` or `DI_NEEDRESTART`, Druta reports that a reboot is needed
+and does not reboot. Recovery receipts record which method ran.
+
+By expectation, not yet by test: a WDDM display adapter on Windows 7 should
+restart in place, with the screen blanking briefly. This needs checking on a
+Windows 7 machine with an NVIDIA card. The hardware-free tests use a fake
+SetupAPI and cover the call sequence, structure sizes, refusals, reboot
+flags, a stale target and a hung call.
+
 
 **Validation of this update.** It was checked on Linux only: the
 hardware-free suite on CPython 3.13 and 3.8 matches main's 3.13 baseline
