@@ -594,7 +594,7 @@ puts them back when the hold ends.
 - If the live rail reads above the raised ceiling, the raise comes off. It
   also comes off if another tool replaces the V/F lock.
 - If Druta dies during a raise, the next session says so and offers a GPU
-  device restart (PnP) on Windows 10 version 2004 or later.
+  device restart (PnP).
 
 ## Power policies
 
@@ -937,8 +937,9 @@ upper-right shared header, including while the tab page scrolls. It and
 **Device > Restart GPU device (PnP)...** immediately start a restart of the
 selected NVIDIA display device through Windows PnP; there is no confirmation.
 Druta identifies its exact PCI location and device instance, closes its window,
-waits for the process to exit, runs Windows
-`pnputil /restart-device`, and reopens with fresh driver handles. It does not
+waits for the process to exit, restarts that device (Windows
+`pnputil /restart-device`, or SetupAPI before Windows 10 version 2004), and
+reopens with fresh driver handles. It does not
 automatically apply any tuning profile or reboot the computer. A failed restart
 or a Windows requirement to reboot is reported and saved under
 `%LOCALAPPDATA%\Druta\device-recovery`.
@@ -947,8 +948,12 @@ Use this as a recovery attempt after a driver/timing failure. The display can go
 blank and other GPU applications can lose their device; close other workloads
 first. Unsaved edits in Druta are discarded. This does not guarantee recovery
 from a hardware hang or restoration of every setting to stock. It requires
-administrator rights and Windows 10 version 2004 or later; on an older Windows
-version Druta stays open and logs that requirement. Ambiguous device
+administrator rights. Windows 10 version 2004 and later restart the device with
+`pnputil /restart-device`; older Windows uses
+SetupAPI's property-change restart of the same device, which Windows may defer
+to a reboot (Druta then reports it and does not reboot). A 32-bit Druta on
+64-bit Windows cannot use SetupAPI's restart, so Druta stays open and logs that
+requirement. Ambiguous device
 locations and nonzero PCI segments are refused.
 
 If the GUI is unusable, the same recovery path can be launched from an elevated

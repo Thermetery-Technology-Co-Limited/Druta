@@ -157,6 +157,231 @@ class RestartTests(unittest.TestCase):
         self.assertIn("stderr='localized failure'", result.message)
         self.assertLess(len(result.message), 700)
 
+    def test_pnputil_results_name_their_method(self):
+        result, _ = self.restart(subprocess.CompletedProcess([], 0))
+        self.assertEqual(result.method, devicereset.RESTART_PNPUTIL)
+
+
+def _windows(version):
+    return (patch.object(devicereset.platform, "system", return_value="Windows"),
+            patch.object(devicereset.platform, "version", return_value=version))
+
+
+class RestartMethodSelectionTests(unittest.TestCase):
+    def method(self, version, *, setupapi=True, system="Windows"):
+        with patch.object(devicereset.platform, "system", return_value=system), \
+                patch.object(devicereset.platform, "version", return_value=version), \
+                patch.object(devicereset, "setupapi_restart_supported", return_value=setupapi):
+            return devicereset.restart_method()
+
+    def test_windows_10_2004_and_later_keep_pnputil(self):
+        for version in ("10.0.19041", "10.0.22631", "10.0.26100"):
+            self.assertEqual(self.method(version), devicereset.RESTART_PNPUTIL, version)
+            self.assertEqual(self.method(version, setupapi=False), devicereset.RESTART_PNPUTIL, version)
+
+    def test_older_windows_uses_setupapi(self):
+        # Windows 10 1909, 8.1, 7 SP1, Vista SP2 and XP SP3.
+        for version in ("10.0.18363", "6.3.9600", "6.1.7601", "6.0.6002", "5.1.2600"):
+            self.assertEqual(self.method(version), devicereset.RESTART_SETUPAPI, version)
+
+    def test_no_method_without_setupapi_or_off_windows(self):
+        self.assertIsNone(self.method("6.1.7601", setupapi=False))
+        with patch.object(devicereset.platform, "system", return_value="Linux"):
+            self.assertIsNone(devicereset.restart_method())  # the real capability check
+            self.assertFalse(devicereset.device_restart_supported())
+
+
+class SetupApiCapabilityTests(unittest.TestCase):
+    EXPORTS = dict.fromkeys(devicereset._SETUPAPI_RESTART_EXPORTS, object())
+
+    def supported(self, exports, *, wow64=False):
+        from types import SimpleNamespace
+        system, _ = _windows("6.1.7601")
+        with system, patch.object(devicereset, "_is_wow64", return_value=wow64):
+            return devicereset.setupapi_restart_supported(lambda: SimpleNamespace(**exports))
+
+    def test_every_export_and_a_native_process_are_required(self):
+        self.assertTrue(self.supported(self.EXPORTS))
+        self.assertFalse(self.supported(self.EXPORTS, wow64=True))
+        for missing in devicereset._SETUPAPI_RESTART_EXPORTS:
+            exports = {k: v for k, v in self.EXPORTS.items() if k != missing}
+            self.assertFalse(self.supported(exports), missing)
+
+    def test_unloadable_setupapi_is_unsupported(self):
+        def fail():
+            raise OSError("setupapi.dll not found")
+
+        system, _ = _windows("6.1.7601")
+        with system:
+            self.assertFalse(devicereset.setupapi_restart_supported(fail))
+
+    def test_wow64_detection(self):
+        from types import SimpleNamespace
+
+        def kernel(result, flag):
+            def query(_process, pointer):
+                pointer._obj.value = flag
+                return result
+            return lambda *a, **k: SimpleNamespace(IsWow64Process=query, GetCurrentProcess=lambda: 1)
+
+        self.assertFalse(devicereset._is_wow64(lambda *a, **k: SimpleNamespace()))  # no export: no WOW64
+        self.assertFalse(devicereset._is_wow64(kernel(1, 0)))
+        self.assertTrue(devicereset._is_wow64(kernel(1, 1)))
+        self.assertTrue(devicereset._is_wow64(kernel(0, 0)))  # unknown: do not attempt
+
+
+class SetupApiLayoutTests(unittest.TestCase):
+    def test_structure_sizes_match_setupapi_h_on_x86_and_x64(self):
+        for pointer_size, install_size in ((8, 584), (4, 556)):
+            header, propchange, install = devicereset._setupapi_structs(pointer_size)
+            self.assertEqual(ctypes_sizeof(header), 8)
+            self.assertEqual(ctypes_sizeof(propchange), 20)
+            self.assertEqual(ctypes_sizeof(install), install_size)
+
+
+def ctypes_sizeof(structure):
+    import ctypes
+    return ctypes.sizeof(structure)
+
+
+class FakeSetupApi:
+    """Records the SetupAPI sequence; each step can be made to fail."""
+
+    def __init__(self, *, fail=None, flags=0):
+        self.fail, self.flags, self.calls = fail, flags, []
+        # Plain functions, like ctypes function pointers, accept argtypes/restype.
+        for name in devicereset._SETUPAPI_RESTART_EXPORTS:
+            bound = getattr(self, name)
+            setattr(self, name, lambda *args, _bound=bound: _bound(*args))
+
+    def _step(self, name):
+        self.calls.append(name)
+        return 0 if self.fail == name else 1
+
+    def SetupDiCreateDeviceInfoList(self, guid, hwnd):
+        self.calls.append("create")
+        return 0x1234
+
+    def SetupDiOpenDeviceInfoW(self, handle, instance_id, hwnd, flags, info):
+        self.opened = (handle, instance_id, flags, info._obj.cbSize)
+        return self._step("open")
+
+    def SetupDiSetClassInstallParamsW(self, handle, info, params, size):
+        p = params._obj
+        self.params = (p.ClassInstallHeader.cbSize, p.ClassInstallHeader.InstallFunction,
+                       p.StateChange, p.Scope, p.HwProfile, size)
+        return self._step("set")
+
+    def SetupDiCallClassInstaller(self, function, handle, info):
+        self.function = function
+        return self._step("call")
+
+    def SetupDiGetDeviceInstallParamsW(self, handle, info, params):
+        self.install_size = params._obj.cbSize
+        params._obj.Flags = self.flags
+        return self._step("get")
+
+    def SetupDiDestroyDeviceInfoList(self, handle):
+        self.calls.append(("destroy", handle))
+        return 1
+
+
+class SetupApiRestartTests(unittest.TestCase):
+    def run_fake(self, **kwargs):
+        fake = FakeSetupApi(**kwargs)
+        with patch.object(devicereset, "_last_error", return_value=0xE000020B):
+            try:
+                return fake, devicereset._setupapi_property_change(GPU.instance_id, lambda: fake)
+            except devicereset.DeviceResetError as error:
+                return fake, error
+
+    def test_exact_device_receives_one_documented_property_change(self):
+        import ctypes
+        fake, restarted = self.run_fake()
+        self.assertIs(restarted, True)
+        self.assertEqual(fake.opened[1], GPU.instance_id)
+        self.assertEqual(fake.opened[2], 0)
+        self.assertEqual(fake.params, (8, 0x12, 3, 2, 0, 20))  # DIF_PROPERTYCHANGE, DICS_PROPCHANGE, CONFIGSPECIFIC
+        self.assertEqual(fake.function, 0x12)
+        native = devicereset._setupapi_structs(ctypes.sizeof(ctypes.c_void_p))[2]
+        self.assertEqual(fake.install_size, ctypes.sizeof(native))
+        self.assertEqual(fake.calls, ["create", "open", "set", "call", "get", ("destroy", 0x1234)])
+
+    def test_reboot_flags_mean_not_restarted(self):
+        for flag in (0x100, 0x80):
+            _, restarted = self.run_fake(flags=flag)
+            self.assertIs(restarted, False)
+
+    def test_each_refusal_raises_with_the_win32_error_and_frees_the_list(self):
+        for step in ("open", "set", "call", "get"):
+            fake, error = self.run_fake(fail=step)
+            self.assertIsInstance(error, devicereset.DeviceResetError, step)
+            self.assertIn("0xe000020b", str(error), step)
+            self.assertEqual(fake.calls[-1], ("destroy", 0x1234), step)
+            order = ["open", "set", "call", "get"]
+            self.assertNotIn(order[order.index(step) + 1] if step != "get" else None, fake.calls)
+
+
+class SetupApiRouteTests(unittest.TestCase):
+    def restart(self, change=None, *, current=GPU, status=(True, "started"), timeout=7):
+        change = change or Mock(return_value=True)
+        with patch.object(devicereset, "restart_method", return_value=devicereset.RESTART_SETUPAPI), \
+                patch.object(devicereset, "is_admin", return_value=True), \
+                patch.object(devicereset, "resolve_target", return_value=current), \
+                patch.object(devicereset, "_post_restart_status", return_value=status) as post, \
+                patch.object(devicereset, "_setupapi_property_change", change), \
+                patch.object(devicereset.subprocess, "run") as runner:
+            result = devicereset.restart_target(GPU, timeout=timeout)
+        runner.assert_not_called()
+        return result, change, post
+
+    def test_success_needs_the_same_started_device_afterwards(self):
+        result, change, post = self.restart()
+        change.assert_called_once_with(GPU.instance_id)
+        post.assert_called_once_with(GPU)
+        self.assertTrue(result.ok)
+        self.assertEqual((result.method, result.returncode), (devicereset.RESTART_SETUPAPI, 0))
+        failed, _, _ = self.restart(status=(False, "not started"))
+        self.assertFalse(failed.ok)
+        self.assertEqual(failed.message, "not started")
+
+    def test_reboot_required_and_refusal_are_not_success(self):
+        reboot, _, post = self.restart(Mock(return_value=False))
+        self.assertFalse(reboot.ok)
+        self.assertTrue(reboot.reboot_required)
+        self.assertEqual(reboot.returncode, 3010)
+        post.assert_not_called()
+        refused, _, _ = self.restart(Mock(side_effect=devicereset.DeviceResetError("error 0x5")))
+        self.assertFalse(refused.ok)
+        self.assertFalse(refused.reboot_required)
+        self.assertIn("0x5", refused.message)
+
+    def test_stale_target_is_never_restarted(self):
+        changed = devicereset.DeviceTarget(GPU.slot, GPU.instance_id + "-changed", GPU.name)
+        result, change, _ = self.restart(current=changed)
+        self.assertFalse(result.ok)
+        change.assert_not_called()
+
+    def test_a_hung_class_installer_is_bounded(self):
+        import threading
+        release = threading.Event()
+        try:
+            result, _, post = self.restart(Mock(side_effect=lambda _id: release.wait(5)), timeout=0.05)
+        finally:
+            release.set()
+        self.assertFalse(result.ok)
+        self.assertIn("timeout", result.message)
+        post.assert_not_called()
+
+    def test_missing_admin_is_refused_before_any_restart(self):
+        with patch.object(devicereset, "restart_method", return_value=devicereset.RESTART_SETUPAPI), \
+                patch.object(devicereset, "is_admin", return_value=False), \
+                patch.object(devicereset, "_setupapi_property_change") as change:
+            result = devicereset.restart_target(GPU)
+        self.assertFalse(result.ok)
+        self.assertIn("Administrator", result.message)
+        change.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

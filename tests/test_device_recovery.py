@@ -165,10 +165,31 @@ class DeviceRestartUiTests(FakeUiTest):
             resolve.assert_not_called()
         self.ui.stop_dearpygui.assert_not_called()
 
-    def test_windows_without_pnp_restart_keeps_druta_open(self):
+    def test_older_windows_with_setupapi_restart_launches_the_helper(self):
+        for version in ("6.1.7601", "6.0.6002", "10.0.18363"):
+            self.app._closing = False
+            self.ui.stop_dearpygui.reset_mock()
+            with self.subTest(version=version), \
+                    patch.object(devicereset, "pnputil_restart_supported", REAL_PNP_CHECK), \
+                    patch.object(devicereset, "setupapi_restart_supported", return_value=True), \
+                    patch.object(devicereset.platform, "system", return_value="Windows"), \
+                    patch.object(devicereset.platform, "version", return_value=version), \
+                    patch.object(druta, "is_admin", return_value=True), \
+                    patch.object(devicereset, "resolve_target", return_value=self.target), \
+                    patch.object(devicerecovery, "launch_helper") as helper:
+                self.assertEqual(devicereset.restart_method(), devicereset.RESTART_SETUPAPI)
+                self.app.open_device_restart()
+                helper.assert_called_once_with(self.target)
+                self.ui.stop_dearpygui.assert_called_once()
+
+    def test_windows_without_any_restart_method_keeps_druta_open(self):
         # Windows 7, Vista and Windows 10 before 2004 have no pnputil
-        # /restart-device. The helper would restart nothing after Druta had
-        # closed, so the request must stop while the window is still open.
+        # /restart-device; without SetupAPI's restart (for example a WOW64
+        # process) the helper would restart nothing after Druta had closed,
+        # so the request must stop while the window is still open.
+        no_setupapi = patch.object(devicereset, "setupapi_restart_supported", return_value=False)
+        no_setupapi.start()
+        self.addCleanup(no_setupapi.stop)
         for version in ("6.1.7601", "6.0.6002", "10.0.18363"):
             self.app._closing = False
             self.app._stop.reset_mock()

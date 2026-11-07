@@ -8017,9 +8017,9 @@ class Druta:
 
     @staticmethod
     def pnp_restart_supported():
-        """Whether this Windows build can restart a single device (pnputil)."""
+        """Whether this Windows can restart a single device (PnPUtil or SetupAPI)."""
         from . import devicereset
-        return devicereset.pnputil_restart_supported()
+        return devicereset.device_restart_supported()
 
     def stale_headroom_text(self, record, others=None):
         fields = ", ".join(k.replace("_", "-") for k in sorted(record["written_uv"]))
@@ -13149,7 +13149,7 @@ deliberately does not put behind a button."""
         from . import devicereset
         if getattr(self, "_closing", False):
             return
-        if not devicereset.pnputil_restart_supported():
+        if not devicereset.device_restart_supported():
             # The helper checks this too, but only after this window has
             # closed: it would restart nothing and reopen Druta without a
             # waiting startup profile. Refuse while the window is still open.
