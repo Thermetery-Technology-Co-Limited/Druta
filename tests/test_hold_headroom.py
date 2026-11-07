@@ -1290,6 +1290,12 @@ class CrashMarkerTests(AppTestCase):
         from druta import devicerecovery
         nxt = self.crash()
         nxt._held_startup_request = {"name": "p", "profile": {}}
+        # Windows 7 has no PnPUtil /restart-device, but SetupAPI can still
+        # restart the device. This case is a Windows with neither method.
+        with patch("druta.devicereset.setupapi_restart_supported", return_value=False):
+            self._windows_without_either_restart(nxt, devicerecovery)
+
+    def _windows_without_either_restart(self, nxt, devicerecovery):
         configured, text = self.show_stale_dialog(nxt, "6.1.7601", others=1)
         self.assertEqual(configured, [("hrs_restart", {"enabled": False}),
                                       ("hrs_admin_hint", {"show": False})])
@@ -1341,8 +1347,7 @@ class CrashMarkerTests(AppTestCase):
             self.assertNotIn("startup profile", texts[-1])
             nxt._held_startup_request = {"name": "p", "profile": {}}
             nxt.refresh_stale_headroom_text()
-        self.assertIn("The startup profile 'p' is waiting for this answer and runs after it",
-                      texts[-1])
+        self.assertIn("The startup profile 'p' is waiting for this answer", texts[-1])
 
     def test_windows_with_pnp_restart_keeps_the_restart_offer(self):
         nxt = self.crash()

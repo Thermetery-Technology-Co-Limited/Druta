@@ -105,6 +105,7 @@ class RestartTests(unittest.TestCase):
 
     def test_unsupported_windows_and_missing_admin_do_not_restart(self):
         with patch.object(devicereset, "pnputil_restart_supported", return_value=False), \
+                patch.object(devicereset, "setupapi_restart_supported", return_value=False), \
                 patch.object(devicereset.subprocess, "run") as runner:
             unsupported = devicereset.restart_target(GPU)
         self.assertFalse(unsupported.ok)
