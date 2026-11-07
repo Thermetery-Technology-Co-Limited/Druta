@@ -1,0 +1,886 @@
+{
+ "schema": 1,
+ "scope": "One EVGA RTX 3090 Ti Kingpin (GA102), driver 617.42, idle, water-cooled. Request/readback/restoration evidence; no physical measurement.",
+ "identity": {
+  "architecture": 7,
+  "device_id": "0x2203",
+  "subsystem_id": "0x49983842",
+  "vbios": "94.02.a0.00.a7",
+  "gsp_firmware": "N/A",
+  "driver_key": "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0006"
+ },
+ "core_current_59": {
+  "policy": 13,
+  "mode": "XOC enabled for the trial and its restore",
+  "trial": {
+   "baseline": {
+    "requested_ma": 845000,
+    "limit_ma": 845000,
+    "minimum_ma": 1,
+    "normal_maximum_ma": 500000,
+    "maximum_ma": 845000
+   },
+   "lower": [
+    true,
+    "Core current set to 844.2 A; effective limit verified"
+   ],
+   "after_lower": {
+    "requested_ma": 844200,
+    "limit_ma": 844200,
+    "minimum_ma": 1,
+    "normal_maximum_ma": 500000,
+    "maximum_ma": 845000
+   },
+   "above_bios_max": [
+    false,
+    "Core current must be between 0.001 and 845 A in the current mode"
+   ],
+   "after_refusal": {
+    "requested_ma": 844200,
+    "limit_ma": 844200,
+    "minimum_ma": 1,
+    "normal_maximum_ma": 500000,
+    "maximum_ma": 845000
+   },
+   "restore": [
+    true,
+    "Core current set to 845 A; effective limit verified"
+   ],
+   "final": {
+    "requested_ma": 845000,
+    "limit_ma": 845000,
+    "minimum_ma": 1,
+    "normal_maximum_ma": 500000,
+    "maximum_ma": 845000
+   },
+   "restored": true
+  },
+  "non_xoc_restore_refusal": {
+   "after_lower_ma": 844200,
+   "requested_ma": 845000,
+   "message": "Core current must be between 0.001 and 844.2 A in the current mode",
+   "note": "First attempt without XOC: the bound is max(normal maximum 500 A, current limit), so a lowered limit could not be returned to the 845 A BIOS value. Restored with XOC enabled."
+  }
+ },
+ "enable_core_voltage_46": {
+  "positive_control": "RmFan2XOverride=1 consumed in the same key (see the survey evidence)",
+  "log": [
+   {
+    "at": "2026-11-05T15:49:58",
+    "step": "baseline",
+    "gate_enabled": true,
+    "registry": {
+     "present": false
+    },
+    "driver_key": "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0006"
+   },
+   {
+    "at": "2026-11-05T15:50:14",
+    "step": "write",
+    "before": {
+     "present": false
+    },
+    "after": {
+     "present": true,
+     "type": "REG_DWORD",
+     "type_code": 4,
+     "value": 0
+    }
+   },
+   {
+    "at": "2026-11-05T15:50:14",
+    "step": "restart",
+    "result": {
+     "ok": true,
+     "reboot_required": false,
+     "message": "GPU PnP restart completed and Windows reports the device started",
+     "returncode": 0
+    }
+   },
+   {
+    "at": "2026-11-05T15:50:27",
+    "step": "read",
+    "gate_enabled": true,
+    "registry": {
+     "present": true,
+     "type": "REG_DWORD",
+     "type_code": 4,
+     "value": 0
+    },
+    "driver_key": "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0006"
+   },
+   {
+    "at": "2026-11-05T15:50:40",
+    "step": "restart",
+    "result": {
+     "ok": true,
+     "reboot_required": false,
+     "message": "GPU PnP restart completed and Windows reports the device started",
+     "returncode": 0
+    }
+   },
+   {
+    "at": "2026-11-05T15:50:53",
+    "step": "read",
+    "gate_enabled": true,
+    "registry": {
+     "present": true,
+     "type": "REG_BINARY",
+     "type_code": 3,
+     "value": "00000000"
+    },
+    "driver_key": "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0006"
+   },
+   {
+    "at": "2026-11-05T15:50:54",
+    "step": "restart",
+    "result": {
+     "ok": true,
+     "reboot_required": false,
+     "message": "GPU PnP restart completed and Windows reports the device started",
+     "returncode": 0
+    }
+   },
+   {
+    "at": "2026-11-05T15:51:06",
+    "step": "read",
+    "gate_enabled": true,
+    "registry": {
+     "present": false
+    },
+    "driver_key": "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0006"
+   },
+   {
+    "at": "2026-11-05T15:51:15",
+    "step": "restore",
+    "after": {
+     "present": false
+    },
+    "matches_original": true
+   },
+   {
+    "at": "2026-11-05T15:51:16",
+    "step": "restart",
+    "result": {
+     "ok": true,
+     "reboot_required": false,
+     "message": "GPU PnP restart completed and Windows reports the device started",
+     "returncode": 0
+    }
+   },
+   {
+    "at": "2026-11-05T15:51:29",
+    "step": "read",
+    "gate_enabled": true,
+    "registry": {
+     "present": false
+    },
+    "driver_key": "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0006"
+   }
+  ]
+ },
+ "iddq_69": {
+  "identification": "Each IDDQ name was written with its hypothesised row's current active value; the driver set override_present on exactly that row.",
+  "rows": {
+   "RmPmgrIddqNvvddOverride": {
+    "vfe_index": 3,
+    "runtime_type": 7,
+    "selector": [
+     16,
+     10
+    ]
+   },
+   "RmPmgrIddqMsvddOverride": {
+    "vfe_index": 7,
+    "runtime_type": 7,
+    "selector": [
+     17,
+     10
+    ]
+   }
+  },
+  "consumers": "VFE variable 8 (runtime type 3) references variables 3 and 7. No loaded VFE equation (205) references 3, 7 or 8, and no derived variable references 8.",
+  "steps": [
+   {
+    "step": "baseline",
+    "label": "baseline",
+    "at": "2026-11-05T15:54:46",
+    "registry": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": false
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": false
+     }
+    },
+    "rails_uv": {
+     "0": {
+      "reliability": 1080000,
+      "alt_reliability": 1100000,
+      "overvoltage": 1100000,
+      "effective": 1080000,
+      "vmin": 745000
+     }
+    },
+    "fuse_rows": [
+     {
+      "index": 3,
+      "type": 7,
+      "selector": [
+       16,
+       10
+      ],
+      "active": 36400,
+      "raw": 728,
+      "default": 1500,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 7,
+      "type": 7,
+      "selector": [
+       17,
+       10
+      ],
+      "active": 10900,
+      "raw": 218,
+      "default": 500,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 10,
+      "type": 7,
+      "selector": [
+       7,
+       8
+      ],
+      "active": 1940,
+      "raw": 1940,
+      "default": 1651,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     },
+     {
+      "index": 15,
+      "type": 7,
+      "selector": [
+       33,
+       8
+      ],
+      "active": 1431,
+      "raw": 1431,
+      "default": 1397,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     }
+    ]
+   },
+   {
+    "step": "write",
+    "label": "ident",
+    "at": "2026-11-05T15:54:53",
+    "after": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 36400
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    }
+   },
+   {
+    "step": "restart",
+    "label": "ident",
+    "at": "2026-11-05T15:54:54",
+    "result": "RestartResult(ok=True, reboot_required=False, message='GPU PnP restart completed and Windows reports the device started', returncode=0)"
+   },
+   {
+    "step": "read",
+    "label": "ident",
+    "at": "2026-11-05T15:54:56",
+    "registry": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 36400
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    },
+    "rails_uv": {
+     "0": {
+      "reliability": 1080000,
+      "alt_reliability": 1100000,
+      "overvoltage": 1100000,
+      "effective": 1080000,
+      "vmin": 745000
+     }
+    },
+    "fuse_rows": [
+     {
+      "index": 3,
+      "type": 7,
+      "selector": [
+       16,
+       10
+      ],
+      "active": 36400,
+      "raw": 728,
+      "default": 1500,
+      "override": 36400,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 7,
+      "type": 7,
+      "selector": [
+       17,
+       10
+      ],
+      "active": 10900,
+      "raw": 218,
+      "default": 500,
+      "override": 10900,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 10,
+      "type": 7,
+      "selector": [
+       7,
+       8
+      ],
+      "active": 1940,
+      "raw": 1940,
+      "default": 1651,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     },
+     {
+      "index": 15,
+      "type": 7,
+      "selector": [
+       33,
+       8
+      ],
+      "active": 1431,
+      "raw": 1431,
+      "default": 1397,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     }
+    ]
+   },
+   {
+    "step": "write",
+    "label": "nvvdd-54600",
+    "at": "2026-11-05T15:55:05",
+    "after": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 54600
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    }
+   },
+   {
+    "step": "restart",
+    "label": "nvvdd-54600",
+    "at": "2026-11-05T15:55:06",
+    "result": "RestartResult(ok=True, reboot_required=False, message='GPU PnP restart completed and Windows reports the device started', returncode=0)"
+   },
+   {
+    "step": "read",
+    "label": "nvvdd-54600",
+    "at": "2026-11-05T15:55:08",
+    "registry": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 54600
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    },
+    "rails_uv": {
+     "0": {
+      "reliability": 1080000,
+      "alt_reliability": 1100000,
+      "overvoltage": 1100000,
+      "effective": 1080000,
+      "vmin": 745000
+     }
+    },
+    "fuse_rows": [
+     {
+      "index": 3,
+      "type": 7,
+      "selector": [
+       16,
+       10
+      ],
+      "active": 54600,
+      "raw": 728,
+      "default": 1500,
+      "override": 54600,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 7,
+      "type": 7,
+      "selector": [
+       17,
+       10
+      ],
+      "active": 10900,
+      "raw": 218,
+      "default": 500,
+      "override": 10900,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 10,
+      "type": 7,
+      "selector": [
+       7,
+       8
+      ],
+      "active": 1940,
+      "raw": 1940,
+      "default": 1651,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     },
+     {
+      "index": 15,
+      "type": 7,
+      "selector": [
+       33,
+       8
+      ],
+      "active": 1431,
+      "raw": 1431,
+      "default": 1397,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     }
+    ]
+   },
+   {
+    "step": "write",
+    "label": "nvvdd-72800",
+    "at": "2026-11-05T15:55:08",
+    "after": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 72800
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    }
+   },
+   {
+    "step": "restart",
+    "label": "nvvdd-72800",
+    "at": "2026-11-05T15:55:09",
+    "result": "RestartResult(ok=True, reboot_required=False, message='GPU PnP restart completed and Windows reports the device started', returncode=0)"
+   },
+   {
+    "step": "read",
+    "label": "nvvdd-72800",
+    "at": "2026-11-05T15:55:11",
+    "registry": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 72800
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    },
+    "rails_uv": {
+     "0": {
+      "reliability": 1080000,
+      "alt_reliability": 1100000,
+      "overvoltage": 1100000,
+      "effective": 1080000,
+      "vmin": 745000
+     }
+    },
+    "fuse_rows": [
+     {
+      "index": 3,
+      "type": 7,
+      "selector": [
+       16,
+       10
+      ],
+      "active": 72800,
+      "raw": 728,
+      "default": 1500,
+      "override": 72800,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 7,
+      "type": 7,
+      "selector": [
+       17,
+       10
+      ],
+      "active": 10900,
+      "raw": 218,
+      "default": 500,
+      "override": 10900,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 10,
+      "type": 7,
+      "selector": [
+       7,
+       8
+      ],
+      "active": 1940,
+      "raw": 1940,
+      "default": 1651,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     },
+     {
+      "index": 15,
+      "type": 7,
+      "selector": [
+       33,
+       8
+      ],
+      "active": 1431,
+      "raw": 1431,
+      "default": 1397,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     }
+    ]
+   },
+   {
+    "step": "write",
+    "label": "nvvdd-27300",
+    "at": "2026-11-05T15:55:11",
+    "after": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 27300
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    }
+   },
+   {
+    "step": "restart",
+    "label": "nvvdd-27300",
+    "at": "2026-11-05T15:55:12",
+    "result": "RestartResult(ok=True, reboot_required=False, message='GPU PnP restart completed and Windows reports the device started', returncode=0)"
+   },
+   {
+    "step": "read",
+    "label": "nvvdd-27300",
+    "at": "2026-11-05T15:55:14",
+    "registry": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 27300
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": true,
+      "type_code": 4,
+      "value": 10900
+     }
+    },
+    "rails_uv": {
+     "0": {
+      "reliability": 1080000,
+      "alt_reliability": 1100000,
+      "overvoltage": 1100000,
+      "effective": 1080000,
+      "vmin": 745000
+     }
+    },
+    "fuse_rows": [
+     {
+      "index": 3,
+      "type": 7,
+      "selector": [
+       16,
+       10
+      ],
+      "active": 27300,
+      "raw": 728,
+      "default": 1500,
+      "override": 27300,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 7,
+      "type": 7,
+      "selector": [
+       17,
+       10
+      ],
+      "active": 10900,
+      "raw": 218,
+      "default": 500,
+      "override": 10900,
+      "override_present": 1,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 10,
+      "type": 7,
+      "selector": [
+       7,
+       8
+      ],
+      "active": 1940,
+      "raw": 1940,
+      "default": 1651,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     },
+     {
+      "index": 15,
+      "type": 7,
+      "selector": [
+       33,
+       8
+      ],
+      "active": 1431,
+      "raw": 1431,
+      "default": 1397,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     }
+    ]
+   },
+   {
+    "step": "restore",
+    "label": null,
+    "at": "2026-11-05T15:57:05",
+    "after": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": false
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": false
+     }
+    },
+    "matches_original": true
+   },
+   {
+    "step": "restart",
+    "label": "restore",
+    "at": "2026-11-05T15:57:05",
+    "result": "RestartResult(ok=True, reboot_required=False, message='GPU PnP restart completed and Windows reports the device started', returncode=0)"
+   },
+   {
+    "step": "read",
+    "label": "restored",
+    "at": "2026-11-05T15:57:07",
+    "registry": {
+     "RmPmgrIddqNvvddOverride": {
+      "present": false
+     },
+     "RmPmgrIddqMsvddOverride": {
+      "present": false
+     }
+    },
+    "rails_uv": {
+     "0": {
+      "reliability": 1080000,
+      "alt_reliability": 1100000,
+      "overvoltage": 1100000,
+      "effective": 1080000,
+      "vmin": 745000
+     }
+    },
+    "fuse_rows": [
+     {
+      "index": 3,
+      "type": 7,
+      "selector": [
+       16,
+       10
+      ],
+      "active": 36400,
+      "raw": 728,
+      "default": 1500,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 7,
+      "type": 7,
+      "selector": [
+       17,
+       10
+      ],
+      "active": 10900,
+      "raw": 218,
+      "default": 500,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 204800,
+      "offset": 0
+     },
+     {
+      "index": 10,
+      "type": 7,
+      "selector": [
+       7,
+       8
+      ],
+      "active": 1940,
+      "raw": 1940,
+      "default": 1651,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     },
+     {
+      "index": 15,
+      "type": 7,
+      "selector": [
+       33,
+       8
+      ],
+      "active": 1431,
+      "raw": 1431,
+      "default": 1397,
+      "override": 0,
+      "override_present": 0,
+      "cache_ready": 1,
+      "mirrors_agree": true,
+      "scale_q12": 4096,
+      "offset": 0
+     }
+    ]
+   }
+  ]
+ }
+}

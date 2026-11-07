@@ -1,0 +1,1975 @@
+{
+ "schema": 1,
+ "date": "2026-11-05",
+ "adapter": {
+  "name": "EVGA GeForce RTX 3090 Ti Kingpin",
+  "gpu": "GA102",
+  "pci_device": "0x2203",
+  "subsystem": "0x49983842",
+  "vbios": "94.02.a0.00.a7",
+  "driver": "617.42",
+  "cooling": "custom water loop (fan headers not physically observable)"
+ },
+ "read_only": {
+  "ui_capture": {
+   "tool": "Druta 1.9.08 --ui-capture",
+   "state": "complete",
+   "errors": [],
+   "skipped": [
+    "Power range stages: original BIOS bounds or slider unavailable.",
+    "Live rel: No supported live bounds are available.",
+    "Live OV: no supported rows.",
+    "Live ALT: no supported rows.",
+    "Live VMIN: no supported rows.",
+    "Live VMIN rail 0: unavailable.",
+    "Live VMIN rail 1: unavailable.",
+    "Live constants: No supported live values are available.",
+    "current-voltage-offsets: Could not read offsets: No readable offset scaffold profile for this adapter",
+    "current-difr: DIFR read failed: DIFR controller attribute is unavailable or malformed. Read current status before taking another action.",
+    "current-power-relationships: Configured relationships for adapter 0000:01:00.0\nSource policy 2: unavailable (The source policy row format is not understood.)\nSource mapping uninterpreted for policy types at indices: 0, 1, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 18\nRelationship 0 -> target policy 0 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 1 -> target policy 1 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 2 -> target policy 3 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 3 -> target policy 4 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 7 -> target policy 5 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 8 -> target policy 6 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 9 -> target policy 7 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 10 -> target policy 8 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 11 -> target policy 13 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 12 -> target policy 18 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood."
+   ],
+   "panels": {
+    "current-voltage-offsets": {
+     "status": "Could not read offsets: No readable offset scaffold profile for this adapter",
+     "readback": ""
+    },
+    "current-vf-policies": {
+     "status": "Monotonicity: on, smoothing: on. Startup mode and registry settings are retained.",
+     "readback": true
+    },
+    "current-rail-requests": {
+     "status": "Requests read. Voltage-request gate enabled.",
+     "readback": "Rail 0 REL: 0 mV\nRail 0 ALT/OP: 0 mV\nRail 0 OV: 0 mV\nRail 0 VMIN: 0 mV\nRail 0 VCRIT low: 0 mV (stored request; effective threshold unverified)\nRail 0 VCRIT high: 0 mV (stored request; effective threshold unverified)\nRail 0 reported REL policy: 1080 mV\nRail 0 reported ALT/OP policy: 1100 mV\nRail 0 reported OV policy: 1100 mV\nRail 0 reported VMIN policy: 745 mV\nRail 0 reported effective policy: 1080 mV\nPreserved voltage boost request: 0%"
+    },
+    "current-request-gate": {
+     "status": "Driver voltage requests: allowed.",
+     "readback": true
+    },
+    "current-elpg": {
+     "status": "Engine-level power-gating (ELPG) status refreshed.",
+     "readback": "Request readback: available\nThis instance's disable request: not held\nLPWR controller 0, latest enabled predicate: disabled\nLPWR controller 1, latest enabled predicate: disabled\nLPWR controller 2: unsupported\nLPWR controller 3: unsupported\nLPWR controller 4, latest enabled predicate: disabled\nLPWR controller 5, latest enabled predicate: enabled\nLPWR controller 6: unsupported\nLPWR controller 7: unsupported\nLPWR controller 8: unsupported\nLPWR controller 9: unsupported\nLPWR controller 10: unsupported\nLPWR controller 11: unsupported\nLPWR controller 12: unsupported\nLPWR controller 13: unsupported\nLPWR controller 14: unsupported\nLPWR controller 15: unsupported\nLPWR controller 16: unsupported\nLPWR controller 17: unsupported\nLPWR controller 18: unsupported\nLPWR controller 19: unsupported\nLPWR controller 20: unsupported\nLPWR controller 21: unsupported"
+    },
+    "current-difr": {
+     "status": "DIFR read failed: DIFR controller attribute is unavailable or malformed. Read current status before taking another action.",
+     "readback": ""
+    },
+    "current-elcg": {
+     "status": "Engine clock-gating status refreshed.",
+     "readback": "Request readback: available\nThis instance's request: not held\nEngines with no recorded disable reason: 9"
+    },
+    "current-blcg": {
+     "status": "Block clock-gating status refreshed.",
+     "readback": "Request readback: available\nThis instance's disable request: not held\nRegister 0x4041f0: 0x00004046\nRegister 0x409890: 0x0000007F\nRegister 0x4098b0: 0x0000007F\nRegister 0x405bf0: 0x00004044\nRegister 0x407000: 0x00004042"
+    },
+    "current-slcg": {
+     "status": "Second-level clock-gating status refreshed.",
+     "readback": "Request readback: available\nThis instance's request: not held\nRegister 0x248018: 0x00000000\nRegister 0x251a18: 0x00000000\nRegister 0x251818: 0x00000000"
+    },
+    "current-individual-0": {
+     "status": "Status refreshed.",
+     "readback": "Graphics (GR) request support: available\nThis instance's disable request: not held\nReason-zero inhibit readback: not present (may include other owners)\nReason masks: 0x48=0x00000010, 0x49=0x00000000"
+    },
+    "current-individual-4": {
+     "status": "Status refreshed.",
+     "readback": "Memory subsystem (MS) request support: available\nThis instance's disable request: not held\nReason-zero inhibit readback: not present (may include other owners)\nReason masks: 0x48=0x00000000, 0x49=0x00000000"
+    },
+    "current-individual-10": {
+     "status": "Status refreshed.",
+     "readback": "MS DIFR SW-ASR request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-11": {
+     "status": "Status refreshed.",
+     "readback": "MS DIFR CG request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-12": {
+     "status": "Status refreshed.",
+     "readback": "NVDEC request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-13": {
+     "status": "Status refreshed.",
+     "readback": "NVENC request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-14": {
+     "status": "Status refreshed.",
+     "readback": "OFA request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-15": {
+     "status": "Status refreshed.",
+     "readback": "NVJPG request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-idle-thresholds": {
+     "status": "Graphics (GR): unsupported_layout",
+     "readback": "Unavailable: unsupported_layout"
+    },
+    "current-adaptive-policy": {
+     "status": "unsupported_layout",
+     "readback": "Unavailable: unsupported_layout"
+    },
+    "current-pcie-speed": {
+     "status": "PCIe speed target layout is not supported",
+     "readback": "Unavailable: PCIe speed target layout is not supported"
+    },
+    "current-power-relationships": {
+     "status": "Configured relationships for adapter 0000:01:00.0\nSource policy 2: unavailable (The source policy row format is not understood.)\nSource mapping uninterpreted for policy types at indices: 0, 1, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 18\nRelationship 0 -> target policy 0 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 1 -> target policy 1 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 2 -> target policy 3 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 3 -> target policy 4 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 7 -> target policy 5 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 8 -> target policy 6 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 9 -> target policy 7 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 10 -> target policy 8 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 11 -> target policy 13 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 12 -> target policy 18 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.",
+     "readback": "Configured relationships for adapter 0000:01:00.0\nSource policy 2: unavailable (The source policy row format is not understood.)\nSource mapping uninterpreted for policy types at indices: 0, 1, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 18\nRelationship 0 -> target policy 0 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 1 -> target policy 1 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 2 -> target policy 3 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 3 -> target policy 4 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 7 -> target policy 5 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 8 -> target policy 6 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 9 -> target policy 7 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 10 -> target policy 8 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 11 -> target policy 13 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood.\nRelationship 12 -> target policy 18 (type 0)\n  Weight: 1 (raw 4096)\n  Target details unavailable: The target policy row format is not understood."
+    }
+   }
+  },
+  "survey": {
+   "snapshot": {
+    "all_pstates": "OK",
+    "clock_bios": "OK",
+    "clock_ranges": "OK",
+    "clock_vf": "OK",
+    "driver_flags": "OK",
+    "factory_clock": "OK",
+    "fan_bounds": "OK",
+    "fan_policies": "OK",
+    "fan_stop": "OK",
+    "image": "OK",
+    "linked_current": "OK",
+    "policy": "OK",
+    "rated_clock": "OK",
+    "thermal_thresholds": "OK",
+    "vfe": "OK",
+    "voltage_ceiling": "OK",
+    "voltage_policy": "OK",
+    "voltage_request_gate": "OK"
+   },
+   "lpwr_runtime": "OK {\"schema\": 1, \"stable_reads\": 2, \"identity\": {\"slot\": \"0000:01:00.0\", \"architecture\": 7, \"device_id\": 8707, \"subsystem_id\": 1234712642}, \"pstate_info_hex\": \"050...",
+   "grpg_runtime": "OK {\"schema\": 1, \"stable_reads\": 2, \"identity\": {\"slot\": \"0000:01:00.0\", \"architecture\": 7, \"device_id\": 8707, \"subsystem_id\": 1234712642}, \"pstate_info_hex\": \"050...",
+   "ms_runtime": "OK {\"schema\": 1, \"stable_reads\": 2, \"identity\": {\"slot\": \"0000:01:00.0\", \"architecture\": 7, \"device_id\": 8707, \"subsystem_id\": 1234712642}, \"pstate_info_hex\": \"050...",
+   "media_lpwr_runtime": "OK {\"schema\": 1, \"stable_reads\": 2, \"identity\": {\"slot\": \"0000:01:00.0\", \"architecture\": 7, \"device_id\": 8707, \"subsystem_id\": 1234712642}, \"pstate_info_hex\": \"050...",
+   "nvdec_runtime": "OK {\"schema\": 1, \"stable_reads\": 2, \"identity\": {\"slot\": \"0000:01:00.0\", \"architecture\": 7, \"device_id\": 8707, \"subsystem_id\": 1234712642}, \"pstate_info_hex\": \"050...",
+   "a801_type3_gr_support": {
+    "valid": 1,
+    "value": 1
+   },
+   "a801_type12_attr3": [
+    {
+     "valid": 0,
+     "value": null
+    },
+    {
+     "valid": 0,
+     "value": null
+    },
+    {
+     "valid": 0,
+     "value": null
+    }
+   ],
+   "client_power": {
+    "binding": "{\"client_index\": 0, \"native_index\": 2, \"semantic_role\": 1, \"client\": 254, \"units\": \"mW\", \"minimum_mw\": 100000, \"rated_mw\": 900000, \"maximum_mw\": 900000}",
+    "requested_mw": 900000,
+    "keys": [
+     "arbitration",
+     "arbitration_error",
+     "binding",
+     "control_hex",
+     "identity",
+     "info_hex",
+     "native_control_hex",
+     "native_info_hex",
+     "requested_mw",
+     "role_info_hex",
+     "schema",
+     "stable_reads"
+    ]
+   },
+   "policy_layout": {
+    "sizes": {
+     "0x2080a618": 20512,
+     "0x2080a619": 397048,
+     "0x2080a61a": 13876,
+     "0x2080e61b": 13876
+    },
+    "info": [
+     204,
+     260
+    ],
+    "status": [
+     156,
+     5936
+    ]
+   },
+   "power_integral": "OK {\"identity\": {\"slot\": \"0000:01:00.0\", \"architecture\": 7, \"device_id\": 8707, \"subsystem_id\": 1234712642}, \"policies\": [{\"policy\": 0, \"type\": 16, \"channel\": 1, \"unit\": \"mW\", \"available\": false, \"reason\"...",
+   "fan2x": "OK",
+   "fan_capabilities": "{\"manual\": true, \"auto\": true, \"source\": \"nvml\", \"min\": 30, \"max\": 100}"
+  }
+ },
+ "native_status_sweep_59": {
+  "relation": "native = floor((P * U + 2048) / 4096) mod 2**20; U = policy-2 upper word",
+  "binding": {
+   "client_index": 0,
+   "native_index": 2,
+   "semantic_role": 1,
+   "client": 254,
+   "units": "mW",
+   "minimum_mw": 100000,
+   "rated_mw": 900000,
+   "maximum_mw": 900000
+  },
+  "baseline_policies": [
+   {
+    "index": 0,
+    "type": 16,
+    "channel": 1,
+    "unit": 0,
+    "requested": 5001000,
+    "minimum": 20000,
+    "rated": 5001000,
+    "maximum": 5001000
+   },
+   {
+    "index": 1,
+    "type": 3,
+    "channel": 12,
+    "unit": 0,
+    "requested": 2001000,
+    "minimum": 1,
+    "rated": 2001000,
+    "maximum": 2001000
+   },
+   {
+    "index": 2,
+    "type": 0,
+    "channel": 0,
+    "unit": 0,
+    "requested": 900000,
+    "minimum": 100000,
+    "rated": 900000,
+    "maximum": 900000
+   },
+   {
+    "index": 3,
+    "type": 15,
+    "channel": 1,
+    "unit": 0,
+    "requested": 5001000,
+    "minimum": 1,
+    "rated": 5001000,
+    "maximum": 5001000
+   },
+   {
+    "index": 4,
+    "type": 15,
+    "channel": 1,
+    "unit": 0,
+    "requested": 5001000,
+    "minimum": 1,
+    "rated": 5001000,
+    "maximum": 5001000
+   },
+   {
+    "index": 5,
+    "type": 3,
+    "channel": 4,
+    "unit": 0,
+    "requested": 378000,
+    "minimum": 1000,
+    "rated": 378000,
+    "maximum": 378000
+   },
+   {
+    "index": 6,
+    "type": 3,
+    "channel": 5,
+    "unit": 0,
+    "requested": 475000,
+    "minimum": 1000,
+    "rated": 475000,
+    "maximum": 475000
+   },
+   {
+    "index": 7,
+    "type": 3,
+    "channel": 6,
+    "unit": 0,
+    "requested": 475000,
+    "minimum": 1000,
+    "rated": 475000,
+    "maximum": 475000
+   },
+   {
+    "index": 8,
+    "type": 3,
+    "channel": 7,
+    "unit": 0,
+    "requested": 475000,
+    "minimum": 1000,
+    "rated": 475000,
+    "maximum": 475000
+   },
+   {
+    "index": 12,
+    "type": 16,
+    "channel": 19,
+    "unit": 1,
+    "requested": 5001000,
+    "minimum": 1000,
+    "rated": 5001000,
+    "maximum": 5001000
+   },
+   {
+    "index": 13,
+    "type": 15,
+    "channel": 19,
+    "unit": 1,
+    "requested": 845000,
+    "minimum": 1,
+    "rated": 845000,
+    "maximum": 845000
+   },
+   {
+    "index": 14,
+    "type": 16,
+    "channel": 1,
+    "unit": 0,
+    "requested": 5001000,
+    "minimum": 1,
+    "rated": 5001000,
+    "maximum": 5001000
+   },
+   {
+    "index": 15,
+    "type": 16,
+    "channel": 1,
+    "unit": 0,
+    "requested": 5001000,
+    "minimum": 1,
+    "rated": 5001000,
+    "maximum": 5001000
+   },
+   {
+    "index": 18,
+    "type": 15,
+    "channel": 19,
+    "unit": 1,
+    "requested": 5001000,
+    "minimum": 1,
+    "rated": 5001000,
+    "maximum": 5001000
+   }
+  ],
+  "trials": [
+   {
+    "requested_w": 850,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 918066,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 1,
+     "power_w": 71.896,
+     "temp_edge": 21,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 900000
+    },
+    "set": {
+     "ok": true,
+     "message": "power limit configured to 850 W"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.089,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 900000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 0.397,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 0.701,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 1.004,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 1.308,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 1.617,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 1.922,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 2.227,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 2.537,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 2.841,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 3.143,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 3.447,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 3.756,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 4.06,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 4.367,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 4.676,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     },
+     {
+      "t": 4.978,
+      "nvml_requested_mw": 850000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 918066,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     918066
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 950,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 1026074,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 72.577,
+     "temp_edge": 21,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 850000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 950 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.153,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 850000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 0.46,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 0.764,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 1.065,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 1.366,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 1.672,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 1.98,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 2.283,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 2.585,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 2.887,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 3.19,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 3.499,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 3.801,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 4.102,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 4.404,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 4.71,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     },
+     {
+      "t": 5.019,
+      "nvml_requested_mw": 950000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1026074,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     1026074
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 970,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 1047676,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 72.757,
+     "temp_edge": 21,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 950000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 970 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.163,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 950000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 0.469,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 0.774,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 1.083,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 1.385,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 1.687,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 1.988,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 2.289,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 2.594,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 2.902,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 3.205,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 3.506,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 3.807,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 4.108,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 4.412,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 4.725,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     },
+     {
+      "t": 5.026,
+      "nvml_requested_mw": 970000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 1047676,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     1047676
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 971,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 180,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 72.84,
+     "temp_edge": 21,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 970000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 971 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.162,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 970000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 0.471,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 0.774,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 1.075,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 1.376,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 1.681,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 1.991,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 2.292,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 2.593,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 2.894,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 3.194,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 3.495,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 3.804,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 4.11,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 4.412,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 4.712,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     },
+     {
+      "t": 5.015,
+      "nvml_requested_mw": 971000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 180,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     180
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 1000,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 31502,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 73.49,
+     "temp_edge": 21,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 971000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 1000 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.162,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 971000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 0.472,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 0.782,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 1.085,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 1.387,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 1.69,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 2.001,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 2.304,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 2.604,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 2.905,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 3.204,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 3.513,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 3.823,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 4.123,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 4.423,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 4.724,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     },
+     {
+      "t": 5.032,
+      "nvml_requested_mw": 1000000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 31502,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     31502
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 1024,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 57424,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 73.466,
+     "temp_edge": 21,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 1000000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 1024 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.162,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1000000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 0.467,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 0.783,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 1.083,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 1.383,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 1.684,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 1.986,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 2.29,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 2.601,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 2.901,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 3.205,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 3.505,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 3.804,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 4.104,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 4.414,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 4.723,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     },
+     {
+      "t": 5.023,
+      "nvml_requested_mw": 1024000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 57424,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     57424
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 1500,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 571541,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 73.365,
+     "temp_edge": 22,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 1024000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 1500 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.162,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1024000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 0.467,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 0.768,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 1.073,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 1.381,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 1.683,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 1.985,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 2.286,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 2.587,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 2.887,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 3.191,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 3.5,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 3.803,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 4.103,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 4.403,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 4.704,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     },
+     {
+      "t": 5.004,
+      "nvml_requested_mw": 1500000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 571541,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     571541
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   },
+   {
+    "requested_w": 1999,
+    "upper_word": 4424,
+    "lower_word": 3973,
+    "predicted_native_mw": 61924,
+    "idle_before": {
+     "pstate": 0,
+     "util_gpu": 0,
+     "power_w": 73.628,
+     "temp_edge": 22,
+     "pl_requested_mw": 900000,
+     "pl_now_mw": 1500000
+    },
+    "set": {
+     "ok": true,
+     "message": "power request configured to 1999 W; the driver may recalculate other policies; downstream power/current limits can be lower"
+    },
+    "exact_request_readback": true,
+    "samples": [
+     {
+      "t": 0.163,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1500000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 0.469,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 0.774,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 1.085,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 1.387,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 1.689,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 1.994,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 2.304,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 2.606,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 2.906,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 3.206,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 3.508,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 3.814,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 4.126,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 4.427,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 4.728,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 5.033,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 5.343,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 5.645,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 5.947,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 6.248,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 6.554,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 6.863,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 7.167,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 7.472,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 7.783,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 8.085,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 8.386,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 8.686,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 8.992,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 9.302,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 9.604,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     },
+     {
+      "t": 9.904,
+      "nvml_requested_mw": 1999000,
+      "nvml_enforced_mw": 1999000,
+      "native_mw": 61924,
+      "native_error": null
+     }
+    ],
+    "settled_native_mw": [
+     61924
+    ],
+    "matches_prediction": true,
+    "restoration": {
+     "attempted": true,
+     "verified": true,
+     "error": null
+    }
+   }
+  ],
+  "final_state_equals_baseline": true,
+  "coupled_peers": "Only policy 2 changed at every point. Every peer here has default equal to maximum, and the board default equals its maximum, so the 3070 Ti linear model predicts no movement; this is consistent with it but does not test it."
+ },
+ "clock_vf_policies_62": {
+  "live": {
+   "baseline": {
+    "vf_monotonicity_enforced": true,
+    "vf_smoothening_enforced": true
+   },
+   "trials": [
+    {
+     "key": "clock_vf.monotonicity",
+     "original": true,
+     "changed_readback": {
+      "vf_monotonicity_enforced": false,
+      "vf_smoothening_enforced": true
+     },
+     "restored": {
+      "vf_monotonicity_enforced": true,
+      "vf_smoothening_enforced": true
+     },
+     "restored_ok": true
+    },
+    {
+     "key": "clock_vf.smoothening",
+     "original": true,
+     "changed_readback": {
+      "vf_monotonicity_enforced": true,
+      "vf_smoothening_enforced": false
+     },
+     "restored": {
+      "vf_monotonicity_enforced": true,
+      "vf_smoothening_enforced": true
+     },
+     "restored_ok": true
+    }
+   ],
+   "final": {
+    "vf_monotonicity_enforced": true,
+    "vf_smoothening_enforced": true
+   },
+   "final_equals_baseline": true
+  },
+  "profiles_and_undo": {
+   "profile_on": {
+    "clock_vf.monotonicity": true,
+    "clock_vf.smoothening": true
+   },
+   "undo_selection": {
+    "clock_vf.monotonicity": true
+   },
+   "steps": [
+    {
+     "step": "baseline",
+     "flags": {
+      "mono": true,
+      "smooth": true
+     },
+     "expected": {
+      "mono": true,
+      "smooth": true
+     },
+     "ok": true
+    },
+    {
+     "step": "live monotonicity off (Undo captured before write)",
+     "flags": {
+      "mono": false,
+      "smooth": true
+     },
+     "expected": {
+      "mono": false,
+      "smooth": true
+     },
+     "ok": true
+    },
+    {
+     "step": "selected Undo",
+     "flags": {
+      "mono": true,
+      "smooth": true
+     },
+     "result": [
+      [
+       true,
+       "clock VF policies restored"
+      ]
+     ],
+     "expected": {
+      "mono": true,
+      "smooth": true
+     },
+     "ok": true
+    },
+    {
+     "step": "load changed-state profile (monotonicity off)",
+     "flags": {
+      "mono": false,
+      "smooth": true
+     },
+     "result": [
+      [
+       true,
+       "clock VF policies restored"
+      ]
+     ],
+     "expected": {
+      "mono": false,
+      "smooth": true
+     },
+     "ok": true
+    },
+    {
+     "step": "load baseline profile",
+     "flags": {
+      "mono": true,
+      "smooth": true
+     },
+     "result": [
+      [
+       true,
+       "clock VF policies restored"
+      ]
+     ],
+     "expected": {
+      "mono": true,
+      "smooth": true
+     },
+     "ok": true
+    },
+    {
+     "step": "load changed-state profile (both off)",
+     "flags": {
+      "mono": false,
+      "smooth": false
+     },
+     "result": [
+      [
+       true,
+       "clock VF policies restored"
+      ]
+     ],
+     "expected": {
+      "mono": false,
+      "smooth": false
+     },
+     "ok": true
+    },
+    {
+     "step": "load baseline profile (final)",
+     "flags": {
+      "mono": true,
+      "smooth": true
+     },
+     "result": [
+      [
+       true,
+       "clock VF policies restored"
+      ]
+     ],
+     "expected": {
+      "mono": true,
+      "smooth": true
+     },
+     "ok": true
+    }
+   ],
+   "all_ok": true,
+   "final_equals_baseline": true
+  }
+ },
+ "rmfan2xoverride_71": {
+  "log": [
+   {
+    "at": "2026-11-05T14:51:17",
+    "step": "baseline",
+    "registry": {
+     "present": false
+    },
+    "fan2x_error": null,
+    "fan2x": {
+     "entries": 2,
+     "client_id_to_index": {
+      "1": 0,
+      "2": 1,
+      "3": null,
+      "4": null
+     },
+     "types": [
+      [
+       0,
+       2,
+       2
+      ],
+      [
+       1,
+       2,
+       2
+      ]
+     ]
+    },
+    "capabilities": "{'manual': True, 'auto': True, 'source': 'nvml', 'min': 30, 'max': 100}",
+    "live_fans": {
+     "num_fans": 2,
+     "fans": [
+      [
+       30,
+       0
+      ],
+      [
+       42,
+       0
+      ]
+     ],
+     "temp_edge": 22
+    },
+    "nvidia_smi": "30 %, 22, P0, 72.56 W"
+   },
+   {
+    "at": "2026-11-05T14:51:27",
+    "step": "write",
+    "after": {
+     "present": true,
+     "type_code": 4,
+     "value": 1
+    }
+   },
+   {
+    "at": "2026-11-05T14:51:28",
+    "step": "restart",
+    "ok": true,
+    "message": "GPU PnP restart completed and Windows reports the device started"
+   },
+   {
+    "at": "2026-11-05T14:51:40",
+    "step": "observe",
+    "registry": {
+     "present": true,
+     "type_code": 4,
+     "value": 1
+    },
+    "fan2x_error": "Fan2X GET rejected (RM 0x56)",
+    "fan2x": null,
+    "capabilities": "{'manual': False, 'auto': False, 'source': 'nvml', 'min': 30, 'max': 100}",
+    "live_fans": {
+     "num_fans": 0,
+     "fans": [],
+     "temp_edge": 22
+    },
+    "nvidia_smi": "[N/A], 22, P0, 81.90 W"
+   },
+   {
+    "at": "2026-11-05T14:53:29",
+    "step": "restore",
+    "after": {
+     "present": false
+    },
+    "matches_original": true
+   },
+   {
+    "at": "2026-11-05T14:53:29",
+    "step": "restart",
+    "ok": true,
+    "message": "GPU PnP restart completed and Windows reports the device started"
+   },
+   {
+    "at": "2026-11-05T14:53:42",
+    "step": "observe",
+    "registry": {
+     "present": false
+    },
+    "fan2x_error": null,
+    "fan2x": {
+     "entries": 2,
+     "client_id_to_index": {
+      "1": 0,
+      "2": 1,
+      "3": null,
+      "4": null
+     },
+     "types": [
+      [
+       0,
+       2,
+       2
+      ],
+      [
+       1,
+       2,
+       2
+      ]
+     ]
+    },
+    "capabilities": "{'manual': True, 'auto': True, 'source': 'nvml', 'min': 30, 'max': 100}",
+    "live_fans": {
+     "num_fans": 2,
+     "fans": [
+      [
+       30,
+       0
+      ],
+      [
+       42,
+       0
+      ]
+     ],
+     "temp_edge": 23
+    },
+    "nvidia_smi": "30 %, 23, P0, 82.41 W"
+   }
+  ],
+  "physical_fan_state": "not observable: the card is on a custom water loop"
+ },
+ "scope": "One board on one driver at idle. W cells are request, readback and restoration, not physical effect."
+}

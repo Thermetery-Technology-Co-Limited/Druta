@@ -1,0 +1,433 @@
+{
+ "schema": 1,
+ "date": "2026-11-05",
+ "adapter": {
+  "name": "Gigabyte AORUS GeForce GTX 1060 Xtreme Edition 6G 9Gbps",
+  "gpu": "GP106",
+  "pci_device": "0x1C03",
+  "subsystem": "0x374A1458",
+  "vbios": "86.06.4b.00.32",
+  "driver": "581.42 (32.0.15.8142)",
+  "gsp_firmware_used": false,
+  "registry_key": "adapter software key (Control\\Class\\{4d36e968-...}\\0005)"
+ },
+ "read_only": {
+  "ui_capture": {
+   "tool": "Druta 1.9.08 --ui-capture",
+   "state": "complete",
+   "errors": [],
+   "skipped": [
+    "Power range stages: original BIOS bounds or slider unavailable.",
+    "Live rel: Live bound read unavailable: VFE equation GET returned RM status 31",
+    "Live OV: no supported rows.",
+    "Live ALT: no supported rows.",
+    "Live VMIN: no supported rows.",
+    "Live VMIN rail 0: unavailable.",
+    "Live VMIN rail 1: unavailable.",
+    "Live constants: Live value read unavailable: VFE equation GET returned RM status 31",
+    "current-voltage-offsets: Could not read offsets: No readable offset scaffold profile for this adapter",
+    "current-vf-policies: VF policy read unavailable: Clock VF GET rejected (RM 0x1F)",
+    "current-rail-requests: Could not read requests: Rail replay GET RM status 31",
+    "current-difr: DIFR read failed: DIFR controller attribute is unavailable or malformed. Read current status before taking another action.",
+    "current-power-relationships: Configured relationships read unavailable: The policy INFO geometry or command is not understood."
+   ],
+   "panels": {
+    "current-voltage-offsets": {
+     "status": "Could not read offsets: No readable offset scaffold profile for this adapter",
+     "readback": ""
+    },
+    "current-vf-policies": {
+     "status": "VF policy read unavailable: Clock VF GET rejected (RM 0x1F)",
+     "readback": false
+    },
+    "current-rail-requests": {
+     "status": "Could not read requests: Rail replay GET RM status 31",
+     "readback": ""
+    },
+    "current-request-gate": {
+     "status": "Driver voltage requests: allowed.",
+     "readback": true
+    },
+    "current-elpg": {
+     "status": "Engine-level power-gating (ELPG) status refreshed.",
+     "readback": "Request readback: available\nThis instance's disable request: not held\nLPWR controller 0, latest enabled predicate: disabled\nLPWR controller 1: unsupported\nLPWR controller 2: unsupported\nLPWR controller 3: unsupported\nLPWR controller 4, latest enabled predicate: disabled\nLPWR controller 5: unsupported\nLPWR controller 6: unsupported\nLPWR controller 7: unsupported\nLPWR controller 8: unsupported\nLPWR controller 9: unsupported\nLPWR controller 10: unsupported\nLPWR controller 11: unsupported\nLPWR controller 12: unsupported\nLPWR controller 13: unsupported\nLPWR controller 14: unsupported\nLPWR controller 15: unsupported\nLPWR controller 16: unsupported\nLPWR controller 17: unsupported\nLPWR controller 18: unsupported\nLPWR controller 19: unsupported\nLPWR controller 20: unsupported\nLPWR controller 21: unsupported"
+    },
+    "current-difr": {
+     "status": "DIFR read failed: DIFR controller attribute is unavailable or malformed. Read current status before taking another action.",
+     "readback": ""
+    },
+    "current-elcg": {
+     "status": "Engine clock-gating status refreshed.",
+     "readback": "Request readback: available\nThis instance's request: not held\nEngines with no recorded disable reason: 12"
+    },
+    "current-blcg": {
+     "status": "Block clock-gating status refreshed.",
+     "readback": "Request readback: unavailable\nThis instance's disable request: not held"
+    },
+    "current-slcg": {
+     "status": "Second-level clock-gating status refreshed.",
+     "readback": "Request readback: unavailable\nThis instance's request: not held"
+    },
+    "current-individual-0": {
+     "status": "Status refreshed.",
+     "readback": "Graphics (GR) request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-4": {
+     "status": "Status refreshed.",
+     "readback": "Memory subsystem (MS) request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-10": {
+     "status": "Status refreshed.",
+     "readback": "MS DIFR SW-ASR request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-11": {
+     "status": "Status refreshed.",
+     "readback": "MS DIFR CG request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-12": {
+     "status": "Status refreshed.",
+     "readback": "NVDEC request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-13": {
+     "status": "Status refreshed.",
+     "readback": "NVENC request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-14": {
+     "status": "Status refreshed.",
+     "readback": "OFA request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-individual-15": {
+     "status": "Status refreshed.",
+     "readback": "NVJPG request support: unavailable\nThis instance's disable request: not held"
+    },
+    "current-idle-thresholds": {
+     "status": "Graphics (GR): unsupported_layout",
+     "readback": "Unavailable: unsupported_layout"
+    },
+    "current-adaptive-policy": {
+     "status": "unsupported_layout",
+     "readback": "Unavailable: unsupported_layout"
+    },
+    "current-pcie-speed": {
+     "status": "PCIe speed target layout is not supported",
+     "readback": "Unavailable: PCIe speed target layout is not supported"
+    },
+    "current-power-relationships": {
+     "status": "Configured relationships read unavailable: The policy INFO geometry or command is not understood.",
+     "readback": "Configured relationships read unavailable: The policy INFO geometry or command is not understood."
+    }
+   }
+  },
+  "registry_snapshot": {
+   "ok": [
+    "vbios image",
+    "all P-states",
+    "clock ranges",
+    "thermal thresholds",
+    "VFE model inputs",
+    "rail voltage policy",
+    "voltage-request gate"
+   ],
+   "refused_rm_0x1f": [
+    "clock INFO (clock BIOS, factory, rated)",
+    "clock V/F",
+    "driver flags PERF 0x2080A022",
+    "Fan2X",
+    "fan policy",
+    "fan stop",
+    "VFE equation (voltage ceiling)"
+   ],
+   "not_traced": [
+    "linked current: policy packet geometry not traced for arbitration diagnostics"
+   ]
+  },
+  "lpwr_configured_reads": {
+   "lpwr_runtime": "LPWR RM status 0x1F",
+   "grpg_runtime": "LPWR RM status 0x1F",
+   "ms_runtime": "LPWR RM status 0x1F",
+   "media_lpwr_runtime": "LPWR RM status 0x1F",
+   "nvdec_runtime": "LPWR RM status 0x1F"
+  },
+  "elpg_parallel_capability": {
+   "identity": "{'slot': '0000:01:00.0', 'architecture': 4, 'device_id': 7171, 'subsystem_id': 927601752}",
+   "control_type3_support_gr": {
+    "valid_flag": 1,
+    "value": 1,
+    "other_bytes_unchanged": true
+   },
+   "type12_attr3_reads": [
+    {
+     "valid_flag": 0,
+     "value": null,
+     "other_bytes_unchanged": true
+    },
+    {
+     "valid_flag": 0,
+     "value": null,
+     "other_bytes_unchanged": true
+    },
+    {
+     "valid_flag": 0,
+     "value": null,
+     "other_bytes_unchanged": true
+    }
+   ],
+   "verdict": "unavailable (invalid flag): parallel branch state unknown"
+  },
+  "driver_binary": {
+   "EnableCoreVoltage": "one ASCII occurrence in the loaded nvlddmkm.sys, inside the RM registry-name table beside RmOverrideIdleSlowdownSettings and DisableGrAuto"
+  }
+ },
+ "registry_trials": {
+  "EnableCoreVoltage": {
+   "issue": 46,
+   "positive_control": "PowerMizerEnable=1, PerfLevelSrc=0x2222, PowerMizerDefault=1, PowerMizerDefaultAC=1 in the same key moved idle from P8/139 MHz to P0 after each PnP restart, so the key is re-read on restart; all four were absent originally and were deleted.",
+   "results": [
+    {
+     "input": "absent (control restart)",
+     "gate_after_restart": true
+    },
+    {
+     "input": "REG_DWORD 0",
+     "gate_after_restart": true
+    },
+    {
+     "input": "REG_DWORD 0 with positive control (idle P0 confirmed)",
+     "gate_after_restart": true
+    },
+    {
+     "input": "REG_BINARY 00000000 with positive control (idle P0 confirmed)",
+     "gate_after_restart": true
+    },
+    {
+     "input": "absent, gate set False live via 0x2080A031 and verified",
+     "gate_after_restart": true
+    }
+   ],
+   "restored": "value absent, controls deleted; idle returned to P8; gate True",
+   "log": [
+    {
+     "at": "2026-11-05T13:39:38",
+     "step": "baseline",
+     "gate_enabled": true,
+     "registry": {
+      "present": false
+     }
+    },
+    {
+     "at": "2026-11-05T13:39:46",
+     "step": "restart",
+     "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:39:54",
+     "step": "read",
+     "gate_enabled": true,
+     "registry": {
+      "present": false
+     }
+    },
+    {
+     "at": "2026-11-05T13:40:01",
+     "step": "write",
+     "before": {
+      "present": false
+     },
+     "after": {
+      "present": true,
+      "type": "REG_DWORD",
+      "type_code": 4,
+      "value": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:40:02",
+     "step": "restart",
+     "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:40:10",
+     "step": "read",
+     "gate_enabled": true,
+     "registry": {
+      "present": true,
+      "type": "REG_DWORD",
+      "type_code": 4,
+      "value": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:40:56",
+     "step": "restart",
+     "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:41:17",
+     "step": "read",
+     "gate_enabled": true,
+     "registry": {
+      "present": true,
+      "type": "REG_DWORD",
+      "type_code": 4,
+      "value": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:42:18",
+     "step": "restart",
+     "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:42:30",
+     "step": "read",
+     "gate_enabled": true,
+     "registry": {
+      "present": true,
+      "type": "REG_BINARY",
+      "type_code": 3,
+      "value": "00000000"
+     }
+    },
+    {
+     "at": "2026-11-05T13:42:41",
+     "step": "restart",
+     "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:42:54",
+     "step": "read",
+     "gate_enabled": true,
+     "registry": {
+      "present": false
+     }
+    },
+    {
+     "at": "2026-11-05T13:43:22",
+     "step": "restore",
+     "after": {
+      "present": false
+     },
+     "matches_original": true
+    },
+    {
+     "at": "2026-11-05T13:43:22",
+     "step": "restart",
+     "result": {
+      "ok": true,
+      "reboot_required": false,
+      "message": "GPU PnP restart completed and Windows reports the device started",
+      "returncode": 0
+     }
+    },
+    {
+     "at": "2026-11-05T13:43:47",
+     "step": "read",
+     "gate_enabled": true,
+     "registry": {
+      "present": false
+     }
+    }
+   ]
+  },
+  "RmFan2XOverride": {
+   "issue": 71,
+   "baseline": "Fan2X GET refused (RM 0x1F); NVML manual/auto 0-100%; one fan visible; 0% at 36 C idle",
+   "with_dword_1": "NVML fan speed N/A; manual and auto unavailable; reported minimum 30%; live telemetry showed num_fans 0; temperature 33-36 C at idle",
+   "physical_fan_state": "not observed: no software readback remained",
+   "restored": "value absent; NVML manual/auto 0-100% and one fan visible again",
+   "log": [
+    {
+     "at": "2026-11-05T13:45:48",
+     "step": "baseline",
+     "registry": {
+      "present": false
+     },
+     "fan2x_error": "Fan2X GET rejected (RM 0x1F)",
+     "fan2x": null,
+     "capabilities": "{'manual': True, 'auto': True, 'source': 'nvml', 'min': 0, 'max': 100}",
+     "nvidia_smi": "0 %, 36, P8, 8.34 W"
+    },
+    {
+     "at": "2026-11-05T13:46:10",
+     "step": "write",
+     "after": {
+      "present": true,
+      "type_code": 4,
+      "value": 1
+     }
+    },
+    {
+     "at": "2026-11-05T13:46:11",
+     "step": "restart",
+     "ok": true,
+     "message": "GPU PnP restart completed and Windows reports the device started"
+    },
+    {
+     "at": "2026-11-05T13:46:23",
+     "step": "observe",
+     "registry": {
+      "present": true,
+      "type_code": 4,
+      "value": 1
+     },
+     "fan2x_error": "Fan2X GET rejected (RM 0x1F)",
+     "fan2x": null,
+     "capabilities": "{'manual': False, 'auto': False, 'source': 'nvml', 'min': 30, 'max': 100}",
+     "nvidia_smi": "[N/A], 36, P0, 26.75 W"
+    },
+    {
+     "at": "2026-11-05T13:47:01",
+     "step": "restore",
+     "after": {
+      "present": false
+     },
+     "matches_original": true
+    },
+    {
+     "at": "2026-11-05T13:47:02",
+     "step": "restart",
+     "ok": true,
+     "message": "GPU PnP restart completed and Windows reports the device started"
+    },
+    {
+     "at": "2026-11-05T13:47:14",
+     "step": "observe",
+     "registry": {
+      "present": false
+     },
+     "fan2x_error": "Fan2X GET rejected (RM 0x1F)",
+     "fan2x": null,
+     "capabilities": "{'manual': True, 'auto': True, 'source': 'nvml', 'min': 0, 'max': 100}",
+     "nvidia_smi": "0 %, 34, P0, 26.36 W"
+    }
+   ]
+  }
+ },
+ "i2c": "No supported regulator: see experiments/pascal-aorus-1060-i2c-58142.md (same card, VBIOS and driver).",
+ "scope": "One adapter on one driver. Unavailable or refused here does not establish absence on other Pascal boards or drivers; RM 0x1F is a size refusal, meaning Druta has no layout this driver accepts."
+}
