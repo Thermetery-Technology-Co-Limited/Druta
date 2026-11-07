@@ -1,0 +1,28 @@
+diff --git a/Modules/posixmodule.c b/Modules/posixmodule.c
+index d7edabe..b697747 100644
+--- a/Modules/posixmodule.c
++++ b/Modules/posixmodule.c
+@@ -12461,9 +12461,20 @@ os_cpu_count_impl(PyObject *module)
+ {
+     int ncpu = 0;
+ #ifdef MS_WINDOWS
+-    /* Declare prototype here to avoid pulling in all of the Win7 APIs in 3.8 */
+-    DWORD WINAPI GetActiveProcessorCount(WORD group);
+-    ncpu = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
++    /* Vista has no processor groups. Keep group-aware counting on Windows 7+
++       without making that optional API a load-time dependency on Vista. */
++    typedef DWORD (WINAPI *GetActiveProcessorCountFunc)(WORD);
++    GetActiveProcessorCountFunc get_active_processor_count =
++        (GetActiveProcessorCountFunc)GetProcAddress(
++            GetModuleHandleW(L"kernel32.dll"), "GetActiveProcessorCount");
++    if (get_active_processor_count != NULL) {
++        ncpu = get_active_processor_count(ALL_PROCESSOR_GROUPS);
++    }
++    else {
++        SYSTEM_INFO system_info;
++        GetSystemInfo(&system_info);
++        ncpu = system_info.dwNumberOfProcessors;
++    }
+ #elif defined(__hpux)
+     ncpu = mpctl(MPC_GETNUMSPUS, NULL, NULL);
+ #elif defined(HAVE_SYSCONF) && defined(_SC_NPROCESSORS_ONLN)

@@ -19,6 +19,7 @@ FILES = (
     'DEBUG-SUMMARY-RTX5080.md',
     'DRIVER-COMPATIBILITY.md',
     'Druta-Diagnose.cmd',
+    'Druta-vista.spec',
     'Druta-win7.spec',
     'Druta.spec',
     'MANIFEST.in',
@@ -47,9 +48,11 @@ FILES = (
     'RELEASE-NOTES-1.9.1.md',
     'TECHNICALDOCUMENTATION.md',
     'THIRD-PARTY-NOTICES.md',
+    'VISTA.md',
     'VOLTAGE-RAILS-47212.md',
     'VOLTAGE-RAILS-TITAN.md',
     'WINDOWS7.md',
+    'build-vista.ps1',
     'build-win7.ps1',
     'build.ps1',
     'druta.py',
@@ -246,6 +249,8 @@ FILES = (
     'experiments/validate_titan_current_limits_production.py',
     'experiments/validate_turing_clock_compat.py',
     'experiments/validate_turing_live_power.py',
+    'experiments/vista-driver-36519-exports.json',
+    'experiments/vista-port-validation-20260906.json',
     'experiments/voltage-61742-unblocked-objectives-20261101.json',
     'experiments/voltage-control-profiles-20261102.json',
     'experiments/voltage-live-bounds-20261029.json',
@@ -257,6 +262,7 @@ FILES = (
     'experiments/voltage-request-profiles-20261102.json',
     'experiments/voltage-vmin-live-20261028.json',
     'pyproject.toml',
+    'requirements-vista.txt',
     'requirements-win7.txt',
     'requirements.txt',
     'setup.py',
@@ -274,8 +280,11 @@ def snapshot(root):
     root = root.resolve(strict=True)
     paths = set(FILES)
     # Match build.ps1: the complete package and regression suite, including
-    # package initializers and test helpers, plus the public regulator recipes.
-    for pattern in ('src/druta/**/*.py', 'tests/**/*.py', 'i2c/*.toml', 'i2c/*.md'):
+    # package initializers and test helpers, plus the public regulator recipes
+    # and the Vista runtime's source patches, notes and pinned UCRT identities.
+    for pattern in ('src/druta/**/*.py', 'tests/**/*.py', 'i2c/*.toml', 'i2c/*.md',
+                    'src/druta/tools/vista/*.md', 'src/druta/tools/vista/*.json',
+                    'src/druta/tools/vista/*.patch'):
         paths.update(path.relative_to(root).as_posix() for path in root.glob(pattern))
     result = []
     for relative in sorted(paths):
