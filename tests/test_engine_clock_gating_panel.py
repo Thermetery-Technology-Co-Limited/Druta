@@ -31,7 +31,8 @@ def state(**changes):
         "support": True, "available": True, "supported_engines": 3, "eligible_engines": 3,
         "owned_request": False, "owned_mode": None, "arbitration_verified": False,
         "uncertain_outcome": False, "observed_engines": [],
-    } | changes
+        **changes,
+    }
 
 
 def enabled(name):

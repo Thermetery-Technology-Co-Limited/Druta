@@ -46,14 +46,12 @@ def test_automatic_refused_without_capture_or_restore(app, kind, entry):
 def test_named_save_uses_selected_kind(app, kind):
     app.profile_capture_ready = Mock(return_value=True)
     app.show_win = Mock()
-    with (
-        patch("druta.druta.dpg.does_item_exist", return_value=False),
-        patch("druta.druta.dpg.get_value", return_value="named"),
-        patch("druta.druta.profiles.capture_voltage_controls", return_value=state(kind), create=True) as capture,
-        patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")),
-        patch("druta.druta.profiles.save", return_value="named.json") as save,
-        patch("druta.druta.profiles.summarize", return_value="voltage"),
-    ):
+    with patch("druta.druta.dpg.does_item_exist", return_value=False), \
+         patch("druta.druta.dpg.get_value", return_value="named"), \
+         patch("druta.druta.profiles.capture_voltage_controls", return_value=state(kind), create=True) as capture, \
+         patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")), \
+         patch("druta.druta.profiles.save", return_value="named.json") as save, \
+         patch("druta.druta.profiles.summarize", return_value="voltage"):
         app.open_save_profile(user_data=kind)
         app.save_profile()
     capture.assert_called_once_with(app.gpu, kind)
@@ -84,10 +82,8 @@ def test_load_saves_incoming_selection_before_restore(app, kind, failure):
     app.finish_profile_load = Mock()
     result = ("undo", "path", ["missing"] if failure == "incomplete" else [])
     save = Mock(side_effect=OSError("disk full") if failure == "exception" else None, return_value=result)
-    with (
-        patch("druta.druta.profiles.preflight", return_value=None),
-        patch("druta.druta.profiles.autosave_voltage_controls", save, create=True),
-    ):
+    with patch("druta.druta.profiles.preflight", return_value=None), \
+         patch("druta.druta.profiles.autosave_voltage_controls", save, create=True):
         app.begin_profile_load("named", incoming)
     save.assert_called_once_with(app.gpu, "load-named", incoming)
     if failure:
@@ -100,11 +96,9 @@ def test_load_saves_incoming_selection_before_restore(app, kind, failure):
 @pytest.mark.parametrize("kind", KINDS)
 def test_cannot_select_for_startup(app, kind):
     app._startup_manager = Mock()
-    with (
-        patch("druta.druta.is_admin", return_value=True),
-        patch("druta.druta.profiles.load", return_value=state(kind)),
-        patch("druta.druta.profiles.preflight") as preflight,
-    ):
+    with patch("druta.druta.is_admin", return_value=True), \
+         patch("druta.druta.profiles.load", return_value=state(kind)), \
+         patch("druta.druta.profiles.preflight") as preflight:
         app.set_startup_profile("named")
     preflight.assert_not_called()
     app._startup_manager.enable.assert_not_called()

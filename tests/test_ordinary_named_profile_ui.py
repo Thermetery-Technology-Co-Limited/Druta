@@ -18,11 +18,11 @@ def app():
 
 def test_current_memory_capture_has_no_writes_or_unrelated_capture(app):
     app._profile_save_scope, app._profile_save_kind, app._profile_save_index = 'tuning_action', 'memory', None
-    with (patch('druta.druta.dpg.get_value', return_value='named'),
-          patch('druta.druta.dpg.does_item_exist', return_value=False),
-          patch('druta.druta.profiles.save', return_value='named.json') as save,
-          patch('druta.druta.profiles.capture', side_effect=AssertionError('full capture')),
-          patch('druta.druta.profiles.autosave_state', side_effect=AssertionError('autosave'))):
+    with patch('druta.druta.dpg.get_value', return_value='named'), \
+         patch('druta.druta.dpg.does_item_exist', return_value=False), \
+         patch('druta.druta.profiles.save', return_value='named.json') as save, \
+         patch('druta.druta.profiles.capture', side_effect=AssertionError('full capture')), \
+         patch('druta.druta.profiles.autosave_state', side_effect=AssertionError('autosave')):
         app.save_profile()
     assert save.call_args.args[1]['tuning_action']['value'] == 17
     assert app.gpu.calls == []
@@ -40,10 +40,10 @@ def test_selection_and_reset(app, choice, scope, kind, index):
         'Full tune': (None, None, None), 'Memory offset': ('tuning_action', 'memory', None),
         'Voltage boost': ('tuning_action', 'boost', None), 'Fan policy': ('fan', None, None),
         'Coupled power/current requests': ('power_action', None, None)})
-    with (patch('druta.druta.dpg.does_item_exist', return_value=True),
-          patch('druta.druta.dpg.get_value', return_value='name'),
-          patch('druta.druta.dpg.configure_item') as config,
-          patch('druta.druta.dpg.set_value')):
+    with patch('druta.druta.dpg.does_item_exist', return_value=True), \
+         patch('druta.druta.dpg.get_value', return_value='name'), \
+         patch('druta.druta.dpg.configure_item') as config, \
+         patch('druta.druta.dpg.set_value'):
         app.open_save_profile()
         app.select_profile_contents(app_data=choice)
         assert (app._profile_save_scope, app._profile_save_kind, app._profile_save_index) == (scope, kind, index)
@@ -56,10 +56,10 @@ def test_selection_and_reset(app, choice, scope, kind, index):
 
 def test_failed_or_incomplete_capture_and_busy_never_save(app):
     app._profile_save_scope, app._profile_save_kind, app._profile_save_index = 'fan', None, None
-    with (patch('druta.druta.dpg.get_value', return_value='named'),
-          patch('druta.druta.dpg.does_item_exist', return_value=False),
-          patch('druta.druta.profiles.capture_fan', return_value={'scope': 'fan', 'incomplete': ['failed read']}) as capture,
-          patch('druta.druta.profiles.save') as save):
+    with patch('druta.druta.dpg.get_value', return_value='named'), \
+         patch('druta.druta.dpg.does_item_exist', return_value=False), \
+         patch('druta.druta.profiles.capture_fan', return_value={'scope': 'fan', 'incomplete': ['failed read']}) as capture, \
+         patch('druta.druta.profiles.save') as save:
         app.save_profile()
         save.assert_not_called()
         capture.assert_called_once()
@@ -71,8 +71,8 @@ def test_failed_or_incomplete_capture_and_busy_never_save(app):
 def test_failed_tuning_read_never_saves(app):
     app.gpu.boost = None
     app._profile_save_scope, app._profile_save_kind, app._profile_save_index = 'tuning_action', 'boost', None
-    with (patch('druta.druta.dpg.get_value', return_value='named'),
-          patch('druta.druta.profiles.save') as save):
+    with patch('druta.druta.dpg.get_value', return_value='named'), \
+         patch('druta.druta.profiles.save') as save:
         app.save_profile()
     save.assert_not_called()
 
@@ -106,13 +106,13 @@ def test_domains_use_live_capability_and_label(app):
 def test_scoped_capture_routing(app, scope, kind, index, helper, args):
     app._profile_save_scope, app._profile_save_kind, app._profile_save_index = scope, kind, index
     snapshot = {'scope': scope}
-    with (patch('druta.druta.dpg.get_value', return_value='named'),
-          patch('druta.druta.dpg.does_item_exist', return_value=False),
-          patch('druta.druta.profiles.' + helper, return_value=snapshot) as capture,
-          patch('druta.druta.profiles.incomplete', return_value=[]),
-          patch('druta.druta.profiles.summarize', return_value='selected'),
-          patch('druta.druta.profiles.capture', side_effect=AssertionError('full capture')),
-          patch('druta.druta.profiles.save', return_value='named.json') as save):
+    with patch('druta.druta.dpg.get_value', return_value='named'), \
+         patch('druta.druta.dpg.does_item_exist', return_value=False), \
+         patch('druta.druta.profiles.' + helper, return_value=snapshot) as capture, \
+         patch('druta.druta.profiles.incomplete', return_value=[]), \
+         patch('druta.druta.profiles.summarize', return_value='selected'), \
+         patch('druta.druta.profiles.capture', side_effect=AssertionError('full capture')), \
+         patch('druta.druta.profiles.save', return_value='named.json') as save:
         app.save_profile()
     capture.assert_called_once_with(app.gpu, *args)
     save.assert_called_once_with('named', snapshot)
@@ -123,9 +123,9 @@ def test_nvvdd_named_choice_and_saved_value(app):
     app.gpu = RailGPU()
     assert app.ordinary_profile_contents()['NVVDD offset'] == ('tuning_action', 'rail_offset', None)
     app._profile_save_scope, app._profile_save_kind, app._profile_save_index = 'tuning_action', 'rail_offset', None
-    with (patch('druta.druta.dpg.get_value', return_value='named'),
-          patch('druta.druta.dpg.does_item_exist', return_value=False),
-          patch('druta.druta.profiles.save', return_value='named.json') as save):
+    with patch('druta.druta.dpg.get_value', return_value='named'), \
+         patch('druta.druta.dpg.does_item_exist', return_value=False), \
+         patch('druta.druta.profiles.save', return_value='named.json') as save:
         app.save_profile()
     assert save.call_args.args[1]['tuning_action']['value'] == 12501
     assert not app.gpu.calls

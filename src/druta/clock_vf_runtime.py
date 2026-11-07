@@ -14,6 +14,7 @@ import copy
 import ctypes
 from dataclasses import dataclass
 
+from .legacy_python import add_note
 from . import clock_vf_registry as vf
 from .perf_diagnostics import PerfDiagnosticsReader
 from .registry_flags import _same_state
@@ -209,7 +210,7 @@ class ClockVfController:
                     else ("Clock VF rollback was not verified: " + str(rollback["error"]))
                 )
                 if not isinstance(exc, Exception):
-                    exc.add_note(detail)
+                    add_note(exc, detail)
                     exc.rollback = rollback
                     raise
                 error = _error(exc, "transient")

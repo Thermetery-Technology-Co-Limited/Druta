@@ -3,7 +3,10 @@
 """Exercise actual EX packet transactions with an independent register device."""
 import ctypes
 import math
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 import unittest
 from copy import deepcopy
 from pathlib import Path

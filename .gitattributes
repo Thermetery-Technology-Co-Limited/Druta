@@ -1,0 +1,3 @@
+
+# cmd.exe on Windows Vista and 7 needs CRLF batch files.
+*.cmd text eol=crlf

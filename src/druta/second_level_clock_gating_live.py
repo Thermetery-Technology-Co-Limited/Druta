@@ -21,12 +21,12 @@ from .gr_gating_live import GrGatingController, GrGatingError, _ProfilerTranspor
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
 SecondLevelClockGatingError = GrGatingError
-_LAYOUTS = (
-    {(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)}
-    | {(0x170, implementation): "ga10x-slcg" for implementation in (2, 3, 4, 6, 7)}
-    | {(0x190, implementation): "ad10x-slcg" for implementation in (2, 3, 4, 6, 7)}
-    | {(0x160, implementation): "tu10x-slcg" for implementation in (2, 4, 6, 8, 7)}
-)
+_LAYOUTS = {  # {**a, **b}, not a | b: the legacy builds run Python 3.8
+    **{(0x1B0, implementation): "gb20x-slcg" for implementation in (2, 3, 5, 6, 7)},
+    **{(0x170, implementation): "ga10x-slcg" for implementation in (2, 3, 4, 6, 7)},
+    **{(0x190, implementation): "ad10x-slcg" for implementation in (2, 3, 4, 6, 7)},
+    **{(0x160, implementation): "tu10x-slcg" for implementation in (2, 4, 6, 8, 7)},
+}
 # Source selector1 values for the complete unique route table. Selector3
 # releases all entries to zero. These are source values, not local readbacks.
 _DISABLED_VALUES = {
@@ -55,8 +55,10 @@ _LAYOUT_VALUES = {
     "tu10x-slcg": {0x24A124: 0},
 }
 _LAYOUT_RELEASE_VALUES = {
-    layout: dict.fromkeys(values, 0) for layout, values in _LAYOUT_VALUES.items() if layout != "tu10x-slcg"
-} | {"tu10x-slcg": {0x24A124: 1}}
+    **{layout: dict.fromkeys(values, 0) for layout, values in _LAYOUT_VALUES.items()
+       if layout != "tu10x-slcg"},
+    "tu10x-slcg": {0x24A124: 1},
+}
 # The named Turing request also writes these full registers. Their release
 # value is 0xffffffff, indistinguishable from a READ32 poison sentinel; their
 # prior values and transitions are therefore not verified by this witness.

@@ -30,13 +30,13 @@ def state():
 @pytest.mark.parametrize("failure", [None, "save", "incomplete"])
 def test_load_and_undo_take_selected_undo_before_restoring(app, entry, failure):
     incoming = state()
-    with (patch("druta.druta.profiles.load", return_value=incoming),
-          patch("druta.druta.profiles.list_profiles", return_value=[("named", None, None, True)]),
-          patch("druta.druta.profiles.preflight", return_value=None) as preflight,
-          patch("druta.druta.profiles.device_mismatch", return_value=None) as mismatch,
-          patch("druta.druta.profiles.autosave_voltage_offsets", side_effect=OSError("disk full") if failure == "save" else None,
-                return_value=("undo", "path", ["missing"] if failure == "incomplete" else [])) as autosave,
-          patch("druta.druta.profiles.restore", return_value=[(True, "restored")]) as restore):
+    with patch("druta.druta.profiles.load", return_value=incoming), \
+         patch("druta.druta.profiles.list_profiles", return_value=[("named", None, None, True)]), \
+         patch("druta.druta.profiles.preflight", return_value=None) as preflight, \
+         patch("druta.druta.profiles.device_mismatch", return_value=None) as mismatch, \
+         patch("druta.druta.profiles.autosave_voltage_offsets", side_effect=OSError("disk full") if failure == "save" else None,
+                return_value=("undo", "path", ["missing"] if failure == "incomplete" else [])) as autosave, \
+         patch("druta.druta.profiles.restore", return_value=[(True, "restored")]) as restore:
         if entry == "load":
             app.load_profile("named")
         else:
@@ -61,9 +61,9 @@ def test_load_and_undo_take_selected_undo_before_restoring(app, entry, failure):
 
 @pytest.mark.parametrize("entry", ["begin_profile_load", "finish_profile_load"])
 def test_automatic_application_refused_before_any_profile_operations(app, entry):
-    with (patch("druta.druta.profiles.preflight") as preflight,
-          patch("druta.druta.profiles.autosave_voltage_offsets") as autosave,
-          patch("druta.druta.profiles.restore") as restore):
+    with patch("druta.druta.profiles.preflight") as preflight, \
+         patch("druta.druta.profiles.autosave_voltage_offsets") as autosave, \
+         patch("druta.druta.profiles.restore") as restore:
         getattr(app, entry)("named", state(), automatic=True)
     for operation in (preflight, autosave, restore):
         operation.assert_not_called()
@@ -72,9 +72,9 @@ def test_automatic_application_refused_before_any_profile_operations(app, entry)
 
 def test_startup_refused_before_preflight_or_enable(app):
     app._startup_manager = Mock()
-    with (patch("druta.druta.is_admin", return_value=True),
-          patch("druta.druta.profiles.load", return_value=state()),
-          patch("druta.druta.profiles.preflight") as preflight):
+    with patch("druta.druta.is_admin", return_value=True), \
+         patch("druta.druta.profiles.load", return_value=state()), \
+         patch("druta.druta.profiles.preflight") as preflight:
         app.set_startup_profile("named")
     preflight.assert_not_called()
     app._startup_manager.enable.assert_not_called()
@@ -89,10 +89,10 @@ def test_descriptive_metadata_difference_does_not_block_manual_load(app):
                 "device": {"name": "old", "vbios": "old", "uuid": None},
                 "voltage_offsets": {"slot": slot, "values": {"voltage.0.REL.offset": -5000}}}
     snapshot = {"slot": slot, "values": {"voltage.0.REL.offset": 0}}
-    with (patch("druta.druta.profiles.load", return_value=incoming),
-          patch("druta.voltage_offsets_live.read", return_value=snapshot),
-          patch("druta.druta.profiles.autosave_voltage_offsets", return_value=("undo", "path", [])),
-          patch("druta.druta.profiles.restore", return_value=[(True, "restored")]) as restore):
+    with patch("druta.druta.profiles.load", return_value=incoming), \
+         patch("druta.voltage_offsets_live.read", return_value=snapshot), \
+         patch("druta.druta.profiles.autosave_voltage_offsets", return_value=("undo", "path", [])), \
+         patch("druta.druta.profiles.restore", return_value=[(True, "restored")]) as restore:
         app.load_profile("named")
     restore.assert_called_once_with(app.gpu, incoming)
     app.profile_failure.assert_not_called()

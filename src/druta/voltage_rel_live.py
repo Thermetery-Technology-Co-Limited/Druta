@@ -14,6 +14,7 @@ import ctypes
 import hashlib
 import time
 
+from .legacy_python import add_note
 from . import clock_bios_runtime as clock
 from . import vbios_fields
 from . import vfe_equation_runtime as equations
@@ -331,7 +332,7 @@ class VoltageRelController:
                             time.sleep(1)
                 if not isinstance(exc, Exception):
                     exc.rollback = rollback
-                    exc.add_note("REL recovery verified" if rollback["verified"] else "REL recovery requires attention")
+                    add_note(exc, "REL recovery verified" if rollback["verified"] else "REL recovery requires attention")
                     raise
                 raise VoltageRelLiveError(
                     getattr(exc, "kind", "verify"), str(exc), attempted=True, rollback=rollback

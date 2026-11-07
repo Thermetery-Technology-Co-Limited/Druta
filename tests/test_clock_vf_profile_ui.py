@@ -28,11 +28,11 @@ def state():
 
 def test_named_save_routes_to_vf_capture(app):
     incoming = state()
-    with (patch("druta.druta.dpg.does_item_exist", return_value=False),
-          patch("druta.druta.dpg.get_value", return_value="named"),
-          patch("druta.druta.profiles.capture_clock_vf", return_value=incoming) as capture,
-          patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")),
-          patch("druta.druta.profiles.save", return_value="named.json") as save):
+    with patch("druta.druta.dpg.does_item_exist", return_value=False), \
+         patch("druta.druta.dpg.get_value", return_value="named"), \
+         patch("druta.druta.profiles.capture_clock_vf", return_value=incoming) as capture, \
+         patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")), \
+         patch("druta.druta.profiles.save", return_value="named.json") as save:
         app.open_save_profile(user_data="clock_vf")
         app.save_profile()
     capture.assert_called_once_with(app.gpu)
@@ -43,13 +43,13 @@ def test_named_save_routes_to_vf_capture(app):
 @pytest.mark.parametrize("failure", [None, "save", "incomplete"])
 def test_load_and_undo_take_selected_undo_before_restoring(app, entry, failure):
     incoming = state()
-    with (patch("druta.druta.profiles.load", return_value=incoming),
-          patch("druta.druta.profiles.list_profiles", return_value=[("named", None, None, True)]),
-          patch("druta.druta.profiles.preflight", return_value=None) as preflight,
-          patch("druta.druta.profiles.device_mismatch", return_value=None),
-          patch("druta.druta.profiles.autosave_clock_vf", side_effect=OSError("disk full") if failure == "save" else None,
-                return_value=("undo", "path", ["missing"] if failure == "incomplete" else [])) as autosave,
-          patch("druta.druta.profiles.restore", return_value=[(True, "restored")]) as restore):
+    with patch("druta.druta.profiles.load", return_value=incoming), \
+         patch("druta.druta.profiles.list_profiles", return_value=[("named", None, None, True)]), \
+         patch("druta.druta.profiles.preflight", return_value=None) as preflight, \
+         patch("druta.druta.profiles.device_mismatch", return_value=None), \
+         patch("druta.druta.profiles.autosave_clock_vf", side_effect=OSError("disk full") if failure == "save" else None,
+                return_value=("undo", "path", ["missing"] if failure == "incomplete" else [])) as autosave, \
+         patch("druta.druta.profiles.restore", return_value=[(True, "restored")]) as restore:
         if entry == "load":
             app.load_profile("named")
         else:
@@ -71,9 +71,9 @@ def test_load_and_undo_take_selected_undo_before_restoring(app, entry, failure):
 
 @pytest.mark.parametrize("entry", ["begin_profile_load", "finish_profile_load"])
 def test_automatic_application_refused_before_any_profile_operations(app, entry):
-    with (patch("druta.druta.profiles.preflight") as preflight,
-          patch("druta.druta.profiles.autosave_clock_vf") as autosave,
-          patch("druta.druta.profiles.restore") as restore):
+    with patch("druta.druta.profiles.preflight") as preflight, \
+         patch("druta.druta.profiles.autosave_clock_vf") as autosave, \
+         patch("druta.druta.profiles.restore") as restore:
         getattr(app, entry)("named", state(), automatic=True)
     for operation in (preflight, autosave, restore):
         operation.assert_not_called()
@@ -82,9 +82,9 @@ def test_automatic_application_refused_before_any_profile_operations(app, entry)
 
 def test_startup_refused_before_preflight_or_enable(app):
     app._startup_manager = Mock()
-    with (patch("druta.druta.is_admin", return_value=True),
-          patch("druta.druta.profiles.load", return_value=state()),
-          patch("druta.druta.profiles.preflight") as preflight):
+    with patch("druta.druta.is_admin", return_value=True), \
+         patch("druta.druta.profiles.load", return_value=state()), \
+         patch("druta.druta.profiles.preflight") as preflight:
         app.set_startup_profile("named")
     preflight.assert_not_called()
     app._startup_manager.enable.assert_not_called()

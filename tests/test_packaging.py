@@ -16,7 +16,10 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@unittest.skipUnless(importlib.util.find_spec("setuptools"), "install the dev extra")
+# The wheel declares requires-python >=3.11, so its dev extra (setuptools>=64)
+# is not installable on older interpreters such as the Windows 7 Python 3.8.
+@unittest.skipUnless(sys.version_info >= (3, 11) and importlib.util.find_spec("setuptools"),
+                     "install the dev extra (Python 3.11+)")
 class DistributionAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -84,7 +87,8 @@ class DistributionAssets(unittest.TestCase):
         unpacked.mkdir()
         with tarfile.open(self.sdist) as archive:
             for member in archive.getmembers():
-                self.assertTrue((unpacked / member.name).resolve().is_relative_to(unpacked))
+                resolved = (unpacked / member.name).resolve()  # is_relative_to is 3.9+
+                self.assertTrue(resolved == unpacked.resolve() or unpacked.resolve() in resolved.parents)
             # The archive was just built locally and all member paths were checked.
             archive.extractall(unpacked)
         source = next(unpacked.iterdir())

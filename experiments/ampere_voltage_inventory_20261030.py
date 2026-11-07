@@ -27,7 +27,7 @@ SOURCE_FILES = (
 
 
 def _utc_now() -> str:
-    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def _repo_root() -> Path:

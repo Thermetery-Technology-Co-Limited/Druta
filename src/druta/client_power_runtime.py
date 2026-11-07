@@ -15,6 +15,7 @@ import ctypes
 import struct
 from dataclasses import dataclass
 
+from .legacy_python import add_note
 from . import clock_bios_runtime as clock
 from . import power_arbitration
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
@@ -686,7 +687,7 @@ class ClientPowerController:
                     else "Original request restoration was not verified"
                 )
                 if not isinstance(exc, Exception):
-                    exc.add_note(detail)
+                    add_note(exc, detail)
                     exc.rollback = rollback
                     raise
                 raise ClientPowerError(getattr(exc, "kind", "transient"), f"{exc}. {detail}", rollback) from exc

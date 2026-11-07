@@ -30,8 +30,8 @@ class FakeController:
         if self.gpu.error:
             raise RuntimeError(self.gpu.error)
         state = self.read()
-        return state | {"requested_allowed": value, "request_accepted": True,
-                        "before_enabled": state["enabled"], "verification": self.gpu.verification}
+        return {**state, "requested_allowed": value, "request_accepted": True,
+                "before_enabled": state["enabled"], "verification": self.gpu.verification}
 
 
 @pytest.fixture

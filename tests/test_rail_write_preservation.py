@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from pathlib import Path
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch

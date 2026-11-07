@@ -34,7 +34,7 @@ class FakeController:
         self.read_calls += 1
         if self.failure:
             raise self.failure
-        return self.state.copy() | {"reason_masks": self.state["reason_masks"].copy()}
+        return {**self.state, "reason_masks": self.state["reason_masks"].copy()}
 
     def hold(self):
         self.hold_calls += 1

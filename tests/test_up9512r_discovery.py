@@ -3,7 +3,10 @@
 """Production uP9512R discovery over a byte-level, hardware-free I2C bus."""
 import ctypes
 from pathlib import Path
-import tomllib
+try:
+    import tomllib
+except ImportError:  # Python 3.8 is the Windows 7 runtime.
+    import tomli as tomllib
 from unittest.mock import Mock
 
 import pytest

@@ -5,6 +5,7 @@
 import struct
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 
+from .legacy_python import add_note
 from . import power_arbitration
 from .perf_diagnostics import PerfDiagnosticsReader
 
@@ -233,7 +234,7 @@ class PowerIntegralController:
                     else f"Original {field} restoration was not verified"
                 )
                 if not isinstance(exc, Exception):
-                    exc.add_note(detail)
+                    add_note(exc, detail)
                     raise
                 raise PowerIntegralError(
                     getattr(exc, "kind", "transient"), f"{exc}. {detail}", rollback=rollback

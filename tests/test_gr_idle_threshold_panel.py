@@ -21,21 +21,21 @@ class FakeController:
     def read(self):
         if self.gpu.error:
             raise RuntimeError(self.gpu.error)
-        return self.gpu.snapshot | {"index": self.index, "name": str(self.index),
-                                    "available": self.gpu.snapshot["available"] and self.index not in self.gpu.unavailable}
+        return {**self.gpu.snapshot, "index": self.index, "name": str(self.index),
+                "available": self.gpu.snapshot["available"] and self.index not in self.gpu.unavailable}
 
     def apply(self, value):
         if self.gpu.error:
             raise RuntimeError(self.gpu.error)
         self.gpu.applied.append((self.index, value))
-        return self.read() | {"requested_us": value, "applied_us": value - 1, "changed": True}
+        return {**self.read(), "requested_us": value, "applied_us": value - 1, "changed": True}
 
 
 def gpu(**updates):
     snap = {"available": True, "status": "ready", "architecture": {}, "raw_pair": [10800, 108000000],
             "scaled_pair": [100, 1000000], "scale_factor": 108000, "minimum_us": 1,
             "maximum_us": 39768215, "applied_us": 100}
-    return SimpleNamespace(snapshot=snap | updates, error=None, applied=[], unavailable=set())
+    return SimpleNamespace(snapshot={**snap, **updates}, error=None, applied=[], unavailable=set())
 
 
 @pytest.fixture
@@ -193,6 +193,6 @@ def test_invalid_selection_cannot_retarget_stale_readback(panel):
 
 
 def test_mismatched_controller_readback_never_enables_apply(panel, monkeypatch):
-    monkeypatch.setattr(FakeController, "read", lambda self: self.gpu.snapshot | {"index": 13})
+    monkeypatch.setattr(FakeController, "read", lambda self: {**self.gpu.snapshot, "index": 13})
     panel.read()
     assert not enabled() and "does not match" in dpg.get_value("gr_idle_threshold_status")

@@ -14,6 +14,7 @@ import copy
 import ctypes
 from dataclasses import dataclass
 
+from .legacy_python import add_note
 from .perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
 
 _GET = 0x2080A030
@@ -237,7 +238,7 @@ class VoltageRequestGate:
                     "Admission rollback was not verified: " + str(rollback["error"])
                 )
                 if not isinstance(exc, Exception):
-                    exc.add_note(detail)
+                    add_note(exc, detail)
                     exc.rollback = rollback
                     raise
                 kind = getattr(exc, "kind", "transient")

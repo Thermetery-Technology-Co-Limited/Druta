@@ -170,7 +170,7 @@ def test_uncertain_display_does_not_promise_a_release_retry(panel):
 
 def test_already_attempted_uncertain_release_does_not_claim_success(panel, monkeypatch):
     controller = panel._controller(12)
-    snapshot = controller.read() | {"uncertain_outcome": True, "release_attempted": True}
+    snapshot = {**controller.read(), "uncertain_outcome": True, "release_attempted": True}
     monkeypatch.setattr(controller, "release", Mock(return_value=snapshot))
     call(panel, "release", 12)
     status = dpg.get_value("individual_power_gating_12_status")

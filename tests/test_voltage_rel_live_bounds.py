@@ -7,7 +7,9 @@ from druta import vfe_equation_runtime as equations
 from druta import voltage_rel_live as live
 from tests import test_voltage_rel_runtime as fixtures
 
-pytest_plugins = ["tests.test_voltage_rel_live"]
+# Imported, not pytest_plugins: pytest 8 (the Python 3.8 test runtime) skips a
+# plugin module that was already collected as a test module.
+from tests.test_voltage_rel_live import scenario  # noqa: E402,F401
 
 
 @pytest.fixture

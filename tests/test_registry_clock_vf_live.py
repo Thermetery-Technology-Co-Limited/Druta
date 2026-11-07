@@ -145,8 +145,8 @@ class LiveClockVfPanelTests(unittest.TestCase):
             return observation(monotonicity=False, smoothing=False)
 
         self.controller.set.side_effect = set_with_callback
-        with (patch("druta.registry_panel.profiles.capture_clock_vf", return_value=saved) as capture,
-              patch("druta.registry_panel.profiles.autosave_state", return_value=("undo", "path", [])) as save):
+        with patch("druta.registry_panel.profiles.capture_clock_vf", return_value=saved) as capture, \
+             patch("druta.registry_panel.profiles.autosave_state", return_value=("undo", "path", [])) as save:
             self.panel.apply_clock_vf_live()
         capture.assert_called_once_with(self.gpu, snapshot=fresh, selection=[MONO])
         save.assert_called_once_with("live-vf-policies", saved)
@@ -161,8 +161,8 @@ class LiveClockVfPanelTests(unittest.TestCase):
             write(changes)
 
         self.controller.set.side_effect = set_with_callback
-        with (patch("druta.registry_panel.profiles.capture_clock_vf", return_value={"scope": "clock_vf"}),
-              patch("druta.registry_panel.profiles.autosave_state", side_effect=OSError("disk full"))):
+        with patch("druta.registry_panel.profiles.capture_clock_vf", return_value={"scope": "clock_vf"}), \
+             patch("druta.registry_panel.profiles.autosave_state", side_effect=OSError("disk full")):
             self.panel.apply_clock_vf_live()
         write.assert_not_called()
         self.assertIn("disk full", self.values["reg_vf_live_status"])

@@ -64,7 +64,7 @@ class Rm26Wire:
         self.calls.append((command, params))
         if command == 0x2080261B:
             self.writes.append(params)
-            assert type(params[0]) is int and params[0].bit_count() == 1
+            assert type(params[0]) is int and bin(params[0]).count("1") == 1
             assert params[0] & self.mask
             if self.refuse_restore and len(self.writes) > 1:
                 packet[16] = 0x1F

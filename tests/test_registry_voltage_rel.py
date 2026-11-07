@@ -18,7 +18,8 @@ def configured(monkeypatch, *, rail=0, boost=0, roots=None, partial=False, fixed
     bios = rel.inspection(obs, rail, roots=roots)
     if fixed:
         field = bios["fields"][0]
-        field["key"] = field["key"].removesuffix("maximum") + "value"
+        key = field["key"]  # str.removesuffix is 3.9+
+        field["key"] = (key[:-len("maximum")] if key.endswith("maximum") else key) + "value"
         field["offsets"] = [field["equation_offset"] + 3, field["equation_offset"] + 7]
     key = bios["fields"][0]["key"]
     changes = {key: bios["fields"][0]["current"] - 5000}

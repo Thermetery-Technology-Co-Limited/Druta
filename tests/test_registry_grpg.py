@@ -626,7 +626,7 @@ def test_bit1_apply_and_undo_preserve_role_availability_and_peers(monkeypatch, s
     receipt, reg, snap, restarts, kwargs, before, after = configured(monkeypatch, bit1=True, slot=slot, device=device)
     assert receipt["grpg_contract_version"] == 1 and receipt["grpg_contracts"]["schema"] == 3
     assert after["bit1"]["roles"]["0"] == {"available": False, "supported": None}
-    assert after["bit1"]["roles"] | {"0": before["bit1"]["roles"]["0"]} == before["bit1"]["roles"]
+    assert {**after["bit1"]["roles"], "0": before["bit1"]["roles"]["0"]} == before["bit1"]["roles"]
     assert "auxiliary" not in before and "auxiliary" not in after
     result = ro.execute(receipt, **kwargs)
     assert result["state"] == "active", result["message"]
@@ -912,7 +912,7 @@ def test_combined_malformed_receipt_fails_before_read_or_cleanup(monkeypatch, re
     receipt, reg, _, restarts, kwargs, _, _ = configured(monkeypatch, combined=True)
     saved = receipt["grpg_contracts"]
     if mutation.startswith("before_"):
-        saved["before"].pop(mutation.removeprefix("before_"))
+        saved["before"].pop(mutation[len("before_"):])
     elif mutation == "schema":
         saved["schema"] = 3
     else:

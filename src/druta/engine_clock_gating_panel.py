@@ -73,7 +73,7 @@ class EngineClockGatingPanel:
             lines.append("This instance's request: " + state)
         eligible = snapshot["eligible_engines"]
         lines.append("Engines with no recorded disable reason: "
-                     + (str(eligible.bit_count()) if eligible is not None else "unknown"))
+                     + (str(bin(eligible).count("1")) if eligible is not None else "unknown"))
         observed = snapshot.get("observed_engines", [])
         if observed:
             lines.append("Observed changes on engine bits: " + ", ".join(map(str, observed))

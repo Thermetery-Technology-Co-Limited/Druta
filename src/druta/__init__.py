@@ -28,3 +28,9 @@ __license__ = "GPL-3.0-or-later"
 # Users should import druta.druta or druta.nvbackend directly
 
 __all__ = ["__version__"]
+
+# The Windows 7 and Vista bundles run CPython 3.8; install the few language
+# shims main's code needs before any submodule is imported. No-op on 3.10+.
+from . import legacy_python as _legacy_python  # noqa: E402
+
+_legacy_python.install()

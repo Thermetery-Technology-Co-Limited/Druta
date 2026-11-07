@@ -158,7 +158,7 @@ def test_selected_role_keeps_all_other_role_masks(device):
     state["masks"].update({0: 0, 2: 4, 4: 8, 5: 2, 6: 0x80, 7: 1})
     initial = state["masks"].copy()
     controller.set_allowed(False)
-    assert state["masks"] == initial | {0: 2}
+    assert state["masks"] == {**initial, 0: 2}
     controller.set_allowed(True)
     assert state["masks"] == initial
     assert state["sets"] == [(0, 0), (0, 1)]

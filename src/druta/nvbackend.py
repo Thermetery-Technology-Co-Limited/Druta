@@ -50,6 +50,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 # Published diagnostic scripts also import this module directly from src/druta.
 if __package__:
@@ -903,8 +904,8 @@ class ClkDomLayout:
     mask_dword: int
     mode: int
     freq_khz: int
-    nvvdd_uv: int | None
-    msvdd_uv: int | None
+    nvvdd_uv: Optional[int]
+    msvdd_uv: Optional[int]
 
 
 CLKDOM_LAYOUT_TURING = ClkDomLayout(
@@ -1545,22 +1546,32 @@ class Nvml:
         self._select(slot)
 
     def _read_pci(self, dev):
-        """Read a versioned PCI identity; never mix partial or old layouts.
+        """PCI identity from the newest exported reader, or None.
 
         V2 and V3 share the 16-byte bus ID and five leading identity words.
         The V3-sized buffer also accommodates the older reserved tail. The
-        unversioned pre-v2 layout cannot establish subsystem identity.
+        unversioned pre-v2 layout cannot establish subsystem identity and is
+        deliberately not used for pairing or private write profiles.
+        Older drivers can export a v3 stub that answers
+        NVML_ERROR_FUNCTION_NOT_FOUND; that is a missing capability, so the
+        v2 reader is tried next.
         https://docs.nvidia.com/deploy/nvml-api/change-log.html
+
+        On None the GPU is still listed, with a blank slot, device ID and
+        subsystem.
         """
-        name = next((name for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2")
-                     if self.has(name)), None)
-        if name is None:
-            return None
-        pci = _NvmlPciInfo()
-        try:
-            return pci if getattr(self.dll, name)(dev, ctypes.byref(pci)) == 0 else None
-        except Exception:
-            return None
+        for name in ("nvmlDeviceGetPciInfo_v3", "nvmlDeviceGetPciInfo_v2"):
+            if not self.has(name):
+                continue
+            pci = _NvmlPciInfo()
+            try:
+                status = getattr(self.dll, name)(dev, ctypes.byref(pci))
+            except Exception:
+                return None
+            if status == 13:  # NVML_ERROR_FUNCTION_NOT_FOUND: exported stub.
+                continue
+            return pci if status == 0 else None
+        return None
 
     def _select(self, slot):
         """Same rule as NvAPI._select: lowest slot by default, exact match or
@@ -1796,10 +1807,14 @@ class GPU:
             s["uuid"] = self.nvml.selected.get("uuid", "")
         nv = self.nvml
         if nv.ok:
+            # Old NVML may omit an export or return NOT_SUPPORTED without
+            # writing output. Each field needs its own buffer and success check.
             for key, function, args in (
                     ("name", "nvmlDeviceGetName", (nv.dev,)),
                     ("driver", "nvmlSystemGetDriverVersion", ()),
                     ("vbios", "nvmlDeviceGetVbiosVersion", (nv.dev,))):
+                if not nv.has(function):
+                    continue
                 buf = ctypes.create_string_buffer(96)
                 try:
                     if getattr(nv.dll, function)(*args, buf, 96) == 0 and buf.value:
@@ -4688,9 +4703,17 @@ class GPU:
                 return legacy, None
             if self.arch() == self.ARCH_TURING:
                 records = self._legacy_clk_limit_records()
+                if records is None and self._legacy_clk_gdi() is None:
+                    # Windows 7 and Vista gdi32 lack the adapter APIs the
+                    # RM reader needs. Ownership stays unknown, as below,
+                    # but the refusal names the missing capability.
+                    return None, ("legacy frequency-lock state cannot be read: gdi32 lacks "
+                                  "D3DKMTEnumAdapters2 or the other adapter APIs on this "
+                                  "Windows version; current ownership is unknown")
                 if (records is None or len(records) != 2
                         or any(len(row) != 82 or row[0] != ident or row[1] != 0 or row[4] != 1
-                               for row, ident in zip(records, (0x4C, 0x4B), strict=True))):
+                               # length checked above; zip(strict=True) is 3.10+
+                               for row, ident in zip(records, (0x4C, 0x4B)))):
                     return None, "legacy frequency-lock state is unreadable or ambiguous"
             return None, None
         if low.lockMode != VF_LOCK_MODE_FREQ or high.lockMode != VF_LOCK_MODE_FREQ:
@@ -5147,6 +5170,13 @@ class GPU:
                                   observed.get("parameter_bytes")) not in self._CURRENT_LIMIT_LAYOUTS):
                     # a power GET WAS seen, and its geometry is not one Druta knows
                     raise CurrentLimitUnsupported("unsupported current-policy transport: " + seen)
+                if not observed and self._legacy_clk_gdi() is None:
+                    # Windows 7 and Vista gdi32 lack the adapter APIs the
+                    # capture and every policy escape need: a missing
+                    # capability, not a failed read to retry
+                    raise CurrentLimitUnsupported(
+                        "unsupported current-policy transport: gdi32 lacks "
+                        "D3DKMTEnumAdapters2 or the other adapter APIs on this Windows version")
                 # nothing seen, or a known power GET whose getter then failed:
                 # a failed read, retried on the next one
                 raise ValueError("unsupported current-policy transport: "

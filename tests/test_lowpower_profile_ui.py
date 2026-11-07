@@ -39,11 +39,11 @@ def app():
 @pytest.mark.parametrize("kind,index", SELECTIONS)
 def test_named_save_routes_selected_live_context(app, kind, index):
     saved = state(kind, index)
-    with (patch("druta.druta.dpg.does_item_exist", return_value=False),
-          patch("druta.druta.dpg.get_value", return_value="named"),
-          patch("druta.lowpower_profiles.capture", return_value=saved) as capture,
-          patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")),
-          patch("druta.druta.profiles.save", return_value="named.json") as save):
+    with patch("druta.druta.dpg.does_item_exist", return_value=False), \
+         patch("druta.druta.dpg.get_value", return_value="named"), \
+         patch("druta.lowpower_profiles.capture", return_value=saved) as capture, \
+         patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")), \
+         patch("druta.druta.profiles.save", return_value="named.json") as save:
         app.open_save_profile(user_data=("lowpower_requests", kind, index))
         app.save_profile()
     capture.assert_called_once_with(app, kind, index)
@@ -55,12 +55,12 @@ def test_named_save_routes_selected_live_context(app, kind, index):
 def test_manual_load_captures_only_incoming_selection_before_restore(app, kind, index, failure):
     incoming, before = state(kind, index), state(kind, index)
     app.finish_profile_load = Mock()
-    with (patch("druta.lowpower_profiles.preflight", return_value="not available" if failure == "preflight" else None) as preflight,
-          patch("druta.lowpower_profiles.capture", side_effect=ValueError("capture failed") if failure == "capture" else None,
-                return_value=before) as capture,
-          patch("druta.druta.profiles.autosave_state", side_effect=OSError("disk full") if failure == "save" else None,
-                return_value=("undo", "path", ["missing"] if failure == "incomplete" else [])) as autosave,
-          patch("druta.druta.profiles.restore", side_effect=AssertionError("unrelated restore"))):
+    with patch("druta.lowpower_profiles.preflight", return_value="not available" if failure == "preflight" else None) as preflight, \
+         patch("druta.lowpower_profiles.capture", side_effect=ValueError("capture failed") if failure == "capture" else None,
+                return_value=before) as capture, \
+         patch("druta.druta.profiles.autosave_state", side_effect=OSError("disk full") if failure == "save" else None,
+                return_value=("undo", "path", ["missing"] if failure == "incomplete" else [])) as autosave, \
+         patch("druta.druta.profiles.restore", side_effect=AssertionError("unrelated restore")):
         app.begin_profile_load("named", incoming)
     preflight.assert_called_once_with(app, incoming)
     if failure == "preflight":
@@ -82,10 +82,10 @@ def test_manual_load_captures_only_incoming_selection_before_restore(app, kind, 
 @pytest.mark.parametrize("kind,index", SELECTIONS)
 @pytest.mark.parametrize("entry", ["begin_profile_load", "finish_profile_load"])
 def test_automatic_refused_before_preflight_capture_or_restore(app, kind, index, entry):
-    with (patch("druta.lowpower_profiles.preflight") as preflight,
-          patch("druta.lowpower_profiles.capture") as capture,
-          patch("druta.lowpower_profiles.restore") as restore,
-          patch("druta.druta.profiles.autosave_state") as autosave):
+    with patch("druta.lowpower_profiles.preflight") as preflight, \
+         patch("druta.lowpower_profiles.capture") as capture, \
+         patch("druta.lowpower_profiles.restore") as restore, \
+         patch("druta.druta.profiles.autosave_state") as autosave:
         getattr(app, entry)("named", state(kind, index), automatic=True)
     for call in (preflight, capture, restore, autosave):
         call.assert_not_called()
@@ -97,9 +97,9 @@ def test_automatic_refused_before_preflight_capture_or_restore(app, kind, index,
 def test_restore_uses_live_app_and_refreshes_only_selected_panel(app, kind, index, outcome):
     incoming = state(kind, index)
     result = [(True, "first"), (False, "failed")] if outcome == "partial" else [(True, "ok")]
-    with (patch("druta.lowpower_profiles.restore", side_effect=RuntimeError("failed") if outcome == "exception" else None,
-                return_value=result) as restore,
-          patch("druta.druta.profiles.restore", side_effect=AssertionError("unrelated restore"))):
+    with patch("druta.lowpower_profiles.restore", side_effect=RuntimeError("failed") if outcome == "exception" else None,
+                return_value=result) as restore, \
+         patch("druta.druta.profiles.restore", side_effect=AssertionError("unrelated restore")):
         app.finish_profile_load("named", incoming)
     restore.assert_called_once_with(app, incoming)
     for panel_kind, name in PANELS.items():
@@ -117,10 +117,10 @@ def test_restore_uses_live_app_and_refreshes_only_selected_panel(app, kind, inde
 @pytest.mark.parametrize("kind,index", SELECTIONS)
 def test_startup_selection_refuses_before_preflight_or_enable(app, kind, index):
     app._startup_manager = Mock()
-    with (patch("druta.druta.is_admin", return_value=True),
-          patch("druta.druta.profiles.load", return_value=state(kind, index)),
-          patch("druta.druta.profiles.preflight") as preflight,
-          patch("druta.lowpower_profiles.restore") as restore):
+    with patch("druta.druta.is_admin", return_value=True), \
+         patch("druta.druta.profiles.load", return_value=state(kind, index)), \
+         patch("druta.druta.profiles.preflight") as preflight, \
+         patch("druta.lowpower_profiles.restore") as restore:
         app.set_startup_profile("named")
     preflight.assert_not_called()
     restore.assert_not_called()
@@ -146,10 +146,10 @@ def test_load_and_undo_route_lowpower_before_gpu_only_preflight(app, entry, unlo
     app.set_pending_load = Mock()
     app.begin_lowpower_profile_load = Mock()
     app.rail_for_profile = Mock(side_effect=AssertionError("unrelated rail selection"))
-    with (patch("druta.druta.profiles.load", return_value=incoming) as load,
-          patch("druta.druta.profiles.list_profiles", return_value=[("undo-name", None, None, True)]),
-          patch("druta.druta.profiles.preflight", side_effect=AssertionError("GPU-only preflight")) as preflight,
-          patch("druta.druta.profiles.device_mismatch", side_effect=AssertionError("GPU-only mismatch")) as mismatch):
+    with patch("druta.druta.profiles.load", return_value=incoming) as load, \
+         patch("druta.druta.profiles.list_profiles", return_value=[("undo-name", None, None, True)]), \
+         patch("druta.druta.profiles.preflight", side_effect=AssertionError("GPU-only preflight")) as preflight, \
+         patch("druta.druta.profiles.device_mismatch", side_effect=AssertionError("GPU-only mismatch")) as mismatch:
         if entry == "load":
             app.load_profile("undo-name")
         else:

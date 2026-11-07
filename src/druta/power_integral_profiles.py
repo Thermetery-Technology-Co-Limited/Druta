@@ -109,8 +109,8 @@ def capture(gpu, selection=None):
             if not row or row.get("available") is not True:
                 raise ValueError(f"Power-integral policy {index} is unavailable")
             policies.append(
-                {key: row[key] for key in ("policy", "type", "channel", "unit")}
-                | {"values": {field: row[field] for field in fields}}
+                {**{key: row[key] for key in ("policy", "type", "channel", "unit")},
+                 "values": {field: row[field] for field in fields}}
             )
         now = time.time()
         device = {key: gpu.static.get(key) for key in ("name", "vbios", "driver", "uuid")}

@@ -16,6 +16,7 @@ import ctypes
 import struct
 from dataclasses import dataclass
 
+from .legacy_python import add_note
 from . import clock_bios_runtime as clock
 from .perf_diagnostics import PerfDiagnosticsReader
 from .registry_flags import _same_state
@@ -307,7 +308,7 @@ class VoltageDeviceController:
                     else ("Voltage-device rollback was not verified: " + str(rollback["error"]))
                 )
                 if not isinstance(exc, Exception):
-                    exc.add_note(detail)
+                    add_note(exc, detail)
                     exc.rollback = rollback
                     raise
                 error = _error(exc, "transient")

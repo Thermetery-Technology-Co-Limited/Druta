@@ -142,7 +142,9 @@ def write_preset(path, doc):
     text = json.dumps(normalized, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
     if len(text.encode("utf-8")) > MAX_JSON_BYTES:
         raise ValueError("The iCX preset exceeds the 64 KiB file limit")
-    Path(path).write_text(text, encoding="utf-8", newline="\n")
+    # Path.write_text(newline=) is 3.10+; the Windows 7 build runs CPython 3.8.
+    with open(path, "w", encoding="utf-8", newline="\n") as target:
+        target.write(text)
 
 
 def _read_complete(rail, expected=None):

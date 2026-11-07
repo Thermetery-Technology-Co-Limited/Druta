@@ -30,10 +30,8 @@ def test_manual_load_saves_only_incoming_fields_and_bypasses_other_controls(app)
     state = {"schema": 2, "scope": "voltage_requests"}
     app.finish_profile_load = Mock()
     app._held_startup_request = {"name": "old automatic request"}
-    with (
-        patch("druta.druta.profiles.preflight", return_value=None),
-        patch("druta.druta.profiles.autosave_voltage_requests", return_value=("undo", "p", [])) as save,
-    ):
+    with patch("druta.druta.profiles.preflight", return_value=None), \
+         patch("druta.druta.profiles.autosave_voltage_requests", return_value=("undo", "p", [])) as save:
         app.begin_profile_load("requests", state)
     save.assert_called_once_with(app.gpu, "load-requests", state)
     app.finish_profile_load.assert_called_once_with("requests", state, False)
@@ -42,10 +40,8 @@ def test_manual_load_saves_only_incoming_fields_and_bypasses_other_controls(app)
 
 def test_missing_undo_blocks_manual_load(app):
     app.finish_profile_load = Mock()
-    with (
-        patch("druta.druta.profiles.preflight", return_value=None),
-        patch("druta.druta.profiles.autosave_voltage_requests", side_effect=OSError("disk full")),
-    ):
+    with patch("druta.druta.profiles.preflight", return_value=None), \
+         patch("druta.druta.profiles.autosave_voltage_requests", side_effect=OSError("disk full")):
         app.begin_profile_load("requests", {"scope": "voltage_requests"})
     app.finish_profile_load.assert_not_called()
     assert "disk full" in app.profile_failure.call_args.args[0]
@@ -53,11 +49,9 @@ def test_missing_undo_blocks_manual_load(app):
 
 @pytest.mark.parametrize("entry", ["begin_profile_load", "finish_profile_load"])
 def test_automatic_application_is_rejected_before_reads_or_writes(app, entry):
-    with (
-        patch("druta.druta.profiles.restore") as restore,
-        patch("druta.druta.profiles.preflight") as preflight,
-        patch("druta.druta.profiles.autosave_voltage_requests") as save,
-    ):
+    with patch("druta.druta.profiles.restore") as restore, \
+         patch("druta.druta.profiles.preflight") as preflight, \
+         patch("druta.druta.profiles.autosave_voltage_requests") as save:
         getattr(app, entry)("requests", {"scope": "voltage_requests"}, automatic=True)
     restore.assert_not_called()
     preflight.assert_not_called()
@@ -82,11 +76,9 @@ def test_finishing_only_refreshes_request_panel_and_reports_partial_failure(app,
 
 def test_scoped_profiles_cannot_be_selected_for_startup(app):
     app._startup_manager = Mock()
-    with (
-        patch("druta.druta.is_admin", return_value=True),
-        patch("druta.druta.profiles.load", return_value={"scope": "voltage_requests"}),
-        patch("druta.druta.profiles.preflight") as preflight,
-    ):
+    with patch("druta.druta.is_admin", return_value=True), \
+         patch("druta.druta.profiles.load", return_value={"scope": "voltage_requests"}), \
+         patch("druta.druta.profiles.preflight") as preflight:
         app.set_startup_profile("requests")
     preflight.assert_not_called()
     app._startup_manager.enable.assert_not_called()
@@ -97,14 +89,12 @@ def test_save_uses_scoped_capture(app):
     app.profile_capture_ready = Mock(return_value=True)
     app._profile_save_scope = "voltage_requests"
     state = {"scope": "voltage_requests"}
-    with (
-        patch("druta.druta.dpg.get_value", return_value="requests"),
-        patch("druta.druta.dpg.does_item_exist", return_value=False),
-        patch("druta.druta.profiles.capture_voltage_requests", return_value=state) as capture,
-        patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")),
-        patch("druta.druta.profiles.save", return_value="requests.json") as save,
-        patch("druta.druta.profiles.summarize", return_value="rail requests"),
-    ):
+    with patch("druta.druta.dpg.get_value", return_value="requests"), \
+         patch("druta.druta.dpg.does_item_exist", return_value=False), \
+         patch("druta.druta.profiles.capture_voltage_requests", return_value=state) as capture, \
+         patch("druta.druta.profiles.capture", side_effect=AssertionError("full capture")), \
+         patch("druta.druta.profiles.save", return_value="requests.json") as save, \
+         patch("druta.druta.profiles.summarize", return_value="rail requests"):
         app.save_profile()
     capture.assert_called_once_with(app.gpu)
     save.assert_called_once_with("requests", state)
