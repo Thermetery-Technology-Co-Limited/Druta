@@ -14,14 +14,10 @@
 #include <vector>
 
 #include "backend/gpu.h"
+#include "backend/outcome.h"
 #include "backend/telemetry.h"
 
 namespace druta::backend {
-
-struct Outcome {
-    bool ok;
-    std::string message;
-};
 
 struct FanCapabilities {
     bool manual = false;

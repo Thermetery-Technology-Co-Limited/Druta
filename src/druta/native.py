@@ -163,6 +163,20 @@ class _FanSnapshot(ctypes.Structure):
                 ("count", ctypes.c_uint32), ("fans", _FanSnapshotRow * 32)]
 
 
+class _VfPointLock(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("lock_mode", ctypes.c_uint32), ("volt_uv", ctypes.c_uint32),
+                ("count", ctypes.c_uint32)]
+
+
+class _VfLockStatus(ctypes.Structure):
+    _fields_ = [("locked", ctypes.c_int32), ("lock", _VfPointLock), ("error", ctypes.c_char * 256)]
+
+
+class _ClkLockStatus(ctypes.Structure):
+    _fields_ = [("locked", ctypes.c_int32), ("min_mhz", ctypes.c_uint32), ("max_mhz", ctypes.c_uint32),
+                ("error", ctypes.c_char * 256)]
+
+
 # resolve(context, library, name) -> function pointer or NULL (the test seam)
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
 SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
@@ -186,6 +200,20 @@ _SIGNATURES = {
     "dc_gpu_fan_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
     "dc_gpu_fan_restore": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanSnapshot), ctypes.POINTER(_Outcome)]),
     "dc_set_sleep_hook": (None, [SLEEP_HOOK]),
+    "dc_gpu_voltage_boost_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_voltage_boost_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_status": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
+                                               ctypes.POINTER(_VfLockStatus)]),
+    "dc_gpu_clk_lock_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                             ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clk_lock_status": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkLockStatus)]),
+    "dc_gpu_vf_lock_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int32, ctypes.c_int64,
+                                            ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_recovery_pending": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_vf_lock_recover": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_clear": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64, ctypes.c_int32,
+                                              ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_self_test": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -697,6 +725,102 @@ class Gpu:
                     _fill_snapshot_row(row, old)
         outcome = _Outcome()
         status = load().dc_gpu_fan_restore(self._handle, ctypes.byref(snapshot), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    # ---- voltage boost (nvbackend.GPU.read_voltage_boost / set_voltage_boost) ------------------ #
+
+    def read_voltage_boost(self):
+        value = ctypes.c_int32()
+        status = load().dc_gpu_voltage_boost_get(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def set_voltage_boost(self, pct):
+        """0..100 % of the VBIOS over-voltage headroom; read-modify-write."""
+        outcome = _Outcome()
+        status = load().dc_gpu_voltage_boost_set(self._handle, int(pct), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    # ---- V/F point lock and frequency lock (nvbackend.GPU.*vf_lock* / *clk_lock*) -------------- #
+
+    @staticmethod
+    def _optional_int(value):
+        return (1, int(value)) if value is not None else (0, 0)
+
+    def read_vf_lock_status(self, domain=None):
+        """(point lock, error), distinguishing unlocked from unreadable."""
+        s = _VfLockStatus()
+        has_domain, domain = self._optional_int(domain)
+        status = load().dc_gpu_vf_lock_status(self._handle, has_domain, domain, ctypes.byref(s))
+        if status != DC_OK:
+            _raise(status)
+        error = _text(s.error) or None
+        if not s.locked:
+            return None, error
+        lock = s.lock
+        return {"domain": lock.domain, "lockMode": lock.lock_mode, "volt_uV": lock.volt_uv,
+                "volt_mv": lock.volt_uv / 1000.0, "count": lock.count}, None
+
+    def read_vf_lock(self):
+        return self.read_vf_lock_status()[0]
+
+    def read_clk_lock(self):
+        """The driver's current NVML frequency lock as (min_mhz, max_mhz), or None."""
+        low, high = ctypes.c_uint32(), ctypes.c_uint32()
+        status = load().dc_gpu_clk_lock_get(self._handle, ctypes.byref(low), ctypes.byref(high))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return (low.value, high.value)
+
+    def read_clk_lock_status(self):
+        """(frequency range, error), distinguishing unlocked from unknown."""
+        s = _ClkLockStatus()
+        status = load().dc_gpu_clk_lock_status(self._handle, ctypes.byref(s))
+        if status != DC_OK:
+            _raise(status)
+        error = _text(s.error) or None
+        return ((s.min_mhz, s.max_mhz) if s.locked else None), error
+
+    def set_vf_lock(self, volt_uv, domain=None):
+        outcome = _Outcome()
+        has_domain, domain = self._optional_int(domain)
+        status = load().dc_gpu_vf_lock_set(self._handle, int(volt_uv), has_domain, domain, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def vf_lock_recovery_pending(self):
+        return bool(load().dc_gpu_vf_lock_recovery_pending(self._handle))
+
+    def recover_vf_lock(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_lock_recover(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def clear_vf_lock(self, domain=None, expected_uv=None):
+        outcome = _Outcome()
+        has_domain, domain = self._optional_int(domain)
+        has_expected, expected_uv = self._optional_int(expected_uv)
+        status = load().dc_gpu_vf_lock_clear(self._handle, has_domain, domain, has_expected, expected_uv,
+                                             ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def vf_lock_self_test(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_lock_self_test(self._handle, ctypes.byref(outcome))
         if status != DC_OK:
             _raise(status)
         return self._outcome(outcome)

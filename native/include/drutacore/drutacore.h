@@ -346,6 +346,65 @@ DC_API dc_status DC_CALL dc_gpu_fan_restore(dc_gpu* gpu, const dc_fan_snapshot* 
 typedef void(DC_CALL* dc_sleep_fn)(uint32_t milliseconds);
 DC_API void DC_CALL dc_set_sleep_hook(dc_sleep_fn hook);
 
+/* ---- voltage boost (nvbackend.GPU.read_voltage_boost / set_voltage_boost) -------------------- */
+
+/* The VBIOS over-voltage headroom in use, 0..100 %; DC_E_UNAVAILABLE when the getter does not answer. */
+DC_API dc_status DC_CALL dc_gpu_voltage_boost_get(dc_gpu* gpu, int32_t* percent);
+
+/* Read-modify-write of the control struct; the reserved words stay as the driver wrote them. */
+DC_API dc_status DC_CALL dc_gpu_voltage_boost_set(dc_gpu* gpu, int64_t percent, dc_outcome* out);
+
+/* ---- V/F point lock and frequency lock (nvbackend.GPU.*vf_lock* / *clk_lock*) ---------------- */
+
+typedef struct dc_vf_point_lock {
+    uint32_t domain;
+    uint32_t lock_mode;       /* 3: locked to the highest V/F point at or below volt_uv */
+    uint32_t volt_uv;         /* the REQUESTED voltage, stored verbatim by the driver */
+    uint32_t count;           /* entries in the driver's lock table */
+} dc_vf_point_lock;
+
+/* (lock, error) as read_vf_lock_status returns it: locked with the lock, an error text,
+ * or neither (unlocked, and that is known). */
+typedef struct dc_vf_lock_status {
+    int32_t locked;
+    dc_vf_point_lock lock;
+    char error[256];          /* "" when the answer is authoritative */
+} dc_vf_lock_status;
+
+/* has_domain limits the check to that domain, so another tuner's lock earlier in the table cannot hide it. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_status(dc_gpu* gpu, int32_t has_domain, int64_t domain, dc_vf_lock_status* out);
+
+/* read_clk_lock: the NVML frequency lock as (min, max) MHz; DC_E_UNAVAILABLE for unlocked or unreadable. */
+DC_API dc_status DC_CALL dc_gpu_clk_lock_get(dc_gpu* gpu, uint32_t* min_mhz, uint32_t* max_mhz);
+
+typedef struct dc_clk_lock_status {
+    int32_t locked;
+    uint32_t min_mhz, max_mhz;
+    char error[256];          /* "" when unlocked-and-known or locked */
+} dc_clk_lock_status;
+
+/* read_clk_lock_status: distinguishes unlocked from unknown ownership. */
+DC_API dc_status DC_CALL dc_gpu_clk_lock_status(dc_gpu* gpu, dc_clk_lock_status* out);
+
+/* set_vf_lock: lock the curve to the highest V/F point at or below volt_uv, on domain (or the
+ * domain already locked, else 6), by read-modify-write of the driver's own buffer. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_set(dc_gpu* gpu, int64_t volt_uv, int32_t has_domain, int64_t domain,
+                                            dc_outcome* out);
+
+/* vf_lock_recovery_pending: an unsuccessful hold still needs its prior state restored. */
+DC_API int32_t DC_CALL dc_gpu_vf_lock_recovery_pending(const dc_gpu* gpu);
+
+/* recover_vf_lock: retry that rollback, restoring only this request's target mode and value. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_recover(dc_gpu* gpu, dc_outcome* out);
+
+/* clear_vf_lock: lockMode 0 on every point-locked entry (or only domain; with has_expected, only if
+ * that domain still holds expected_uv). Frequency-lock entries are left alone. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_clear(dc_gpu* gpu, int32_t has_domain, int64_t domain, int32_t has_expected,
+                                              int64_t expected_uv, dc_outcome* out);
+
+/* vf_lock_self_test: hand the driver back the exact bytes its getter produced; a verified no-op. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_self_test(dc_gpu* gpu, dc_outcome* out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -48,12 +48,14 @@ core, then compares results, driver call sequences and messages.
 | Identity, enumeration, pairing | `NvAPI`, `Nvml`, `GPU.__init__` | `dc_enumerate_gpus`, `dc_gpu_open`, `dc_gpu_identity_get`, `dc_gpu_status_line` | `tests/test_native_identity.py` |
 | Telemetry tick and static capabilities | `GPU.read`, `GPU._read_static` | `dc_gpu_read_telemetry`, `dc_gpu_capabilities_get`, `dc_gpu_architecture` | `tests/test_native_telemetry.py` |
 | Fan control | `GPU.read_fan_control_state` .. `restore_fan_control_state` | `dc_gpu_fan_*` | `tests/test_native_fan.py` |
+| Voltage boost | `GPU.read_voltage_boost`, `set_voltage_boost` | `dc_gpu_voltage_boost_*` | `tests/test_native_vflock.py` |
+| V/F point lock and frequency-lock readers | `GPU.set_vf_lock`, `recover_vf_lock`, `clear_vf_lock`, `vf_lock_self_test`, `read_vf_lock*`, `read_clk_lock*` | `dc_gpu_vf_lock_*`, `dc_gpu_clk_lock_*` | `tests/test_native_vflock.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports from the test
 process instead of the DLLs, and `dc_set_sleep_hook` replaces the bounded
 waits inside readback loops. Both are set through `druta.native`.
 
-Not yet ported: clock offsets and P-state writes, power limit, VF and clock
-locks, voltage boost, clock-domain naming, the RM escape transport and the
-controls built on it (see `DESIGN-TRANSPORT.md` once it exists), the
-GPU restart, and the front end.
+Not yet ported: clock offsets and P-state writes, the V/F curve, power
+limit, clock-domain naming, the RM escape transport and the controls built on
+it (designed in `DESIGN-TRANSPORT.md`; the Turing legacy clock-lock fallback
+of `read_clk_lock*` waits for it), the GPU restart, and the front end.

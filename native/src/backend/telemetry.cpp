@@ -629,6 +629,11 @@ void Telemetry::read_misc(Snapshot& d) {
     // RM transport and is not part of this slice.
 }
 
+std::optional<std::uint32_t> Telemetry::arch() {
+    if (!arch_cache_) arch_cache_ = read_architecture(gpu_);
+    return arch_cache_;
+}
+
 // ---- the tick -------------------------------------------------------------------------------------
 
 Snapshot Telemetry::read() {

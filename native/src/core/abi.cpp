@@ -17,6 +17,8 @@
 #include "backend/fan.h"
 #include "backend/gpu.h"
 #include "backend/telemetry.h"
+#include "backend/vflock.h"
+#include "backend/voltage.h"
 #include "core/mutex.h"
 #include "core/rail_transport.h"
 #include "core/sleep.h"
@@ -164,8 +166,9 @@ void copy_field(char* field, size_t size, const std::string& text) {
 struct dc_gpu {
     druta::backend::Gpu gpu;
     druta::backend::Telemetry telemetry;
+    druta::backend::VfLock vflock;  // carries the recovery record across calls, as GPU._vf_lock_recovery
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
-    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu) {}
+    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), vflock(gpu, telemetry) {}
     const druta::backend::StaticCapabilities& capabilities() {
         if (!statics) statics = telemetry.read_static();
         return *statics;
@@ -243,7 +246,7 @@ DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* handle, char* buffer, 
 
 DC_API dc_status DC_CALL dc_gpu_architecture(dc_gpu* handle, uint32_t* architecture) {
     if (!handle || !architecture) return DC_E_ARGUMENT;
-    auto value = druta::backend::read_architecture(handle->gpu);
+    auto value = handle->telemetry.arch();
     if (!value) return DC_E_UNRECOGNIZED;
     *architecture = *value;
     return DC_OK;
@@ -474,5 +477,105 @@ DC_API dc_status DC_CALL dc_gpu_fan_restore(dc_gpu* handle, const dc_fan_snapsho
 }
 
 DC_API void DC_CALL dc_set_sleep_hook(dc_sleep_fn hook) { druta::set_sleep_hook(hook); }
+
+
+// ---- voltage boost --------------------------------------------------------------------------------
+
+DC_API dc_status DC_CALL dc_gpu_voltage_boost_get(dc_gpu* handle, int32_t* percent) {
+    if (!handle || !percent) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    auto value = handle->telemetry.read_voltage_boost();
+    if (!value) return DC_E_UNAVAILABLE;
+    *percent = *value;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_voltage_boost_set(dc_gpu* handle, int64_t percent, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(druta::backend::set_voltage_boost(handle->gpu, percent), out);
+    return DC_OK;
+}
+
+// ---- V/F point lock and frequency lock ------------------------------------------------------------
+
+namespace {
+std::optional<int64_t> optional_arg(int32_t has, int64_t value) {
+    return has ? std::optional<int64_t>(value) : std::nullopt;
+}
+}  // namespace
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_status(dc_gpu* handle, int32_t has_domain, int64_t domain, dc_vf_lock_status* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    auto status = handle->vflock.read_vf_lock_status(optional_arg(has_domain, domain));
+    dc_vf_lock_status s{};
+    if (status.value) {
+        s.locked = 1;
+        s.lock = {status.value->domain, status.value->lockMode, status.value->volt_uV, status.value->count};
+    }
+    DC_COPY(s.error, status.error.value_or(""));
+    *out = s;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_clk_lock_get(dc_gpu* handle, uint32_t* min_mhz, uint32_t* max_mhz) {
+    if (!handle || !min_mhz || !max_mhz) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    auto range = handle->vflock.read_clk_lock();
+    if (!range) return DC_E_UNAVAILABLE;
+    *min_mhz = range->min_mhz;
+    *max_mhz = range->max_mhz;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_clk_lock_status(dc_gpu* handle, dc_clk_lock_status* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    auto status = handle->vflock.read_clk_lock_status();
+    dc_clk_lock_status s{};
+    if (status.value) {
+        s.locked = 1;
+        s.min_mhz = status.value->min_mhz;
+        s.max_mhz = status.value->max_mhz;
+    }
+    DC_COPY(s.error, status.error.value_or(""));
+    *out = s;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_set(dc_gpu* handle, int64_t volt_uv, int32_t has_domain, int64_t domain,
+                                            dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->vflock.set_vf_lock(volt_uv, optional_arg(has_domain, domain)), out);
+    return DC_OK;
+}
+
+DC_API int32_t DC_CALL dc_gpu_vf_lock_recovery_pending(const dc_gpu* handle) {
+    return handle && handle->vflock.recovery_pending() ? 1 : 0;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_recover(dc_gpu* handle, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->vflock.recover_vf_lock(), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_clear(dc_gpu* handle, int32_t has_domain, int64_t domain, int32_t has_expected,
+                                              int64_t expected_uv, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->vflock.clear_vf_lock(optional_arg(has_domain, domain), optional_arg(has_expected, expected_uv)), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_self_test(dc_gpu* handle, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->vflock.self_test(), out);
+    return DC_OK;
+}
 
 }  // extern "C"

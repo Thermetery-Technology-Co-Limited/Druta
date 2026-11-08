@@ -108,6 +108,9 @@ public:
     Snapshot read();
     StaticCapabilities read_static();
 
+    // nvbackend.GPU.arch: NVML's enum, cached once a recognized value is seen.
+    std::optional<std::uint32_t> arch();
+
     // The pieces, public so parity tests can run each against its Python twin.
     void read_clocks(Snapshot& d, const AllClocksPriv* priv);
     void read_temps(Snapshot& d);
@@ -127,6 +130,11 @@ public:
 
     // The first PCIe error total seen by this GPU object (Python _pcie_baseline).
     std::optional<double> pcie_baseline;
+
+private:
+    std::optional<std::uint32_t> arch_cache_;
+
+public:
 
 private:
     struct Pstates20 {
