@@ -405,6 +405,83 @@ DC_API dc_status DC_CALL dc_gpu_vf_lock_clear(dc_gpu* gpu, int32_t has_domain, i
 /* vf_lock_self_test: hand the driver back the exact bytes its getter produced; a verified no-op. */
 DC_API dc_status DC_CALL dc_gpu_vf_lock_self_test(dc_gpu* gpu, dc_outcome* out);
 
+/* ---- V/F curve (nvbackend.GPU.vfp_layout, read_vf_curve, read_vfp_other_rows, apply_vf_deltas,
+ *      reset_vf_curve, _vf_delta_snapshot) ------------------------------------------------------- */
+
+#define DC_VFP_POINTS 128u
+
+/* What this card's V/F table is, probed from the driver's answers (VfpLayout). */
+typedef struct dc_vf_layout {
+    uint32_t size;
+    uint32_t n_entries;
+    uint32_t gpu_count;
+    uint32_t gpu_idx[DC_VFP_POINTS];     /* the leading run of non-decreasing voltage */
+    uint32_t other_count;
+    uint32_t other_idx[DC_VFP_POINTS];   /* trailing rows (Pascal: the MEMORY points) */
+    uint32_t freq_div;                   /* 2 when the GPU rows carry GPC2CLK */
+    char notes[256];
+    char error[256];                     /* _vfp_layout_error when the layout is unavailable */
+} dc_vf_layout;
+
+/* vfp_layout(force): DC_E_UNAVAILABLE with out->error when the curve APIs do not answer. */
+DC_API dc_status DC_CALL dc_gpu_vf_layout(dc_gpu* gpu, int32_t force, dc_vf_layout* out);
+
+typedef struct dc_vf_point {
+    uint32_t idx;
+    double volt_mv;
+    double freq_mhz;                     /* evaluated, includes the current delta */
+    int32_t delta_khz;
+} dc_vf_point;
+
+/* (points, err): count > 0 with points, or count 0 with the error text. */
+typedef struct dc_vf_curve {
+    uint32_t size;
+    uint32_t count;
+    dc_vf_point points[DC_VFP_POINTS];
+    char error[256];
+} dc_vf_curve;
+
+DC_API dc_status DC_CALL dc_gpu_vf_curve_read(dc_gpu* gpu, dc_vf_curve* out);
+
+typedef struct dc_vf_other_row {
+    uint32_t idx;
+    double volt_mv;
+    double value;
+    int32_t memory;                      /* its rounded value is one of the driver's mem_clocks */
+} dc_vf_other_row;
+
+typedef struct dc_vf_other_rows {
+    uint32_t size;
+    uint32_t count;
+    dc_vf_other_row rows[DC_VFP_POINTS];
+} dc_vf_other_rows;
+
+/* read_vfp_other_rows: the rows the curve editor may not touch; count 0 for []. */
+DC_API dc_status DC_CALL dc_gpu_vf_other_rows(dc_gpu* gpu, dc_vf_other_rows* out);
+
+typedef struct dc_vf_delta {
+    int64_t idx;
+    int64_t delta_khz;
+} dc_vf_delta;
+
+/* apply_vf_deltas: read-modify-write of the delta table; only differing GPU rows are touched.
+ * The deltas are visited in order, so the first offending row decides the refusal. */
+DC_API dc_status DC_CALL dc_gpu_vf_deltas_apply(dc_gpu* gpu, const dc_vf_delta* deltas, size_t count,
+                                                dc_outcome* out);
+
+/* reset_vf_curve: every GPU point's delta to zero (the factory curve). */
+DC_API dc_status DC_CALL dc_gpu_vf_curve_reset(dc_gpu* gpu, dc_outcome* out);
+
+/* _vf_delta_snapshot: the graphics deltas by index, or DC_E_UNAVAILABLE when the card has no readable curve. */
+typedef struct dc_vf_delta_snapshot {
+    uint32_t size;
+    uint32_t freq_div;
+    uint32_t count;
+    dc_vf_delta deltas[DC_VFP_POINTS];
+} dc_vf_delta_snapshot;
+
+DC_API dc_status DC_CALL dc_gpu_vf_delta_snapshot(dc_gpu* gpu, dc_vf_delta_snapshot* out);
+
 #ifdef __cplusplus
 }
 #endif

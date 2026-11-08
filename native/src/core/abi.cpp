@@ -17,6 +17,7 @@
 #include "backend/fan.h"
 #include "backend/gpu.h"
 #include "backend/telemetry.h"
+#include "backend/vfcurve.h"
 #include "backend/vflock.h"
 #include "backend/voltage.h"
 #include "core/mutex.h"
@@ -168,10 +169,15 @@ struct dc_gpu {
     druta::backend::Telemetry telemetry;
     druta::backend::VfLock vflock;  // carries the recovery record across calls, as GPU._vf_lock_recovery
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
+    std::optional<druta::backend::VfCurve> vfcurve;             // carries the layout cache, as GPU._vfp_layout_cache
     explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), vflock(gpu, telemetry) {}
     const druta::backend::StaticCapabilities& capabilities() {
         if (!statics) statics = telemetry.read_static();
         return *statics;
+    }
+    druta::backend::VfCurve& curve() {
+        if (!vfcurve) vfcurve.emplace(gpu, telemetry, capabilities());
+        return *vfcurve;
     }
     druta::backend::FanControl fan() { return druta::backend::FanControl(gpu, telemetry, capabilities()); }
 };
@@ -575,6 +581,94 @@ DC_API dc_status DC_CALL dc_gpu_vf_lock_self_test(dc_gpu* handle, dc_outcome* ou
     if (!handle || !out) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
     put_outcome(handle->vflock.self_test(), out);
+    return DC_OK;
+}
+
+
+// ---- V/F curve ------------------------------------------------------------------------------------
+
+DC_API dc_status DC_CALL dc_gpu_vf_layout(dc_gpu* handle, int32_t force, dc_vf_layout* out) {
+    if (!handle || !out || out->size != sizeof(dc_vf_layout)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    druta::backend::VfCurve& curve = handle->curve();
+    auto lay = curve.layout(force != 0);
+    dc_vf_layout l{};
+    l.size = sizeof(dc_vf_layout);
+    if (!lay) {
+        DC_COPY(l.error, curve.layout_error());
+        *out = l;
+        return DC_E_UNAVAILABLE;
+    }
+    l.n_entries = lay->n_entries;
+    l.gpu_count = static_cast<uint32_t>(std::min<size_t>(lay->gpu_idx.size(), DC_VFP_POINTS));
+    for (uint32_t i = 0; i < l.gpu_count; ++i) l.gpu_idx[i] = lay->gpu_idx[i];
+    l.other_count = static_cast<uint32_t>(std::min<size_t>(lay->other_idx.size(), DC_VFP_POINTS));
+    for (uint32_t i = 0; i < l.other_count; ++i) l.other_idx[i] = lay->other_idx[i];
+    l.freq_div = lay->freq_div;
+    DC_COPY(l.notes, lay->notes);
+    *out = l;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_curve_read(dc_gpu* handle, dc_vf_curve* out) {
+    if (!handle || !out || out->size != sizeof(dc_vf_curve)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    druta::backend::CurveResult result = handle->curve().read_vf_curve();
+    dc_vf_curve c{};
+    c.size = sizeof(dc_vf_curve);
+    if (result.points) {
+        c.count = static_cast<uint32_t>(std::min<size_t>(result.points->size(), DC_VFP_POINTS));
+        for (uint32_t i = 0; i < c.count; ++i) {
+            const druta::backend::VfPoint& p = (*result.points)[i];
+            c.points[i] = {p.idx, p.volt_mv, p.freq_mhz, p.delta_khz};
+        }
+    }
+    DC_COPY(c.error, result.error);
+    *out = c;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_other_rows(dc_gpu* handle, dc_vf_other_rows* out) {
+    if (!handle || !out || out->size != sizeof(dc_vf_other_rows)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    std::vector<druta::backend::VfOtherRow> rows = handle->curve().read_vfp_other_rows();
+    dc_vf_other_rows r{};
+    r.size = sizeof(dc_vf_other_rows);
+    r.count = static_cast<uint32_t>(std::min<size_t>(rows.size(), DC_VFP_POINTS));
+    for (uint32_t i = 0; i < r.count; ++i) r.rows[i] = {rows[i].idx, rows[i].volt_mv, rows[i].value, rows[i].memory ? 1 : 0};
+    *out = r;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_deltas_apply(dc_gpu* handle, const dc_vf_delta* deltas, size_t count,
+                                                dc_outcome* out) {
+    if (!handle || !out || (!deltas && count)) return DC_E_ARGUMENT;
+    std::vector<std::pair<int64_t, int64_t>> wanted;
+    wanted.reserve(count);
+    for (size_t i = 0; i < count; ++i) wanted.emplace_back(deltas[i].idx, deltas[i].delta_khz);
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->curve().apply_vf_deltas(wanted), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_curve_reset(dc_gpu* handle, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->curve().reset_vf_curve(), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_delta_snapshot(dc_gpu* handle, dc_vf_delta_snapshot* out) {
+    if (!handle || !out || out->size != sizeof(dc_vf_delta_snapshot)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    auto snapshot = handle->curve().vf_delta_snapshot();
+    if (!snapshot) return DC_E_UNAVAILABLE;
+    dc_vf_delta_snapshot s{};
+    s.size = sizeof(dc_vf_delta_snapshot);
+    s.freq_div = snapshot->freq_div;
+    s.count = static_cast<uint32_t>(std::min<size_t>(snapshot->deltas.size(), DC_VFP_POINTS));
+    for (uint32_t i = 0; i < s.count; ++i) s.deltas[i] = {snapshot->deltas[i].first, snapshot->deltas[i].second};
+    *out = s;
     return DC_OK;
 }
 

@@ -135,6 +135,34 @@ inline constexpr std::uint32_t kVfLockModePoint = 3;  // locked to the point at 
 inline constexpr std::uint32_t kClkLockDomainMax = 0;
 inline constexpr std::uint32_t kClkLockDomainMin = 1;
 
+// The V/F table (VfpCurve getter 0x21537AD4) and its delta table (BoostTable
+// 0x23F1B133 / 0x0733E009). The driver validates the SIZE through the version
+// word: 7208 and 9248 are fixed, and only the split between entries and tail
+// may move. The point masks ask for exactly n entries (set_point_masks).
+inline constexpr std::uint32_t kVfpPoints = 128;
+struct VfpEntry {
+    std::uint32_t u0, freq_kHz, volt_uV, u3, u4, u5, u6;
+};
+struct VfpCurve {
+    std::uint32_t version;
+    std::uint32_t masks[4];
+    std::uint32_t unk[12];
+    VfpEntry entries[kVfpPoints];
+    std::uint32_t tail[889];
+};
+static_assert(sizeof(VfpCurve) == 7208);
+struct BoostRow {
+    std::int32_t w[9];  // w[5] = freqDelta_kHz
+};
+struct BoostTable {
+    std::uint32_t version;
+    std::uint32_t masks[4];
+    std::uint32_t unk[12];
+    BoostRow rows[kVfpPoints];
+    std::uint32_t tail[1143];
+};
+static_assert(sizeof(BoostTable) == 9248);
+
 struct VoltBoost {  // NV_GPU_CLIENT_VOLT_RAILS_CONTROL_V1
     std::uint32_t version;
     std::int32_t percent;

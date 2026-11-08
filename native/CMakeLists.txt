@@ -82,6 +82,7 @@ add_library(drutacore_impl STATIC
   src/backend/nvapi.cpp
   src/backend/nvml.cpp
   src/backend/telemetry.cpp
+  src/backend/vfcurve.cpp
   src/backend/vflock.cpp
   src/backend/voltage.cpp
   src/core/rail_transport.cpp

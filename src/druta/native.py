@@ -177,6 +177,58 @@ class _ClkLockStatus(ctypes.Structure):
                 ("error", ctypes.c_char * 256)]
 
 
+VFP_POINTS = 128
+
+
+class _VfLayout(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("n_entries", ctypes.c_uint32), ("gpu_count", ctypes.c_uint32),
+                ("gpu_idx", ctypes.c_uint32 * VFP_POINTS), ("other_count", ctypes.c_uint32),
+                ("other_idx", ctypes.c_uint32 * VFP_POINTS), ("freq_div", ctypes.c_uint32),
+                ("notes", ctypes.c_char * 256), ("error", ctypes.c_char * 256)]
+
+
+class _VfPoint(ctypes.Structure):
+    _fields_ = [("idx", ctypes.c_uint32), ("volt_mv", ctypes.c_double), ("freq_mhz", ctypes.c_double),
+                ("delta_khz", ctypes.c_int32)]
+
+
+class _VfCurve(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("points", _VfPoint * VFP_POINTS),
+                ("error", ctypes.c_char * 256)]
+
+
+class _VfOtherRow(ctypes.Structure):
+    _fields_ = [("idx", ctypes.c_uint32), ("volt_mv", ctypes.c_double), ("value", ctypes.c_double),
+                ("memory", ctypes.c_int32)]
+
+
+class _VfOtherRows(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("rows", _VfOtherRow * VFP_POINTS)]
+
+
+class _VfDelta(ctypes.Structure):
+    _fields_ = [("idx", ctypes.c_int64), ("delta_khz", ctypes.c_int64)]
+
+
+class _VfDeltaSnapshot(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("freq_div", ctypes.c_uint32), ("count", ctypes.c_uint32),
+                ("deltas", _VfDelta * VFP_POINTS)]
+
+
+class VfpLayout:
+    """nvbackend.VfpLayout's shape, filled from the core."""
+
+    __slots__ = ("n_entries", "gpu_idx", "other_idx", "freq_div", "notes")
+
+    def __init__(self, n_entries, gpu_idx, other_idx, freq_div, notes):
+        self.n_entries, self.gpu_idx, self.other_idx = n_entries, gpu_idx, other_idx
+        self.freq_div, self.notes = freq_div, notes
+
+    @property
+    def n_gpu(self):
+        return len(self.gpu_idx)
+
+
 # resolve(context, library, name) -> function pointer or NULL (the test seam)
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
 SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
@@ -214,6 +266,13 @@ _SIGNATURES = {
     "dc_gpu_vf_lock_clear": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64, ctypes.c_int32,
                                               ctypes.c_int64, ctypes.POINTER(_Outcome)]),
     "dc_gpu_vf_lock_self_test": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_layout": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_VfLayout)]),
+    "dc_gpu_vf_curve_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfCurve)]),
+    "dc_gpu_vf_other_rows": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfOtherRows)]),
+    "dc_gpu_vf_deltas_apply": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDelta), ctypes.c_size_t,
+                                                ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_curve_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_delta_snapshot": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDeltaSnapshot)]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -824,6 +883,74 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         return self._outcome(outcome)
+
+    # ---- V/F curve (nvbackend.GPU.vfp_layout .. _vf_delta_snapshot) ---------------------------- #
+
+    def vfp_layout(self, force=False):
+        """This card's probed V/F table shape (VfpLayout), or None."""
+        layout = _VfLayout()
+        layout.size = ctypes.sizeof(_VfLayout)
+        status = load().dc_gpu_vf_layout(self._handle, 1 if force else 0, ctypes.byref(layout))
+        if status == DC_E_UNAVAILABLE:
+            self._vfp_layout_error = _text(layout.error)
+            return None
+        if status != DC_OK:
+            _raise(status)
+        self._vfp_layout_error = ""
+        return VfpLayout(layout.n_entries, list(layout.gpu_idx[:layout.gpu_count]),
+                         list(layout.other_idx[:layout.other_count]), layout.freq_div, _text(layout.notes))
+
+    def read_vf_curve(self):
+        """(points, err): the GPU points as {idx, volt_mv, freq_mhz, delta_khz} dicts, or an error."""
+        curve = _VfCurve()
+        curve.size = ctypes.sizeof(_VfCurve)
+        status = load().dc_gpu_vf_curve_read(self._handle, ctypes.byref(curve))
+        if status != DC_OK:
+            _raise(status)
+        if not curve.count:
+            return None, _text(curve.error)
+        return [{"idx": p.idx, "volt_mv": p.volt_mv, "freq_mhz": p.freq_mhz, "delta_khz": p.delta_khz}
+                for p in curve.points[:curve.count]], None
+
+    def read_vfp_other_rows(self):
+        rows = _VfOtherRows()
+        rows.size = ctypes.sizeof(_VfOtherRows)
+        status = load().dc_gpu_vf_other_rows(self._handle, ctypes.byref(rows))
+        if status != DC_OK:
+            _raise(status)
+        return [{"idx": r.idx, "volt_mv": r.volt_mv, "value": r.value, "kind": "memory" if r.memory else "unknown"}
+                for r in rows.rows[:rows.count]]
+
+    def apply_vf_deltas(self, new_deltas):
+        """new_deltas maps idx -> absolute delta_khz; only differing GPU rows are written."""
+        items = [(int(idx), int(delta)) for idx, delta in new_deltas.items()]
+        array = (_VfDelta * max(1, len(items)))()
+        for k, (idx, delta) in enumerate(items):
+            array[k].idx, array[k].delta_khz = idx, delta
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_deltas_apply(self._handle, array, len(items), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def reset_vf_curve(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_curve_reset(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def vf_delta_snapshot(self):
+        """{"freq_div", "deltas": {idx: delta_khz}} or None (nvbackend.GPU._vf_delta_snapshot)."""
+        snapshot = _VfDeltaSnapshot()
+        snapshot.size = ctypes.sizeof(_VfDeltaSnapshot)
+        status = load().dc_gpu_vf_delta_snapshot(self._handle, ctypes.byref(snapshot))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return {"freq_div": snapshot.freq_div,
+                "deltas": {d.idx: d.delta_khz for d in snapshot.deltas[:snapshot.count]}}
 
 
 def _fill_snapshot_row(row, old):
