@@ -7,9 +7,10 @@
 // It answers, for the machine it runs on, what the native core could do there:
 // the Windows version and driver model, every Windows export Druta binds,
 // every NVAPI interface id and NVML export Druta uses, and which GPUs the two
-// driver libraries enumerate. It changes no setting and issues no driver
-// escape. It imports only kernel32 and the C runtime, so it starts on any
-// Windows from XP up and names what is missing instead of failing to load.
+// driver libraries enumerate. It changes no setting, issues no driver
+// escape and patches nothing: the D3DKMTEscape entry bytes are only read.
+// It imports only kernel32 and the C runtime, so it starts on any Windows
+// from XP up and names what is missing instead of failing to load.
 //
 // Output goes to the console and to druta-probe-report.txt beside the EXE
 // (or in %TEMP%). Send that file back.
@@ -121,15 +122,17 @@ void report_windows(Report& out) {
     SYSTEM_INFO system{};
     ::GetNativeSystemInfo(&system);
     const char* machine = system.wProcessorArchitecture == 9 ? "x64" : system.wProcessorArchitecture == 0 ? "x86" : "other";
-    bool wow64 = false;
+    // IsWow64Process does not exist on XP before SP2; its absence is reported, not assumed.
+    const char* wow64 = "unknown (no IsWow64Process)";
     if (HMODULE kernel = ::GetModuleHandleW(L"kernel32.dll")) {
         using IsWow64Fn = BOOL(WINAPI*)(HANDLE, PBOOL);
         auto is_wow64 = reinterpret_cast<IsWow64Fn>(reinterpret_cast<void*>(::GetProcAddress(kernel, "IsWow64Process")));
         BOOL flag = FALSE;
-        if (is_wow64 && is_wow64(::GetCurrentProcess(), &flag)) wow64 = flag != FALSE;
+        if (is_wow64)
+            wow64 = is_wow64(::GetCurrentProcess(), &flag) ? (flag ? "yes" : "no") : "unknown (IsWow64Process failed)";
     }
-    out.line("machine: %s; this probe: %u-bit%s", machine, static_cast<unsigned>(sizeof(void*) * 8),
-             wow64 ? " under WOW64" : "");
+    out.line("machine: %s; this probe: %u-bit process; WOW64: %s", machine, static_cast<unsigned>(sizeof(void*) * 8),
+             wow64);
     DynLib shell(L"shell32.dll");
     using IsAdminFn = BOOL(WINAPI*)();
     auto is_admin = shell.get<IsAdminFn>("IsUserAnAdmin");
@@ -153,6 +156,7 @@ const Export kDriverModelExports[] = {
     {L"gdi32.dll", "D3DKMTQueryAdapterInfo", "adapter identity for driver escapes"},
     {L"gdi32.dll", "D3DKMTEscape", "driver escapes"},
     {L"gdi32.dll", "D3DKMTCloseAdapter", "driver escapes"},
+    {L"gdi32.dll", "D3DKMTOpenAdapterFromLuid", "adapter handle from a LUID (not used; listed as evidence)"},
 };
 
 const Export kWindowsExports[] = {
@@ -169,6 +173,7 @@ const Export kWindowsExports[] = {
     {L"user32.dll", "GetDpiForSystem", "Windows 10+ DPI; GetDeviceCaps fallback"},
     {L"user32.dll", "SetProcessDPIAware", "Vista+ DPI awareness"},
     {L"user32.dll", "GetDC", "DPI fallback"},
+    {L"user32.dll", "EnumDisplayDevicesW", "display-name adapter fallback (D3DKMTOpenAdapterFromGdiDisplayName)"},
     {L"user32.dll", "SetWindowLongPtrW", "window handling"},
     {L"user32.dll", "SendMessageTimeoutW", "window handling"},
     {L"user32.dll", "CreateWindowExW", "shutdown notification window"},
@@ -237,6 +242,279 @@ void report_driver_model(Report& out) {
     else
         model = "WDDM 1.0 (Vista): escapes exist; adapters must be opened by display name or DC";
     out.line("-> %s", model);
+}
+
+// ---- D3DKMTEscape entry bytes -------------------------------------------------------------------
+//
+// The native core will patch the first bytes of whatever address GetProcAddress returns for
+// D3DKMTEscape (x64: 14-byte FF 25 absolute jump; x86: 5-byte E9 rel32). This section records, read
+// only, which module that address lives in and what the first 16 bytes are, so a report from an image
+// can show whether such an overwrite stays inside one stub (DESIGN-TRANSPORT.md section 5, 5 and 6).
+
+// The module containing an address, or "" when it cannot be named. GetModuleHandleExW does not exist
+// on XP RTM, so it is resolved at run time; the refcount is not changed.
+std::string module_of(const void* address, std::string& why) {
+    why.clear();
+    HMODULE kernel = ::GetModuleHandleW(L"kernel32.dll");
+    using GetModuleHandleExFn = BOOL(WINAPI*)(DWORD, LPCWSTR, HMODULE*);
+    auto get_module = kernel ? reinterpret_cast<GetModuleHandleExFn>(
+                                   reinterpret_cast<void*>(::GetProcAddress(kernel, "GetModuleHandleExW")))
+                             : nullptr;
+    if (!get_module) {
+        why = "unknown (no GetModuleHandleExW)";
+        return "";
+    }
+    HMODULE module = nullptr;
+    const DWORD flags = 0x4 /* FROM_ADDRESS */ | 0x2 /* UNCHANGED_REFCOUNT */;
+    if (!get_module(flags, static_cast<LPCWSTR>(address), &module) || !module) {
+        char text[64];
+        std::snprintf(text, sizeof text, "unknown (GetModuleHandleExW error %lu)", ::GetLastError());
+        why = text;
+        return "";
+    }
+    wchar_t buffer[1024] = {};
+    DWORD length = ::GetModuleFileNameW(module, buffer, 1024);
+    if (!length) {
+        char text[64];
+        std::snprintf(text, sizeof text, "unknown (GetModuleFileNameW error %lu)", ::GetLastError());
+        why = text;
+        return "";
+    }
+    return narrow(std::wstring(buffer, length));
+}
+
+std::string describe_module(const void* address) {
+    std::string why;
+    std::string name = module_of(address, why);
+    return name.empty() ? why : name;
+}
+
+// Read up to `size` bytes of this process's memory without touching page protection. Returns how many
+// leading bytes were readable (a read that would cross into an unreadable page stops short).
+std::size_t read_own_memory(const void* address, unsigned char* buffer, std::size_t size) {
+    SIZE_T done = 0;
+    if (::ReadProcessMemory(::GetCurrentProcess(), address, buffer, size, &done) && done == size) return size;
+    std::size_t count = 0;
+    for (; count < size; ++count) {
+        done = 0;
+        if (!::ReadProcessMemory(::GetCurrentProcess(), static_cast<const unsigned char*>(address) + count,
+                                 buffer + count, 1, &done) ||
+            done != 1)
+            break;
+    }
+    return count;
+}
+
+// A plain observation of the first instruction; no decision is taken from it.
+const char* classify_entry(const unsigned char* bytes, std::size_t count) {
+    if (count >= 1 && bytes[0] == 0xE9) return "jmp rel32 (E9)";
+    if (count >= 1 && bytes[0] == 0xEB) return "short jmp rel8 (EB)";
+    if (count >= 2 && bytes[0] == 0xFF && bytes[1] == 0x25)
+        return sizeof(void*) == 8 ? "jmp [rip+disp32] (FF 25)" : "jmp [abs32] (FF 25)";
+    if (count >= 3 && bytes[0] == 0x48 && bytes[1] == 0xFF && bytes[2] == 0x25) return "jmp [rip+disp32] (48 FF 25)";
+    if (count >= 2 && bytes[0] == 0x8B && bytes[1] == 0xFF) return "mov edi,edi hot-patch prologue (8B FF)";
+    if (count >= 1 && bytes[0] == 0x55) return "push ebp prologue (55)";
+    if (count >= 3 && bytes[0] == 0x4C && bytes[1] == 0x8B && bytes[2] == 0xD1) return "mov r10,rcx syscall stub (4C 8B D1)";
+    if (count >= 1 && bytes[0] == 0xB8) return "mov eax,imm32 (B8), as in an x86 syscall stub";
+    if (count >= 1 && bytes[0] == 0xCC) return "int3 (CC)";
+    return "other";
+}
+
+void report_escape_entry(Report& out) {
+    out.section("D3DKMTEscape entry (read-only)");
+    DynLib gdi(L"gdi32.dll");
+    if (!gdi.ok()) {
+        out.line("gdi32.dll: not loadable (error %lu)", gdi.error());
+        return;
+    }
+    const void* address = gdi.get<void*>("D3DKMTEscape");
+    if (!address) {
+        out.line("gdi32.dll!D3DKMTEscape: missing; nothing to inspect");
+        return;
+    }
+    out.line("address: %p", address);
+    out.line("module: %s", describe_module(address).c_str());
+    unsigned char bytes[16] = {};
+    std::size_t count = read_own_memory(address, bytes, sizeof bytes);
+    std::string hex;
+    for (std::size_t i = 0; i < count; ++i) {
+        char item[4];
+        std::snprintf(item, sizeof item, i ? " %02X" : "%02X", bytes[i]);
+        hex += item;
+    }
+    if (count == 0) {
+        out.line("first 16 bytes: unreadable (error %lu)", ::GetLastError());
+        return;
+    }
+    out.line("first %u bytes: %s", static_cast<unsigned>(count), hex.c_str());
+    out.line("first instruction looks like: %s", classify_entry(bytes, count));
+    // Where a leading jump goes, by address arithmetic and one more read-only read; observation only.
+    const unsigned char* base = static_cast<const unsigned char*>(address);
+    const void* target = nullptr;
+    if (count >= 5 && bytes[0] == 0xE9) {
+        std::int32_t rel = 0;
+        std::memcpy(&rel, bytes + 1, sizeof rel);
+        target = base + 5 + rel;
+    } else {
+        std::size_t prefix = (count >= 3 && bytes[0] == 0x48 && bytes[1] == 0xFF && bytes[2] == 0x25) ? 1 : 0;
+        if (count >= prefix + 6 && bytes[prefix] == 0xFF && bytes[prefix + 1] == 0x25) {
+            std::int32_t disp = 0;
+            std::memcpy(&disp, bytes + prefix + 2, sizeof disp);
+            const void* slot = sizeof(void*) == 8
+                                   ? static_cast<const void*>(base + prefix + 6 + disp)
+                                   : reinterpret_cast<const void*>(static_cast<std::uintptr_t>(static_cast<std::uint32_t>(disp)));
+            void* pointer = nullptr;
+            if (read_own_memory(slot, reinterpret_cast<unsigned char*>(&pointer), sizeof pointer) == sizeof pointer)
+                target = pointer;
+            else
+                out.line("jump slot %p: unreadable", slot);
+        }
+    }
+    if (target) out.line("jump target: %p in %s", target, describe_module(target).c_str());
+}
+
+// ---- D3DKMT adapter enumeration -----------------------------------------------------------------
+//
+// Local layouts (no DDK headers). Every D3DKMT entry point is NTSTATUS NTAPI fn(void*).
+
+struct KmtAdapterInfo {
+    std::uint32_t hAdapter;
+    std::uint32_t LuidLow;
+    std::int32_t LuidHigh;
+    std::uint32_t NumOfSources;
+    std::int32_t bPresentMoveRegionsPreferred;
+};
+struct KmtEnumAdapters2 {
+    std::uint32_t NumAdapters;
+    KmtAdapterInfo* pAdapters;
+};
+struct KmtEnumAdapters {
+    std::uint32_t NumAdapters;
+    KmtAdapterInfo Adapters[16];
+};
+struct KmtQueryAdapterInfo {
+    std::uint32_t hAdapter;
+    std::uint32_t Type;
+    void* pPrivateDriverData;
+    std::uint32_t PrivateDriverDataSize;
+};
+struct KmtCloseAdapter {
+    std::uint32_t hAdapter;
+};
+struct KmtAdapterAddress {
+    std::uint32_t BusNumber;
+    std::uint32_t DeviceNumber;
+    std::uint32_t FunctionNumber;
+};
+static_assert(sizeof(KmtAdapterInfo) == 20, "D3DKMT_ADAPTERINFO");
+static_assert(sizeof(KmtEnumAdapters2) == (sizeof(void*) == 8 ? 16 : 8), "D3DKMT_ENUMADAPTERS2");
+static_assert(sizeof(KmtEnumAdapters) == 324, "D3DKMT_ENUMADAPTERS");
+static_assert(sizeof(KmtQueryAdapterInfo) == (sizeof(void*) == 8 ? 24 : 16), "D3DKMT_QUERYADAPTERINFO");
+static_assert(sizeof(KmtCloseAdapter) == 4, "D3DKMT_CLOSEADAPTER");
+static_assert(sizeof(KmtAdapterAddress) == 12, "D3DKMT_ADAPTERADDRESS");
+
+constexpr std::uint32_t kKmtAdapterAddress = 6;  // KMTQAITYPE_ADAPTERADDRESS
+
+unsigned long ntstatus_bits(LONG status) { return static_cast<unsigned long>(status) & 0xFFFFFFFFul; }
+
+void report_kmt_adapters(Report& out) {
+    out.section("D3DKMT adapters (read-only)");
+    DynLib gdi(L"gdi32.dll");
+    if (!gdi.ok()) {
+        out.line("gdi32.dll: not loadable (error %lu)", gdi.error());
+        return;
+    }
+    using KmtFn = LONG(NTAPI*)(void*);
+    auto enum2 = gdi.get<KmtFn>("D3DKMTEnumAdapters2");
+    auto enum1 = gdi.get<KmtFn>("D3DKMTEnumAdapters");
+    auto query = gdi.get<KmtFn>("D3DKMTQueryAdapterInfo");
+    auto close = gdi.get<KmtFn>("D3DKMTCloseAdapter");
+    if (!enum2 && !enum1) {
+        out.line("no D3DKMTEnumAdapters2 or D3DKMTEnumAdapters; enumeration not possible on this image");
+        return;
+    }
+    if (!close) {
+        // Enumeration opens handles; without a way to close them the probe does not open any.
+        out.line("D3DKMTCloseAdapter: missing; not enumerating, because the opened handles could not be closed");
+        return;
+    }
+
+    std::vector<KmtAdapterInfo> adapters;
+    LONG status = 0;
+    if (enum2) {
+        KmtEnumAdapters2 request{};
+        request.NumAdapters = 0;
+        request.pAdapters = nullptr;
+        LONG count_status = enum2(&request);
+        std::uint32_t capacity = 16;
+        if (count_status == 0 && request.NumAdapters > 0 && request.NumAdapters <= 1024) {
+            out.line("D3DKMTEnumAdapters2 count query: %u adapter(s)", request.NumAdapters);
+            capacity = request.NumAdapters;
+        } else if (count_status == 0) {
+            out.line("D3DKMTEnumAdapters2 count query: status 0 with count %u; using a 16-entry array",
+                     request.NumAdapters);
+        } else {
+            out.line("D3DKMTEnumAdapters2 count query: NTSTATUS 0x%08lX; using a 16-entry array",
+                     ntstatus_bits(count_status));
+        }
+        adapters.assign(capacity, KmtAdapterInfo{});
+        request.NumAdapters = capacity;
+        request.pAdapters = adapters.data();
+        status = enum2(&request);
+        if (status != 0) {
+            out.line("D3DKMTEnumAdapters2: NTSTATUS 0x%08lX (no handles returned)", ntstatus_bits(status));
+            return;
+        }
+        adapters.resize(request.NumAdapters < capacity ? request.NumAdapters : capacity);
+        out.line("D3DKMTEnumAdapters2: %u adapter(s)", request.NumAdapters);
+    } else {
+        KmtEnumAdapters request{};
+        request.NumAdapters = 16;
+        status = enum1(&request);
+        if (status != 0) {
+            out.line("D3DKMTEnumAdapters (16 entries): NTSTATUS 0x%08lX (no handles returned)", ntstatus_bits(status));
+            return;
+        }
+        std::uint32_t count = request.NumAdapters < 16 ? request.NumAdapters : 16;
+        adapters.assign(request.Adapters, request.Adapters + count);
+        out.line("D3DKMTEnumAdapters (16 entries): %u adapter(s)", request.NumAdapters);
+    }
+
+    for (std::size_t i = 0; i < adapters.size(); ++i) {
+        const KmtAdapterInfo& item = adapters[i];
+        char address[96];
+        if (!query) {
+            std::snprintf(address, sizeof address, "? (no D3DKMTQueryAdapterInfo)");
+        } else {
+            KmtAdapterAddress pci{};
+            KmtQueryAdapterInfo request{};
+            request.hAdapter = item.hAdapter;
+            request.Type = kKmtAdapterAddress;
+            request.pPrivateDriverData = &pci;
+            request.PrivateDriverDataSize = sizeof pci;
+            LONG st = query(&request);
+            if (st == 0)
+                std::snprintf(address, sizeof address, "%02X:%02X.%X", pci.BusNumber, pci.DeviceNumber,
+                              pci.FunctionNumber);
+            else
+                std::snprintf(address, sizeof address, "? (type 6 NTSTATUS 0x%08lX)", ntstatus_bits(st));
+        }
+        out.line("adapter %u: handle=0x%08X luid=%08lX:%08X sources=%u pci=%s", static_cast<unsigned>(i),
+                 item.hAdapter, static_cast<unsigned long>(static_cast<std::uint32_t>(item.LuidHigh)), item.LuidLow,
+                 item.NumOfSources, address);
+    }
+    // Every handle the successful enumeration returned is closed, whatever the queries did.
+    std::size_t close_failures = 0;
+    for (const KmtAdapterInfo& item : adapters) {
+        KmtCloseAdapter request{item.hAdapter};
+        LONG st = close(&request);
+        if (st != 0) {
+            ++close_failures;
+            out.line("D3DKMTCloseAdapter(0x%08X): NTSTATUS 0x%08lX", item.hAdapter, ntstatus_bits(st));
+        }
+    }
+    out.line("closed %u of %u handle(s)", static_cast<unsigned>(adapters.size() - close_failures),
+             static_cast<unsigned>(adapters.size()));
 }
 
 // ---- NVAPI --------------------------------------------------------------------------------------
@@ -594,6 +872,8 @@ int main() {
     out.line("Druta native probe (read-only; changes no setting), built %s", __DATE__);
     report_windows(out);
     report_driver_model(out);
+    report_escape_entry(out);
+    report_kmt_adapters(out);
     report_exports(out, "Windows exports Druta binds", kWindowsExports, sizeof kWindowsExports / sizeof kWindowsExports[0]);
     report_nvapi(out);
     report_nvml(out);
