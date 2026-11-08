@@ -70,9 +70,17 @@ endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
+  src/backend/exports.cpp
+  src/backend/gpu.cpp
+  src/backend/nvapi.cpp
+  src/backend/nvml.cpp
   src/core/rail_transport.cpp
   src/core/slot.cpp
 )
+if(NOT WIN32)
+  find_package(Threads REQUIRED)
+  target_link_libraries(drutacore_impl PUBLIC Threads::Threads)
+endif()
 target_include_directories(drutacore_impl PUBLIC include src)
 target_link_libraries(drutacore_impl PUBLIC druta_options)
 

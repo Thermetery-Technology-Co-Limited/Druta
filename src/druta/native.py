@@ -50,7 +50,38 @@ class _RailRecord(ctypes.Structure):
     _fields_ = [("rail", ctypes.c_uint32), ("values", ctypes.c_int32 * 4)]
 
 
+class _GpuEntry(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("slot", ctypes.c_char * 24), ("name", ctypes.c_char * 96),
+                ("uuid", ctypes.c_char * 96), ("has_devid", ctypes.c_int32), ("devid", ctypes.c_uint32),
+                ("subsys", ctypes.c_uint32), ("nvml_index", ctypes.c_int32), ("has_nvapi", ctypes.c_int32)]
+
+
+class _GpuIdentity(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("nvapi_ok", ctypes.c_int32), ("nvml_ok", ctypes.c_int32),
+                ("nvapi_error", ctypes.c_char * 512), ("nvml_error", ctypes.c_char * 1024),
+                ("nvml_path", ctypes.c_char * 512), ("pairing_error", ctypes.c_char * 512),
+                ("requested_slot", ctypes.c_char * 24), ("slot", ctypes.c_char * 24),
+                ("nvapi_selected", ctypes.c_int32), ("nvapi_slot", ctypes.c_char * 24),
+                ("nvapi_devid", ctypes.c_uint32), ("nvapi_subsys", ctypes.c_uint32),
+                ("nvml_selected", ctypes.c_int32), ("nvml_slot", ctypes.c_char * 24),
+                ("nvml_has_devid", ctypes.c_int32), ("nvml_devid", ctypes.c_uint32),
+                ("nvml_subsys", ctypes.c_uint32), ("nvml_index", ctypes.c_int32),
+                ("name", ctypes.c_char * 96), ("driver", ctypes.c_char * 96), ("vbios", ctypes.c_char * 96),
+                ("uuid", ctypes.c_char * 96), ("admin", ctypes.c_int32)]
+
+
+# resolve(context, library, name) -> function pointer or NULL (the test seam)
+RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
+
 _SIGNATURES = {
+    "dc_set_export_resolver": (None, [RESOLVER, ctypes.c_void_p]),
+    "dc_enumerate_gpus": (ctypes.c_int32, [ctypes.POINTER(_GpuEntry), ctypes.c_size_t,
+                                           ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_open": (ctypes.c_int32, [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]),
+    "dc_gpu_close": (None, [ctypes.c_void_p]),
+    "dc_gpu_identity_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_GpuIdentity)]),
+    "dc_gpu_status_line": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                            ctypes.POINTER(ctypes.c_size_t)]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -269,3 +300,127 @@ def rail_packet_summary(payload):
     if status != DC_OK:
         _raise(status)
     return buffer.value.decode()
+
+
+# ---- GPU identity (nvbackend.Nvml / NvAPI / enumerate_gpus / GPU) ------------------------------
+
+_resolver_keepalive = None
+
+
+def set_export_resolver(resolve):
+    """Serve driver exports from Python (tests). resolve(library, name) returns a
+    ctypes function pointer address or None; name "" asks whether the library
+    loads. None restores the platform loader."""
+    global _resolver_keepalive
+    library = load()
+    if resolve is None:
+        library.dc_set_export_resolver(RESOLVER(0), None)
+        _resolver_keepalive = None
+        return
+
+    def trampoline(_context, lib, name):
+        pointer = resolve(lib.decode(), name.decode())
+        return pointer or 0
+
+    _resolver_keepalive = RESOLVER(trampoline)
+    library.dc_set_export_resolver(_resolver_keepalive, None)
+
+
+def _text(field):
+    return field.decode(errors="replace")
+
+
+def enumerate_gpus():
+    """Same keys and order as nvbackend.enumerate_gpus()."""
+    library = load()
+    capacity = 8
+    while True:
+        entries = (_GpuEntry * capacity)()
+        for entry in entries:
+            entry.size = ctypes.sizeof(_GpuEntry)
+        count = ctypes.c_size_t()
+        status = library.dc_enumerate_gpus(entries, capacity, ctypes.byref(count))
+        if status == DC_E_BUFFER:
+            capacity = max(count.value, capacity * 2)
+            continue
+        if status != DC_OK:
+            _raise(status)
+        return [{
+            "slot": _text(e.slot), "name": _text(e.name), "uuid": _text(e.uuid),
+            "devid": e.devid if e.has_devid else None, "subsys": e.subsys if e.has_devid else None,
+            "nvml_index": None if e.nvml_index < 0 else e.nvml_index, "has_nvapi": bool(e.has_nvapi),
+        } for e in entries[:count.value]]
+
+
+class _Half:
+    """The .ok / .err_detail / .selected shape of nvbackend.NvAPI and Nvml."""
+
+    def __init__(self, ok, err_detail, selected):
+        self.ok, self.err_detail, self.selected = ok, err_detail, selected
+
+
+class Gpu:
+    """One card through the native core: nvbackend.GPU's identity surface."""
+
+    def __init__(self, slot=None):
+        library = load()
+        handle = ctypes.c_void_p()
+        status = library.dc_gpu_open((slot or "").encode(), ctypes.byref(handle))
+        if status != DC_OK:
+            _raise(status)
+        self._handle = handle
+        identity = _GpuIdentity()
+        identity.size = ctypes.sizeof(_GpuIdentity)
+        status = library.dc_gpu_identity_get(handle, ctypes.byref(identity))
+        if status != DC_OK:
+            self.close()
+            _raise(status)
+        self.requested_slot = _text(identity.requested_slot)
+        nvapi_selected = None
+        if identity.nvapi_selected:
+            nvapi_selected = {"slot": _text(identity.nvapi_slot), "devid": identity.nvapi_devid,
+                              "subsys": identity.nvapi_subsys}
+        nvml_selected = None
+        if identity.nvml_selected:
+            nvml_selected = {"slot": _text(identity.nvml_slot), "nvml_index": identity.nvml_index,
+                             "devid": identity.nvml_devid if identity.nvml_has_devid else None,
+                             "subsys": identity.nvml_subsys if identity.nvml_has_devid else None,
+                             "uuid": _text(identity.uuid)}
+        self.nvapi = _Half(bool(identity.nvapi_ok), _text(identity.nvapi_error), nvapi_selected)
+        self.nvml = _Half(bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected)
+        self.nvml.dll_path = _text(identity.nvml_path)
+        self.pairing_error = _text(identity.pairing_error)
+        self.static = {"name": _text(identity.name), "driver": _text(identity.driver),
+                       "vbios": _text(identity.vbios), "admin": bool(identity.admin),
+                       "slot": _text(identity.slot), "uuid": _text(identity.uuid)}
+
+    def close(self):
+        handle, self._handle = self._handle, None
+        if handle:
+            load().dc_gpu_close(handle)
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    def available(self):
+        return self.nvapi.ok or self.nvml.ok
+
+    def slot(self):
+        return self.static["slot"]
+
+    def status_line(self):
+        buffer = ctypes.create_string_buffer(4096)
+        needed = ctypes.c_size_t()
+        status = load().dc_gpu_status_line(self._handle, buffer, 4096, ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode(errors="replace")

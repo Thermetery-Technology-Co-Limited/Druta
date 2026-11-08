@@ -6,9 +6,12 @@
 #include "drutacore/drutacore.h"
 
 #include <cstring>
+#include <new>
 #include <string>
 #include <vector>
 
+#include "backend/exports.h"
+#include "backend/gpu.h"
 #include "core/rail_transport.h"
 #include "core/slot.h"
 
@@ -134,6 +137,91 @@ DC_API dc_status DC_CALL dc_rail_packet_summary(const uint8_t* payload, size_t s
                                                 size_t* needed) {
     if (!payload && size) return DC_E_ARGUMENT;
     return copy_text(druta::rail::packet_summary(druta::ByteView(payload, size)), buffer, buffer_size, needed);
+}
+
+// ---- GPU identity ---------------------------------------------------------------------------------
+
+namespace {
+
+void copy_field(char* field, size_t size, const std::string& text) {
+    size_t n = text.size() < size - 1 ? text.size() : size - 1;
+    std::memcpy(field, text.data(), n);
+    field[n] = '\0';
+}
+
+#define DC_COPY(field, text) copy_field(field, sizeof(field), text)
+
+}  // namespace
+
+struct dc_gpu {
+    druta::backend::Gpu gpu;
+    explicit dc_gpu(const std::string& slot) : gpu(slot) {}
+};
+
+DC_API void DC_CALL dc_set_export_resolver(dc_resolve_fn resolve, void* context) {
+    druta::backend::set_export_resolver(resolve, context);
+}
+
+DC_API dc_status DC_CALL dc_enumerate_gpus(dc_gpu_entry* entries, size_t capacity, size_t* count) {
+    if (!count || (!entries && capacity)) return DC_E_ARGUMENT;
+    std::vector<druta::backend::GpuListEntry> gpus = druta::backend::enumerate_gpus();
+    *count = gpus.size();
+    if (gpus.size() > capacity) return DC_E_BUFFER;
+    for (size_t i = 0; i < gpus.size(); ++i) {
+        if (entries[i].size != sizeof(dc_gpu_entry)) return DC_E_ARGUMENT;
+        const druta::backend::GpuListEntry& g = gpus[i];
+        DC_COPY(entries[i].slot, g.slot);
+        DC_COPY(entries[i].name, g.name);
+        DC_COPY(entries[i].uuid, g.uuid);
+        entries[i].has_devid = g.devid ? 1 : 0;
+        entries[i].devid = g.devid.value_or(0);
+        entries[i].subsys = g.subsys.value_or(0);
+        entries[i].nvml_index = g.nvml_index ? static_cast<int32_t>(*g.nvml_index) : -1;
+        entries[i].has_nvapi = g.has_nvapi ? 1 : 0;
+    }
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_open(const char* slot, dc_gpu** gpu) {
+    if (!gpu) return DC_E_ARGUMENT;
+    *gpu = new (std::nothrow) dc_gpu(slot ? slot : "");
+    return *gpu ? DC_OK : DC_E_BUFFER;
+}
+
+DC_API void DC_CALL dc_gpu_close(dc_gpu* gpu) { delete gpu; }
+
+DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* handle, dc_gpu_identity* out) {
+    if (!handle || !out || out->size != sizeof(dc_gpu_identity)) return DC_E_ARGUMENT;
+    const druta::backend::Gpu& gpu = handle->gpu;
+    out->nvapi_ok = gpu.nvapi.ok ? 1 : 0;
+    out->nvml_ok = gpu.nvml.ok ? 1 : 0;
+    DC_COPY(out->nvapi_error, gpu.nvapi.err_detail);
+    DC_COPY(out->nvml_error, gpu.nvml.err_detail);
+    DC_COPY(out->nvml_path, gpu.nvml.dll_path);
+    DC_COPY(out->pairing_error, gpu.pairing_error);
+    DC_COPY(out->requested_slot, gpu.requested_slot);
+    DC_COPY(out->slot, gpu.slot());
+    out->nvapi_selected = gpu.nvapi.selected ? 1 : 0;
+    DC_COPY(out->nvapi_slot, gpu.nvapi.selected ? gpu.nvapi.selected->slot : std::string());
+    out->nvapi_devid = gpu.nvapi.selected ? gpu.nvapi.selected->devid : 0;
+    out->nvapi_subsys = gpu.nvapi.selected ? gpu.nvapi.selected->subsys : 0;
+    out->nvml_selected = gpu.nvml.selected ? 1 : 0;
+    DC_COPY(out->nvml_slot, gpu.nvml.selected ? gpu.nvml.selected->slot : std::string());
+    out->nvml_has_devid = gpu.nvml.selected && gpu.nvml.selected->devid ? 1 : 0;
+    out->nvml_devid = gpu.nvml.selected ? gpu.nvml.selected->devid.value_or(0) : 0;
+    out->nvml_subsys = gpu.nvml.selected ? gpu.nvml.selected->subsys.value_or(0) : 0;
+    out->nvml_index = gpu.nvml.selected ? static_cast<int32_t>(gpu.nvml.selected->nvml_index) : -1;
+    DC_COPY(out->name, gpu.identity.name);
+    DC_COPY(out->driver, gpu.identity.driver);
+    DC_COPY(out->vbios, gpu.identity.vbios);
+    DC_COPY(out->uuid, gpu.identity.uuid);
+    out->admin = gpu.identity.admin ? 1 : 0;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* handle, char* buffer, size_t size, size_t* needed) {
+    if (!handle) return DC_E_ARGUMENT;
+    return copy_text(handle->gpu.status_line(), buffer, size, needed);
 }
 
 }  // extern "C"
