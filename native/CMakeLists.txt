@@ -70,6 +70,7 @@ endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
+  src/core/rail_transport.cpp
   src/core/slot.cpp
 )
 target_include_directories(drutacore_impl PUBLIC include src)
