@@ -137,6 +137,11 @@ class ParityCase(unittest.TestCase):
             else:
                 gpu = rig.native_gpu()
                 try:
+                    # GPU.static is read once at construction in Python and the twin carries it
+                    # pre-filled; read it on the native handle before the action so the call
+                    # logs compare only what the action did.
+                    gpu.capabilities()
+                    rig.calls.clear()
                     result = action(gpu)
                 finally:
                     gpu.close()

@@ -76,6 +76,7 @@ endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
+  src/backend/clocks.cpp
   src/backend/exports.cpp
   src/backend/fan.cpp
   src/backend/gpu.cpp
@@ -88,6 +89,7 @@ add_library(drutacore_impl STATIC
   src/core/rail_transport.cpp
   src/core/sleep.cpp
   src/core/slot.cpp
+  src/core/vf_plan.cpp
 )
 if(NOT WIN32)
   find_package(Threads REQUIRED)
@@ -99,6 +101,7 @@ target_link_libraries(drutacore_impl PUBLIC druta_options)
 # ---- drutacore (the C ABI shared library) ------------------------------------------------------
 add_library(drutacore SHARED
   src/core/abi.cpp
+  src/core/abi_vfplan.cpp
 )
 target_compile_definitions(drutacore PRIVATE DRUTACORE_BUILDING=1)
 target_link_libraries(drutacore PRIVATE drutacore_impl)

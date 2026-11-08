@@ -482,7 +482,47 @@ typedef struct dc_vf_delta_snapshot {
 
 DC_API dc_status DC_CALL dc_gpu_vf_delta_snapshot(dc_gpu* gpu, dc_vf_delta_snapshot* out);
 
+/* ---- clock offsets, the NVML frequency lock and the clock grid (nvbackend.GPU.set_clock_offset,
+ *      clock_step_khz, lockable_clocks_by_mem, lock_gpu_clocks, reset_gpu_clocks) ---------------- */
+
+typedef struct dc_mem_offset_scale {
+    uint32_t scale;           /* NVML units per slider unit */
+    char unit[16];            /* "MHz true" or "MHz eff" */
+} dc_mem_offset_scale;
+
+DC_API dc_status DC_CALL dc_gpu_mem_offset_scale(dc_gpu* gpu, dc_mem_offset_scale* out);
+DC_API uint32_t DC_CALL dc_gpu_memory_offset_step_units(dc_gpu* gpu);
+
+/* clock_step_khz / step_is_measured / max_rise_khz: this card's core-clock grid in kHz. */
+DC_API dc_status DC_CALL dc_gpu_clock_step_khz(dc_gpu* gpu, uint32_t* step_khz, int32_t* measured);
+DC_API dc_status DC_CALL dc_gpu_max_rise_khz(dc_gpu* gpu, uint32_t* khz);
+
+typedef struct dc_clock_row {
+    uint32_t mem_mhz;
+    uint32_t count;           /* graphics clocks the driver enumerates at this memory clock */
+    uint32_t graphics[512];
+} dc_clock_row;
+
+/* lockable_clocks_by_mem: one row per memory clock that answers, in mem_clocks order. rows may be
+ * NULL to ask only for the count; DC_E_BUFFER when more rows exist than capacity. */
+DC_API dc_status DC_CALL dc_gpu_lockable_clocks(dc_gpu* gpu, dc_clock_row* rows, size_t capacity, size_t* count);
+
+/* set_clock_offset(ctype, mhz, preserve_curve): ctype 0 = core (snapped to the grid), 2 = memory. */
+DC_API dc_status DC_CALL dc_gpu_clock_offset_set(dc_gpu* gpu, uint32_t ctype, double mhz, int32_t preserve_curve,
+                                                 dc_outcome* out);
+
+/* lock_gpu_clocks(min, max): snapped DOWN onto the lockable table before the write. */
+DC_API dc_status DC_CALL dc_gpu_clocks_lock(dc_gpu* gpu, int64_t min_mhz, int64_t max_mhz, dc_outcome* out);
+
+/* last_clock_lock_request: the last accepted snapped range; DC_E_UNAVAILABLE when none. */
+DC_API dc_status DC_CALL dc_gpu_clocks_last_lock(dc_gpu* gpu, uint32_t* min_mhz, uint32_t* max_mhz);
+
+/* reset_gpu_clocks / _reset_gpu_clocks(allow_pascal_noop). */
+DC_API dc_status DC_CALL dc_gpu_clocks_reset(dc_gpu* gpu, int32_t allow_pascal_noop, dc_outcome* out);
+
 #ifdef __cplusplus
 }
 #endif
+
+#include "drutacore/vfplan.h"  /* the pure V/F planners */
 #endif /* DRUTACORE_H */

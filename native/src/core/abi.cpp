@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "backend/clocks.h"
 #include "backend/exports.h"
 #include "backend/fan.h"
 #include "backend/gpu.h"
@@ -178,6 +179,11 @@ struct dc_gpu {
     druta::backend::VfCurve& curve() {
         if (!vfcurve) vfcurve.emplace(gpu, telemetry, capabilities());
         return *vfcurve;
+    }
+    std::optional<druta::backend::Clocks> clocks_;  // carries the grid cache and the last lock request
+    druta::backend::Clocks& clocks() {
+        if (!clocks_) clocks_.emplace(gpu, telemetry, capabilities(), curve());
+        return *clocks_;
     }
     druta::backend::FanControl fan() { return druta::backend::FanControl(gpu, telemetry, capabilities()); }
 };
@@ -347,7 +353,8 @@ DC_API dc_status DC_CALL dc_gpu_read_telemetry(dc_gpu* handle, dc_telemetry* out
 
 DC_API dc_status DC_CALL dc_gpu_capabilities_get(dc_gpu* handle, dc_capabilities* out) {
     if (!handle || !out || out->size != sizeof(dc_capabilities)) return DC_E_ARGUMENT;
-    druta::backend::StaticCapabilities s = handle->telemetry.read_static();
+    druta::LockGuard guard(handle->gpu.lock());
+    const druta::backend::StaticCapabilities& s = handle->capabilities();  // read once per handle, as GPU.static
     dc_capabilities c{};
     c.size = sizeof(dc_capabilities);
     auto put = [&](uint32_t& field, const std::optional<uint32_t>& source, uint32_t bit) {
@@ -669,6 +676,90 @@ DC_API dc_status DC_CALL dc_gpu_vf_delta_snapshot(dc_gpu* handle, dc_vf_delta_sn
     s.count = static_cast<uint32_t>(std::min<size_t>(snapshot->deltas.size(), DC_VFP_POINTS));
     for (uint32_t i = 0; i < s.count; ++i) s.deltas[i] = {snapshot->deltas[i].first, snapshot->deltas[i].second};
     *out = s;
+    return DC_OK;
+}
+
+
+// ---- clock offsets, frequency lock, clock grid ---------------------------------------------------
+
+DC_API dc_status DC_CALL dc_gpu_mem_offset_scale(dc_gpu* handle, dc_mem_offset_scale* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    druta::backend::MemOffsetScale scale = handle->clocks().mem_offset_scale();
+    dc_mem_offset_scale s{};
+    s.scale = scale.scale;
+    DC_COPY(s.unit, scale.unit);
+    *out = s;
+    return DC_OK;
+}
+
+DC_API uint32_t DC_CALL dc_gpu_memory_offset_step_units(dc_gpu* handle) {
+    if (!handle) return 0;
+    druta::LockGuard guard(handle->gpu.lock());
+    return handle->clocks().memory_offset_step_units();
+}
+
+DC_API dc_status DC_CALL dc_gpu_clock_step_khz(dc_gpu* handle, uint32_t* step_khz, int32_t* measured) {
+    if (!handle || !step_khz) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    *step_khz = handle->clocks().clock_step_khz();
+    if (measured) *measured = handle->clocks().step_is_measured() ? 1 : 0;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_max_rise_khz(dc_gpu* handle, uint32_t* khz) {
+    if (!handle || !khz) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    *khz = handle->clocks().max_rise_khz();
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_lockable_clocks(dc_gpu* handle, dc_clock_row* rows, size_t capacity, size_t* count) {
+    if (!handle || !count || (!rows && capacity)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    std::vector<druta::backend::ClockRow> table = handle->clocks().lockable_clocks_by_mem();
+    *count = table.size();
+    if (!rows) return DC_OK;
+    if (table.size() > capacity) return DC_E_BUFFER;
+    for (size_t i = 0; i < table.size(); ++i) {
+        dc_clock_row row{};
+        row.mem_mhz = table[i].mem_mhz;
+        row.count = static_cast<uint32_t>(table[i].graphics.size());
+        for (size_t k = 0; k < std::min<size_t>(table[i].graphics.size(), 512); ++k) row.graphics[k] = table[i].graphics[k];
+        rows[i] = row;
+    }
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_clock_offset_set(dc_gpu* handle, uint32_t ctype, double mhz, int32_t preserve_curve,
+                                                 dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->clocks().set_clock_offset(ctype, mhz, preserve_curve != 0), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_clocks_lock(dc_gpu* handle, int64_t min_mhz, int64_t max_mhz, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->clocks().lock_gpu_clocks(min_mhz, max_mhz), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_clocks_last_lock(dc_gpu* handle, uint32_t* min_mhz, uint32_t* max_mhz) {
+    if (!handle || !min_mhz || !max_mhz) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    auto last = handle->clocks().last_clock_lock_request();
+    if (!last) return DC_E_UNAVAILABLE;
+    *min_mhz = last->first;
+    *max_mhz = last->second;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_clocks_reset(dc_gpu* handle, int32_t allow_pascal_noop, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->clocks().reset_gpu_clocks(allow_pascal_noop != 0), out);
     return DC_OK;
 }
 

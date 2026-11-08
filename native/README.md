@@ -51,13 +51,14 @@ core, then compares results, driver call sequences and messages.
 | Voltage boost | `GPU.read_voltage_boost`, `set_voltage_boost` | `dc_gpu_voltage_boost_*` | `tests/test_native_vflock.py` |
 | V/F point lock and frequency-lock readers | `GPU.set_vf_lock`, `recover_vf_lock`, `clear_vf_lock`, `vf_lock_self_test`, `read_vf_lock*`, `read_clk_lock*` | `dc_gpu_vf_lock_*`, `dc_gpu_clk_lock_*` | `tests/test_native_vflock.py` |
 | V/F curve | `GPU.vfp_layout`, `read_vf_curve`, `read_vfp_other_rows`, `apply_vf_deltas`, `reset_vf_curve`, `_vf_delta_snapshot` | `dc_gpu_vf_layout`, `dc_gpu_vf_curve_*`, `dc_gpu_vf_other_rows`, `dc_gpu_vf_deltas_apply`, `dc_gpu_vf_delta_snapshot` | `tests/test_native_vfcurve.py` |
+| Clock offsets, frequency lock, clock grid | `GPU.set_clock_offset`, `_set_pstate20_offset`, `_keep_vf_shape`, `clock_step_khz`, `lockable_clocks_by_mem`, `lock_gpu_clocks`, `reset_gpu_clocks` | `dc_gpu_clock_offset_set`, `dc_gpu_clocks_*`, `dc_gpu_clock_step_khz`, `dc_gpu_lockable_clocks`, `dc_gpu_mem_offset_scale` | `tests/test_native_clocks.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports from the test
 process instead of the DLLs, and `dc_set_sleep_hook` replaces the bounded
 waits inside readback loops. Both are set through `druta.native`.
 
-Not yet ported: clock offsets and P-state writes (and the pure curve
-planners `peak_info`, `resolve_vf_point`, `compute_deflatten`), power limit,
-clock-domain naming, the RM escape transport and the controls built on it
+Not yet ported: the pure curve planners (`peak_info`, `resolve_vf_point`,
+`compute_deflatten` and friends; in progress), power limit, clock-domain
+naming, the RM escape transport and the controls built on it
 (designed in `DESIGN-TRANSPORT.md`; the Turing legacy clock-lock fallback of
 `read_clk_lock*` waits for it), the GPU restart, and the front end.

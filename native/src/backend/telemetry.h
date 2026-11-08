@@ -135,8 +135,7 @@ private:
     std::optional<std::uint32_t> arch_cache_;
 
 public:
-
-private:
+    // The public P-state table (_read_pstates20 / _pstate20_clock), shared with the clock writers.
     struct Pstates20 {
         Pstates20V2 table{};
         bool v2 = false;
@@ -144,6 +143,7 @@ private:
     std::optional<Pstates20> read_pstates20(std::string& error);
     const Pstate20Clock* pstate20_clock(const Pstates20& info, std::uint32_t ctype) const;
 
+private:
     Gpu& gpu_;
 };
 

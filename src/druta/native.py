@@ -17,6 +17,7 @@ application requires it yet.
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 from pathlib import Path
 import sys
@@ -215,6 +216,14 @@ class _VfDeltaSnapshot(ctypes.Structure):
                 ("deltas", _VfDelta * VFP_POINTS)]
 
 
+class _MemOffsetScale(ctypes.Structure):
+    _fields_ = [("scale", ctypes.c_uint32), ("unit", ctypes.c_char * 16)]
+
+
+class _ClockRow(ctypes.Structure):
+    _fields_ = [("mem_mhz", ctypes.c_uint32), ("count", ctypes.c_uint32), ("graphics", ctypes.c_uint32 * 512)]
+
+
 class VfpLayout:
     """nvbackend.VfpLayout's shape, filled from the core."""
 
@@ -273,6 +282,19 @@ _SIGNATURES = {
                                                 ctypes.POINTER(_Outcome)]),
     "dc_gpu_vf_curve_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
     "dc_gpu_vf_delta_snapshot": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDeltaSnapshot)]),
+    "dc_gpu_mem_offset_scale": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_MemOffsetScale)]),
+    "dc_gpu_memory_offset_step_units": (ctypes.c_uint32, [ctypes.c_void_p]),
+    "dc_gpu_clock_step_khz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                               ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_max_rise_khz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_lockable_clocks": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClockRow), ctypes.c_size_t,
+                                                ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clock_offset_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_double, ctypes.c_int32,
+                                                 ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clocks_lock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clocks_last_lock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                                 ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clocks_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Outcome)]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -951,6 +973,103 @@ class Gpu:
             _raise(status)
         return {"freq_div": snapshot.freq_div,
                 "deltas": {d.idx: d.delta_khz for d in snapshot.deltas[:snapshot.count]}}
+
+    # ---- clock offsets, frequency lock, clock grid (nvbackend.GPU.set_clock_offset ..) --------- #
+
+    def mem_offset_scale(self):
+        """(scale, unit): NVML mem-offset units per slider unit and the slider's unit."""
+        s = _MemOffsetScale()
+        status = load().dc_gpu_mem_offset_scale(self._handle, ctypes.byref(s))
+        if status != DC_OK:
+            _raise(status)
+        return s.scale, _text(s.unit)
+
+    def memory_offset_step_units(self):
+        return load().dc_gpu_memory_offset_step_units(self._handle)
+
+    def clock_step_khz(self):
+        """This card's core-clock grid in kHz (VF_STEP_KHZ when it cannot be measured)."""
+        step, measured = ctypes.c_uint32(), ctypes.c_int32()
+        status = load().dc_gpu_clock_step_khz(self._handle, ctypes.byref(step), ctypes.byref(measured))
+        if status != DC_OK:
+            _raise(status)
+        return step.value
+
+    def step_is_measured(self):
+        step, measured = ctypes.c_uint32(), ctypes.c_int32()
+        status = load().dc_gpu_clock_step_khz(self._handle, ctypes.byref(step), ctypes.byref(measured))
+        if status != DC_OK:
+            _raise(status)
+        return bool(measured.value)
+
+    def max_rise_khz(self):
+        khz = ctypes.c_uint32()
+        status = load().dc_gpu_max_rise_khz(self._handle, ctypes.byref(khz))
+        if status != DC_OK:
+            _raise(status)
+        return khz.value
+
+    def lockable_clocks_by_mem(self):
+        """[(mem_mhz, [graphics clocks])], one row per memory clock that answers."""
+        count = ctypes.c_size_t()
+        status = load().dc_gpu_lockable_clocks(self._handle, None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        rows = (_ClockRow * max(1, count.value))()
+        status = load().dc_gpu_lockable_clocks(self._handle, rows, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return [(row.mem_mhz, list(row.graphics[:min(row.count, 512)])) for row in rows[:count.value]]
+
+    def set_clock_offset(self, ctype, mhz, preserve_curve=True):
+        """ctype 0 = core (MHz, snapped to this card's grid), 2 = memory (true MHz for a known GDDR
+        type, else effective). The Python-type checks stay here; the core does the rest."""
+        if type(preserve_curve) is not bool:
+            return False, "preserve_curve must be a bool"
+        if type(ctype) is not int or ctype not in (0, 2):
+            return False, "clock offset type must be 0 (core) or 2 (memory)"
+        if type(mhz) not in (int, float):
+            return False, "clock offset must be a finite number, not a bool or string"
+        try:
+            finite = math.isfinite(mhz)
+        except OverflowError:
+            finite = False
+        if not finite:
+            return False, "clock offset must be a finite number"
+        if not -(1 << 31) <= mhz < (1 << 31):
+            return False, "clock offset exceeds the driver's signed 32-bit range"
+        outcome = _Outcome()
+        status = load().dc_gpu_clock_offset_set(self._handle, ctype, float(mhz), 1 if preserve_curve else 0,
+                                                ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def lock_gpu_clocks(self, mn_mhz, mx_mhz):
+        outcome = _Outcome()
+        status = load().dc_gpu_clocks_lock(self._handle, int(mn_mhz), int(mx_mhz), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def last_clock_lock_request(self):
+        low, high = ctypes.c_uint32(), ctypes.c_uint32()
+        status = load().dc_gpu_clocks_last_lock(self._handle, ctypes.byref(low), ctypes.byref(high))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return (low.value, high.value)
+
+    def reset_gpu_clocks(self):
+        return self._reset_gpu_clocks()
+
+    def _reset_gpu_clocks(self, allow_pascal_noop=False):
+        outcome = _Outcome()
+        status = load().dc_gpu_clocks_reset(self._handle, 1 if allow_pascal_noop else 0, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
 
 
 def _fill_snapshot_row(row, old):
