@@ -68,6 +68,11 @@ if(DRUTA_SANITIZE)
     target_link_options(druta_options INTERFACE -fsanitize=address,undefined)
   endif()
 endif()
+if(DRUTA_FUZZ)
+  # Coverage and comparison tracing inside the core itself, not just the harness:
+  # without this libFuzzer never learns the packet sizes and command words.
+  target_compile_options(druta_options INTERFACE -fsanitize=fuzzer-no-link)
+endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
@@ -77,6 +82,8 @@ add_library(drutacore_impl STATIC
   src/backend/nvapi.cpp
   src/backend/nvml.cpp
   src/backend/telemetry.cpp
+  src/backend/vflock.cpp
+  src/backend/voltage.cpp
   src/core/rail_transport.cpp
   src/core/sleep.cpp
   src/core/slot.cpp
