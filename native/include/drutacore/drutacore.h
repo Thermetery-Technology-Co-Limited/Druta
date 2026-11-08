@@ -45,6 +45,7 @@ enum {
     DC_E_MASK = -5,          /* rail mask selects no rail or an unsupported one */
     DC_E_RECORDS = -6,       /* records do not match the rail mask exactly */
     DC_E_RANGE = -7,         /* a value is outside its allowed range */
+    DC_E_UNAVAILABLE = -8,   /* the adapter does not provide this value (Python's None) */
 };
 
 /* The ABI version this library implements (DC_ABI_VERSION of its header). */
@@ -265,6 +266,85 @@ typedef struct dc_capabilities {
 
 /* The non-identity keys of GPU.static. */
 DC_API dc_status DC_CALL dc_gpu_capabilities_get(dc_gpu* gpu, dc_capabilities* out);
+
+
+/* ---- fan control (nvbackend.GPU.read_fan_control_state .. restore_fan_control_state) --------- */
+
+/* One fan's requested level and policy (not its RPM): what Undo restores. */
+typedef struct dc_fan_row {
+    uint32_t id;              /* NVML index, classic cooler index, or client cooler id */
+    uint32_t level;           /* requested duty % */
+    uint32_t policy;          /* NVML 0/1, classic 1/2/4/8/16, client mode 0/1 */
+    uint32_t default_policy;  /* the automatic policy this fan returns to */
+    int32_t manual;
+    uint32_t min, max;        /* duty range the control accepts */
+    int32_t has_rpm;
+    uint32_t rpm;
+} dc_fan_row;
+
+typedef struct dc_fan_state {
+    uint32_t size;            /* sizeof(dc_fan_state), set by the caller */
+    char source[16];          /* "nvml", "nvapi_cooler" or "nvapi_client" */
+    uint32_t count;
+    dc_fan_row fans[32];
+} dc_fan_state;
+
+/* read_fan_control_state: DC_E_UNAVAILABLE when no interface reports requested levels. */
+DC_API dc_status DC_CALL dc_gpu_fan_state_get(dc_gpu* gpu, dc_fan_state* out);
+
+/* read_fan_manual: *manual is 1 or 0 when every fan shares that policy; DC_E_UNAVAILABLE for unknown/mixed. */
+DC_API dc_status DC_CALL dc_gpu_fan_manual_get(dc_gpu* gpu, int32_t* manual);
+
+typedef struct dc_fan_capabilities {
+    uint32_t size;
+    int32_t manual;           /* a manual duty can be requested */
+    int32_t automatic;        /* the automatic policy can be restored */
+    char source[16];          /* the interface the writers will use */
+    uint32_t min, max;
+} dc_fan_capabilities;
+
+/* fan_capabilities: the shared view of UI, profiles and the writers. */
+DC_API dc_status DC_CALL dc_gpu_fan_capabilities_get(dc_gpu* gpu, dc_fan_capabilities* out);
+
+/* A writer's (ok, message) result. DC_OK means the outcome was produced; ok says whether it succeeded. */
+typedef struct dc_outcome {
+    int32_t ok;
+    char message[4096];
+} dc_outcome;
+
+/* set_fan(percent): every fan to a manual duty through NVML, or the NVAPI coolers. */
+DC_API dc_status DC_CALL dc_gpu_fan_set(dc_gpu* gpu, int32_t percent, dc_outcome* out);
+
+/* reset_fan: every fan back to its automatic policy. */
+DC_API dc_status DC_CALL dc_gpu_fan_reset(dc_gpu* gpu, dc_outcome* out);
+
+/* A saved fan row as the caller found it. The has_* / level_valid flags carry
+ * what the Python snapshot checks see, so refusals keep their exact text and order. */
+typedef struct dc_fan_snapshot_row {
+    int32_t has_manual;       /* "manual" is a bool */
+    int32_t manual;
+    int32_t has_id;           /* "id" is an integer */
+    uint32_t id;
+    int32_t level_valid;      /* "level" is an integer-valued number in 0..100 */
+    int32_t level;
+    int32_t has_policy;       /* "policy" is an integer */
+    uint32_t policy;
+} dc_fan_snapshot_row;
+
+typedef struct dc_fan_snapshot {
+    uint32_t size;
+    int32_t is_mapping;       /* the snapshot was a mapping at all */
+    char source[16];          /* "" when absent or not text */
+    uint32_t count;           /* rows in the snapshot; only the first 32 are carried, and more never match a card */
+    dc_fan_snapshot_row fans[32];
+} dc_fan_snapshot;
+
+/* restore_fan_control_state: requested duty and policy of every fan, through the current bindings. */
+DC_API dc_status DC_CALL dc_gpu_fan_restore(dc_gpu* gpu, const dc_fan_snapshot* state, dc_outcome* out);
+
+/* Test seam: replace the bounded wait inside readback loops. NULL restores the real sleep. */
+typedef void(DC_CALL* dc_sleep_fn)(uint32_t milliseconds);
+DC_API void DC_CALL dc_set_sleep_hook(dc_sleep_fn hook);
 
 #ifdef __cplusplus
 }

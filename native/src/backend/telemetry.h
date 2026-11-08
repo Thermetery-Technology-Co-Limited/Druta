@@ -43,8 +43,9 @@ struct NativeFan {
 };
 
 struct NativeFanState {
-    std::string source;  // "nvapi_cooler" or "nvapi_client"
+    std::string source;  // "nvml", "nvapi_cooler" or "nvapi_client"
     std::vector<NativeFan> fans;
+    FanCoolersControl control{};  // the ClientFanCoolers getter buffer (nvapi_client only), reused by writes
 };
 
 struct FanReading {

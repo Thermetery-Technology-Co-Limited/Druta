@@ -409,6 +409,7 @@ std::optional<NativeFanState> Telemetry::native_fan_data() {
     if (by_id.size() != status.count || control_ids.size() != ctl.count) return std::nullopt;
     NativeFanState state;
     state.source = "nvapi_client";
+    state.control = ctl;
     for (std::uint32_t index = 0; index < ctl.count; ++index) {
         const FanCoolerControlEntry& row = ctl.entries[index];
         auto live = by_id.find(row.id);

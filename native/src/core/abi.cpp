@@ -9,13 +9,17 @@
 #include <cstring>
 #include <type_traits>
 #include <new>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "backend/exports.h"
+#include "backend/fan.h"
 #include "backend/gpu.h"
 #include "backend/telemetry.h"
+#include "core/mutex.h"
 #include "core/rail_transport.h"
+#include "core/sleep.h"
 #include "core/slot.h"
 
 extern "C" {
@@ -32,6 +36,7 @@ DC_API const char* DC_CALL dc_status_text(dc_status status) {
         case DC_E_MASK: return "requested_mask must select rail 0, rail 1, or both";
         case DC_E_RECORDS: return "requested_mask must exactly match the record rails";
         case DC_E_RANGE: return "value out of range";
+        case DC_E_UNAVAILABLE: return "not provided by this adapter";
         default: return "unknown status";
     }
 }
@@ -159,7 +164,13 @@ void copy_field(char* field, size_t size, const std::string& text) {
 struct dc_gpu {
     druta::backend::Gpu gpu;
     druta::backend::Telemetry telemetry;
+    std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
     explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu) {}
+    const druta::backend::StaticCapabilities& capabilities() {
+        if (!statics) statics = telemetry.read_static();
+        return *statics;
+    }
+    druta::backend::FanControl fan() { return druta::backend::FanControl(gpu, telemetry, capabilities()); }
 };
 
 DC_API void DC_CALL dc_set_export_resolver(dc_resolve_fn resolve, void* context) {
@@ -354,5 +365,114 @@ DC_API dc_status DC_CALL dc_gpu_capabilities_get(dc_gpu* handle, dc_capabilities
     *out = c;
     return DC_OK;
 }
+
+
+// ---- fan control ----------------------------------------------------------------------------------
+
+namespace {
+
+void put_outcome(const druta::backend::Outcome& outcome, dc_outcome* out) {
+    out->ok = outcome.ok ? 1 : 0;
+    DC_COPY(out->message, outcome.message);
+}
+
+void put_fan_state(const druta::backend::NativeFanState& state, dc_fan_state* out) {
+    dc_fan_state s{};
+    s.size = sizeof(dc_fan_state);
+    DC_COPY(s.source, state.source);
+    s.count = static_cast<uint32_t>(std::min<size_t>(state.fans.size(), 32));
+    for (size_t i = 0; i < s.count; ++i) {
+        const druta::backend::NativeFan& fan = state.fans[i];
+        dc_fan_row& row = s.fans[i];
+        row.id = fan.id;
+        row.level = fan.level;
+        row.policy = fan.policy;
+        row.default_policy = fan.default_policy;
+        row.manual = fan.manual ? 1 : 0;
+        row.min = fan.min;
+        row.max = fan.max;
+        row.has_rpm = fan.rpm ? 1 : 0;
+        row.rpm = fan.rpm.value_or(0);
+    }
+    *out = s;
+}
+
+}  // namespace
+
+DC_API dc_status DC_CALL dc_gpu_fan_state_get(dc_gpu* handle, dc_fan_state* out) {
+    if (!handle || !out || out->size != sizeof(dc_fan_state)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    std::optional<druta::backend::NativeFanState> state = handle->fan().read_fan_control_state();
+    if (!state) return DC_E_UNAVAILABLE;
+    put_fan_state(*state, out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_fan_manual_get(dc_gpu* handle, int32_t* manual) {
+    if (!handle || !manual) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    std::optional<bool> value = handle->fan().read_fan_manual();
+    if (!value) return DC_E_UNAVAILABLE;
+    *manual = *value ? 1 : 0;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_fan_capabilities_get(dc_gpu* handle, dc_fan_capabilities* out) {
+    if (!handle || !out || out->size != sizeof(dc_fan_capabilities)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    druta::backend::FanCapabilities caps = handle->fan().fan_capabilities();
+    dc_fan_capabilities c{};
+    c.size = sizeof(dc_fan_capabilities);
+    c.manual = caps.manual ? 1 : 0;
+    c.automatic = caps.automatic ? 1 : 0;
+    DC_COPY(c.source, caps.source);
+    c.min = caps.min;
+    c.max = caps.max;
+    *out = c;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_fan_set(dc_gpu* handle, int32_t percent, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->fan().set_fan(percent), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_fan_reset(dc_gpu* handle, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->fan().reset_fan(), out);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_fan_restore(dc_gpu* handle, const dc_fan_snapshot* state, dc_outcome* out) {
+    if (!handle || !state || !out || state->size != sizeof(dc_fan_snapshot)) return DC_E_ARGUMENT;
+    if (!state->is_mapping) {
+        // Python: "if not current or not isinstance(state, dict)" — the same refusal either way.
+        put_outcome({false, "fan control state unavailable"}, out);
+        return DC_OK;
+    }
+    druta::backend::FanSnapshot snapshot;
+    snapshot.source.assign(state->source, strnlen(state->source, sizeof(state->source)));
+    snapshot.fans.resize(state->count);  // rows past 32 stay default: a count no card has is refused first
+    for (size_t i = 0; i < std::min<size_t>(state->count, 32); ++i) {
+        const dc_fan_snapshot_row& in = state->fans[i];
+        druta::backend::FanSnapshotRow& row = snapshot.fans[i];
+        row.has_manual = in.has_manual != 0;
+        row.manual = in.manual != 0;
+        row.has_id = in.has_id != 0;
+        row.id = in.id;
+        row.level_valid = in.level_valid != 0;
+        row.level = in.level;
+        row.has_policy = in.has_policy != 0;
+        row.policy = in.policy;
+    }
+    druta::LockGuard guard(handle->gpu.lock());
+    put_outcome(handle->fan().restore_fan_control_state(snapshot), out);
+    return DC_OK;
+}
+
+DC_API void DC_CALL dc_set_sleep_hook(dc_sleep_fn hook) { druta::set_sleep_hook(hook); }
 
 }  // extern "C"

@@ -13,11 +13,7 @@
 #include <memory>
 #include <string>
 
-#if defined(_WIN32)
-#define DRUTA_CDECL __cdecl
-#else
-#define DRUTA_CDECL
-#endif
+#include "core/calling.h"
 
 namespace druta::backend {
 

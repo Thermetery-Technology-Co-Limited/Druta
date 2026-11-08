@@ -34,6 +34,7 @@ DC_E_UNRECOGNIZED = -4
 DC_E_MASK = -5
 DC_E_RECORDS = -6
 DC_E_RANGE = -7
+DC_E_UNAVAILABLE = -8
 
 
 class NativeUnavailable(ImportError):
@@ -131,8 +132,40 @@ class _Capabilities(ctypes.Structure):
 _C_BITS = ["pl_min_mw", "pl_max_mw", "pl_def_mw", "gfx_min", "gfx_max", "fan_min", "fan_max", "mem_type_id", "mem_div"]
 
 
+class _FanRow(ctypes.Structure):
+    _fields_ = [("id", ctypes.c_uint32), ("level", ctypes.c_uint32), ("policy", ctypes.c_uint32),
+                ("default_policy", ctypes.c_uint32), ("manual", ctypes.c_int32), ("min", ctypes.c_uint32),
+                ("max", ctypes.c_uint32), ("has_rpm", ctypes.c_int32), ("rpm", ctypes.c_uint32)]
+
+
+class _FanState(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("source", ctypes.c_char * 16), ("count", ctypes.c_uint32),
+                ("fans", _FanRow * 32)]
+
+
+class _FanCapabilities(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("manual", ctypes.c_int32), ("automatic", ctypes.c_int32),
+                ("source", ctypes.c_char * 16), ("min", ctypes.c_uint32), ("max", ctypes.c_uint32)]
+
+
+class _Outcome(ctypes.Structure):
+    _fields_ = [("ok", ctypes.c_int32), ("message", ctypes.c_char * 4096)]
+
+
+class _FanSnapshotRow(ctypes.Structure):
+    _fields_ = [("has_manual", ctypes.c_int32), ("manual", ctypes.c_int32), ("has_id", ctypes.c_int32),
+                ("id", ctypes.c_uint32), ("level_valid", ctypes.c_int32), ("level", ctypes.c_int32),
+                ("has_policy", ctypes.c_int32), ("policy", ctypes.c_uint32)]
+
+
+class _FanSnapshot(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("is_mapping", ctypes.c_int32), ("source", ctypes.c_char * 16),
+                ("count", ctypes.c_uint32), ("fans", _FanSnapshotRow * 32)]
+
+
 # resolve(context, library, name) -> function pointer or NULL (the test seam)
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
+SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
 
 _SIGNATURES = {
     "dc_set_export_resolver": (None, [RESOLVER, ctypes.c_void_p]),
@@ -146,6 +179,13 @@ _SIGNATURES = {
     "dc_gpu_architecture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
     "dc_gpu_read_telemetry": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Telemetry)]),
     "dc_gpu_capabilities_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Capabilities)]),
+    "dc_gpu_fan_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanState)]),
+    "dc_gpu_fan_manual_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_fan_capabilities_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanCapabilities)]),
+    "dc_gpu_fan_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_fan_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_fan_restore": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanSnapshot), ctypes.POINTER(_Outcome)]),
+    "dc_set_sleep_hook": (None, [SLEEP_HOOK]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -390,6 +430,22 @@ def set_export_resolver(resolve):
     library.dc_set_export_resolver(_resolver_keepalive, None)
 
 
+_sleep_keepalive = None
+
+
+def set_sleep_hook(hook):
+    """Replace the core's bounded wait inside readback loops (tests). hook(ms)
+    is called instead of sleeping; None restores the real sleep."""
+    global _sleep_keepalive
+    library = load()
+    if hook is None:
+        library.dc_set_sleep_hook(SLEEP_HOOK(0))
+        _sleep_keepalive = None
+        return
+    _sleep_keepalive = SLEEP_HOOK(hook)
+    library.dc_set_sleep_hook(_sleep_keepalive)
+
+
 def _text(field):
     return field.decode(errors="replace")
 
@@ -564,3 +620,101 @@ class Gpu:
         if "priv_clocks" in present:
             d["priv_clocks"] = list(t.priv_clocks)
         return d
+
+    # ---- fan control (nvbackend.GPU.read_fan_control_state .. restore_fan_control_state) -------- #
+
+    def read_fan_control_state(self):
+        """Requested levels/policies per fan, separate from spinning RPM, or None."""
+        state = _FanState()
+        state.size = ctypes.sizeof(_FanState)
+        status = load().dc_gpu_fan_state_get(self._handle, ctypes.byref(state))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        fans = []
+        for row in state.fans[:state.count]:
+            fan = {"id": row.id, "level": row.level, "policy": row.policy, "default_policy": row.default_policy,
+                   "manual": bool(row.manual), "min": row.min, "max": row.max}
+            if row.has_rpm:
+                fan["rpm"] = row.rpm
+            fans.append(fan)
+        return {"source": _text(state.source), "fans": fans}
+
+    def read_fan_manual(self):
+        """True/False when every fan shares that policy; None for unknown/mixed."""
+        value = ctypes.c_int32()
+        status = load().dc_gpu_fan_manual_get(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return bool(value.value)
+
+    def fan_capabilities(self):
+        """Capabilities shared by UI, profiles, and the writer entry points."""
+        c = _FanCapabilities()
+        c.size = ctypes.sizeof(_FanCapabilities)
+        status = load().dc_gpu_fan_capabilities_get(self._handle, ctypes.byref(c))
+        if status != DC_OK:
+            _raise(status)
+        return {"manual": bool(c.manual), "auto": bool(c.automatic), "source": _text(c.source),
+                "min": c.min, "max": c.max}
+
+    @staticmethod
+    def _outcome(outcome):
+        return bool(outcome.ok), outcome.message.decode(errors="replace")
+
+    def set_fan(self, pct):
+        outcome = _Outcome()
+        status = load().dc_gpu_fan_set(self._handle, int(pct), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def reset_fan(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_fan_reset(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def restore_fan_control_state(self, state):
+        """Restore each fan's requested duty and policy using current bindings.
+
+        The snapshot is nvbackend's dict; its shape checks travel as flags so
+        the core refuses with the same text, in the same order."""
+        snapshot = _FanSnapshot()
+        snapshot.size = ctypes.sizeof(_FanSnapshot)
+        snapshot.is_mapping = isinstance(state, dict)
+        if snapshot.is_mapping:
+            source = state.get("source")
+            snapshot.source = source.encode() if isinstance(source, str) else b""
+            wanted = state.get("fans")
+            if isinstance(wanted, list):
+                snapshot.count = len(wanted)
+                for row, old in zip(snapshot.fans, wanted):
+                    _fill_snapshot_row(row, old)
+        outcome = _Outcome()
+        status = load().dc_gpu_fan_restore(self._handle, ctypes.byref(snapshot), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+
+def _fill_snapshot_row(row, old):
+    if not isinstance(old, dict):
+        return
+    manual = old.get("manual")
+    row.has_manual = isinstance(manual, bool)
+    row.manual = bool(manual) if row.has_manual else 0
+    fan_id = old.get("id")
+    row.has_id = _is_plain_int(fan_id) and 0 <= fan_id <= 0xFFFFFFFF
+    row.id = fan_id if row.has_id else 0
+    level = old.get("level")
+    row.level_valid = (not isinstance(level, bool) and isinstance(level, (int, float))
+                       and float(level).is_integer() and 0 <= level <= 100)
+    row.level = int(level) if row.level_valid else 0
+    policy = old.get("policy")
+    row.has_policy = _is_plain_int(policy) and 0 <= policy <= 0xFFFFFFFF
+    row.policy = policy if row.has_policy else 0

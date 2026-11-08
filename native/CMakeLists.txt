@@ -30,6 +30,7 @@ endif()
 
 option(DRUTA_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (Linux/clang/gcc)" OFF)
 option(DRUTA_WERROR "Treat warnings as errors" ON)
+option(DRUTA_FUZZ "Build the libFuzzer targets (clang only)" OFF)
 
 add_library(druta_options INTERFACE)
 if(MSVC)
@@ -71,11 +72,13 @@ endif()
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
   src/backend/exports.cpp
+  src/backend/fan.cpp
   src/backend/gpu.cpp
   src/backend/nvapi.cpp
   src/backend/nvml.cpp
   src/backend/telemetry.cpp
   src/core/rail_transport.cpp
+  src/core/sleep.cpp
   src/core/slot.cpp
 )
 if(NOT WIN32)
@@ -107,3 +110,11 @@ enable_testing()
 add_executable(drutacore-selftest src/core/selftest.cpp)
 target_link_libraries(drutacore-selftest PRIVATE drutacore_impl)
 add_test(NAME drutacore-selftest COMMAND drutacore-selftest)
+
+# ---- fuzzers (clang + libFuzzer; run native/fuzz/run.sh) --------------------------------------
+if(DRUTA_FUZZ)
+  add_executable(rail_transport_fuzz fuzz/rail_transport_fuzz.cpp)
+  target_link_libraries(rail_transport_fuzz PRIVATE drutacore_impl)
+  target_compile_options(rail_transport_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(rail_transport_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+endif()
