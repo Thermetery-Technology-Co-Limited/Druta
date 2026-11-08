@@ -45,7 +45,8 @@ enum {
     DC_E_MASK = -5,          /* rail mask selects no rail or an unsupported one */
     DC_E_RECORDS = -6,       /* records do not match the rail mask exactly */
     DC_E_RANGE = -7,         /* a value is outside its allowed range */
-    DC_E_UNAVAILABLE = -8,   /* the adapter does not provide this value (Python's None) */
+    DC_E_UNAVAILABLE = -8,     /* the adapter does not provide this value (Python's None) */
+    DC_E_FAILED = -9           /* the operation failed; the dc_error passed says how */
 };
 
 /* The ABI version this library implements (DC_ABI_VERSION of its header). */
@@ -520,9 +521,175 @@ DC_API dc_status DC_CALL dc_gpu_clocks_last_lock(dc_gpu* gpu, uint32_t* min_mhz,
 /* reset_gpu_clocks / _reset_gpu_clocks(allow_pascal_noop). */
 DC_API dc_status DC_CALL dc_gpu_clocks_reset(dc_gpu* gpu, int32_t allow_pascal_noop, dc_outcome* out);
 
+/* ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) ------ */
+
+#define DC_CLKDOM_SLOTS 32
+
+/* nvbackend.ClkDomLayout: the validated layout of this card, or DC_E_UNAVAILABLE (Python None). */
+typedef struct dc_clkdom_layout {
+    uint32_t size;
+    char name[16];
+    uint32_t version;
+    uint32_t block_size;
+    uint32_t header;
+    uint32_t stride;
+    uint32_t mask_dword;
+    uint32_t mode;
+    uint32_t freq_khz;
+    int32_t has_nvvdd_uv;
+    uint32_t nvvdd_uv;
+    int32_t has_msvdd_uv;
+    uint32_t msvdd_uv;
+} dc_clkdom_layout;
+
+/* GPU._clkdom_capability_error: (kind, text), has_error == 0 is None. */
+typedef struct dc_clkdom_error {
+    uint32_t size;
+    int32_t has_error;
+    char kind[32];
+    char text[256];
+} dc_clkdom_error;
+
+/* One entry of read_clk_domain_offsets: {mode, freq_khz (logical sign), msvdd_uv or None}. */
+typedef struct dc_clkdom_request {
+    uint32_t domain;
+    int32_t mode;
+    int32_t freq_khz;
+    int32_t has_msvdd_uv;
+    int32_t msvdd_uv;
+} dc_clkdom_request;
+
+typedef struct dc_clkdom_requests {
+    uint32_t size;
+    uint32_t count;
+    dc_clkdom_request rows[DC_CLKDOM_SLOTS];
+    char error[256];  /* set with DC_E_UNAVAILABLE: Python's (None, err) */
+} dc_clkdom_requests;
+
+typedef struct dc_clkdom_pair {
+    uint32_t control;
+    uint32_t domain;
+} dc_clkdom_pair;
+
+/* One entry of clkdom_measurements, in Python's dict order. has_value == 0 is None. */
+typedef struct dc_clkdom_measurement {
+    char name[16];
+    int32_t has_value;
+    uint32_t value_khz;
+} dc_clkdom_measurement;
+
+typedef struct dc_clkdom_probe_error {
+    uint32_t domain;
+    char text[64];
+} dc_clkdom_probe_error;
+
+/* rail_offset_capability's record. */
+typedef struct dc_rail_offset_capability {
+    uint32_t size;
+    int32_t available;
+    int32_t has_domain;
+    int64_t domain;
+    int32_t has_value;
+    double value_mv;
+    int32_t experimental;
+    char reason[256];
+} dc_rail_offset_capability;
+
+DC_API int32_t DC_CALL dc_gpu_clkdom_ok(dc_gpu* gpu);
+DC_API int32_t DC_CALL dc_gpu_clkdom_is_blackwell(dc_gpu* gpu);
+/* clkdom_domains: the accepted control indices (probed once, one bit at a time). */
+DC_API dc_status DC_CALL dc_gpu_clkdom_domains(dc_gpu* gpu, uint32_t* domains, size_t capacity, size_t* count);
+DC_API dc_status DC_CALL dc_gpu_clkdom_layout(dc_gpu* gpu, dc_clkdom_layout* out);
+DC_API dc_status DC_CALL dc_gpu_clkdom_capability_error(dc_gpu* gpu, dc_clkdom_error* out);
+DC_API dc_status DC_CALL dc_gpu_clkdom_probe_errors(dc_gpu* gpu, dc_clkdom_probe_error* errors, size_t capacity,
+                                                    size_t* count);
+DC_API int32_t DC_CALL dc_gpu_clkdom_offset_read_pending(dc_gpu* gpu);
+DC_API dc_status DC_CALL dc_gpu_clkdom_controls_for_ui(dc_gpu* gpu, uint32_t* controls, size_t capacity,
+                                                       size_t* count);
+DC_API dc_status DC_CALL dc_gpu_clkdom_control_polarity(dc_gpu* gpu, int64_t control, int32_t* polarity);
+DC_API dc_status DC_CALL dc_gpu_clkdom_control_label(dc_gpu* gpu, int64_t control, char* buffer, size_t size,
+                                                     size_t* needed);
+/* clkdom_step_mhz: DC_E_UNAVAILABLE is Python None. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_step_mhz(dc_gpu* gpu, uint32_t* step_mhz);
+/* Tri-state answers: DC_E_UNAVAILABLE is Python None, else *out is 0/1. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_delta_inert(dc_gpu* gpu, int32_t has_domain, int64_t domain, int32_t* out);
+DC_API dc_status DC_CALL dc_gpu_clkdom_delta_clears_ceiling(dc_gpu* gpu, int64_t domain, int32_t* out);
+DC_API int32_t DC_CALL dc_gpu_clkdom_offset_slider_offered(dc_gpu* gpu, int64_t control);
+/* clkdom_pairing(rows): has_rows == 0 reads a snapshot; otherwise live_domains are the rows whose
+ * prog_mhz is non-zero. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_pairing(dc_gpu* gpu, int32_t has_rows, const uint32_t* live_domains,
+                                               size_t live_count, dc_clkdom_pair* pairs, size_t capacity,
+                                               size_t* count);
+DC_API dc_status DC_CALL dc_gpu_clkdom_measurements(dc_gpu* gpu, dc_clkdom_measurement* rows, size_t capacity,
+                                                    size_t* count);
+/* read_clk_domain_offsets: DC_E_UNAVAILABLE with out->error for Python's (None, err). */
+DC_API dc_status DC_CALL dc_gpu_clkdom_requests(dc_gpu* gpu, dc_clkdom_requests* out);
+/* read_xbar_offset_mhz: DC_E_UNAVAILABLE is Python None. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_xbar_offset_mhz(dc_gpu* gpu, double* mhz);
+DC_API dc_status DC_CALL dc_gpu_clkdom_offset_set(dc_gpu* gpu, int64_t domain, double mhz, dc_outcome* out);
+DC_API dc_status DC_CALL dc_gpu_rail_offset_capability(dc_gpu* gpu, int64_t rail, int32_t has_domain,
+                                                       int64_t domain, dc_rail_offset_capability* out);
+/* read_rail_offset_mv: DC_E_UNAVAILABLE is Python None. */
+DC_API dc_status DC_CALL dc_gpu_rail_offset_read(dc_gpu* gpu, int64_t domain, int64_t rail, double* mv);
+DC_API dc_status DC_CALL dc_gpu_rail_offset_set(dc_gpu* gpu, double mv, int64_t domain, int64_t rail,
+                                                dc_outcome* out);
+DC_API dc_status DC_CALL dc_gpu_msvdd_offset_reset(dc_gpu* gpu, int64_t domain, dc_outcome* out);
+/* GPU.msvdd_write_enabled / voltage_xoc_enabled: the UI's opt-ins. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_flags_set(dc_gpu* gpu, int32_t msvdd_write_enabled,
+                                                 int32_t voltage_xoc_enabled);
+DC_API dc_status DC_CALL dc_gpu_clkdom_flags_get(dc_gpu* gpu, int32_t* msvdd_write_enabled,
+                                                 int32_t* voltage_xoc_enabled);
+/* retry_clock_capabilities(now): has_now == 0 uses a monotonic clock; *changed is the bool. */
+DC_API dc_status DC_CALL dc_gpu_retry_clock_capabilities(dc_gpu* gpu, int32_t has_now, double now,
+                                                         int32_t* changed);
+/* refresh_capabilities: the clock-control discovery caches; previous receives the old error. */
+DC_API dc_status DC_CALL dc_gpu_refresh_capabilities(dc_gpu* gpu, dc_clkdom_error* previous);
+
+/* ---- RM escape transport, layer 0 (nvbackend.GPU._legacy_clk_gdi / _legacy_clk_escape) -------- */
+
+/* The error model across the ABI (DESIGN-TRANSPORT.md 3.6). */
+enum {
+    DC_ERR_NONE = 0,
+    DC_ERR_TRANSIENT = 1,   /* ValueError after touching the driver: a failed read; a retry may recover */
+    DC_ERR_INVALID = 2,     /* ValueError raised before the driver was touched */
+    DC_ERR_UNSUPPORTED = 3  /* CurrentLimitUnsupported: a fixed property of this image */
+};
+typedef struct dc_error {
+    uint32_t size;           /* sizeof(dc_error), set by the caller */
+    int32_t kind;            /* DC_ERR_* */
+    int32_t fixed;           /* ValueError.fixed */
+    int32_t has_ntstatus;    /* 0 when no escape was issued (Python prints "None") */
+    int32_t ntstatus;        /* signed, as ctypes c_long reports it */
+    uint32_t rm_status;      /* packet word 16 after the escape */
+    char message[1024];      /* str(exc) of the Python path */
+} dc_error;
+
+typedef struct dc_escape_capability {
+    uint32_t size;
+    int32_t gdi32_loaded, escape, query_adapter_info, close_adapter;
+    int32_t enum_adapters2, enum_adapters, open_from_display_name, open_from_hdc;
+    int32_t complete;
+    int32_t method;          /* 0 none, 1 enum2, 2 enum, 3 gdi display name, 4 hdc */
+    uint32_t patch_bytes;    /* 14 on x64, 5 on x86: the hook's overwrite */
+    char detail[256];        /* "" when complete, else what is missing */
+} dc_escape_capability;
+/* Never fails for a missing capability: the struct says what is missing. */
+DC_API dc_status DC_CALL dc_escape_capability_get(dc_escape_capability* out);
+
+typedef struct dc_escape_fields {
+    uint32_t hAdapter, hDevice, Type, Flags, hContext;
+} dc_escape_fields;
+
+/* _legacy_clk_escape(packet, fields): packet is used in place; fields.hAdapter is replaced by the adapter
+ * at the paired PCI slot. DC_OK and *ntstatus when the escape was issued; DC_E_UNAVAILABLE and *error
+ * (Python's None) when it was not. Every enumerated adapter handle is closed before returning. */
+DC_API dc_status DC_CALL dc_rm_escape_raw(dc_gpu* gpu, uint8_t* packet, size_t size,
+                                          const dc_escape_fields* fields, int32_t* ntstatus, dc_error* error);
+
 #ifdef __cplusplus
 }
 #endif
 
+#include "drutacore/clkdom.h"  /* private clock-domain rows and names */
 #include "drutacore/vfplan.h"  /* the pure V/F planners */
 #endif /* DRUTACORE_H */

@@ -52,13 +52,37 @@ core, then compares results, driver call sequences and messages.
 | V/F point lock and frequency-lock readers | `GPU.set_vf_lock`, `recover_vf_lock`, `clear_vf_lock`, `vf_lock_self_test`, `read_vf_lock*`, `read_clk_lock*` | `dc_gpu_vf_lock_*`, `dc_gpu_clk_lock_*` | `tests/test_native_vflock.py` |
 | V/F curve | `GPU.vfp_layout`, `read_vf_curve`, `read_vfp_other_rows`, `apply_vf_deltas`, `reset_vf_curve`, `_vf_delta_snapshot` | `dc_gpu_vf_layout`, `dc_gpu_vf_curve_*`, `dc_gpu_vf_other_rows`, `dc_gpu_vf_deltas_apply`, `dc_gpu_vf_delta_snapshot` | `tests/test_native_vfcurve.py` |
 | Clock offsets, frequency lock, clock grid | `GPU.set_clock_offset`, `_set_pstate20_offset`, `_keep_vf_shape`, `clock_step_khz`, `lockable_clocks_by_mem`, `lock_gpu_clocks`, `reset_gpu_clocks` | `dc_gpu_clock_offset_set`, `dc_gpu_clocks_*`, `dc_gpu_clock_step_khz`, `dc_gpu_lockable_clocks`, `dc_gpu_mem_offset_scale` | `tests/test_native_clocks.py` |
+| Pure V/F planners | `GPU.peak_info`, `resolve_vf_point`, `compute_deflatten`, `evaluate_curve_law`, `predict_curve`, `cascade_meta`, `compute_hard_deflatten`, `compute_ramp`, `compute_rephase` | `dc_vfp_*` (`drutacore/vfplan.h`, bound by `druta.native_vfplan`) | `tests/test_native_vfplan.py` |
+| Private clock-domain rows and names | `GPU.read_clock_domains`, `classify_domain_names` | `dc_gpu_clock_domains`, `dc_clock_domains_classify` (`drutacore/clkdom.h`) | `tests/test_native_clkdom_names.py` |
+| Clock-domain control block and rail offsets | `GPU.clkdom_*`, `read_clk_domain_offsets`, `set_clk_domain_offset`, `rail_offset_capability`, `read_rail_offset_mv`, `set_rail_offset_mv`, `reset_msvdd_offset_mv`, `retry_clock_capabilities`, `refresh_capabilities` | `dc_gpu_clkdom_*`, `dc_gpu_rail_offset_*`, `dc_gpu_msvdd_offset_reset`, `dc_gpu_retry_clock_capabilities`, `dc_gpu_refresh_capabilities` | `tests/test_native_clkdom.py` |
+| RM escape transport, layer 0: gdi32 capability and raw escape | `GPU._legacy_clk_gdi`, `_legacy_clk_escape` | `dc_escape_capability_get`, `dc_rm_escape_raw` (bound as `native.escape_capability` and `Gpu._legacy_clk_escape`) | `tests/test_native_transport.py` |
 
-Test seams: `dc_set_export_resolver` serves driver exports from the test
-process instead of the DLLs, and `dc_set_sleep_hook` replaces the bounded
-waits inside readback loops. Both are set through `druta.native`.
+Test seams: `dc_set_export_resolver` serves driver exports (libraries
+`nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
+`dc_set_sleep_hook` replaces the bounded waits inside readback loops. Both are
+set through `druta.native`.
 
-Not yet ported: the pure curve planners (`peak_info`, `resolve_vf_point`,
-`compute_deflatten` and friends; in progress), power limit, clock-domain
-naming, the RM escape transport and the controls built on it
-(designed in `DESIGN-TRANSPORT.md`; the Turing legacy clock-lock fallback of
-`read_clk_lock*` waits for it), the GPU restart, and the front end.
+The planners refuse two things Python would compute: a NaN voltage that
+Python would have to sort (its order there is an artefact of the sort
+algorithm) and integers beyond 2^53. `clkdom_mapping_probe` and
+`clkdom_debug_report` stay in Python: they are diagnostics that write to the
+card and sample over time, which is experiment territory.
+
+The transport's layer 0 reports gdi32's `D3DKMT*` exports as a capability
+record (every export is resolved at run time; `complete` means the
+EnumAdapters2 path of main is available, an older gdi32 with only
+`D3DKMTEnumAdapters` is reported but not yet used) and issues one raw escape
+on the adapter whose PCI address matches the paired slot, closing every
+enumerated handle. Its errors carry a kind (`transient`, `invalid`,
+`unsupported`) and whether the condition is fixed for the process.
+
+Not yet ported: power limit (its NVML half is simple, its live-power half
+needs the transport), the rest of the RM escape transport and the controls
+built on it (increments 2 to 7 of `DESIGN-TRANSPORT.md`: the hook, the
+power and legacy captures, `RmTransport`; the Turing legacy clock-lock
+fallback of `read_clk_lock*` and `refresh_capabilities`'s live-power and
+rail resets wait for it), the GPU restart, and the front end.
+
+Text formatting follows Python's `:g` / `:+.2f` through the C runtime's
+`printf`; the rounding of an exact half by an old msvcrt has not been checked
+against Python's round-half-even on a legacy Windows installation.

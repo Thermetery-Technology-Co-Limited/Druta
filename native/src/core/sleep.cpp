@@ -31,4 +31,17 @@ void sleep_ms(std::uint32_t milliseconds) {
 #endif
 }
 
+double monotonic_seconds() {
+#if defined(_WIN32)
+    LARGE_INTEGER frequency, counter;
+    if (!::QueryPerformanceFrequency(&frequency) || frequency.QuadPart == 0 || !::QueryPerformanceCounter(&counter))
+        return static_cast<double>(::GetTickCount()) / 1000.0;
+    return static_cast<double>(counter.QuadPart) / static_cast<double>(frequency.QuadPart);
+#else
+    timespec ts{};
+    ::clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) / 1e9;
+#endif
+}
+
 }  // namespace druta

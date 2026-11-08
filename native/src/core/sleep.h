@@ -16,4 +16,8 @@ using SleepFn = void(DRUTA_CDECL*)(std::uint32_t milliseconds);
 void sleep_ms(std::uint32_t milliseconds);
 void set_sleep_hook(SleepFn hook);  // nullptr restores the real sleep
 
+// A monotonic clock in seconds (Python's time.monotonic()): QueryPerformanceCounter on
+// Windows (kernel32, XP and up), CLOCK_MONOTONIC elsewhere.
+double monotonic_seconds();
+
 }  // namespace druta

@@ -76,9 +76,12 @@ endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
+  src/backend/clkdom.cpp
+  src/backend/clkdom_names.cpp
   src/backend/clocks.cpp
   src/backend/exports.cpp
   src/backend/fan.cpp
+  src/backend/gdi.cpp
   src/backend/gpu.cpp
   src/backend/nvapi.cpp
   src/backend/nvml.cpp
@@ -101,6 +104,8 @@ target_link_libraries(drutacore_impl PUBLIC druta_options)
 # ---- drutacore (the C ABI shared library) ------------------------------------------------------
 add_library(drutacore SHARED
   src/core/abi.cpp
+  src/core/abi_clkdom.cpp
+  src/core/abi_transport.cpp
   src/core/abi_vfplan.cpp
 )
 target_compile_definitions(drutacore PRIVATE DRUTACORE_BUILDING=1)

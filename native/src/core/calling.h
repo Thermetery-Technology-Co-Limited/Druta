@@ -8,6 +8,8 @@
 
 #if defined(_WIN32)
 #define DRUTA_CDECL __cdecl
+#define DRUTA_STDCALL __stdcall  // the D3DKMT* entry points (NTAPI); a no-op on x64
 #else
 #define DRUTA_CDECL
+#define DRUTA_STDCALL
 #endif

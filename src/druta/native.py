@@ -36,6 +36,9 @@ DC_E_MASK = -5
 DC_E_RECORDS = -6
 DC_E_RANGE = -7
 DC_E_UNAVAILABLE = -8
+DC_E_FAILED = -9
+
+DC_ERR_NONE, DC_ERR_TRANSIENT, DC_ERR_INVALID, DC_ERR_UNSUPPORTED = 0, 1, 2, 3
 
 
 class NativeUnavailable(ImportError):
@@ -242,6 +245,81 @@ class VfpLayout:
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
 SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
 
+class _ClockDomainRow(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("name", ctypes.c_char * 24), ("grade", ctypes.c_char * 16),
+                ("kind", ctypes.c_char * 12), ("prog_khz", ctypes.c_uint32), ("meas_khz", ctypes.c_uint32),
+                ("flags", ctypes.c_uint32), ("srcid", ctypes.c_uint32), ("scale", ctypes.c_uint32),
+                ("has_prog_mhz", ctypes.c_int32), ("has_meas_mhz", ctypes.c_int32), ("has_delta_mhz", ctypes.c_int32),
+                ("prog_mhz", ctypes.c_double), ("meas_mhz", ctypes.c_double), ("delta_mhz", ctypes.c_double)]
+
+
+class _ClockDomains(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("rows", _ClockDomainRow * 32)]
+
+
+
+class _ClkDomLayout(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("name", ctypes.c_char * 16), ("version", ctypes.c_uint32),
+                ("block_size", ctypes.c_uint32), ("header", ctypes.c_uint32), ("stride", ctypes.c_uint32),
+                ("mask_dword", ctypes.c_uint32), ("mode", ctypes.c_uint32), ("freq_khz", ctypes.c_uint32),
+                ("has_nvvdd_uv", ctypes.c_int32), ("nvvdd_uv", ctypes.c_uint32), ("has_msvdd_uv", ctypes.c_int32),
+                ("msvdd_uv", ctypes.c_uint32)]
+
+
+class _ClkDomError(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("has_error", ctypes.c_int32), ("kind", ctypes.c_char * 32),
+                ("text", ctypes.c_char * 256)]
+
+
+class _ClkDomRequest(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("mode", ctypes.c_int32), ("freq_khz", ctypes.c_int32),
+                ("has_msvdd_uv", ctypes.c_int32), ("msvdd_uv", ctypes.c_int32)]
+
+
+class _ClkDomRequests(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("rows", _ClkDomRequest * 32),
+                ("error", ctypes.c_char * 256)]
+
+
+class _ClkDomPair(ctypes.Structure):
+    _fields_ = [("control", ctypes.c_uint32), ("domain", ctypes.c_uint32)]
+
+
+class _ClkDomMeasurement(ctypes.Structure):
+    _fields_ = [("name", ctypes.c_char * 16), ("has_value", ctypes.c_int32), ("value_khz", ctypes.c_uint32)]
+
+
+class _ClkDomProbeError(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("text", ctypes.c_char * 64)]
+
+
+class _RailOffsetCapability(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("available", ctypes.c_int32), ("has_domain", ctypes.c_int32),
+                ("domain", ctypes.c_int64), ("has_value", ctypes.c_int32), ("value_mv", ctypes.c_double),
+                ("experimental", ctypes.c_int32), ("reason", ctypes.c_char * 256)]
+
+
+
+class _Error(ctypes.Structure):  # dc_error
+    _fields_ = [("size", ctypes.c_uint32), ("kind", ctypes.c_int32), ("fixed", ctypes.c_int32),
+                ("has_ntstatus", ctypes.c_int32), ("ntstatus", ctypes.c_int32), ("rm_status", ctypes.c_uint32),
+                ("message", ctypes.c_char * 1024)]
+
+
+class _EscapeCapability(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
+        "gdi32_loaded", "escape", "query_adapter_info", "close_adapter", "enum_adapters2", "enum_adapters",
+        "open_from_display_name", "open_from_hdc", "complete", "method")] + [
+        ("patch_bytes", ctypes.c_uint32), ("detail", ctypes.c_char * 256)]
+
+
+class _EscapeFields(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint32) for name in ("hAdapter", "hDevice", "Type", "Flags", "hContext")]
+
+
+PRIV_CLK_WORDS = 288
+
+
 _SIGNATURES = {
     "dc_set_export_resolver": (None, [RESOLVER, ctypes.c_void_p]),
     "dc_enumerate_gpus": (ctypes.c_int32, [ctypes.POINTER(_GpuEntry), ctypes.c_size_t,
@@ -295,6 +373,59 @@ _SIGNATURES = {
     "dc_gpu_clocks_last_lock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
                                                  ctypes.POINTER(ctypes.c_uint32)]),
     "dc_gpu_clocks_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clkdom_ok": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_clkdom_is_blackwell": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_clkdom_domains": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                               ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_layout": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomLayout)]),
+    "dc_gpu_clkdom_capability_error": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomError)]),
+    "dc_gpu_clkdom_probe_errors": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomProbeError),
+                                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_offset_read_pending": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_clkdom_controls_for_ui": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                                       ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_control_polarity": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64,
+                                                        ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_clkdom_control_label": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_char_p,
+                                                     ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_step_mhz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clkdom_delta_inert": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
+                                                   ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_clkdom_delta_clears_ceiling": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64,
+                                                            ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_clkdom_offset_slider_offered": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64]),
+    "dc_gpu_clkdom_pairing": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                               ctypes.POINTER(_ClkDomPair), ctypes.c_size_t,
+                                               ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_measurements": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomMeasurement),
+                                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_requests": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomRequests)]),
+    "dc_gpu_clkdom_xbar_offset_mhz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]),
+    "dc_gpu_clkdom_offset_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_double,
+                                                  ctypes.POINTER(_Outcome)]),
+    "dc_gpu_rail_offset_capability": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int32,
+                                                       ctypes.c_int64, ctypes.POINTER(_RailOffsetCapability)]),
+    "dc_gpu_rail_offset_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64,
+                                                 ctypes.POINTER(ctypes.c_double)]),
+    "dc_gpu_rail_offset_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_double, ctypes.c_int64, ctypes.c_int64,
+                                                ctypes.POINTER(_Outcome)]),
+    "dc_gpu_msvdd_offset_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clkdom_flags_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]),
+    "dc_gpu_clkdom_flags_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                                 ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_retry_clock_capabilities": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_double,
+                                                         ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_refresh_capabilities": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomError)]),
+    "dc_escape_capability_get": (ctypes.c_int32, [ctypes.POINTER(_EscapeCapability)]),
+    "dc_rm_escape_raw": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+                                          ctypes.POINTER(_EscapeFields), ctypes.POINTER(ctypes.c_int32),
+                                          ctypes.POINTER(_Error)]),
+    "dc_gpu_clock_domains": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_int32,
+                                              ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32,
+                                              ctypes.POINTER(_ClockDomains)]),
+    "dc_clock_domains_classify": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t, ctypes.c_int32,
+                                                   ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32, ctypes.c_int32,
+                                                   ctypes.c_uint32, ctypes.POINTER(_ClockDomains)]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -688,8 +819,8 @@ class Gpu:
         """One telemetry tick with nvbackend.GPU.read()'s keys.
 
         Not yet provided by the core (the Python backend still reads them):
-        clk_domains / clkdom_offsets, the live-power fallback of
-        pl_requested_mw, the Turing legacy clock-lock fallback, nvvdd_live_mv.
+        the live-power fallback of pl_requested_mw, the Turing legacy
+        clock-lock fallback, nvvdd_live_mv.
         """
         t = _Telemetry()
         t.size = ctypes.sizeof(_Telemetry)
@@ -728,6 +859,12 @@ class Gpu:
             d["clk_lock_mhz"] = (t.clk_lock_min_mhz, t.clk_lock_max_mhz)
         if "priv_clocks" in present:
             d["priv_clocks"] = list(t.priv_clocks)
+            d["clk_domains"], d["clk_domains_err"] = self.read_clock_domains(
+                d["priv_clocks"], core_mhz=d.get("core"), mem_nvml=d.get("mem"))
+        else:
+            d["clk_domains"], d["clk_domains_err"] = None, PRIV_UNAVAIL
+        if self.clkdom_is_blackwell():
+            d["clkdom_offsets"], d["clkdom_offsets_err"] = self.read_clk_domain_offsets()
         return d
 
     # ---- fan control (nvbackend.GPU.read_fan_control_state .. restore_fan_control_state) -------- #
@@ -1070,6 +1207,449 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         return self._outcome(outcome)
+
+    # ---- RM escape transport, layer 0 (nvbackend.GPU._legacy_clk_escape) ----------------------- #
+
+    _ESCAPE_FIELDS = ("hAdapter", "hDevice", "Type", "Flags", "hContext")
+
+    def _legacy_clk_escape(self, packet, fields):
+        """Issue one raw escape with `packet` (a ctypes buffer, used in place) and the captured
+        `fields` (hAdapter is replaced by the adapter at the paired PCI slot). The NTSTATUS, or
+        None when no escape was issued; `last_escape_error` then says why."""
+        f = _EscapeFields(*(int(fields.get(name, 0)) for name in self._ESCAPE_FIELDS))
+        status, error = ctypes.c_int32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        rc = load().dc_rm_escape_raw(self._handle, ctypes.addressof(packet), ctypes.sizeof(packet), ctypes.byref(f),
+                                     ctypes.byref(status), ctypes.byref(error))
+        if rc == DC_E_UNAVAILABLE:
+            self.last_escape_error = _error_record(error)
+            return None
+        if rc != DC_OK:
+            _raise(rc)
+        self.last_escape_error = None
+        return status.value
+
+    # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
+
+    def _list_u32(self, function):
+        count = ctypes.c_size_t()
+        status = function(self._handle, None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        values = (ctypes.c_uint32 * max(1, count.value))()
+        status = function(self._handle, values, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return list(values[:count.value])
+
+    def clkdom_ok(self):
+        return bool(load().dc_gpu_clkdom_ok(self._handle))
+
+    def clkdom_is_blackwell(self):
+        return bool(load().dc_gpu_clkdom_is_blackwell(self._handle))
+
+    def clkdom_domains(self):
+        """Accepted control indices, probed one bit at a time and cached until refresh."""
+        return self._list_u32(load().dc_gpu_clkdom_domains)
+
+    def clkdom_layout(self):
+        """The validated nvbackend.ClkDomLayout for this card, or None."""
+        from .nvbackend import ClkDomLayout
+        layout = _ClkDomLayout()
+        layout.size = ctypes.sizeof(_ClkDomLayout)
+        status = load().dc_gpu_clkdom_layout(self._handle, ctypes.byref(layout))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return ClkDomLayout(name=_text(layout.name), version=layout.version, size=layout.block_size,
+                            header=layout.header, stride=layout.stride, mask_dword=layout.mask_dword,
+                            mode=layout.mode, freq_khz=layout.freq_khz,
+                            nvvdd_uv=layout.nvvdd_uv if layout.has_nvvdd_uv else None,
+                            msvdd_uv=layout.msvdd_uv if layout.has_msvdd_uv else None)
+
+    @staticmethod
+    def _error_tuple(error):
+        return (_text(error.kind), _text(error.text)) if error.has_error else None
+
+    @property
+    def _clkdom_capability_error(self):
+        error = _ClkDomError()
+        error.size = ctypes.sizeof(_ClkDomError)
+        status = load().dc_gpu_clkdom_capability_error(self._handle, ctypes.byref(error))
+        if status != DC_OK:
+            _raise(status)
+        return self._error_tuple(error)
+
+    @property
+    def _clkdom_probe_errors(self):
+        count = ctypes.c_size_t()
+        status = load().dc_gpu_clkdom_probe_errors(self._handle, None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        rows = (_ClkDomProbeError * max(1, count.value))()
+        status = load().dc_gpu_clkdom_probe_errors(self._handle, rows, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {row.domain: _text(row.text) for row in rows[:count.value]}
+
+    @property
+    def _clkdom_offset_read_pending(self):
+        return bool(load().dc_gpu_clkdom_offset_read_pending(self._handle))
+
+    def clkdom_controls_for_ui(self, rows=None):
+        return self._list_u32(load().dc_gpu_clkdom_controls_for_ui)
+
+    def clkdom_control_polarity(self, control):
+        value = ctypes.c_int32()
+        status = load().dc_gpu_clkdom_control_polarity(self._handle, int(control), ctypes.byref(value))
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    @staticmethod
+    def _table_key(value):
+        """A Python dict lookup key that equals an int, as an int; None for any other key
+        (nvbackend looks these tables up with the raw argument, so 2.0 finds 2 and "2" does not)."""
+        if isinstance(value, bool) or _is_plain_int(value):
+            return int(value)
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return None
+
+    def clkdom_control_label(self, control):
+        key = self._table_key(control)
+        if key is None:
+            return f"{'control' if self.clkdom_is_blackwell() else 'domain'} {control}"
+        buffer = ctypes.create_string_buffer(64)
+        needed = ctypes.c_size_t()
+        status = load().dc_gpu_clkdom_control_label(self._handle, key, buffer, 64, ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode()
+
+    def clkdom_step_mhz(self):
+        value = ctypes.c_uint32()
+        status = load().dc_gpu_clkdom_step_mhz(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def clkdom_delta_inert(self, domain=None):
+        key = None if domain is None else self._table_key(domain)
+        if domain is not None and key is None:
+            return None
+        value = ctypes.c_int32()
+        has = 0 if domain is None else 1
+        status = load().dc_gpu_clkdom_delta_inert(self._handle, has, 0 if domain is None else key,
+                                                  ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return bool(value.value)
+
+    def clkdom_offset_slider_offered(self, control):
+        return bool(load().dc_gpu_clkdom_offset_slider_offered(self._handle, int(control)))
+
+    def clkdom_delta_clears_ceiling(self, domain):
+        key = self._table_key(domain)
+        if key is None:
+            return None
+        value = ctypes.c_int32()
+        status = load().dc_gpu_clkdom_delta_clears_ceiling(self._handle, key, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return bool(value.value)
+
+    def clkdom_pairing(self, rows=None):
+        """{control index: private domain} for THIS card, or {} if unknown."""
+        has_rows = 0 if rows is None else 1
+        live = [r["domain"] for r in (rows or []) if r.get("prog_mhz")]
+        live_array = (ctypes.c_uint32 * max(1, len(live)))(*live)
+        function = load().dc_gpu_clkdom_pairing
+        count = ctypes.c_size_t()
+        status = function(self._handle, has_rows, live_array, len(live), None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        pairs = (_ClkDomPair * max(1, count.value))()
+        status = function(self._handle, has_rows, live_array, len(live), pairs, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {pair.control: pair.domain for pair in pairs[:count.value]}
+
+    def clkdom_measurements(self):
+        """Read-only Blackwell physical clock measurements in kHz ({} elsewhere)."""
+        rows = (_ClkDomMeasurement * 8)()
+        count = ctypes.c_size_t()
+        status = load().dc_gpu_clkdom_measurements(self._handle, rows, 8, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {_text(row.name): (row.value_khz if row.has_value else None) for row in rows[:count.value]}
+
+    def read_clk_domain_offsets(self):
+        """({domain: {mode, freq_khz, msvdd_uv}}, err)."""
+        out = _ClkDomRequests()
+        out.size = ctypes.sizeof(_ClkDomRequests)
+        status = load().dc_gpu_clkdom_requests(self._handle, ctypes.byref(out))
+        if status == DC_E_UNAVAILABLE:
+            return None, _text(out.error)
+        if status != DC_OK:
+            _raise(status)
+        return {row.domain: {"mode": row.mode, "freq_khz": row.freq_khz,
+                             "msvdd_uv": row.msvdd_uv if row.has_msvdd_uv else None}
+                for row in out.rows[:out.count]}, None
+
+    def read_xbar_offset_mhz(self):
+        value = ctypes.c_double()
+        status = load().dc_gpu_clkdom_xbar_offset_mhz(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def set_clk_domain_offset(self, domain, mhz):
+        """Read-modify-write exactly one dword of the control block (Python-type checks here)."""
+        if type(domain) is not int or not 0 <= domain < 32:
+            return False, "clock domain must be an integer control index"
+        if type(mhz) not in (int, float):
+            return False, "clock-domain offset must be a finite number"
+        try:
+            value = float(mhz)
+        except OverflowError:
+            return False, "clock-domain offset exceeds the signed 32-bit kHz range"
+        outcome = _Outcome()
+        status = load().dc_gpu_clkdom_offset_set(self._handle, domain, value, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def rail_offset_capability(self, rail=1, domain=None):
+        """A readable request field, not evidence of a physical rail response."""
+        if type(rail) is not int or rail not in (0, 1):
+            return {"available": False, "domain": domain, "value_mv": None, "experimental": rail == 1,
+                    "reason": "unknown rail offset index"}
+        if domain is not None and (type(domain) is not int or not 0 <= domain < 32):
+            return {"available": False, "domain": domain, "value_mv": None, "experimental": rail == 1,
+                    "reason": "invalid clock-control index"}
+        out = _RailOffsetCapability()
+        out.size = ctypes.sizeof(_RailOffsetCapability)
+        status = load().dc_gpu_rail_offset_capability(self._handle, rail, 0 if domain is None else 1,
+                                                      0 if domain is None else domain, ctypes.byref(out))
+        if status != DC_OK:
+            _raise(status)
+        return {"available": bool(out.available), "domain": out.domain if out.has_domain else None,
+                "value_mv": out.value_mv if out.has_value else None, "experimental": bool(out.experimental),
+                "reason": _text(out.reason)}
+
+    def read_rail_offset_mv(self, domain=0, rail=0):
+        """The selected rail's stored request in mV, not measured VOUT."""
+        if rail != 0:
+            capability = self.rail_offset_capability(rail, domain)
+            return capability["value_mv"] if capability["available"] else None
+        if type(domain) is not int or not 0 <= domain < 32:
+            return None
+        value = ctypes.c_double()
+        status = load().dc_gpu_rail_offset_read(self._handle, domain, rail, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def set_rail_offset_mv(self, mv, domain=0, rail=0):
+        """Offset the core rail (rail 0) or store an MSVDD request (rail 1, opt-in)."""
+        if rail == 1:
+            return self._set_msvdd_offset_mv(mv, domain)
+        if type(rail) is not int or rail != 0:
+            return False, "unknown rail offset index"
+        if type(domain) is not int or not 0 <= domain < 32:
+            return False, "clock-control index must be an integer from 0 to 31"
+        if type(mv) not in (int, float):
+            return False, "NVVDD offset must be a finite number"
+        try:
+            value = float(mv)
+        except OverflowError:
+            return False, "NVVDD offset exceeds the signed 32-bit microvolt range"
+        outcome = _Outcome()
+        status = load().dc_gpu_rail_offset_set(self._handle, value, domain, rail, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def _set_msvdd_offset_mv(self, mv, domain, *, reset=False):
+        if type(domain) is not int or not 0 <= domain < 32:
+            return False, "clock-control index must be an integer from 0 to 31"
+        if type(mv) not in (int, float):
+            return False, "MSVDD offset must be a finite number"
+        try:
+            value = float(mv)
+        except OverflowError:
+            return False, "MSVDD offset exceeds the signed 32-bit microvolt range"
+        outcome = _Outcome()
+        if reset:
+            status = load().dc_gpu_msvdd_offset_reset(self._handle, domain, ctypes.byref(outcome))
+        else:
+            status = load().dc_gpu_rail_offset_set(self._handle, value, domain, 1, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def reset_msvdd_offset_mv(self, domain=0):
+        """Explicitly clear a stored MSVDD request, including after XOC is off."""
+        return self._set_msvdd_offset_mv(0, domain, reset=True)
+
+    @property
+    def msvdd_write_enabled(self):
+        return self._clkdom_flags()[0]
+
+    @msvdd_write_enabled.setter
+    def msvdd_write_enabled(self, value):
+        self._set_clkdom_flags(bool(value), self.voltage_xoc_enabled)
+
+    @property
+    def voltage_xoc_enabled(self):
+        return self._clkdom_flags()[1]
+
+    @voltage_xoc_enabled.setter
+    def voltage_xoc_enabled(self, value):
+        self._set_clkdom_flags(self.msvdd_write_enabled, bool(value))
+
+    def _clkdom_flags(self):
+        msvdd, xoc = ctypes.c_int32(), ctypes.c_int32()
+        status = load().dc_gpu_clkdom_flags_get(self._handle, ctypes.byref(msvdd), ctypes.byref(xoc))
+        if status != DC_OK:
+            _raise(status)
+        return bool(msvdd.value), bool(xoc.value)
+
+    def _set_clkdom_flags(self, msvdd, xoc):
+        status = load().dc_gpu_clkdom_flags_set(self._handle, 1 if msvdd else 0, 1 if xoc else 0)
+        if status != DC_OK:
+            _raise(status)
+
+    def retry_clock_capabilities(self, *, now=None):
+        """At most two delayed, read-only retries of failed clock discovery; True on recovery."""
+        if now is not None:
+            now = float(now)
+            if not math.isfinite(now):
+                raise ValueError("clock capability retry time must be finite")
+        changed = ctypes.c_int32()
+        status = load().dc_gpu_retry_clock_capabilities(self._handle, 0 if now is None else 1,
+                                                        0.0 if now is None else now, ctypes.byref(changed))
+        if status != DC_OK:
+            _raise(status)
+        return bool(changed.value)
+
+    def refresh_capabilities(self):
+        """Release the clock-control discovery caches for one deliberate, read-only retry."""
+        previous = _ClkDomError()
+        previous.size = ctypes.sizeof(_ClkDomError)
+        status = load().dc_gpu_refresh_capabilities(self._handle, ctypes.byref(previous))
+        if status != DC_OK:
+            _raise(status)
+        return {"previous_clock_error": self._error_tuple(previous), "retry_pending": True}
+
+    # ---- private clock-domain rows (nvbackend.GPU.read_clock_domains) --------------------------- #
+
+    def read_clock_domains(self, pc=None, core_mhz=None, mem_nvml=None):
+        """(rows, err): every populated domain of the private getter, named
+        against this card. `pc` is a payload already in hand (the ``priv_clocks``
+        list of read(), or nvbackend's _AllClocksPriv) or None to read one now."""
+        words = _priv_words(pc)
+        has_core, core = _optional_u32(core_mhz)
+        has_mem, mem = _optional_u32(mem_nvml)
+        out = _ClockDomains()
+        out.size = ctypes.sizeof(_ClockDomains)
+        status = load().dc_gpu_clock_domains(self._handle, words, has_core, core, has_mem, mem, ctypes.byref(out))
+        if status == DC_E_UNAVAILABLE:
+            return None, PRIV_UNAVAIL
+        if status != DC_OK:
+            _raise(status)
+        return _clock_domain_rows(out), None
+
+
+def _error_record(error):
+    """A dc_error as a dict with the Python exception's kind and text."""
+    return {"kind": ("none", "transient", "invalid", "unsupported")[error.kind], "fixed": bool(error.fixed),
+            "ntstatus": error.ntstatus if error.has_ntstatus else None, "rm_status": error.rm_status,
+            "message": _text(error.message)}
+
+
+def escape_capability():
+    """gdi32's D3DKMT* exports as a capability record (nvbackend.GPU._legacy_clk_gdi, but
+    reporting WHAT is missing instead of None). Never raises for a missing capability."""
+    c = _EscapeCapability()
+    c.size = ctypes.sizeof(_EscapeCapability)
+    status = load().dc_escape_capability_get(ctypes.byref(c))
+    if status != DC_OK:
+        _raise(status)
+    out = {name: bool(getattr(c, name)) for name in (
+        "gdi32_loaded", "escape", "query_adapter_info", "close_adapter", "enum_adapters2", "enum_adapters",
+        "open_from_display_name", "open_from_hdc", "complete")}
+    out["method"] = ("none", "enum2", "enum", "gdi_display_name", "hdc")[c.method]
+    out["patch_bytes"] = c.patch_bytes
+    out["detail"] = _text(c.detail)
+    return out
+
+
+PRIV_UNAVAIL = "private NvAPI_GPU_GetAllClocks (0x1BD69F49) did not answer"
+
+
+def _optional_u32(value):
+    """(has, value) for a Python int-or-None argument that the ABI takes as a flag and a u32."""
+    if value is None:
+        return 0, 0
+    if not _is_plain_int(value) or not 0 <= value <= 0xFFFFFFFF:
+        raise ValueError("expected None or an unsigned 32-bit integer")
+    return 1, value
+
+
+def _priv_words(pc):
+    """A (c_uint32 * 288) array for the ABI, or None to let the core read the getter."""
+    if pc is None:
+        return None
+    if hasattr(pc, "w"):  # nvbackend._AllClocksPriv
+        pc = list(pc.w)
+    words = list(pc)
+    if len(words) != PRIV_CLK_WORDS:
+        raise ValueError(f"private clock payload must hold {PRIV_CLK_WORDS} words")
+    return (ctypes.c_uint32 * PRIV_CLK_WORDS)(*words)
+
+
+def _clock_domain_rows(out):
+    rows = []
+    for row in out.rows[:out.count]:
+        rows.append({"domain": row.domain, "name": row.name.decode(), "grade": row.grade.decode(),
+                     "kind": row.kind.decode(), "prog_khz": row.prog_khz, "meas_khz": row.meas_khz,
+                     "flags": row.flags, "srcid": row.srcid, "scale": row.scale,
+                     "prog_mhz": row.prog_mhz if row.has_prog_mhz else None,
+                     "meas_mhz": row.meas_mhz if row.has_meas_mhz else None,
+                     "delta_mhz": row.delta_mhz if row.has_delta_mhz else None})
+    return rows
+
+
+def classify_clock_domains(words, core_mhz=None, mem_nvml=None, architecture=None):
+    """read_clock_domains' row loop over `words` followed by
+    nvbackend.classify_domain_names(rows, core_mhz, mem_nvml, blackwell=architecture == 10, architecture),
+    without a GPU. Returns the rows as dicts with the Python keys."""
+    payload = _priv_words(words)
+    if payload is None:
+        raise ValueError("a private clock payload is required")
+    has_core, core = _optional_u32(core_mhz)
+    has_mem, mem = _optional_u32(mem_nvml)
+    has_arch, arch = _optional_u32(architecture)
+    out = _ClockDomains()
+    out.size = ctypes.sizeof(_ClockDomains)
+    status = load().dc_clock_domains_classify(payload, PRIV_CLK_WORDS, has_core, core, has_mem, mem, has_arch, arch,
+                                              ctypes.byref(out))
+    if status != DC_OK:
+        _raise(status)
+    return _clock_domain_rows(out)
 
 
 def _fill_snapshot_row(row, old):

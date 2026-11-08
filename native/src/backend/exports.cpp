@@ -36,13 +36,18 @@ public:
     HookedLoader(ResolveFn fn, void* context) : resolve_(fn), context_(context) {}
     std::unique_ptr<ExportSource> open_nvapi(std::string& error) override { return open("nvapi", error); }
     std::unique_ptr<ExportSource> open_nvml(std::string& error) override { return open("nvml", error); }
+    std::unique_ptr<ExportSource> open_gdi32(std::string& error) override { return open("gdi32", error); }
 
 private:
     std::unique_ptr<ExportSource> open(const char* library, std::string& error) {
         if (!resolve_(context_, library, "")) {
-            error = std::string(library) == std::string("nvapi")
-                        ? (kProcessBits == 64 ? "nvapi64.dll" : "nvapi.dll") + std::string(" not loadable: not provided by the test resolver")
-                        : std::to_string(kProcessBits) + "-bit process; not provided by the test resolver";
+            std::string which(library);
+            if (which == "nvapi")
+                error = (kProcessBits == 64 ? "nvapi64.dll" : "nvapi.dll") + std::string(" not loadable: not provided by the test resolver");
+            else if (which == "gdi32")
+                error = "gdi32.dll not loadable: not provided by the test resolver";
+            else
+                error = std::to_string(kProcessBits) + "-bit process; not provided by the test resolver";
             return nullptr;
         }
         return std::make_unique<HookedSource>(resolve_, context_, library);
@@ -161,6 +166,17 @@ public:
         for (const std::string& item : errors) error += "; " + item;
         return nullptr;
     }
+
+    // gdi32 is a system DLL present on every Windows; which D3DKMT* exports it
+    // has is the capability (XPDM images have none).
+    std::unique_ptr<ExportSource> open_gdi32(std::string& error) override {
+        win::DynLib lib(L"gdi32.dll");
+        if (!lib.ok()) {
+            error = "gdi32.dll not loadable: Windows error " + std::to_string(lib.error());
+            return nullptr;
+        }
+        return std::make_unique<DllSource>(std::move(lib));
+    }
 };
 
 #else
@@ -173,6 +189,10 @@ public:
     }
     std::unique_ptr<ExportSource> open_nvml(std::string& error) override {
         error = std::to_string(kProcessBits) + "-bit process; NVIDIA driver libraries exist on Windows only";
+        return nullptr;
+    }
+    std::unique_ptr<ExportSource> open_gdi32(std::string& error) override {
+        error = "gdi32.dll not loadable: the graphics kernel interface exists on Windows only";
         return nullptr;
     }
 };
@@ -189,6 +209,11 @@ std::unique_ptr<Loader>& hooked_loader() {
     return hooked;
 }
 
+unsigned& generation_counter() {
+    static unsigned generation = 1;
+    return generation;
+}
+
 }  // namespace
 
 Loader& loader() {
@@ -198,8 +223,14 @@ Loader& loader() {
     return platform;
 }
 
+unsigned loader_generation() {
+    LockGuard guard(loader_mutex());
+    return generation_counter();
+}
+
 void set_export_resolver(ResolveFn resolve, void* context) {
     LockGuard guard(loader_mutex());
+    ++generation_counter();
     if (resolve)
         hooked_loader() = std::make_unique<HookedLoader>(resolve, context);
     else

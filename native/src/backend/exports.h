@@ -31,20 +31,26 @@ public:
     bool has(const char* name) const { return resolve(name) != nullptr; }
 };
 
-// Opens the two driver libraries. Returns nullptr and fills error when the
-// library cannot be loaded; the error text lists every location tried.
+// Opens the two driver libraries and the graphics kernel interface (gdi32,
+// whose D3DKMT* exports are the escape transport). Returns nullptr and fills
+// error when the library cannot be loaded; the error text lists every
+// location tried.
 class Loader {
 public:
     virtual ~Loader() = default;
     virtual std::unique_ptr<ExportSource> open_nvapi(std::string& error) = 0;
     virtual std::unique_ptr<ExportSource> open_nvml(std::string& error) = 0;
+    virtual std::unique_ptr<ExportSource> open_gdi32(std::string& error) = 0;
 };
 
 // The process-wide loader: the platform default, or the test resolver.
 Loader& loader();
+// Bumped whenever the loader changes, so per-process capability caches
+// (which assume export presence never changes) can tell a test resolver swap.
+unsigned loader_generation();
 
-// Test seam: resolve(context, library, name) with library "nvapi" or "nvml";
-// name "" asks whether the library loads at all (non-null means yes).
+// Test seam: resolve(context, library, name) with library "nvapi", "nvml" or
+// "gdi32"; name "" asks whether the library loads at all (non-null means yes).
 using ResolveFn = void*(DRUTA_CDECL*)(void* context, const char* library, const char* name);
 void set_export_resolver(ResolveFn resolve, void* context);
 
