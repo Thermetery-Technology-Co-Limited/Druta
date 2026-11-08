@@ -37,3 +37,7 @@ findings-for-*.md
 # code-signing decision that has not been made. Source, build script and the
 # built .sys all stay out of the repo until that changes.
 drv/
+
+# Native core build trees and the probe's report
+native/build/
+druta-probe-report.txt
