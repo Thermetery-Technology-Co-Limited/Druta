@@ -166,6 +166,106 @@ DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* gpu, dc_gpu_identity*
 /* "NVAPI: ok   |   NVML: FAIL (...)   |   slot 0000:01:00.0" */
 DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* gpu, char* buffer, size_t size, size_t* needed);
 
+/* ---- telemetry and static capabilities (nvbackend.GPU.read / _read_static) ------------------- */
+
+/* NVML architecture enum (1 Fermi .. 10 Blackwell), or DC_E_UNRECOGNIZED when neither library says. */
+DC_API dc_status DC_CALL dc_gpu_architecture(dc_gpu* gpu, uint32_t* architecture);
+
+typedef struct dc_fan_reading {
+    int32_t has_duty;
+    uint32_t duty;
+    int32_t has_rpm;
+    uint32_t rpm;
+} dc_fan_reading;
+
+/* nvmlFieldValue_t carried with its nvmlValueType (0 double, 1/2/3 unsigned, 4/5 signed). */
+typedef struct dc_typed_value {
+    int32_t present;
+    uint32_t type;
+    double d;
+    uint64_t u;
+    int64_t s;
+} dc_typed_value;
+
+/* Bits of dc_telemetry.present, in the order of the fields. */
+enum {
+    DC_T_CORE = 1ull << 0, DC_T_MEM = 1ull << 1, DC_T_VIDEO = 1ull << 2, DC_T_XBAR = 1ull << 3,
+    DC_T_CORE_OFF = 1ull << 4, DC_T_MEM_OFF = 1ull << 5, DC_T_PRIV_CLOCKS = 1ull << 6,
+    DC_T_TEMP_EDGE = 1ull << 7, DC_T_TEMP_HOTSPOT = 1ull << 8, DC_T_TEMP_DELTA = 1ull << 9,
+    DC_T_PL_REQUESTED = 1ull << 10, DC_T_POWER_W = 1ull << 11, DC_T_PL_NOW = 1ull << 12,
+    DC_T_PWR_GPU_PCT = 1ull << 13, DC_T_PWR_BOARD_PCT = 1ull << 14, DC_T_PL_TARGET_PCT = 1ull << 15,
+    DC_T_VCORE_MV = 1ull << 16, DC_T_NUM_FANS = 1ull << 17,
+    DC_T_UTIL_GPU = 1ull << 18, DC_T_UTIL_FB = 1ull << 19, DC_T_UTIL_VID = 1ull << 20, DC_T_UTIL_BUS = 1ull << 21,
+    DC_T_EVENT_MASK = 1ull << 22, DC_T_PERF_DECREASE = 1ull << 23,
+    DC_T_PCIE_GEN = 1ull << 24, DC_T_PCIE_WIDTH = 1ull << 25, DC_T_PCIE_ERR = 1ull << 26,
+    DC_T_PSTATE = 1ull << 27, DC_T_VBOOST = 1ull << 28, DC_T_CORE_P0MAX = 1ull << 29, DC_T_MEM_P0MAX = 1ull << 30,
+    DC_T_ENERGY_J = 1ull << 31, DC_T_VF_LOCKED = 1ull << 32, DC_T_VF_LOCK_MV = 1ull << 33, DC_T_CLK_LOCK = 1ull << 34,
+};
+
+typedef struct dc_telemetry {
+    uint32_t size;          /* sizeof(dc_telemetry), set by the caller */
+    uint64_t present;       /* DC_T_* bits; absent fields hold zero */
+    uint32_t core, mem, video, xbar;      /* MHz */
+    int32_t core_off, mem_off;            /* MHz */
+    uint32_t priv_clocks[288];            /* raw private clock getter payload words */
+    int32_t temp_edge;
+    double temp_hotspot;
+    uint32_t temp_sensor_count;
+    double temp_sensors[32];
+    double temp_delta;
+    uint32_t pl_requested_mw;
+    double power_w;
+    uint32_t pl_now_mw;
+    double pwr_gpu_pct, pwr_board_pct, pl_target_pct, vcore_mv;
+    uint32_t num_fans;
+    uint32_t fan_count;                   /* fans[] is always reported (possibly empty) */
+    dc_fan_reading fans[32];
+    uint32_t util_gpu, util_fb, util_vid, util_bus;
+    uint64_t event_mask;
+    uint32_t perf_decrease;
+    uint32_t pcie_gen, pcie_width;
+    dc_typed_value pcie_err[11];          /* PCIE_ERR_FIELDS order: 173..183 */
+    double pcie_err_total, pcie_err_since;
+    uint32_t pstate;
+    int32_t vboost_pct;
+    uint32_t core_p0max, mem_p0max;
+    double energy_j;
+    uint32_t vf_locked_count;
+    uint32_t vf_locked_domains[32];
+    double vf_lock_mv;
+    uint32_t clk_lock_min_mhz, clk_lock_max_mhz;
+} dc_telemetry;
+
+/* One telemetry tick: every reader runs; absent values are left out of present. */
+DC_API dc_status DC_CALL dc_gpu_read_telemetry(dc_gpu* gpu, dc_telemetry* out);
+
+typedef struct dc_offset_range {
+    int32_t present;
+    int32_t low, high, current;
+} dc_offset_range;
+
+enum {
+    DC_C_PL_MIN = 1u << 0, DC_C_PL_MAX = 1u << 1, DC_C_PL_DEF = 1u << 2, DC_C_GFX_MIN = 1u << 3, DC_C_GFX_MAX = 1u << 4,
+    DC_C_FAN_MIN = 1u << 5, DC_C_FAN_MAX = 1u << 6, DC_C_MEM_TYPE_ID = 1u << 7, DC_C_MEM_DIV = 1u << 8,
+};
+
+typedef struct dc_capabilities {
+    uint32_t size;
+    uint32_t present;                     /* DC_C_* bits */
+    uint32_t pl_min_mw, pl_max_mw, pl_def_mw;
+    uint32_t mem_clock_count;             /* total; at most 512 are copied */
+    uint32_t mem_clocks[512];
+    uint32_t gfx_min, gfx_max;
+    uint32_t fan_min, fan_max;
+    uint32_t mem_type_id;
+    char mem_type[32];
+    uint32_t mem_div;
+    dc_offset_range core_off_range, mem_off_range;
+} dc_capabilities;
+
+/* The non-identity keys of GPU.static. */
+DC_API dc_status DC_CALL dc_gpu_capabilities_get(dc_gpu* gpu, dc_capabilities* out);
+
 #ifdef __cplusplus
 }
 #endif

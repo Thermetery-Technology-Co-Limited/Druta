@@ -74,6 +74,7 @@ add_library(drutacore_impl STATIC
   src/backend/gpu.cpp
   src/backend/nvapi.cpp
   src/backend/nvml.cpp
+  src/backend/telemetry.cpp
   src/core/rail_transport.cpp
   src/core/slot.cpp
 )

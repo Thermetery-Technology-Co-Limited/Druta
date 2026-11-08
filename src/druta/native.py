@@ -70,6 +70,67 @@ class _GpuIdentity(ctypes.Structure):
                 ("uuid", ctypes.c_char * 96), ("admin", ctypes.c_int32)]
 
 
+class _FanReading(ctypes.Structure):
+    _fields_ = [("has_duty", ctypes.c_int32), ("duty", ctypes.c_uint32), ("has_rpm", ctypes.c_int32),
+                ("rpm", ctypes.c_uint32)]
+
+
+class _TypedValue(ctypes.Structure):
+    _fields_ = [("present", ctypes.c_int32), ("type", ctypes.c_uint32), ("d", ctypes.c_double),
+                ("u", ctypes.c_uint64), ("s", ctypes.c_int64)]
+
+
+class _Telemetry(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint64),
+                ("core", ctypes.c_uint32), ("mem", ctypes.c_uint32), ("video", ctypes.c_uint32), ("xbar", ctypes.c_uint32),
+                ("core_off", ctypes.c_int32), ("mem_off", ctypes.c_int32),
+                ("priv_clocks", ctypes.c_uint32 * 288),
+                ("temp_edge", ctypes.c_int32), ("temp_hotspot", ctypes.c_double),
+                ("temp_sensor_count", ctypes.c_uint32), ("temp_sensors", ctypes.c_double * 32),
+                ("temp_delta", ctypes.c_double),
+                ("pl_requested_mw", ctypes.c_uint32), ("power_w", ctypes.c_double), ("pl_now_mw", ctypes.c_uint32),
+                ("pwr_gpu_pct", ctypes.c_double), ("pwr_board_pct", ctypes.c_double),
+                ("pl_target_pct", ctypes.c_double), ("vcore_mv", ctypes.c_double),
+                ("num_fans", ctypes.c_uint32), ("fan_count", ctypes.c_uint32), ("fans", _FanReading * 32),
+                ("util_gpu", ctypes.c_uint32), ("util_fb", ctypes.c_uint32), ("util_vid", ctypes.c_uint32),
+                ("util_bus", ctypes.c_uint32),
+                ("event_mask", ctypes.c_uint64), ("perf_decrease", ctypes.c_uint32),
+                ("pcie_gen", ctypes.c_uint32), ("pcie_width", ctypes.c_uint32), ("pcie_err", _TypedValue * 11),
+                ("pcie_err_total", ctypes.c_double), ("pcie_err_since", ctypes.c_double),
+                ("pstate", ctypes.c_uint32), ("vboost_pct", ctypes.c_int32),
+                ("core_p0max", ctypes.c_uint32), ("mem_p0max", ctypes.c_uint32), ("energy_j", ctypes.c_double),
+                ("vf_locked_count", ctypes.c_uint32), ("vf_locked_domains", ctypes.c_uint32 * 32),
+                ("vf_lock_mv", ctypes.c_double),
+                ("clk_lock_min_mhz", ctypes.c_uint32), ("clk_lock_max_mhz", ctypes.c_uint32)]
+
+
+_T_BITS = ["core", "mem", "video", "xbar", "core_off", "mem_off", "priv_clocks", "temp_edge", "temp_hotspot",
+           "temp_delta", "pl_requested_mw", "power_w", "pl_now_mw", "pwr_gpu_pct", "pwr_board_pct", "pl_target_pct",
+           "vcore_mv", "num_fans", "util_gpu", "util_fb", "util_vid", "util_bus", "event_mask", "perf_decrease",
+           "pcie_gen", "pcie_width", "pcie_err", "pstate", "vboost_pct", "core_p0max", "mem_p0max", "energy_j",
+           "vf_locked_domains", "vf_lock_mv", "clk_lock_mhz"]
+PCIE_ERR_NAMES = ["correctable", "naks_rx", "receiver", "bad_tlp", "naks_tx", "bad_dllp", "non_fatal", "fatal",
+                  "unsupp_req", "lcrc", "lane"]
+
+
+class _OffsetRange(ctypes.Structure):
+    _fields_ = [("present", ctypes.c_int32), ("low", ctypes.c_int32), ("high", ctypes.c_int32),
+                ("current", ctypes.c_int32)]
+
+
+class _Capabilities(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint32),
+                ("pl_min_mw", ctypes.c_uint32), ("pl_max_mw", ctypes.c_uint32), ("pl_def_mw", ctypes.c_uint32),
+                ("mem_clock_count", ctypes.c_uint32), ("mem_clocks", ctypes.c_uint32 * 512),
+                ("gfx_min", ctypes.c_uint32), ("gfx_max", ctypes.c_uint32),
+                ("fan_min", ctypes.c_uint32), ("fan_max", ctypes.c_uint32),
+                ("mem_type_id", ctypes.c_uint32), ("mem_type", ctypes.c_char * 32), ("mem_div", ctypes.c_uint32),
+                ("core_off_range", _OffsetRange), ("mem_off_range", _OffsetRange)]
+
+
+_C_BITS = ["pl_min_mw", "pl_max_mw", "pl_def_mw", "gfx_min", "gfx_max", "fan_min", "fan_max", "mem_type_id", "mem_div"]
+
+
 # resolve(context, library, name) -> function pointer or NULL (the test seam)
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
 
@@ -82,6 +143,9 @@ _SIGNATURES = {
     "dc_gpu_identity_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_GpuIdentity)]),
     "dc_gpu_status_line": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
                                             ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_architecture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_read_telemetry": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Telemetry)]),
+    "dc_gpu_capabilities_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Capabilities)]),
     "dc_abi_version": (ctypes.c_uint32, []),
     "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
     "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
@@ -424,3 +488,79 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         return buffer.value.decode(errors="replace")
+
+    def arch(self):
+        """NVML architecture enum, or None (nvbackend.GPU.arch)."""
+        value = ctypes.c_uint32()
+        status = load().dc_gpu_architecture(self._handle, ctypes.byref(value))
+        if status == DC_E_UNRECOGNIZED:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def capabilities(self):
+        """The non-identity keys of nvbackend.GPU.static."""
+        c = _Capabilities()
+        c.size = ctypes.sizeof(_Capabilities)
+        status = load().dc_gpu_capabilities_get(self._handle, ctypes.byref(c))
+        if status != DC_OK:
+            _raise(status)
+        s = {}
+        for bit, key in enumerate(_C_BITS):
+            if c.present & (1 << bit):
+                s[key] = getattr(c, key)
+        if c.mem_clock_count:
+            s["mem_clocks"] = list(c.mem_clocks[:min(c.mem_clock_count, 512)])
+        s["mem_type"] = _text(c.mem_type)
+        s.setdefault("mem_div", None)
+        for key in ("core_off_range", "mem_off_range"):
+            r = getattr(c, key)
+            s[key] = (r.low, r.high, r.current) if r.present else None
+        return s
+
+    def read(self):
+        """One telemetry tick with nvbackend.GPU.read()'s keys.
+
+        Not yet provided by the core (the Python backend still reads them):
+        clk_domains / clkdom_offsets, the live-power fallback of
+        pl_requested_mw, the Turing legacy clock-lock fallback, nvvdd_live_mv.
+        """
+        t = _Telemetry()
+        t.size = ctypes.sizeof(_Telemetry)
+        status = load().dc_gpu_read_telemetry(self._handle, ctypes.byref(t))
+        if status != DC_OK:
+            _raise(status)
+        present = {key for bit, key in enumerate(_T_BITS) if t.present & (1 << bit)}
+        d = {}
+        for key in ("core", "mem", "video", "xbar", "core_off", "mem_off", "temp_edge", "pl_requested_mw",
+                    "power_w", "pl_now_mw", "pwr_gpu_pct", "pwr_board_pct", "pl_target_pct", "vcore_mv", "num_fans",
+                    "util_gpu", "util_fb", "util_vid", "util_bus", "event_mask", "perf_decrease", "pcie_gen",
+                    "pcie_width", "pstate", "vboost_pct", "core_p0max", "mem_p0max", "energy_j", "vf_lock_mv",
+                    "temp_delta"):
+            if key in present:
+                d[key] = getattr(t, key)
+        if "temp_hotspot" in present:
+            d["temp_hotspot"] = t.temp_hotspot
+            d["temp_sensors"] = list(t.temp_sensors[:t.temp_sensor_count])
+        if "temp_delta" in present:
+            # Python: hotspot (float) - edge (int)
+            d["temp_delta"] = t.temp_delta
+        d["fans"] = [(f.duty if f.has_duty else None, f.rpm if f.has_rpm else None) for f in t.fans[:t.fan_count]]
+        if "pcie_err" in present:
+            per = {}
+            for name, value in zip(PCIE_ERR_NAMES, t.pcie_err):
+                if value.present:
+                    per[name] = value.d if value.type == 0 else (value.s if value.type in (4, 5) else value.u)
+            total = per.get("correctable", 0) + per.get("non_fatal", 0) + per.get("fatal", 0)
+            d["pcie_err_total"] = total
+            d["pcie_err"] = per
+            since = t.pcie_err_since
+            d["pcie_err_since"] = int(since) if isinstance(total, int) and float(since).is_integer() else since
+        if "vf_locked_domains" in present:
+            d["vf_locked_domains"] = list(t.vf_locked_domains[:t.vf_locked_count])
+        if "clk_lock_mhz" in present:
+            d["clk_lock_mhz"] = (t.clk_lock_min_mhz, t.clk_lock_max_mhz)
+        if "priv_clocks" in present:
+            d["priv_clocks"] = list(t.priv_clocks)
+        return d

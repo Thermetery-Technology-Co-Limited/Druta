@@ -5,13 +5,16 @@
 // The C ABI: thin, exception-free wrappers over the C++ core.
 #include "drutacore/drutacore.h"
 
+#include <algorithm>
 #include <cstring>
+#include <type_traits>
 #include <new>
 #include <string>
 #include <vector>
 
 #include "backend/exports.h"
 #include "backend/gpu.h"
+#include "backend/telemetry.h"
 #include "core/rail_transport.h"
 #include "core/slot.h"
 
@@ -155,7 +158,8 @@ void copy_field(char* field, size_t size, const std::string& text) {
 
 struct dc_gpu {
     druta::backend::Gpu gpu;
-    explicit dc_gpu(const std::string& slot) : gpu(slot) {}
+    druta::backend::Telemetry telemetry;
+    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu) {}
 };
 
 DC_API void DC_CALL dc_set_export_resolver(dc_resolve_fn resolve, void* context) {
@@ -222,6 +226,133 @@ DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* handle, dc_gpu_identi
 DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* handle, char* buffer, size_t size, size_t* needed) {
     if (!handle) return DC_E_ARGUMENT;
     return copy_text(handle->gpu.status_line(), buffer, size, needed);
+}
+
+// ---- telemetry ------------------------------------------------------------------------------------
+
+DC_API dc_status DC_CALL dc_gpu_architecture(dc_gpu* handle, uint32_t* architecture) {
+    if (!handle || !architecture) return DC_E_ARGUMENT;
+    auto value = druta::backend::read_architecture(handle->gpu);
+    if (!value) return DC_E_UNRECOGNIZED;
+    *architecture = *value;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_read_telemetry(dc_gpu* handle, dc_telemetry* out) {
+    if (!handle || !out || out->size != sizeof(dc_telemetry)) return DC_E_ARGUMENT;
+    druta::backend::Snapshot d = handle->telemetry.read();
+    dc_telemetry t{};
+    t.size = sizeof(dc_telemetry);
+    auto set = [&](uint64_t bit, bool present) { if (present) t.present |= bit; };
+    auto put = [&](auto& field, const auto& source, uint64_t bit) {
+        if (source) { field = static_cast<std::remove_reference_t<decltype(field)>>(*source); t.present |= bit; }
+    };
+    put(t.core, d.core, DC_T_CORE);
+    put(t.mem, d.mem, DC_T_MEM);
+    put(t.video, d.video, DC_T_VIDEO);
+    put(t.xbar, d.xbar, DC_T_XBAR);
+    put(t.core_off, d.core_off, DC_T_CORE_OFF);
+    put(t.mem_off, d.mem_off, DC_T_MEM_OFF);
+    if (d.priv_clocks) {
+        std::memcpy(t.priv_clocks, d.priv_clocks->w, sizeof t.priv_clocks);
+        t.present |= DC_T_PRIV_CLOCKS;
+    }
+    put(t.temp_edge, d.temp_edge, DC_T_TEMP_EDGE);
+    if (d.temp_hotspot) {
+        t.temp_hotspot = *d.temp_hotspot;
+        t.temp_sensor_count = static_cast<uint32_t>(std::min<size_t>(d.temp_sensors.size(), 32));
+        for (uint32_t i = 0; i < t.temp_sensor_count; ++i) t.temp_sensors[i] = d.temp_sensors[i];
+        t.present |= DC_T_TEMP_HOTSPOT;
+    }
+    put(t.temp_delta, d.temp_delta, DC_T_TEMP_DELTA);
+    put(t.pl_requested_mw, d.pl_requested_mw, DC_T_PL_REQUESTED);
+    put(t.power_w, d.power_w, DC_T_POWER_W);
+    put(t.pl_now_mw, d.pl_now_mw, DC_T_PL_NOW);
+    put(t.pwr_gpu_pct, d.pwr_gpu_pct, DC_T_PWR_GPU_PCT);
+    put(t.pwr_board_pct, d.pwr_board_pct, DC_T_PWR_BOARD_PCT);
+    put(t.pl_target_pct, d.pl_target_pct, DC_T_PL_TARGET_PCT);
+    put(t.vcore_mv, d.vcore_mv, DC_T_VCORE_MV);
+    put(t.num_fans, d.num_fans, DC_T_NUM_FANS);
+    t.fan_count = static_cast<uint32_t>(std::min<size_t>(d.fans.size(), 32));
+    for (uint32_t i = 0; i < t.fan_count; ++i) {
+        t.fans[i].has_duty = d.fans[i].duty ? 1 : 0;
+        t.fans[i].duty = d.fans[i].duty.value_or(0);
+        t.fans[i].has_rpm = d.fans[i].rpm ? 1 : 0;
+        t.fans[i].rpm = d.fans[i].rpm.value_or(0);
+    }
+    put(t.util_gpu, d.util_gpu, DC_T_UTIL_GPU);
+    put(t.util_fb, d.util_fb, DC_T_UTIL_FB);
+    put(t.util_vid, d.util_vid, DC_T_UTIL_VID);
+    put(t.util_bus, d.util_bus, DC_T_UTIL_BUS);
+    put(t.event_mask, d.event_mask, DC_T_EVENT_MASK);
+    put(t.perf_decrease, d.perf_decrease, DC_T_PERF_DECREASE);
+    put(t.pcie_gen, d.pcie_gen, DC_T_PCIE_GEN);
+    put(t.pcie_width, d.pcie_width, DC_T_PCIE_WIDTH);
+    if (d.pcie_err) {
+        static const char* const names[11] = {"correctable", "naks_rx", "receiver", "bad_tlp", "naks_tx", "bad_dllp",
+                                              "non_fatal", "fatal", "unsupp_req", "lcrc", "lane"};
+        for (size_t i = 0; i < 11; ++i) {
+            auto it = d.pcie_err->find(names[i]);
+            if (it == d.pcie_err->end()) continue;
+            t.pcie_err[i].present = 1;
+            t.pcie_err[i].type = it->second.type;
+            t.pcie_err[i].d = it->second.d;
+            t.pcie_err[i].u = it->second.u;
+            t.pcie_err[i].s = it->second.s;
+        }
+        t.pcie_err_total = d.pcie_err_total.value_or(0);
+        t.pcie_err_since = d.pcie_err_since.value_or(0);
+        t.present |= DC_T_PCIE_ERR;
+    }
+    put(t.pstate, d.pstate, DC_T_PSTATE);
+    put(t.vboost_pct, d.vboost_pct, DC_T_VBOOST);
+    put(t.core_p0max, d.core_p0max, DC_T_CORE_P0MAX);
+    put(t.mem_p0max, d.mem_p0max, DC_T_MEM_P0MAX);
+    put(t.energy_j, d.energy_j, DC_T_ENERGY_J);
+    if (d.vf_locked_domains) {
+        t.vf_locked_count = static_cast<uint32_t>(std::min<size_t>(d.vf_locked_domains->size(), 32));
+        for (uint32_t i = 0; i < t.vf_locked_count; ++i) t.vf_locked_domains[i] = (*d.vf_locked_domains)[i];
+        t.present |= DC_T_VF_LOCKED;
+    }
+    put(t.vf_lock_mv, d.vf_lock_mv, DC_T_VF_LOCK_MV);
+    if (d.clk_lock_mhz) {
+        t.clk_lock_min_mhz = d.clk_lock_mhz->first;
+        t.clk_lock_max_mhz = d.clk_lock_mhz->second;
+        t.present |= DC_T_CLK_LOCK;
+    }
+    set(0, false);
+    *out = t;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_capabilities_get(dc_gpu* handle, dc_capabilities* out) {
+    if (!handle || !out || out->size != sizeof(dc_capabilities)) return DC_E_ARGUMENT;
+    druta::backend::StaticCapabilities s = handle->telemetry.read_static();
+    dc_capabilities c{};
+    c.size = sizeof(dc_capabilities);
+    auto put = [&](uint32_t& field, const std::optional<uint32_t>& source, uint32_t bit) {
+        if (source) { field = *source; c.present |= bit; }
+    };
+    put(c.pl_min_mw, s.pl_min_mw, DC_C_PL_MIN);
+    put(c.pl_max_mw, s.pl_max_mw, DC_C_PL_MAX);
+    put(c.pl_def_mw, s.pl_def_mw, DC_C_PL_DEF);
+    c.mem_clock_count = static_cast<uint32_t>(s.mem_clocks.size());
+    for (size_t i = 0; i < std::min<size_t>(s.mem_clocks.size(), 512); ++i) c.mem_clocks[i] = s.mem_clocks[i];
+    put(c.gfx_min, s.gfx_min, DC_C_GFX_MIN);
+    put(c.gfx_max, s.gfx_max, DC_C_GFX_MAX);
+    put(c.fan_min, s.fan_min, DC_C_FAN_MIN);
+    put(c.fan_max, s.fan_max, DC_C_FAN_MAX);
+    put(c.mem_type_id, s.mem_type_id, DC_C_MEM_TYPE_ID);
+    DC_COPY(c.mem_type, s.mem_type);
+    put(c.mem_div, s.mem_div, DC_C_MEM_DIV);
+    auto range = [](dc_offset_range& field, const std::optional<druta::backend::OffsetRange>& source) {
+        field.present = source ? 1 : 0;
+        if (source) { field.low = source->low; field.high = source->high; field.current = source->current; }
+    };
+    range(c.core_off_range, s.core_off_range);
+    range(c.mem_off_range, s.mem_off_range);
+    *out = c;
+    return DC_OK;
 }
 
 }  // extern "C"
