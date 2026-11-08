@@ -40,6 +40,9 @@ inline constexpr std::uint32_t GetArchInfo = 0xD8265D24;
 inline constexpr std::uint32_t GetFullName = 0xCEEE8E9F;
 inline constexpr std::uint32_t GetVbiosVersionString = 0xA561FD7D;
 inline constexpr std::uint32_t GetDriverAndBranchVersion = 0x2926AAAD;
+// The getters the RM escape captures hook (DESIGN-TRANSPORT.md 2.4).
+inline constexpr std::uint32_t PowerPolInfo = 0x34206D86;
+inline constexpr std::uint32_t VoltRailsCtlGet = 0xA3070DB0;
 }  // namespace nvapi_id
 
 class Nvapi {

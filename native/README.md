@@ -56,6 +56,12 @@ core, then compares results, driver call sequences and messages.
 | Private clock-domain rows and names | `GPU.read_clock_domains`, `classify_domain_names` | `dc_gpu_clock_domains`, `dc_clock_domains_classify` (`drutacore/clkdom.h`) | `tests/test_native_clkdom_names.py` |
 | Clock-domain control block and rail offsets | `GPU.clkdom_*`, `read_clk_domain_offsets`, `set_clk_domain_offset`, `rail_offset_capability`, `read_rail_offset_mv`, `set_rail_offset_mv`, `reset_msvdd_offset_mv`, `retry_clock_capabilities`, `refresh_capabilities` | `dc_gpu_clkdom_*`, `dc_gpu_rail_offset_*`, `dc_gpu_msvdd_offset_reset`, `dc_gpu_retry_clock_capabilities`, `dc_gpu_refresh_capabilities` | `tests/test_native_clkdom.py` |
 | RM escape transport, layer 0: gdi32 capability and raw escape | `GPU._legacy_clk_gdi`, `_legacy_clk_escape` | `dc_escape_capability_get`, `dc_rm_escape_raw` (bound as `native.escape_capability` and `Gpu._legacy_clk_escape`) | `tests/test_native_transport.py` |
+| Current-limit tables | `GPU.CURRENT_LIMIT_GENERATION_POLICIES`, `_CURRENT_LIMIT_LAYOUTS`, `_CURRENT_LIMIT_LAYOUT_FALLBACKS` | `dc_power_layouts_lookup`, `dc_generation_policies` (`drutacore/power_layouts.h`, bound by `druta.native_power_layouts`) | `tests/test_native_power_layouts.py` |
+| RM escape transport, layers 1 and 2: the hook captures and the transport cache | `GPU._capture_current_limit_transport`, `_capture_legacy_clk_transport`, `_rm_power_transport`, `_current_limit_transport_layouts`, `_current_limit_profile_supported` | `dc_rm_capture`, `dc_rm_transport_*`, `dc_rm_observed_get`, `dc_rm_layout_choice_*`, `dc_rm_power_transport`, `dc_rm_power_layouts`, `dc_hook_*` | `tests/test_native_rm_transport.py` |
+| RM escape transport, layer 3: the Turing legacy clock-lock records | `GPU._legacy_clk_limit_records`, `_read_legacy_clk_lock` (the fallback inside `read_clk_lock*`) | `dc_legacy_clk_records`, and `dc_gpu_clk_lock_*` now reach the fallback | `tests/test_native_legacy_clk.py` |
+| RM escape transport, layer 4: the rail-record splice | `GPU._write_rail_records_locked` (after its Python preconditions) | `dc_rail_write_locked` (bound as `Gpu._rail_write_locked`) | `tests/test_native_rail_splice.py` |
+| Current-limit RM operations | `GPU._current_limit_abi`, `_current_limit_probe_info`, `_current_limit_rm`, `_current_limit_capacity`, `_power_policy_table` and the `_last_policy_table` / `_power_policy_mask` attributes | `dc_cl_*` (bound as the same `Gpu` methods) | `tests/test_native_current_limits.py` |
+| Current-limit rows, getter and verified setter | `GPU._current_limit_state`, `get_current_limits`, `current_limit_diagnostics`, `set_current_limit_ma`, `_set_current_limit_ma` and the `_current_limit_unavailable` / `_current_limit_error` / `_current_limit_read_error` / `_current_limit_last_rows` / `_current_limit_established` / `_power_policy_pins` attributes | `dc_cl_state`, `dc_cl_get_current_limits`, `dc_cl_set_current_limit_ma` and their attribute getters | `tests/test_native_current_limit_state.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
 `nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
@@ -76,12 +82,39 @@ on the adapter whose PCI address matches the paired slot, closing every
 enumerated handle. Its errors carry a kind (`transient`, `invalid`,
 `unsupported`) and whether the condition is fixed for the process.
 
+The hook (layer 1) rewrites the first bytes of `D3DKMTEscape` with a jump
+for the duration of one getter call, under a process-wide mutex, exactly as
+the Python closures do: restore first, inspect on the installing thread
+only, forward, re-arm until the power GET is found. While a test resolver
+is installed the patch is a flag pair rather than a write (a served fake
+escape is a trampoline), and the thunk body is reached through the
+`dc_hook_test_entry` seam. The cache (layer 2) validates a transport when it
+is used, never when it is set, so fixtures can store one directly.
+
+The current-limit RM operations keep every refusal of the Python original
+in its order and text: a SET must select exactly one policy (a generation
+policy, or with `any_live_policy` one the last validated table read listed),
+a GET refused for its size is a fixed `CurrentLimitUnsupported`, and a failed
+escape drops the cached transport and layout choice. The layout choice is
+kept as an index into the candidate list rather than a copy of the layout.
+The rows, the getter's error bookkeeping and the setter's write, read-back
+and restoration are the Python ones line for line. One dependency is not
+ported: `read_live_power_request` (the client-power runtime), which
+`_current_limit_state` consults to accept a derived clamp on a Turing or
+Ampere FE board. The core takes that check as a callback; the binding
+supplies it from `Gpu.read_live_power_request`, which is a stub until the
+client-power runtime is ported, so natively a derived clamp stays an invalid
+record for now rather than being guessed.
+
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls
-built on it (increments 2 to 7 of `DESIGN-TRANSPORT.md`: the hook, the
-power and legacy captures, `RmTransport`; the Turing legacy clock-lock
-fallback of `read_clk_lock*` and `refresh_capabilities`'s live-power and
-rail resets wait for it), the GPU restart, and the front end.
+built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
+adapter openers for older gdi32 builds; the full policy table of
+`_power_policy_rows` and the pin re-application after board-limit writes;
+the client-power runtime; and the Python consumers of the transport such as
+`_write_rail_records` with its profile checks and `_verify_rail_records`;
+`refresh_capabilities`'s live-power and rail resets wait for them), the GPU
+restart, and the front end.
 
 Text formatting follows Python's `:g` / `:+.2f` through the C runtime's
 `printf`; the rounding of an exact half by an old msvcrt has not been checked

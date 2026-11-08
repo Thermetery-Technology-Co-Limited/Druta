@@ -8,7 +8,9 @@
 #include <cstring>
 #include <map>
 
+#include "backend/gdi.h"
 #include "backend/nvapi.h"
+#include "backend/rm_transport.h"
 
 namespace druta::backend {
 namespace {
@@ -68,8 +70,65 @@ std::optional<ClockLock> VfLock::read_raw() {
     return cl;
 }
 
-std::optional<ClkLockRange> VfLock::legacy_clk_lock() { return std::nullopt; }
-std::optional<std::vector<std::vector<std::uint32_t>>> VfLock::legacy_clk_limit_records() { return std::nullopt; }
+std::optional<ClkLockRange> VfLock::legacy_clk_lock() {
+    // This private ABI is a Turing-generation fallback. Runtime record identifiers, modes,
+    // units and lengths decide whether the live driver actually has it; device ids, VBIOS
+    // and driver strings do not. Pascal's NVML frequency-lock setter remains unsupported.
+    auto arch = telemetry_.arch();
+    if (!gpu_.nvapi.ok || !arch || *arch != kArchTuring) return std::nullopt;
+    auto records = legacy_clk_limit_records();
+    if (!records || records->size() != 2) return std::nullopt;
+    const std::uint32_t idents[2] = {0x4C, 0x4B};
+    std::uint32_t values[2];
+    for (std::size_t i = 0; i < 2; ++i) {
+        // R472 GET returns 82 dwords per record. Mode 2 is an explicit clock in kHz (unit 1);
+        // the final three words are the effective value and may differ from this client's
+        // requested constraint.
+        const std::vector<std::uint32_t>& record = (*records)[i];
+        if (record.size() != 82 || record[0] != idents[i] || record[1] != 2 || record[4] != 1 ||
+            !(0 < record[3] && record[3] <= 10000000))
+            return std::nullopt;
+        values[i] = record[3] / 1000;
+    }
+    if (values[0] > values[1]) return std::nullopt;
+    return ClkLockRange{values[0], values[1]};
+}
+
+std::optional<std::vector<std::vector<std::uint32_t>>> VfLock::legacy_clk_limit_records() {
+    // Read RM GET 0x20802077; never submit its paired SET command. The transport belongs to
+    // this NvAPI GPU/client and is captured once from its read-only voltage getter. Later
+    // polls escape directly, with fresh count/pointer/record buffers. A rejected cached
+    // transport is discarded.
+    if (!rm_) return std::nullopt;
+    if (!rm_->legacy_clk) {
+        auto captured = rm_->capture_legacy_clk();
+        if (!captured) return std::nullopt;
+        rm_->legacy_clk = captured;
+    }
+    const CapturedTransport& transport = *rm_->legacy_clk;
+    std::uint32_t records[2][82] = {};
+    records[0][0] = 0x4C;
+    records[1][0] = 0x4B;
+    const std::uint64_t address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(records));
+    std::uint32_t packet[21] = {};
+    for (std::size_t i = 0; i < 17; ++i) packet[i] = transport.header[i];
+    packet[17] = 2;  // two records
+    packet[18] = 0;
+    packet[19] = static_cast<std::uint32_t>(address & 0xFFFFFFFFu);
+    packet[20] = static_cast<std::uint32_t>(address >> 32);  // 0 in a 32-bit process
+    packet[2] = 84;
+    packet[14] = 0x20802077;
+    packet[15] = 16;
+    packet[16] = 0;
+    EscapeResult r = escape_raw(gpu_, packet, sizeof packet, transport.fields);
+    if (r.outcome != EscapeOutcome::issued || r.ntstatus != 0 || packet[16] != 0 || packet[17] != 2) {
+        rm_->legacy_clk.reset();
+        return std::nullopt;
+    }
+    std::vector<std::vector<std::uint32_t>> out;
+    for (const auto& record : records) out.emplace_back(record, record + 82);
+    return out;
+}
 
 Status<PointLock> VfLock::read_vf_lock_status(std::optional<std::int64_t> domain) {
     auto cl = read_raw();

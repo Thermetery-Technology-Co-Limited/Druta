@@ -48,6 +48,9 @@ Loader& loader();
 // Bumped whenever the loader changes, so per-process capability caches
 // (which assume export presence never changes) can tell a test resolver swap.
 unsigned loader_generation();
+// True while a test resolver serves the exports: a served D3DKMTEscape is a
+// trampoline that must never be patched, so the hook uses its buffer patcher.
+bool test_resolver_installed();
 
 // Test seam: resolve(context, library, name) with library "nvapi", "nvml" or
 // "gdi32"; name "" asks whether the library loads at all (non-null means yes).

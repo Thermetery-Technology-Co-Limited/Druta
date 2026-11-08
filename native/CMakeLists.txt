@@ -79,12 +79,16 @@ add_library(drutacore_impl STATIC
   src/backend/clkdom.cpp
   src/backend/clkdom_names.cpp
   src/backend/clocks.cpp
+  src/backend/current_limits.cpp
   src/backend/exports.cpp
   src/backend/fan.cpp
   src/backend/gdi.cpp
   src/backend/gpu.cpp
+  src/backend/hook.cpp
   src/backend/nvapi.cpp
   src/backend/nvml.cpp
+  src/backend/power_layouts.cpp
+  src/backend/rm_transport.cpp
   src/backend/telemetry.cpp
   src/backend/vfcurve.cpp
   src/backend/vflock.cpp
@@ -105,6 +109,8 @@ target_link_libraries(drutacore_impl PUBLIC druta_options)
 add_library(drutacore SHARED
   src/core/abi.cpp
   src/core/abi_clkdom.cpp
+  src/core/abi_current_limits.cpp
+  src/core/abi_power_layouts.cpp
   src/core/abi_transport.cpp
   src/core/abi_vfplan.cpp
 )

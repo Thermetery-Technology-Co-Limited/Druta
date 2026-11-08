@@ -686,10 +686,193 @@ typedef struct dc_escape_fields {
 DC_API dc_status DC_CALL dc_rm_escape_raw(dc_gpu* gpu, uint8_t* packet, size_t size,
                                           const dc_escape_fields* fields, int32_t* ntstatus, dc_error* error);
 
+/* ---- RM escape transport, layers 1 and 2: the hook captures and the transport cache ----------- */
+/* nvbackend.GPU._capture_current_limit_transport, _capture_legacy_clk_transport,
+ * _rm_power_transport, _current_limit_transport_layouts (DESIGN-TRANSPORT.md 3.4, 3.5, 3.7). */
+
+#include "drutacore/power_layouts.h"  /* dc_power_layout: the pure current-limit tables */
+
+enum { DC_TRANSPORT_POWER = 1, DC_TRANSPORT_LEGACY_CLK = 2 };
+
+typedef struct dc_rm_transport {
+    uint32_t size;            /* sizeof(dc_rm_transport), set by the caller */
+    int32_t captured;         /* 0: Python's None; the other fields are then ignored */
+    uint32_t header_count;    /* 17 from a capture. A fixture may store another length, which the
+                                 next use rejects as Python does for len(header) != 17. */
+    uint32_t header[17];      /* packet words 0..16 of the captured GET */
+    dc_escape_fields fields;  /* the escape's hAdapter, hDevice, Type, Flags, hContext */
+} dc_rm_transport;
+
+typedef struct dc_rm_observed {  /* _current_limit_observed_transport: {} when seen == 0 */
+    uint32_t size;
+    int32_t seen;
+    uint32_t command_id, packet_bytes, parameter_bytes;
+} dc_rm_observed;
+
+/* The cache. get never captures; set stores unvalidated (captured = 0 clears); reset clears and, for
+ * DC_TRANSPORT_POWER, also drops the layout choice, as a failed power transport does. */
+DC_API dc_status DC_CALL dc_rm_transport_get(dc_gpu* gpu, int32_t kind, dc_rm_transport* out);
+DC_API dc_status DC_CALL dc_rm_transport_set(dc_gpu* gpu, int32_t kind, const dc_rm_transport* transport);
+DC_API dc_status DC_CALL dc_rm_transport_reset(dc_gpu* gpu, int32_t kind);
+DC_API dc_status DC_CALL dc_rm_observed_get(dc_gpu* gpu, dc_rm_observed* out);
+/* _current_limit_layout_choice: an index into the layouts of dc_rm_power_layouts, or none. */
+DC_API dc_status DC_CALL dc_rm_layout_choice_get(dc_gpu* gpu, int32_t* has_choice, uint32_t* choice);
+DC_API dc_status DC_CALL dc_rm_layout_choice_set(dc_gpu* gpu, int32_t has_choice, uint32_t choice);
+
+/* The bare captures: one getter call under the hook; out->captured = 0 for Python's None. The power
+ * capture resets the observed record first and leaves what this attempt saw. */
+DC_API dc_status DC_CALL dc_rm_capture(dc_gpu* gpu, int32_t kind, dc_rm_transport* out);
+/* _current_limit_profile_supported: NVAPI and a generation-policy table for this architecture. */
+DC_API dc_status DC_CALL dc_rm_profile_supported(dc_gpu* gpu, int32_t* supported);
+/* _rm_power_transport: the cached transport or a fresh capture, validated. DC_OK with *out, or
+ * DC_E_FAILED with *error: DC_ERR_UNSUPPORTED is CurrentLimitUnsupported, DC_ERR_TRANSIENT the
+ * retryable ValueError. */
+DC_API dc_status DC_CALL dc_rm_power_transport(dc_gpu* gpu, dc_rm_transport* out, dc_error* error);
+/* _current_limit_transport_layouts: (layout, *fallbacks) for the captured power GET as dc_power_layout
+ * rows (each size set by the caller; at most capacity written, *count the total), or DC_E_FAILED. */
+DC_API dc_status DC_CALL dc_rm_power_layouts(dc_gpu* gpu, dc_power_layout* out, uint32_t capacity,
+                                             uint32_t* count, dc_error* error);
+
+/* _legacy_clk_limit_records (increment 3): RM GET 0x20802077 through the legacy transport (captured on
+ * a miss, dropped on a rejection). *available = 0 for Python's None; records holds 2 x 82 words. */
+DC_API dc_status DC_CALL dc_legacy_clk_records(dc_gpu* gpu, uint32_t records[2][82], int32_t* available);
+
+/* The rail splice (increment 4): _write_rail_records_locked after its Python preconditions. One
+ * VoltRailsCtlGet under the hook; the recognized GET is read back and exactly one SET with the
+ * prepared records is issued in its place. Never more than one SET. */
+typedef struct dc_rail_write_request {
+    uint32_t size;             /* sizeof(dc_rail_write_request), set by the caller */
+    uint32_t control_version;  /* the profile's getter version, word 0 of the getter block */
+    uint32_t rail_mask;        /* sum(1 << rail for rail in records) */
+    dc_rail_record records[2];
+    uint32_t record_count;
+    uint32_t boost;
+} dc_rail_write_request;
+typedef struct dc_rail_write_result {
+    uint32_t size;             /* sizeof(dc_rail_write_result), set by the caller */
+    int32_t done;              /* a SET was issued */
+    int32_t has_status;        /* 0: Python's None */
+    uint32_t status;           /* RM status of the SET, or its NTSTATUS & 0xFFFFFFFF */
+    char error[512];           /* _volt_rail_write_error; "" is None */
+    int32_t has_protocol;      /* _volt_rail_write_protocol */
+    uint32_t get_command, set_command, packet_size, getter_version;
+    uint32_t observed_count;   /* _volt_rail_observed_packets, at most 8 */
+    char observed[8][256];
+} dc_rail_write_result;
+DC_API dc_status DC_CALL dc_rail_write_locked(dc_gpu* gpu, const dc_rail_write_request* request,
+                                              dc_rail_write_result* result);
+
+/* ---- current-policy operations on the transport (increment 6a) ------------------------------- */
+/* nvbackend.GPU._current_limit_capacity, _current_limit_abi, _current_limit_probe_info,
+ * _current_limit_rm and _power_policy_table. Word buffers hold the parameter words after the
+ * 17-word header; at most capacity are written and *count is the total. DC_E_FAILED carries the
+ * Python exception in *error (DC_ERR_UNSUPPORTED = CurrentLimitUnsupported, DC_ERR_INVALID a
+ * ValueError raised before the driver was touched, DC_ERR_TRANSIENT one raised after). */
+
+/* The largest policy packet any layout sizes, in words: the bound for the word buffers. */
+DC_API uint32_t DC_CALL dc_cl_max_words(void);
+/* _current_limit_capacity(layout) */
+DC_API dc_status DC_CALL dc_cl_capacity(const dc_power_layout* layout, uint32_t* capacity);
+/* _current_limit_abi: the chosen layout and its index among dc_rm_power_layouts. */
+DC_API dc_status DC_CALL dc_cl_abi(dc_gpu* gpu, dc_power_layout* layout, uint32_t* index, dc_error* error);
+/* _current_limit_probe_info(layout): the info GET's words for one candidate layout. */
+DC_API dc_status DC_CALL dc_cl_probe_info(dc_gpu* gpu, const dc_power_layout* layout, uint32_t* out, uint32_t capacity,
+                                          uint32_t* count, dc_error* error);
+/* _current_limit_rm(command, params, policy_mask, any_live_policy): params NULL is Python's None. */
+DC_API dc_status DC_CALL dc_cl_rm(dc_gpu* gpu, uint32_t command, const uint32_t* params, uint32_t param_count,
+                                  int32_t has_mask, uint32_t policy_mask, int32_t any_live_policy, uint32_t* out,
+                                  uint32_t capacity, uint32_t* count, dc_error* error);
+/* _power_policy_table: one validated read; the blocks are then read with dc_cl_table_get. */
+DC_API dc_status DC_CALL dc_cl_policy_table(dc_gpu* gpu, dc_power_layout* layout, dc_error* error);
+enum { DC_CL_TABLE_INFO = 0, DC_CL_TABLE_CONTROL = 1, DC_CL_TABLE_STATUS = 2 };
+/* _last_policy_table: its layout, and each block (*present = 0 for no table or a None block). */
+DC_API dc_status DC_CALL dc_cl_table_layout(dc_gpu* gpu, dc_power_layout* layout, int32_t* present);
+DC_API dc_status DC_CALL dc_cl_table_get(dc_gpu* gpu, int32_t block, uint32_t* out, uint32_t capacity, uint32_t* count,
+                                         int32_t* present);
+DC_API dc_status DC_CALL dc_cl_table_reset(dc_gpu* gpu);
+/* _power_policy_mask */
+DC_API dc_status DC_CALL dc_cl_policy_mask_get(dc_gpu* gpu, uint32_t* mask);
+DC_API dc_status DC_CALL dc_cl_policy_mask_set(dc_gpu* gpu, uint32_t mask);
+
+/* ---- the policy rows, the getter's bookkeeping and the verified setter (increment 6b) ---------- */
+
+/* The read_live_power_request branch of GPU._current_limit_state. The client-power runtime is not
+ * ported, so the caller supplies the check: nonzero when a fresh paired FE observation confirms the
+ * derived clamp (requested above the policy's maximum, effective equal to it or saturated) of
+ * `policy` against the info and control blocks just read. NULL never confirms. The callback runs
+ * under the GPU lock; it must not call back into this GPU. */
+typedef int32_t (DC_CALL *dc_cl_confirm_fn)(void* context, uint32_t policy, uint32_t requested_ma,
+                                            uint32_t effective_ma, const uint32_t* info, uint32_t info_count,
+                                            const uint32_t* control, uint32_t control_count);
+
+/* One row of get_current_limits / _current_limit_state. The caller sets `size`. */
+typedef struct dc_current_row {
+    uint32_t size;
+    uint32_t policy;
+    char label[64];
+    uint32_t channel;
+    uint32_t minimum_ma, maximum_ma, normal_maximum_ma, default_ma;
+    uint32_t limit_ma, requested_ma, value_ma;
+} dc_current_row;
+
+/* One entry of GPU._current_limit_unavailable. `unsupported` is meaningful only when present
+ * (Python's dict carries the key only then). The caller sets `size`. */
+typedef struct dc_current_unavailable {
+    uint32_t size;
+    uint32_t policy;
+    char label[64];
+    int32_t present;
+    int32_t unsupported;
+    char error[256];
+} dc_current_unavailable;
+
+/* GPU._current_limit_state: the rows (at most `capacity`, *count the total), the control block it
+ * read (*has_control 0 when the mask is empty: Python's None) and, through dc_cl_unavailable, the
+ * entries it recorded. DC_E_FAILED with `error` is the exception Python raises; the unavailable
+ * entries are reset first either way, as Python does. */
+DC_API dc_status DC_CALL dc_cl_state(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context, dc_current_row* rows,
+                                     uint32_t capacity, uint32_t* count, uint32_t* control, uint32_t control_capacity,
+                                     uint32_t* control_count, int32_t* has_control, dc_error* error);
+DC_API dc_status DC_CALL dc_cl_unavailable(dc_gpu* gpu, dc_current_unavailable* out, uint32_t capacity, uint32_t* count);
+
+/* GPU.get_current_limits: the rows (empty on an unvalidated adapter or a failed read); the error
+ * bookkeeping is read with dc_cl_error_get and dc_cl_last_rows. */
+DC_API dc_status DC_CALL dc_cl_get_current_limits(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
+                                                  dc_current_row* out, uint32_t capacity, uint32_t* count);
+DC_API dc_status DC_CALL dc_cl_last_rows(dc_gpu* gpu, dc_current_row* out, uint32_t capacity, uint32_t* count);
+/* which: DC_CL_ERROR (_current_limit_error) or DC_CL_READ_ERROR (_current_limit_read_error). The text
+ * is NUL-terminated within `capacity`; *needed is its full length plus the terminator. */
+enum { DC_CL_ERROR = 0, DC_CL_READ_ERROR = 1 };
+DC_API dc_status DC_CALL dc_cl_error_get(dc_gpu* gpu, int32_t which, char* out, size_t capacity, size_t* needed);
+/* GPU._current_limit_established, as a mask of policies. */
+DC_API dc_status DC_CALL dc_cl_established_get(dc_gpu* gpu, uint32_t* mask);
+DC_API dc_status DC_CALL dc_cl_established_set(dc_gpu* gpu, uint32_t mask);
+
+/* GPU.set_current_limit_ma(policy, ma, pin=...): *ok and the message (NUL-terminated within
+ * `capacity`, *needed its full length plus the terminator). policy and ma are the caller's ints,
+ * already type-checked; a write may have happened whatever *ok says, so read the message. */
+DC_API dc_status DC_CALL dc_cl_set_current_limit_ma(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context, int64_t policy,
+                                                    int64_t ma, int32_t pin, int32_t* ok, char* message, size_t capacity,
+                                                    size_t* needed);
+/* GPU._power_policy_pins: (policy, mA) pairs in policy order; set replaces the whole mapping. */
+DC_API dc_status DC_CALL dc_cl_pins_get(dc_gpu* gpu, uint32_t* policies, int64_t* values, uint32_t capacity,
+                                        uint32_t* count);
+DC_API dc_status DC_CALL dc_cl_pins_set(dc_gpu* gpu, const uint32_t* policies, const int64_t* values, uint32_t count);
+
+/* Test seams. While a resolver is installed the hook uses a buffer patcher (a served D3DKMTEscape is a
+ * trampoline that must never be overwritten) and the thunk body is reached through dc_hook_test_entry,
+ * which returns the forwarded NTSTATUS. */
+DC_API int32_t DC_CALL dc_hook_test_entry(void* escape);
+DC_API dc_status DC_CALL dc_hook_test_state(int32_t* installed, int32_t* patched, uint32_t* calls);
+DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);
+/* The thunk bytes for a pointer width (pure): 14 bytes for 8, 5 for 4; DC_E_ARGUMENT otherwise. */
+DC_API dc_status DC_CALL dc_hook_thunk(uint64_t address, uint64_t target, uint32_t pointer_bytes,
+                                       uint8_t out[14], uint32_t* size);
+
 #ifdef __cplusplus
 }
 #endif
 
-#include "drutacore/clkdom.h"  /* private clock-domain rows and names */
+#include "drutacore/clkdom.h"         /* private clock-domain rows and names */
 #include "drutacore/vfplan.h"  /* the pure V/F planners */
 #endif /* DRUTACORE_H */

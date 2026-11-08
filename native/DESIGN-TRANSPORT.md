@@ -465,6 +465,21 @@ Python's narrower check, `D3DKMTEscape` only (open question 3). A failed `begin(
 **Deviation D1.** The native rail splice also flushes after restore and after re-arm. This is harmless and no
 test can observe it.
 
+**Deviation D5 (implemented in increment 2).** When `_rm_power_transport` fails because the capture stopped at
+the gdi32 check (`_legacy_clk_gdi()` would be `None`), and for no earlier reason such as a missing generation
+policy or getter, the native message is main's retryable text with the capability detail appended in
+parentheses: `"unsupported current-policy transport: no recognized power GET
+captured (gdi32 lacks D3DKMTEnumAdapters2)"`. The classification is unchanged (D4); only the text says which
+export is missing. The Python twin's message is the bare text, so the parity test compares the prefix there.
+
+**Increment 2 as built.** `backend/hook` holds the session as namespace-scope atomics; `original`, `owner`,
+`policy` and `patcher` are atomics so a foreign thread's reads are defined. `found` saturates at two entries.
+The buffer patcher is a flag pair (`active`, `patched`): it writes nothing anywhere, which is the whole point.
+`VirtualProtectPatcher::end()` clears its `active` flag before restoring the protection, so a late foreign
+re-arm after uninstall is a no-op instead of a write to a protected page (the residual race in 3.8 rule 6
+remains). `CapturedTransport` carries a `header_count` so a fixture can store a header of another length and
+have the next use reject it, as Python does for `len(header) != 17`. The rail splice is increment 4.
+
 **Supporting additions.**
 
 - `PwrPolInfo` (184 bytes, version `0x100B8`) goes into `backend/structs.h`.
@@ -622,12 +637,21 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
 
 ### 3.9 Increments (each with its parity module, section 4)
 
-1. `d3dkmt.h`, `gdi` with `Enum2`, `escape_raw`, `dc_escape_capability_get`.
-2. The hook, both captures, `RmTransport`, `power_transport` and `power_layouts`.
-3. `legacy_clk_records`.
-4. The rail splice.
+1. `d3dkmt.h`, `gdi` with `Enum2`, `escape_raw`, `dc_escape_capability_get`. (Done: `tests/test_native_transport.py`.)
+2. The hook, both captures, `RmTransport`, `power_transport` and `power_layouts`. (Done, with the pure tables
+   in `backend/power_layouts`: `tests/test_native_rm_transport.py`, `tests/test_native_power_layouts.py`.)
+3. `legacy_clk_records`. (Done: `VfLock::legacy_clk_limit_records` and `legacy_clk_lock` through `RmTransport`
+   and `escape_raw`; `dc_legacy_clk_records`; `tests/test_native_legacy_clk.py`.)
+4. The rail splice. (Done: `rail_write_locked` in `backend/hook`, `dc_rail_write_locked`;
+   `tests/test_native_rail_splice.py`. The error channel between threads is an atomic code, turned into
+   Python's text by the owner after the getter returns, so last-writer-wins holds without a shared string.)
 5. The fallback openers, after the probe evidence in section 5.
-6. The current-limit tables, then the logic.
+6. The current-limit tables, then the logic. (Tables done, see increment 2. The RM operations are done:
+   `CurrentLimits` in `backend/current_limits` with `abi`, `probe_info`, `rm`, `policy_table` and `capacity`,
+   the `dc_cl_*` ABI, `tests/test_native_current_limits.py`. The rows, getter and verified setter are done:
+   `state`, `get_current_limits`, `set_current_limit_ma`; `tests/test_native_current_limit_state.py`. The one
+   unported dependency, `read_live_power_request`, is a callback the caller supplies (`dc_cl_confirm_fn`);
+   the binding's stub never confirms until the client-power runtime is ported.)
 7. The Python consumers, one module at a time.
 
 ### 3.10 Corrections to the design-panel output

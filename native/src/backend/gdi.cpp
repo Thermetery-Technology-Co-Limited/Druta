@@ -113,6 +113,13 @@ const EscapeCapability& escape_capability() {
     return current().capability;
 }
 
+void* escape_export(bool require_complete) {
+    LockGuard guard(cache_mutex());
+    Cache& c = current();
+    if (!c.gdi || (require_complete ? !c.capability.complete() : !c.capability.escape)) return nullptr;
+    return c.gdi->resolve(kEscape);
+}
+
 std::optional<EscapeSlot> escape_slot(std::string_view slot) {
     // re.fullmatch(r"0+:([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-7])", slot)
     std::size_t colon = slot.find(':');

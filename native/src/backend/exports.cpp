@@ -237,4 +237,10 @@ void set_export_resolver(ResolveFn resolve, void* context) {
         hooked_loader().reset();
 }
 
+
+bool test_resolver_installed() {
+    LockGuard guard(loader_mutex());
+    return hooked_loader() != nullptr;
+}
+
 }  // namespace druta::backend

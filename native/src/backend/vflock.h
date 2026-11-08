@@ -24,6 +24,8 @@
 
 namespace druta::backend {
 
+class RmTransport;
+
 struct PointLock {
     std::uint32_t domain = 0;
     std::uint32_t lockMode = 0;
@@ -46,7 +48,9 @@ struct Status {
 
 class VfLock {
 public:
-    VfLock(Gpu& gpu, Telemetry& telemetry) : gpu_(gpu), telemetry_(telemetry) {}
+    // rm: the RM escape transport cache for the Turing R472 fallback; nullptr makes the
+    // fallback answer "not readable", as Python does when its capture fails.
+    VfLock(Gpu& gpu, Telemetry& telemetry, RmTransport* rm = nullptr) : gpu_(gpu), telemetry_(telemetry), rm_(rm) {}
 
     bool available();                      // _vf_lock_available: both ids and a V/F-curve generation
     std::optional<ClockLock> read_raw();   // _vf_lock_read_raw: the driver's own buffer, version 2
@@ -68,16 +72,21 @@ private:
         std::pair<std::uint32_t, std::uint32_t> previous;   // (lockMode, volt_uV) before this request
         std::pair<std::uint32_t, std::uint32_t> requested;
     };
-    // The Turing R472 fallback reads RM performance-limit records through the
-    // escape transport, which the core does not have yet: both answer "not
-    // readable" until it lands, exactly as Python does when its capture fails.
-    std::optional<ClkLockRange> legacy_clk_lock();
+    // The Turing R472 fallback: RM performance-limit records (GET 0x20802077) through
+    // the escape transport captured once from VoltRailsCtlGet; never its paired SET.
+    std::optional<ClkLockRange> legacy_clk_lock();  // _read_legacy_clk_lock
+
+public:
+    // _legacy_clk_limit_records: [2][82] words, or nullopt (the cached transport is then dropped).
     std::optional<std::vector<std::vector<std::uint32_t>>> legacy_clk_limit_records();
+
+private:
     bool vf_curve_applicable();
     Outcome set_vf_lock_impl(std::int64_t volt_uv, std::optional<std::int64_t> domain);
 
     Gpu& gpu_;
     Telemetry& telemetry_;
+    RmTransport* rm_;
     std::optional<Recovery> recovery_;
 };
 

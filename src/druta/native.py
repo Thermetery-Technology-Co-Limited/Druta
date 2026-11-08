@@ -244,6 +244,10 @@ class VfpLayout:
 # resolve(context, library, name) -> function pointer or NULL (the test seam)
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
 SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
+# dc_cl_confirm_fn: the read_live_power_request branch of _current_limit_state (DC_CALL is cdecl).
+CL_CONFIRM = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+                              ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
+                              ctypes.c_uint32)
 
 class _ClockDomainRow(ctypes.Structure):
     _fields_ = [("domain", ctypes.c_uint32), ("name", ctypes.c_char * 24), ("grade", ctypes.c_char * 16),
@@ -300,6 +304,18 @@ class _RailOffsetCapability(ctypes.Structure):
 
 
 
+class _CurrentRow(ctypes.Structure):  # dc_current_row
+    _fields_ = [("size", ctypes.c_uint32), ("policy", ctypes.c_uint32), ("label", ctypes.c_char * 64),
+                ("channel", ctypes.c_uint32), ("minimum_ma", ctypes.c_uint32), ("maximum_ma", ctypes.c_uint32),
+                ("normal_maximum_ma", ctypes.c_uint32), ("default_ma", ctypes.c_uint32), ("limit_ma", ctypes.c_uint32),
+                ("requested_ma", ctypes.c_uint32), ("value_ma", ctypes.c_uint32)]
+
+
+class _CurrentUnavailable(ctypes.Structure):  # dc_current_unavailable
+    _fields_ = [("size", ctypes.c_uint32), ("policy", ctypes.c_uint32), ("label", ctypes.c_char * 64),
+                ("present", ctypes.c_int32), ("unsupported", ctypes.c_int32), ("error", ctypes.c_char * 256)]
+
+
 class _Error(ctypes.Structure):  # dc_error
     _fields_ = [("size", ctypes.c_uint32), ("kind", ctypes.c_int32), ("fixed", ctypes.c_int32),
                 ("has_ntstatus", ctypes.c_int32), ("ntstatus", ctypes.c_int32), ("rm_status", ctypes.c_uint32),
@@ -315,6 +331,29 @@ class _EscapeCapability(ctypes.Structure):
 
 class _EscapeFields(ctypes.Structure):
     _fields_ = [(name, ctypes.c_uint32) for name in ("hAdapter", "hDevice", "Type", "Flags", "hContext")]
+
+
+class _RmTransport(ctypes.Structure):  # dc_rm_transport
+    _fields_ = [("size", ctypes.c_uint32), ("captured", ctypes.c_int32), ("header_count", ctypes.c_uint32),
+                ("header", ctypes.c_uint32 * 17), ("fields", _EscapeFields)]
+
+
+class _RmObserved(ctypes.Structure):  # dc_rm_observed
+    _fields_ = [("size", ctypes.c_uint32), ("seen", ctypes.c_int32), ("command_id", ctypes.c_uint32),
+                ("packet_bytes", ctypes.c_uint32), ("parameter_bytes", ctypes.c_uint32)]
+
+
+class _RailWriteRequest(ctypes.Structure):  # dc_rail_write_request
+    _fields_ = [("size", ctypes.c_uint32), ("control_version", ctypes.c_uint32), ("rail_mask", ctypes.c_uint32),
+                ("records", _RailRecord * 2), ("record_count", ctypes.c_uint32), ("boost", ctypes.c_uint32)]
+
+
+class _RailWriteResult(ctypes.Structure):  # dc_rail_write_result
+    _fields_ = [("size", ctypes.c_uint32), ("done", ctypes.c_int32), ("has_status", ctypes.c_int32),
+                ("status", ctypes.c_uint32), ("error", ctypes.c_char * 512), ("has_protocol", ctypes.c_int32),
+                ("get_command", ctypes.c_uint32), ("set_command", ctypes.c_uint32), ("packet_size", ctypes.c_uint32),
+                ("getter_version", ctypes.c_uint32), ("observed_count", ctypes.c_uint32),
+                ("observed", (ctypes.c_char * 256) * 8)]
 
 
 PRIV_CLK_WORDS = 288
@@ -420,6 +459,67 @@ _SIGNATURES = {
     "dc_rm_escape_raw": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
                                           ctypes.POINTER(_EscapeFields), ctypes.POINTER(ctypes.c_int32),
                                           ctypes.POINTER(_Error)]),
+    "dc_rm_transport_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_RmTransport)]),
+    "dc_rm_transport_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_RmTransport)]),
+    "dc_rm_transport_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32]),
+    "dc_rm_observed_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmObserved)]),
+    "dc_rm_layout_choice_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                                 ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_rm_layout_choice_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_uint32]),
+    "dc_rm_capture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_RmTransport)]),
+    "dc_rm_profile_supported": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_rm_power_transport": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmTransport),
+                                               ctypes.POINTER(_Error)]),
+    "dc_rm_power_layouts": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32,
+                                             ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_legacy_clk_records": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                               ctypes.POINTER(ctypes.c_int32)]),
+    "dc_rail_write_locked": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RailWriteRequest),
+                                              ctypes.POINTER(_RailWriteResult)]),
+    "dc_cl_max_words": (ctypes.c_uint32, []),
+    "dc_cl_capacity": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_abi": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                   ctypes.POINTER(_Error)]),
+    "dc_cl_probe_info": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                          ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_cl_rm": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                                  ctypes.c_int32, ctypes.c_uint32, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint32),
+                                  ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_cl_policy_table": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_cl_table_layout": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_cl_table_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint32),
+                                         ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int32)]),
+    "dc_cl_table_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_cl_policy_mask_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_policy_mask_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
+    "dc_cl_state": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, ctypes.POINTER(_CurrentRow),
+                                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32),
+                                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int32),
+                                     ctypes.POINTER(_Error)]),
+    "dc_cl_unavailable": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_CurrentUnavailable), ctypes.c_uint32,
+                                           ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_get_current_limits": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p,
+                                                  ctypes.POINTER(_CurrentRow), ctypes.c_uint32,
+                                                  ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_last_rows": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_CurrentRow), ctypes.c_uint32,
+                                         ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_error_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t,
+                                         ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_established_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_established_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
+    "dc_cl_set_current_limit_ma": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, ctypes.c_int64,
+                                                    ctypes.c_int64, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
+                                                    ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_pins_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int64),
+                                        ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_pins_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int64),
+                                        ctypes.c_uint32]),
+    "dc_hook_test_entry": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_hook_test_state": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32),
+                                            ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_hook_test_fail_protect": (None, [ctypes.c_int32]),
+    "dc_hook_thunk": (ctypes.c_int32, [ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32,
+                                       ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_uint32)]),
     "dc_gpu_clock_domains": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_int32,
                                               ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32,
                                               ctypes.POINTER(_ClockDomains)]),
@@ -1229,6 +1329,492 @@ class Gpu:
         self.last_escape_error = None
         return status.value
 
+    # ---- RM escape transport, layers 1 and 2 (the hook captures and the transport cache) ------- #
+
+    _TRANSPORT_POWER, _TRANSPORT_LEGACY_CLK = 1, 2
+
+    def _transport_get(self, kind):
+        t = _RmTransport()
+        t.size = ctypes.sizeof(_RmTransport)
+        status = load().dc_rm_transport_get(self._handle, kind, ctypes.byref(t))
+        if status != DC_OK:
+            _raise(status)
+        return _transport_value(t)
+
+    def _transport_set(self, kind, value):
+        status = load().dc_rm_transport_set(self._handle, kind, ctypes.byref(_transport_struct(value)))
+        if status != DC_OK:
+            _raise(status)
+
+    @property
+    def _current_limit_transport(self):
+        """The cached power transport (header, fields) or None. Assignment stores it unvalidated,
+        as a fixture does; the next use validates it."""
+        return self._transport_get(self._TRANSPORT_POWER)
+
+    @_current_limit_transport.setter
+    def _current_limit_transport(self, value):
+        self._transport_set(self._TRANSPORT_POWER, value)
+
+    @property
+    def _legacy_clk_transport(self):
+        return self._transport_get(self._TRANSPORT_LEGACY_CLK)
+
+    @_legacy_clk_transport.setter
+    def _legacy_clk_transport(self, value):
+        self._transport_set(self._TRANSPORT_LEGACY_CLK, value)
+
+    @property
+    def _current_limit_layout_choice(self):
+        has_choice, choice = ctypes.c_int32(), ctypes.c_uint32()
+        status = load().dc_rm_layout_choice_get(self._handle, ctypes.byref(has_choice), ctypes.byref(choice))
+        if status != DC_OK:
+            _raise(status)
+        return choice.value if has_choice.value else None
+
+    @_current_limit_layout_choice.setter
+    def _current_limit_layout_choice(self, value):
+        status = load().dc_rm_layout_choice_set(self._handle, 0 if value is None else 1,
+                                                0 if value is None else int(value))
+        if status != DC_OK:
+            _raise(status)
+
+    @property
+    def _current_limit_observed_transport(self):
+        """What the last power capture saw: {} or the command / sizes record."""
+        o = _RmObserved()
+        o.size = ctypes.sizeof(_RmObserved)
+        status = load().dc_rm_observed_get(self._handle, ctypes.byref(o))
+        if status != DC_OK:
+            _raise(status)
+        if not o.seen:
+            return {}
+        return {"command": f"0x{o.command_id:08X}", "command_id": o.command_id,
+                "packet_bytes": o.packet_bytes, "parameter_bytes": o.parameter_bytes}
+
+    def _capture(self, kind):
+        t = _RmTransport()
+        t.size = ctypes.sizeof(_RmTransport)
+        status = load().dc_rm_capture(self._handle, kind, ctypes.byref(t))
+        if status != DC_OK:
+            _raise(status)
+        return _transport_value(t)
+
+    def _capture_current_limit_transport(self):
+        """One PowerPolInfo call under the hook: (header, fields) of its power GET, or None."""
+        return self._capture(self._TRANSPORT_POWER)
+
+    def _capture_legacy_clk_transport(self):
+        """One VoltRailsCtlGet call under the hook: (header, fields) of its escape, or None."""
+        return self._capture(self._TRANSPORT_LEGACY_CLK)
+
+    def _current_limit_profile_supported(self):
+        supported = ctypes.c_int32()
+        status = load().dc_rm_profile_supported(self._handle, ctypes.byref(supported))
+        if status != DC_OK:
+            _raise(status)
+        return bool(supported.value)
+
+    def _current_limit_generation_policies(self):
+        from . import native_power_layouts
+        return native_power_layouts.generation_policies(self.arch())
+
+    def _rm_power_transport(self):
+        """The cached power transport or a fresh capture, validated; raises as nvbackend does."""
+        t, error = _RmTransport(), _Error()
+        t.size, error.size = ctypes.sizeof(_RmTransport), ctypes.sizeof(_Error)
+        status = load().dc_rm_power_transport(self._handle, ctypes.byref(t), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return _transport_value(t)
+
+    def _current_limit_transport_layouts(self):
+        """(layout, *fallbacks) for the captured power GET; raises as nvbackend does."""
+        from . import native_power_layouts as tables
+        rows = (tables._PowerLayout * tables.DC_POWER_LAYOUTS_MAX)()
+        for row in rows:
+            row.size = ctypes.sizeof(tables._PowerLayout)
+        count, error = ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_rm_power_layouts(self._handle, ctypes.cast(rows, ctypes.c_void_p),
+                                            tables.DC_POWER_LAYOUTS_MAX, ctypes.byref(count), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return tuple(tables._layout_dict(rows[i]) for i in range(min(count.value, tables.DC_POWER_LAYOUTS_MAX)))
+
+    def _legacy_clk_limit_records(self):
+        """RM GET 0x20802077 through the legacy transport: two 82-word records, or None."""
+        records, available = (ctypes.c_uint32 * (2 * 82))(), ctypes.c_int32()
+        status = load().dc_legacy_clk_records(self._handle, records, ctypes.byref(available))
+        if status != DC_OK:
+            _raise(status)
+        if not available.value:
+            return None
+        return [list(records[0:82]), list(records[82:164])]
+
+    def _rail_write_locked(self, control_version, rail_mask, records, boost):
+        """nvbackend.GPU._write_rail_records_locked after its Python preconditions (the profile,
+        the supported rails, the boost read): one VoltRailsCtlGet under the hook, the recognized
+        GET read back, exactly one SET with the prepared records. Returns (done, status) and sets
+        _volt_rail_write_error, _volt_rail_write_protocol and _volt_rail_observed_packets as the
+        Python does."""
+        request = _RailWriteRequest()
+        request.size = ctypes.sizeof(_RailWriteRequest)
+        request.control_version, request.rail_mask, request.boost = int(control_version), int(rail_mask), int(boost)
+        items = list(records.items())
+        if len(items) > 2:
+            raise ValueError("requested_mask must exactly match the record rails")
+        request.record_count = len(items)
+        for rail, values in items:
+            if len(tuple(values)) != 4:  # the Python precondition: (False, None), attributes untouched
+                return False, None
+        for position, (rail, values) in enumerate(items):
+            record = tuple(values)
+            # The ABI record carries int32 values and a c_int32 array wraps silently, so the range
+            # check of rail_transport._validated_records happens here. The refusal is the one
+            # prepare_write would give inside the hook, but no GET is issued for it.
+            if any(not _is_plain_int(value) or not -(1 << 31) <= value <= (1 << 31) - 1 for value in record):
+                self._volt_rail_observed_packets = []
+                self._volt_rail_write_protocol = None
+                self._volt_rail_write_error = ("Could not preserve the current native rail record: "
+                                               f"rail {rail} record values must be signed int32 integers")
+                return False, None
+            request.records[position].rail = int(rail)
+            request.records[position].values[:] = record
+        result = _RailWriteResult()
+        result.size = ctypes.sizeof(_RailWriteResult)
+        status = load().dc_rail_write_locked(self._handle, ctypes.byref(request), ctypes.byref(result))
+        if status != DC_OK:
+            _raise(status)
+        self._volt_rail_observed_packets = [result.observed[i].value.decode(errors="replace")
+                                            for i in range(min(result.observed_count, 8))]
+        self._volt_rail_write_error = _text(result.error) or None
+        self._volt_rail_write_protocol = None
+        if result.has_protocol:
+            self._volt_rail_write_protocol = {"get_command": f"0x{result.get_command:08X}",
+                                              "set_command": f"0x{result.set_command:08X}",
+                                              "packet_size": result.packet_size,
+                                              "getter_version": f"0x{result.getter_version:08X}"}
+        return bool(result.done), (result.status if result.has_status else None)
+
+    # ---- current-policy operations on the transport (nvbackend.GPU._current_limit_*) --------- #
+
+    _CL_COMMANDS = (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)
+
+    @staticmethod
+    def _current_limit_capacity(layout):
+        """Indices bounded by the known buffers and their 32-bit occupancy mask."""
+        from . import native_power_layouts as tables
+        row, capacity = _layout_struct(layout), ctypes.c_uint32()
+        status = load().dc_cl_capacity(ctypes.byref(row), ctypes.byref(capacity))
+        if status != DC_OK:
+            _raise(status)
+        return capacity.value
+
+    def _cl_words(self, name, *args):
+        """Call a word-returning dc_cl_* function; the words as a list, or the Python exception."""
+        library = load()
+        out = (ctypes.c_uint32 * _cl_max_words())()
+        count, error = ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = getattr(library, name)(self._handle, *args, out, len(out), ctypes.byref(count), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return list(out[:min(count.value, len(out))])
+
+    def _current_limit_abi(self):
+        """The current-policy layout: the stored choice, the only candidate, or the first the driver's
+        read-only info probe accepts; raises as nvbackend does."""
+        from . import native_power_layouts as tables
+        row, index, error = tables._PowerLayout(), ctypes.c_uint32(), _Error()
+        row.size, error.size = ctypes.sizeof(tables._PowerLayout), ctypes.sizeof(_Error)
+        status = load().dc_cl_abi(self._handle, ctypes.byref(row), ctypes.byref(index), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return tables._layout_dict(row)
+
+    def _current_limit_probe_info(self, layout):
+        """Read-only info GET used to choose between same-sized transports."""
+        row = _layout_struct(layout)
+        return self._cl_words("dc_cl_probe_info", ctypes.byref(row))
+
+    def _current_limit_rm(self, command, params=None, policy_mask=None, *, any_live_policy=False):
+        """Only the four measured policy operations, on this live GPU client."""
+        if params is not None:
+            params = list(params)
+            # nvbackend packs the words into a c_uint32 array when it builds the packet: a float or
+            # a str is refused there with this TypeError. An out-of-range int is refused here
+            # instead of wrapped, so no word the caller did not mean reaches the driver.
+            for word in params:
+                if not _is_plain_int(word):
+                    raise TypeError(f"'{type(word).__name__}' object cannot be interpreted as an integer")
+            if any(not 0 <= word <= 0xFFFFFFFF for word in params):
+                raise ValueError("current-policy parameters are 32-bit words")
+            buffer = (ctypes.c_uint32 * max(len(params), 1))(*params)
+        else:
+            buffer = None
+        has_mask = type(policy_mask) is int and 0 <= policy_mask <= 0xFFFFFFFF
+        return self._cl_words("dc_cl_rm", int(command) & 0xFFFFFFFF, buffer, 0 if params is None else len(params),
+                              1 if has_mask else 0, policy_mask if has_mask else 0, 1 if any_live_policy else 0)
+
+    def _power_policy_table(self):
+        """(layout, info, control, status) from one validated read of the driver's whole policy table;
+        control and status are None when the mask is empty."""
+        from . import native_power_layouts as tables
+        row, error = tables._PowerLayout(), _Error()
+        row.size, error.size = ctypes.sizeof(tables._PowerLayout), ctypes.sizeof(_Error)
+        status = load().dc_cl_policy_table(self._handle, ctypes.byref(row), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return self._last_policy_table
+
+    @property
+    def _last_policy_table(self):
+        from . import native_power_layouts as tables
+        library = load()
+        row, present = tables._PowerLayout(), ctypes.c_int32()
+        row.size = ctypes.sizeof(tables._PowerLayout)
+        status = library.dc_cl_table_layout(self._handle, ctypes.byref(row), ctypes.byref(present))
+        if status != DC_OK:
+            _raise(status)
+        if not present.value:
+            return None
+        blocks = []
+        for block in range(3):
+            out = (ctypes.c_uint32 * _cl_max_words())()
+            count, has = ctypes.c_uint32(), ctypes.c_int32()
+            status = library.dc_cl_table_get(self._handle, block, out, len(out), ctypes.byref(count), ctypes.byref(has))
+            if status != DC_OK:
+                _raise(status)
+            blocks.append(list(out[:min(count.value, len(out))]) if has.value else None)
+        return (tables._layout_dict(row), blocks[0], blocks[1], blocks[2])
+
+    @_last_policy_table.setter
+    def _last_policy_table(self, value):
+        if value is not None:
+            raise ValueError("the last policy table is read from the driver; only None can be assigned")
+        status = load().dc_cl_table_reset(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    @property
+    def _power_policy_mask(self):
+        mask = ctypes.c_uint32()
+        status = load().dc_cl_policy_mask_get(self._handle, ctypes.byref(mask))
+        if status != DC_OK:
+            _raise(status)
+        return mask.value
+
+    @_power_policy_mask.setter
+    def _power_policy_mask(self, value):
+        status = load().dc_cl_policy_mask_set(self._handle, int(value or 0) & 0xFFFFFFFF)
+        if status != DC_OK:
+            _raise(status)
+
+    # ---- the policy rows, the getter and the verified setter (nvbackend.GPU._current_limit_state and up) #
+
+    _CL_ERROR, _CL_READ_ERROR = 0, 1
+    _CL_MAX_ROWS = 32  # one row per policy bit at most
+
+    def read_live_power_request(self):
+        """nvbackend.GPU.read_live_power_request is the client-power runtime, which is not ported:
+        natively a derived clamp cannot be confirmed yet and stays an invalid record. The parity
+        tests patch this on the instance, as they mock it on the Python twin."""
+        return None, "the live power request is not ported"
+
+    def _confirm_derived_clamp(self):
+        """The dc_cl_confirm_fn: the read_live_power_request branch of _current_limit_state, on the
+        info and control words the core hands over. The caller keeps the returned object alive for
+        the duration of the call it is passed to."""
+        def confirm(_context, _policy, _requested_ma, _effective_ma, info, info_count, control, control_count):
+            try:
+                observed, error = self.read_live_power_request()
+                if error or observed is None:
+                    return 0
+                binding = observed.get("binding", {})
+                return int(bytes.fromhex(observed.get("role_info_hex", ""))[4:5] == b"\x30"
+                           and type(observed.get("requested_mw")) is int
+                           and type(binding.get("maximum_mw")) is int
+                           and observed["requested_mw"] > binding["maximum_mw"]
+                           and observed.get("native_info_hex") == ctypes.string_at(info, info_count * 4).hex()
+                           and observed.get("native_control_hex") == ctypes.string_at(control, control_count * 4).hex())
+            except Exception:
+                # nvbackend lets such an exception escape _current_limit_state (get_current_limits
+                # then reports its text); inside the callback it would vanish, so it refuses instead
+                return 0
+        return CL_CONFIRM(confirm)
+
+    def _cl_rows(self, name, *args):
+        out = (_CurrentRow * self._CL_MAX_ROWS)()
+        for row in out:
+            row.size = ctypes.sizeof(_CurrentRow)
+        count = ctypes.c_uint32()
+        status = getattr(load(), name)(self._handle, *args, out, len(out), ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return [_row_dict(out[i]) for i in range(min(count.value, len(out)))]
+
+    def _current_limit_state(self):
+        """(rows, control) of one validated table read; raises as nvbackend does. Resets
+        _current_limit_unavailable first either way."""
+        confirm = self._confirm_derived_clamp()
+        rows = (_CurrentRow * self._CL_MAX_ROWS)()
+        for row in rows:
+            row.size = ctypes.sizeof(_CurrentRow)
+        control = (ctypes.c_uint32 * _cl_max_words())()
+        count, control_count, has_control = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_int32()
+        error = _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_cl_state(self._handle, confirm, None, rows, len(rows), ctypes.byref(count), control,
+                                    len(control), ctypes.byref(control_count), ctypes.byref(has_control),
+                                    ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return ([_row_dict(rows[i]) for i in range(min(count.value, len(rows)))],
+                list(control[:min(control_count.value, len(control))]) if has_control.value else None)
+
+    @property
+    def _current_limit_unavailable(self):
+        out = (_CurrentUnavailable * self._CL_MAX_ROWS)()
+        for item in out:
+            item.size = ctypes.sizeof(_CurrentUnavailable)
+        count = ctypes.c_uint32()
+        status = load().dc_cl_unavailable(self._handle, out, len(out), ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        items = []
+        for i in range(min(count.value, len(out))):
+            item = {"policy": out[i].policy, "label": _text(out[i].label), "present": bool(out[i].present)}
+            if out[i].present:
+                item["unsupported"] = bool(out[i].unsupported)
+            item["error"] = _text(out[i].error)
+            items.append(item)
+        return items
+
+    def get_current_limits(self):
+        """Supported current policies in mA; empty on an unvalidated adapter."""
+        confirm = self._confirm_derived_clamp()
+        return self._cl_rows("dc_cl_get_current_limits", confirm, None)
+
+    @property
+    def _current_limit_last_rows(self):
+        return self._cl_rows("dc_cl_last_rows")
+
+    def _cl_text(self, which):
+        library, needed = load(), ctypes.c_size_t()
+        status = library.dc_cl_error_get(self._handle, which, None, 0, ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        buffer = ctypes.create_string_buffer(max(needed.value, 1))
+        status = library.dc_cl_error_get(self._handle, which, buffer, len(buffer), ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode(errors="replace")
+
+    @property
+    def _current_limit_error(self):
+        return self._cl_text(self._CL_ERROR)
+
+    @property
+    def _current_limit_read_error(self):
+        return self._cl_text(self._CL_READ_ERROR)
+
+    @property
+    def _current_limit_established(self):
+        mask = ctypes.c_uint32()
+        status = load().dc_cl_established_get(self._handle, ctypes.byref(mask))
+        if status != DC_OK:
+            _raise(status)
+        return {policy for policy in range(32) if mask.value >> policy & 1}
+
+    @_current_limit_established.setter
+    def _current_limit_established(self, value):
+        policies = set(value or ())
+        if any(not _is_plain_int(policy) or not 0 <= policy < 32 for policy in policies):
+            raise ValueError("established current policies are policy indices below 32")
+        status = load().dc_cl_established_set(self._handle, sum(1 << policy for policy in policies))
+        if status != DC_OK:
+            _raise(status)
+
+    def current_limit_diagnostics(self):
+        """Last GET outcome only; contains no client handles and performs no writes."""
+        choice, layout = self._current_limit_layout_choice, None
+        if choice is not None and self._current_limit_transport is not None:
+            try:
+                candidates = self._current_limit_transport_layouts()
+                layout = candidates[choice] if choice < len(candidates) else None
+            except ValueError:
+                layout = None
+        return {
+            "build": "current-visibility-v3",
+            "driver": self.static.get("driver"),
+            "vbios": self.static.get("vbios"),
+            "generation": self.arch(),
+            "expected_policies": self._current_limit_generation_policies(),
+            "transport": self._current_limit_observed_transport,
+            # which same-sized layout the info probe chose, by its info size
+            "layout_info_bytes": (layout or {}).get("sizes", {}).get(0x2080A618),
+            "error": self._current_limit_error,
+            "read_error": self._current_limit_read_error,
+            "policies": self._current_limit_last_rows,
+            "unavailable_policies": self._current_limit_unavailable,
+        }
+
+    def set_current_limit_ma(self, policy, ma, *, pin=True):
+        """Change one policy and verify stored AND effective limits; (ok, message) as nvbackend's."""
+        if type(policy) is not int or policy not in self._current_limit_generation_policies():
+            return False, "not a supported current policy"
+        if type(ma) is not int:
+            return False, "current limit must be an integer number of milliamps"
+
+        def int64(value):  # beyond int64 is beyond every policy range: the core's refusal is the same
+            return max(-(1 << 63), min(value, (1 << 63) - 1))
+        confirm = self._confirm_derived_clamp()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(4096)
+        status = load().dc_cl_set_current_limit_ma(self._handle, confirm, None, int64(policy), int64(ma),
+                                                   1 if pin else 0, ctypes.byref(ok), message, len(message),
+                                                   ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return bool(ok.value), message.value.decode(errors="replace")
+
+    def _set_current_limit_ma(self, policy, ma):
+        return self.set_current_limit_ma(policy, ma, pin=False)
+
+    @property
+    def _power_policy_pins(self):
+        policies, values = (ctypes.c_uint32 * 32)(), (ctypes.c_int64 * 32)()
+        count = ctypes.c_uint32()
+        status = load().dc_cl_pins_get(self._handle, policies, values, 32, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {policies[i]: values[i] for i in range(min(count.value, 32))}
+
+    @_power_policy_pins.setter
+    def _power_policy_pins(self, value):
+        items = list((value or {}).items())
+        if any(not _is_plain_int(policy) or not 0 <= policy < 32 or not _is_plain_int(ma)
+               or not -(1 << 63) <= ma < (1 << 63) for policy, ma in items):
+            raise ValueError("power policy pins map policy indices below 32 to integer milliamps")
+        policies = (ctypes.c_uint32 * max(len(items), 1))(*[policy for policy, _ in items])
+        values = (ctypes.c_int64 * max(len(items), 1))(*[ma for _, ma in items])
+        status = load().dc_cl_pins_set(self._handle, policies, values, len(items))
+        if status != DC_OK:
+            _raise(status)
+
     # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
 
     def _list_u32(self, function):
@@ -1578,6 +2164,111 @@ def _error_record(error):
     return {"kind": ("none", "transient", "invalid", "unsupported")[error.kind], "fixed": bool(error.fixed),
             "ntstatus": error.ntstatus if error.has_ntstatus else None, "rm_status": error.rm_status,
             "message": _text(error.message)}
+
+
+def _raise_error(error):
+    """Raise the exception a dc_error stands for (DESIGN-TRANSPORT.md 3.6): CurrentLimitUnsupported
+    for a fixed property, ValueError (with .fixed) for a failed read."""
+    from .nvbackend import CurrentLimitUnsupported
+    message = _text(error.message)
+    if error.kind == DC_ERR_UNSUPPORTED:
+        raise CurrentLimitUnsupported(message)
+    exc = ValueError(message)
+    if error.fixed:  # nvbackend sets .fixed only on the rejections that are a property of the layout
+        exc.fixed = True
+    raise exc
+
+
+def _row_dict(row):
+    """A dc_current_row as nvbackend's get_current_limits returns it."""
+    return {"policy": row.policy, "label": _text(row.label), "channel": row.channel,
+            "minimum_ma": row.minimum_ma, "maximum_ma": row.maximum_ma, "normal_maximum_ma": row.normal_maximum_ma,
+            "default_ma": row.default_ma, "limit_ma": row.limit_ma, "requested_ma": row.requested_ma,
+            "value_ma": row.value_ma}
+
+
+def _transport_value(t):
+    """A dc_rm_transport as nvbackend keeps it: (header words, fields dict), or None."""
+    if not t.captured:
+        return None
+    header = list(t.header[:min(t.header_count, 17)])
+    return header, {name: getattr(t.fields, name) for name in Gpu._ESCAPE_FIELDS}
+
+
+def _transport_struct(value):
+    """The dc_rm_transport for a (header, fields) pair or None. A header of another length is
+    stored with its length so the next use rejects it as Python does; its words beyond 17 are
+    not kept."""
+    t = _RmTransport()
+    t.size = ctypes.sizeof(_RmTransport)
+    if value is None:
+        return t
+    header, fields = value
+    header = [int(word) for word in header]
+    if any(not 0 <= word <= 0xFFFFFFFF for word in header):
+        raise ValueError("a transport header holds 32-bit packet words")
+    t.captured = 1
+    t.header_count = min(len(header), 0xFFFFFFFF)
+    for index, word in enumerate(header[:17]):
+        t.header[index] = word
+    for name in Gpu._ESCAPE_FIELDS:
+        setattr(t.fields, name, int(fields.get(name, 0)))
+    return t
+
+
+def _cl_max_words():
+    """The largest policy packet any layout sizes, in words (dc_cl_max_words)."""
+    return load().dc_cl_max_words()
+
+
+def _layout_struct(layout):
+    """A Python layout dict (the _CURRENT_LIMIT_LAYOUTS shape) as a dc_power_layout row."""
+    from . import native_power_layouts as tables
+    row = tables._PowerLayout()
+    row.size = ctypes.sizeof(tables._PowerLayout)
+    sizes = layout["sizes"]
+    for index, command in enumerate(tables.POWER_GET_COMMANDS):
+        row.sizes[index] = int(sizes.get(command, 0))
+    if "commands" in layout:
+        row.has_commands = 1
+        for index, command in enumerate(tables.POWER_GET_COMMANDS):
+            row.commands[index] = int(layout["commands"].get(command, 0))
+    row.info_base, row.info_stride = layout["info"]
+    row.status_base, row.status_stride = layout["status"]
+    row.control_base, row.control_stride = layout["control"]
+    if "status_mask_word" in layout:
+        row.has_status_mask_word, row.status_mask_word = 1, int(layout["status_mask_word"])
+    if "control_mask_word" in layout:
+        row.has_control_mask_word, row.control_mask_word = 1, int(layout["control_mask_word"])
+    return row
+
+
+def hook_test_entry(escape_address):
+    """The thunk body (dc_hook_test_entry): forwards to the served D3DKMTEscape; its NTSTATUS."""
+    return load().dc_hook_test_entry(escape_address)
+
+
+def hook_test_state():
+    """{installed, patched, calls} of the process-wide hook session."""
+    installed, patched, calls = ctypes.c_int32(), ctypes.c_int32(), ctypes.c_uint32()
+    status = load().dc_hook_test_state(ctypes.byref(installed), ctypes.byref(patched), ctypes.byref(calls))
+    if status != DC_OK:
+        _raise(status)
+    return {"installed": bool(installed.value), "patched": bool(patched.value), "calls": calls.value}
+
+
+def hook_test_fail_protect(fail):
+    """Make the buffer patcher's begin() fail (Python's VirtualProtect failure)."""
+    load().dc_hook_test_fail_protect(1 if fail else 0)
+
+
+def hook_thunk(address, target, pointer_bytes):
+    """The hook's thunk bytes for a pointer width (pure)."""
+    out, size = (ctypes.c_uint8 * 14)(), ctypes.c_uint32()
+    status = load().dc_hook_thunk(address, target, pointer_bytes, out, ctypes.byref(size))
+    if status != DC_OK:
+        _raise(status)
+    return bytes(out[:size.value])
 
 
 def escape_capability():

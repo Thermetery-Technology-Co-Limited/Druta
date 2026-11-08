@@ -36,6 +36,12 @@ struct EscapeCapability {
 };
 const EscapeCapability& escape_capability();
 
+// &D3DKMTEscape for the hook. With require_complete (the captures: Python's
+// _legacy_clk_gdi() is None without the four exports, and no hook is installed)
+// nullptr unless the capability is complete; without it (the rail splice, which
+// takes D3DKMTEscape directly) nullptr only when gdi32 or the export is missing.
+void* escape_export(bool require_complete = true);
+
 // The 2.2 slot rule: "0+:BB:DD.F" with two hex digits each and a function 0-7,
 // nothing else (stricter than druta::parse_slot).
 struct EscapeSlot {

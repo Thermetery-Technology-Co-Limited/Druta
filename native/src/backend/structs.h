@@ -68,6 +68,16 @@ struct PwrPolStatus {
 };
 static_assert(sizeof(PwrPolStatus) == 72);
 
+struct PwrPolInfoEntry {  // nvbackend._PwrPolInfoEntry
+    std::uint32_t pstate, unk1, unk2, min_pcm, unk3, unk4, def_pcm, unk5, unk6, max_pcm, unk7;
+};
+struct PwrPolInfo {  // the power capture's getter argument; version 0x100B8
+    std::uint32_t version;
+    std::uint8_t valid, count, pad[2];
+    PwrPolInfoEntry entries[4];
+};
+static_assert(sizeof(PwrPolInfo) == 184);
+
 struct CoolerSetting {
     std::uint32_t type, controller, default_min, default_max, current_min, current_max, current_level,
         default_policy, current_policy, target, control_type, active;
