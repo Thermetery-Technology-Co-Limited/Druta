@@ -123,6 +123,7 @@ ClockShapeResult clock_control_shape_hex(const char* text, std::size_t length, s
 
 std::optional<ClockIdentity> ClockBios::binding(ClockBiosFailure& failure) {
     TargetResult bound = binding_.bind();
+    if (bound.target) held_ = true;  // TargetBinding has recorded its sticky identity
     if (!bound.target) {
         failure.perf_error = true;
         failure.error = bound.error;
@@ -147,7 +148,7 @@ std::optional<ClockIdentity> ClockBios::binding(ClockBiosFailure& failure) {
     return ClockIdentity{t.slot, t.architecture, t.device_id, t.subsystem_id};
 }
 
-ClockControlResult ClockBios::control_once(const std::optional<ClockIdentity>& identity) {
+ClockControlResult ClockBios::control_once(ClockIdentityDiffers differs, void* context) {
     ClockControlResult out;
     Nvapi& api = gpu_.nvapi;
     auto getter = api.get<HandlePtrFn>(ClkDomCtlGet);
@@ -183,8 +184,8 @@ ClockControlResult ClockBios::control_once(const std::optional<ClockIdentity>& i
         out.failure = failure;
         return out;
     }
-    if (!identity || now->slot != identity->slot || now->architecture != identity->architecture ||
-        now->device_id != identity->device_id || now->subsystem_id != identity->subsystem_id) {
+    // `_binding(reader) != identity`: the caller compares with its own semantics.
+    if (!differs || differs(context, *now) != 0) {
         out.failure = perf_error(RmErrorKind::identity, "User-clock request target changed");
         return out;
     }

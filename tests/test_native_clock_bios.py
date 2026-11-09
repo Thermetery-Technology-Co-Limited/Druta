@@ -11,27 +11,36 @@ native handle exposes, so _binding, slot(), arch() and clkdom_domains are the re
 the same stateful fake ClkDomCtlGet as the core (tests/test_native_clkdom.py::ClkDomRig).
 
 The control GET (every GET after the one-bit-at-a-time discovery) logs the 24996 request bytes it
-received and the 64 bytes after them, which must still be the 0xA5 guard: so the core hands the
-driver exactly the declared allocation with the version at 0, the mask at 8 and zeros elsewhere.
-Each case compares the result or the exception (type, PerfDiagnosticError kind and status, message)
-and the whole call log.
+received and the 64 bytes before and after them, which must still be the 0xA5 guards: so the core
+hands the driver exactly the declared allocation with the version at 0, the mask at 8 and zeros
+elsewhere. Each case compares the result or the exception (exact type name, PerfDiagnosticError kind
+and status, message) and the whole call log.
+
+The caller's identity is compared by the binding with Python's own `!=` against the identity the
+core bound, so identities that only compare equal (complex, Fraction, bool, a mappingproxy, a dict
+subclass with its own comparison) behave as in Python, exceptions included.
 
 Unreachable natively, and so covered only by tests/test_clock_bios_runtime.py: a clkdom_domains
 inventory that is not a list or tuple, has duplicates, or holds a value that is not an int in 0..31
 (ClkDom::domains builds unique probed indices); a non-int GET status; an _identity refusal of the
 binding's own values (a device id above 16 bits, a PCI bus/device/function out of range: the core
 binding yields neither); the sticky "GPU binding changed" refusal (none of its identity elements can
-change under the public fakes, as tests/test_native_target_binding.py notes). A pairing mismatch
+change under the public fakes, as tests/test_native_target_binding.py notes: the architecture is
+cached and the NVAPI handle and ids are fixed at open). Whether a reader holds a sticky identity is
+compared instead, through dc_clock_bios_held against reader._identity. A pairing mismatch
 disables NVAPI, so the inventory is already unavailable before the binding is reached; the
 binding's own identity and transient refusals are covered through the NVML PCI identity and the
 architecture read instead."""
 import ctypes
 import struct
 import unittest
+from fractions import Fraction
+from types import MappingProxyType
+from unittest import mock
 
 from druta import clock_bios_runtime as cbr, native
-from druta.clock_bios_runtime import ClockBiosError, _CONTROL_LAYOUT
-from druta.perf_diagnostics import PerfDiagnosticError, PerfDiagnosticsReader
+from druta.clock_bios_runtime import _CONTROL_LAYOUT
+from druta.perf_diagnostics import PerfDiagnosticsReader
 from tests.test_native_clkdom import GET_ID, SIZE, UNKNOWN, VERSION, Block, ClkDomRig
 from tests.test_native_identity import TITAN
 from tests.test_native_target_binding import Card
@@ -62,7 +71,7 @@ def request(mask):
 
 
 def control_calls(mask):
-    return [("control-request", request(mask), GUARD), ("ClkDomCtlGet", mask)]
+    return [("control-request", GUARD, request(mask), GUARD), ("ClkDomCtlGet", mask)]
 
 
 class ClockRig(ClkDomRig):
@@ -70,11 +79,14 @@ class ClockRig(ClkDomRig):
 
     control_status: the control GET returns this status
     overrun / underrun: bytes the driver writes just past the end / before the start of the packet
+    pokes: byte offsets relative to the packet start the driver writes 0xEE to (single guard bytes)
     words: {word index: value} the driver writes over its answer (the version and mask echoes)
     """
 
-    def __init__(self, *, control_status=0, overrun=0, underrun=0, words=None, arch=7, accepted=ACCEPTED, **kw):
+    def __init__(self, *, control_status=0, overrun=0, underrun=0, pokes=(), words=None, arch=7,
+                 accepted=ACCEPTED, **kw):
         self.control_status, self.overrun, self.underrun = control_status, overrun, underrun
+        self.pokes = tuple(pokes)
         self.words = dict(words or {})
         self.probe_next = 0
         super().__init__(arch=arch, accepted=accepted, **kw)
@@ -88,8 +100,8 @@ class ClockRig(ClkDomRig):
             if self.probe_next < 32 and mask == 1 << self.probe_next:  # clkdom_domains' probe
                 self.probe_next += 1
                 return base(handle, pointer)
-            self.calls.append(("control-request", Block(ctypes.string_at(pointer, SIZE)),
-                               ctypes.string_at(pointer + SIZE, len(GUARD))))
+            self.calls.append(("control-request", ctypes.string_at(pointer - len(GUARD), len(GUARD)),
+                               Block(ctypes.string_at(pointer, SIZE)), ctypes.string_at(pointer + SIZE, len(GUARD))))
             status = base(handle, pointer)
             words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
             for index, value in self.words.items():
@@ -98,6 +110,8 @@ class ClockRig(ClkDomRig):
                 ctypes.memset(pointer + SIZE, 0xEE, self.overrun)
             if self.underrun:
                 ctypes.memset(pointer - self.underrun, 0xEE, self.underrun)
+            for offset in self.pokes:
+                ctypes.memset(pointer + offset, 0xEE, 1)
             return self.control_status or status
         self.names["ClkDomCtlGet"] = self.nvapi.interfaces[GET_ID] = get
 
@@ -107,12 +121,16 @@ class ClockRig(ClkDomRig):
 
 
 def outcome(call):
+    """("ok", value), or the exception's exact type name, kind, status and text."""
     try:
         return ("ok", call())
-    except PerfDiagnosticError as exc:
-        return ("PerfDiagnosticError", exc.kind, exc.status, str(exc))
-    except ClockBiosError as exc:
-        return ("ClockBiosError", None, None, str(exc))
+    except Exception as exc:
+        return (type(exc).__name__, getattr(exc, "kind", None), getattr(exc, "status", None), str(exc))
+
+
+def held(side):
+    """Whether the side's reader holds a sticky target identity."""
+    return side.reader._identity is not None if side.python else ncb.held(side.gpu)
 
 
 class Side:
@@ -190,7 +208,9 @@ class ControlOnceTests(ClockCase):
                 self.assertEqual(calls, DISCOVERY + control_calls(MASK))
 
     def test_guard_overrun_comes_first(self):
-        for options in (dict(overrun=1), dict(overrun=64), dict(underrun=4), dict(overrun=4, control_status=-1)):
+        for options in (dict(overrun=1), dict(overrun=64), dict(underrun=4), dict(overrun=4, control_status=-1),
+                        dict(underrun=1), dict(underrun=64), dict(pokes=[-64]), dict(pokes=[-1]),
+                        dict(pokes=[SIZE + 63]), dict(pokes=[-64], control_status=-1)):
             with self.subTest(**options):
                 result, calls = self.both(ClockRig(**options))
                 self.assertEqual(result, OVERRUN)
@@ -216,6 +236,84 @@ class ControlOnceTests(ClockCase):
         identity = dict(IDENTITY, architecture=7.0, device_id=float(TITAN["devid"]))
         (kind, value), _ = self.both(ClockRig(), lambda side: side.control_once(identity))
         self.assertEqual((kind, value["mask"]), ("ok", MASK))
+
+    def test_the_identity_is_compared_with_pythons_own_semantics(self):
+        class Equal(dict):  # != says equal whatever the values
+            def __ne__(self, other):
+                return False
+
+        class Unequal(dict):  # != says different whatever the values
+            def __ne__(self, other):
+                return True
+
+        class EqOnly(dict):  # only __eq__ overridden: dict's own != still decides
+            def __eq__(self, other):
+                return False
+
+        class Raises(dict):
+            def __ne__(self, other):
+                raise LookupError("comparison refused")
+
+        class Weird:  # an int-convertible value that does not compare equal
+            def __int__(self):
+                return 7
+
+        accepted = [dict(IDENTITY, architecture=7 + 0j), dict(IDENTITY, architecture=Fraction(7)),
+                    dict(IDENTITY, device_id=Fraction(TITAN["devid"])), MappingProxyType(IDENTITY),
+                    Equal(IDENTITY, device_id=1, slot="nonsense"), Equal(), EqOnly(IDENTITY)]
+        refused = [Unequal(IDENTITY), dict(IDENTITY, architecture=7 + 1j), dict(IDENTITY, architecture=Weird()),
+                   dict(IDENTITY, architecture=7.5), MappingProxyType(dict(IDENTITY, device_id=1)),
+                   dict(reversed(list(IDENTITY.items())), extra=None)]
+        for identity in accepted:
+            with self.subTest(identity=identity):
+                (kind, value), calls = self.both(ClockRig(), lambda side: side.control_once(identity))
+                self.assertEqual((kind, value["mask"]), ("ok", MASK))
+                self.assertEqual(calls, DISCOVERY + control_calls(MASK))
+        for identity in refused:
+            with self.subTest(identity=identity):
+                result, calls = self.both(ClockRig(), lambda side: side.control_once(identity))
+                self.assertEqual(result, TARGET_CHANGED)
+                self.assertEqual(calls, DISCOVERY + control_calls(MASK))
+        # The comparison's own exception propagates, ahead of the status check.
+        result, calls = self.both(ClockRig(control_status=-1), lambda side: side.control_once(Raises(IDENTITY)))
+        self.assertEqual(result, ("LookupError", None, None, "comparison refused"))
+        self.assertEqual(calls, DISCOVERY + control_calls(MASK))
+        # The comparison is not reached when the guards or the binding refuse first.
+        self.assertEqual(self.both(ClockRig(overrun=1), lambda side: side.control_once(Raises()))[0], OVERRUN)
+        self.assertEqual(self.both(ClockRig(arch=UNKNOWN), lambda side: side.control_once(Raises()))[0],
+                         ("PerfDiagnosticError", "transient", None, "GPU architecture could not be read"))
+
+    def test_bool_float_fraction_and_complex_equal_a_bound_one(self):
+        with mock.patch("tests.test_native_telemetry.TITAN", dict(TITAN, subsys=1)):
+            rig = ClockRig()
+        for one in (1, True, 1.0, Fraction(1), 1 + 0j):
+            with self.subTest(one=one):
+                identity = dict(IDENTITY, subsystem_id=one)
+                (kind, value), calls = self.both(rig, lambda side: side.control_once(identity))
+                self.assertEqual((kind, value["mask"]), ("ok", MASK))
+                self.assertEqual(calls, DISCOVERY + control_calls(MASK))
+        for other in (False, 0, 1.5, IDENTITY["subsystem_id"]):
+            with self.subTest(other=other):
+                identity = dict(IDENTITY, subsystem_id=other)
+                result, _ = self.both(rig, lambda side: side.control_once(identity))
+                self.assertEqual(result, TARGET_CHANGED)
+
+    def test_failures_in_pythons_order_when_two_coincide(self):
+        cases = [
+            (dict(control_status=-1, words={0: VERSION + 1}),
+             ("ClockBiosError", None, None, "User-clock CONTROL GET failed: -1")),
+            (dict(control_status=-1, words={2: MASK ^ 2}),
+             ("ClockBiosError", None, None, "User-clock CONTROL GET failed: -1")),
+            (dict(overrun=4, arch=UNKNOWN), OVERRUN),
+            (dict(pokes=[-1], arch=3), OVERRUN),
+            (dict(words={2: MASK ^ 2}), CHANGED),
+            (dict(words={0: VERSION + 1, 2: MASK ^ 2}), CHANGED),
+        ]
+        for options, expected in cases:
+            with self.subTest(**{k: str(v) for k, v in options.items()}):
+                result, calls = self.both(ClockRig(**options))
+                self.assertEqual(result, expected)
+                self.assertEqual(calls, DISCOVERY + control_calls(MASK))
 
     def test_the_bindings_own_refusals_keep_their_kind(self):
         cases = [
@@ -250,6 +348,28 @@ class ControlOnceTests(ClockCase):
                 result, calls = self.both(ClockRig(words=words))
                 self.assertEqual(result, CHANGED)
                 self.assertEqual(calls, DISCOVERY + control_calls(MASK))
+
+    def test_the_sticky_identity_is_held_until_reset(self):
+        """dc_clock_bios_reset clears the reader's sticky identity as a fresh PerfDiagnosticsReader does."""
+        def states(identity):
+            def action(side):
+                seen = [held(side)]
+                seen.append(outcome(lambda: side.control_once(identity))[0])
+                seen.append(held(side))
+                side.fresh()
+                seen.append(held(side))
+                return seen
+            return action
+        rig = ClockRig()
+        self.assertEqual(self.both(rig, states(IDENTITY))[0], ("ok", [False, "ok", True, False]))
+        # bound, then the identity comparison refuses: the binding still holds its identity
+        self.assertEqual(self.both(rig, states(None))[0], ("ok", [False, "PerfDiagnosticError", True, False]))
+        # refused before the binding (no getter; an overrun) or by it: nothing is held
+        for options in (dict(with_get=False), dict(overrun=1), dict(arch=UNKNOWN), dict(arch=3)):
+            with self.subTest(**{k: str(v) for k, v in options.items()}):
+                result = self.both(ClockRig(**options), states(IDENTITY))[0]
+                self.assertEqual(result[0], "ok")
+                self.assertEqual([result[1][i] for i in (0, 2, 3)], [False, False, False])
 
     def test_reset_is_a_fresh_reader(self):
         def twice(side):
@@ -301,6 +421,12 @@ class ControlShapeTests(unittest.TestCase):
         result = self.shape(value(mask, payload(mask, rows)))
         self.assertEqual(result, ("ok", (value(mask, payload(mask, rows)), {0: 2 ** 31 - 1, 3: -12345, 31: -(2 ** 31)})))
 
+    def test_row_types_matching_15_only_in_the_low_byte_are_not_requests(self):
+        mask = 1 << 1 | 1 << 2 | 1 << 3 | 1 << 4
+        rows = ((1, 0x10F, 11), (2, 0x1000000F, 22), (3, 0xFFFFFF0F, 33), (4, 15, 44), (8, 15, 88), (30, 15, 300))
+        result = self.shape(value(mask, payload(mask, rows)))
+        self.assertEqual(result, ("ok", (value(mask, payload(mask, rows)), {4: 44})))
+
     def test_masks_with_bits_over_rows_without_requests(self):
         rows = ((2, 14, 5), (4, 0, 5), (6, 15, -1))
         for mask in (1, 0xFFFFFFFF, 1 << 31, 0b1010100):
@@ -313,6 +439,34 @@ class ControlShapeTests(unittest.TestCase):
         for mask in (0, 2 ** 32, -1, 2 ** 64, 2 ** 70, True, 1.0, "1", None):
             with self.subTest(mask=mask):
                 self.assertEqual(self.shape(value(mask, payload(1))), message)
+
+    def test_the_inventory_is_checked_before_the_geometry(self):
+        inventory = ("ClockBiosError", None, None, "User-clock request inventory is invalid")
+        for mask in (0, None, True, 2 ** 32):
+            for text in (None, "", "zz", payload(1).hex()[:-2]):
+                with self.subTest(mask=mask, text=repr(text)[:12]):
+                    self.assertEqual(self.shape(value(mask, payload(1), payload_hex=text)), inventory)
+
+    def test_hex_whitespace_is_pythons_ascii_whitespace(self):
+        good = payload(1).hex()
+        not_hex = ("ClockBiosError", None, None, "Clock readback is not hexadecimal")
+        canonical = ("ClockBiosError", None, None, "Clock readback needs canonical bounded hexadecimal")
+        for space in " \t\n\r\x0b\x0c":
+            cases = [
+                (space * 2 + good[2:], canonical),                         # at the start
+                (good[:-2] + space * 2, canonical),                         # at the end
+                (good[:100] + space + good[100:-2] + space, canonical),     # between pairs, and at the end
+                (space + good[:100] + space + good[100:-2], canonical),     # at the start, and between pairs
+                (good[:101] + space + good[101:-1], not_hex),               # inside a pair
+            ]
+            for text, expected in cases:
+                with self.subTest(space=repr(space), text=repr(text)[:16] + repr(text)[-8:]):
+                    self.assertEqual(len(text), len(good))
+                    self.assertEqual(self.shape(value(1, payload_hex=text)), expected)
+        for text in ("\xa0\xa0" + good[2:], good[:-2] + "\xa0\xa0", good[:100] + "\xa0" + good[100:-2] + " ",
+                     good[:-2] + "\x1c\x1f", good[:-2] + "\x85\x85", good[:-2] + "\u3000 "):
+            with self.subTest(text=repr(text)[-12:]):
+                self.assertEqual(self.shape(value(1, payload_hex=text)), not_hex)
 
     def test_payload_geometry_and_hexadecimal(self):
         good = payload(1).hex()

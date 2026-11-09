@@ -39,15 +39,25 @@ typedef struct dc_clock_bios_requests {
     int32_t khz[32];  /* the int32 at row + 0x114; 0 where the bit is clear */
 } dc_clock_bios_requests;
 
+/* Python's `_binding(reader) != identity` on the caller's own identity object: return nonzero when
+ * the caller's identity differs from *bound (the identity the reader bound: slot, architecture,
+ * device_id and subsystem_id; bound->handle is 0, as Python's identity has no handle). Called once by
+ * dc_clock_bios_control, after the guards and the binding and before the status check, under the
+ * handle lock; it must not call back into the GPU. *bound is valid only during the call. */
+typedef int32_t (DC_CALL *dc_clock_bios_identity_fn)(void* context, const dc_target* bound);
+
 /* _control_once(gpu, reader, identity): the ClkDomCtlGet presence, the probed inventory (clkdom_domains)
  * as the request mask, one GET into a guarded 24996-byte packet (version at 0, mask at 8, zeros
- * elsewhere), then in order the guards, the binding (compared with *identity on slot, architecture,
- * device_id and subsystem_id; the handle field is ignored), the status and _control_shape.
- * identity NULL is a value that equals no binding (Python compares it after the GET, so the GET is
- * still issued). On DC_OK *mask is the request mask and payload[0..24996) the driver's bytes: the
- * Python dict is {**_CONTROL_LAYOUT, "mask": *mask, "payload_hex": payload.hex()}. */
-DC_API dc_status DC_CALL dc_clock_bios_control(dc_gpu* gpu, const dc_target* identity, uint32_t* mask,
-                                               uint8_t* payload, uint32_t capacity, dc_error* error);
+ * elsewhere), then in order the guards, the binding, identity_differs(context, &bound) (nonzero:
+ * DC_E_FAILED, DC_ERR_IDENTITY, "User-clock request target changed"), the status and _control_shape.
+ * identity_differs NULL is an identity that equals no binding (Python's None; the GET is still
+ * issued, as Python compares after it). A C caller compares its expected identity in its own
+ * callback; the Python binding evaluates `bound != identity` there with Python's semantics. On DC_OK
+ * *mask is the request mask and payload[0..24996) the driver's bytes: the Python dict is
+ * {**_CONTROL_LAYOUT, "mask": *mask, "payload_hex": payload.hex()}. */
+DC_API dc_status DC_CALL dc_clock_bios_control(dc_gpu* gpu, dc_clock_bios_identity_fn identity_differs,
+                                               void* context, uint32_t* mask, uint8_t* payload,
+                                               uint32_t capacity, dc_error* error);
 
 /* The pure part of _control_shape(value, identity) after the dict-shape checks: _integer on the
  * mask (1..0xFFFFFFFF; pass 0 for a value that is not an int), _hex(payload_hex, 24996), the echoed
@@ -59,6 +69,10 @@ DC_API dc_status DC_CALL dc_clock_bios_control_shape(const char* payload_hex, ui
 
 /* A fresh reader: forget the reader's sticky target identity. */
 DC_API dc_status DC_CALL dc_clock_bios_reset(dc_gpu* gpu);
+
+/* *held = 1 when the handle's reader holds a sticky target identity (Python's
+ * `reader._identity is not None`: set by every binding that succeeded since the last reset), else 0. */
+DC_API dc_status DC_CALL dc_clock_bios_held(dc_gpu* gpu, int32_t* held);
 
 #ifdef __cplusplus
 }

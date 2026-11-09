@@ -4,7 +4,6 @@
 //
 // The C ABI of drutacore/clock_bios.h.
 #include <cstring>
-#include <optional>
 #include <string>
 
 #include "backend/clock_bios.h"
@@ -40,28 +39,37 @@ dc_status put_failure(const ClockBiosFailure& failure, dc_error* out) {
 
 bool error_ok(const dc_error* error) { return !error || error->size == sizeof(dc_error); }
 
-// The caller's identity dict; a slot without a terminator inside its field equals no binding.
-std::optional<ClockIdentity> get_identity(const dc_target* in) {
-    if (!in) return std::nullopt;
-    const void* end = std::memchr(in->slot, 0, sizeof in->slot);
-    if (!end) return std::nullopt;
-    return ClockIdentity{std::string(in->slot, static_cast<const char*>(end)), in->architecture, in->device_id,
-                         in->subsystem_id};
+// The C callback behind ClockIdentityDiffers: the bound identity as a dc_target.
+struct IdentityCheck {
+    dc_clock_bios_identity_fn differs;
+    void* context;
+};
+
+std::int32_t identity_differs(void* context, const ClockIdentity& bound) {
+    const IdentityCheck& check = *static_cast<const IdentityCheck*>(context);
+    dc_target t{};
+    t.size = sizeof(dc_target);
+    DC_COPY(t.slot, bound.slot);
+    t.architecture = bound.architecture;
+    t.device_id = bound.device_id;
+    t.subsystem_id = bound.subsystem_id;
+    return check.differs(check.context, &t);
 }
 
 }  // namespace
 
 extern "C" {
 
-DC_API dc_status DC_CALL dc_clock_bios_control(dc_gpu* handle, const dc_target* identity, uint32_t* mask,
-                                               uint8_t* payload, uint32_t capacity, dc_error* error) {
-    if (!handle || !mask || (!payload && capacity) || (identity && identity->size != sizeof(dc_target)) ||
-        !error_ok(error))
-        return DC_E_ARGUMENT;
+DC_API dc_status DC_CALL dc_clock_bios_control(dc_gpu* handle, dc_clock_bios_identity_fn differs, void* context,
+                                               uint32_t* mask, uint8_t* payload, uint32_t capacity,
+                                               dc_error* error) {
+    if (!handle || !mask || (!payload && capacity) || !error_ok(error)) return DC_E_ARGUMENT;
     if (capacity < DC_CLOCK_BIOS_CONTROL_SIZE) return DC_E_BUFFER;
-    const std::optional<ClockIdentity> expected = get_identity(identity);
+    IdentityCheck check{differs, context};
     druta::LockGuard guard(handle->gpu.lock());
-    druta::backend::ClockControlResult r = handle->clock_bios.control_once(expected);
+    // A NULL callback is an identity that differs from every binding.
+    druta::backend::ClockControlResult r =
+        handle->clock_bios.control_once(differs ? identity_differs : nullptr, &check);
     if (!r.ok()) return put_failure(r.failure, error);
     *mask = r.mask;
     std::memcpy(payload, r.payload.data(), r.payload.size());
@@ -92,6 +100,13 @@ DC_API dc_status DC_CALL dc_clock_bios_reset(dc_gpu* handle) {
     if (!handle) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
     handle->clock_bios.reset();
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_clock_bios_held(dc_gpu* handle, int32_t* held) {
+    if (!handle || !held) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    *held = handle->clock_bios.held() ? 1 : 0;
     return DC_OK;
 }
 

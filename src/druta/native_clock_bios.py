@@ -12,9 +12,11 @@ target binding; ``reset(gpu)`` is a fresh reader. This is a parallel implementat
 tests; the Python module stays the one the backend uses.
 
 The C ABI takes typed arguments, so Python's own type rules stay here:
-- ``identity`` is passed as a ``dc_target`` only when it is a dict of exactly the four keys with a
-  str slot that fits the field and numbers equal to ints in 0..0xFFFFFFFF; any other value equals
-  no binding and is passed as NULL (the GET is still issued, as Python compares after it).
+- ``identity`` is never converted. The core reports the identity it bound (a ``dc_target``) to a
+  callback at Python's point (after the guards and the binding, before the status check), which
+  evaluates ``bound != identity`` with Python's semantics, ``bound`` being the plain dict
+  ``_binding(reader)`` returns (slot str, then three ints). An exception the comparison raises is
+  re-raised as Python would raise it; the callback never calls back into the GPU.
 - ``_control_shape``'s dict-shape checks run here; the mask is passed when it is an int (not a
   bool) in 0..2**64-1 and as 0 otherwise (refused with the same text), and ``payload_hex`` as one
   byte per code point (non-ASCII as a byte the core never takes for hex or whitespace), or NULL
@@ -34,7 +36,6 @@ CAPACITY = 32
 _KINDS = {1: "transient", 2: "invalid", 3: "unsupported", 4: "identity", 5: "malformed"}
 _UINT32_MAX = 0xFFFFFFFF
 _UINT64_MAX = 0xFFFFFFFFFFFFFFFF
-_IDENTITY_KEYS = {"slot", "architecture", "device_id", "subsystem_id"}
 
 
 class _Requests(ctypes.Structure):  # dc_clock_bios_requests
@@ -42,12 +43,14 @@ class _Requests(ctypes.Structure):  # dc_clock_bios_requests
 
 
 _P = ctypes.POINTER
+_IDENTITY_FN = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, _P(_Target))  # dc_clock_bios_identity_fn
 _SIGNATURES = {
-    "dc_clock_bios_control": (ctypes.c_int32, [ctypes.c_void_p, _P(_Target), _P(ctypes.c_uint32), ctypes.c_void_p,
-                                               ctypes.c_uint32, _P(_Error)]),
+    "dc_clock_bios_control": (ctypes.c_int32, [ctypes.c_void_p, _IDENTITY_FN, ctypes.c_void_p, _P(ctypes.c_uint32),
+                                               ctypes.c_void_p, ctypes.c_uint32, _P(_Error)]),
     "dc_clock_bios_control_shape": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_uint64,
                                                      _P(_Requests), _P(_Error)]),
     "dc_clock_bios_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_clock_bios_held": (ctypes.c_int32, [ctypes.c_void_p, _P(ctypes.c_int32)]),
 }
 
 _lock = threading.Lock()
@@ -102,47 +105,26 @@ def _raise_failure(status, error):
     native._raise(status)
 
 
-def _u32_equal(value):
-    """The int in 0..0xFFFFFFFF that `value` compares equal to, or None."""
-    try:
-        number = int(value)
-    except Exception:
-        return None
-    try:
-        if number != value:
-            return None
-    except Exception:
-        return None
-    return number if 0 <= number <= _UINT32_MAX else None
-
-
-def _target(identity):
-    """identity as a dc_target, or None for a value that equals no binding."""
-    if not isinstance(identity, dict) or set(identity) != _IDENTITY_KEYS or not isinstance(identity["slot"], str):
-        return None
-    try:
-        slot = identity["slot"].encode()
-    except UnicodeError:
-        return None
-    if len(slot) >= _Target.slot.size or b"\0" in slot:
-        return None
-    numbers = {key: _u32_equal(identity[key]) for key in ("architecture", "device_id", "subsystem_id")}
-    if any(v is None for v in numbers.values()):
-        return None
-    target = _Target()
-    target.size = ctypes.sizeof(_Target)
-    target.slot = slot
-    target.architecture, target.device_id = numbers["architecture"], numbers["device_id"]
-    target.subsystem_id = numbers["subsystem_id"]
-    return target
-
-
 def control_once(gpu, identity):
     """clock_bios_runtime._control_once(gpu, reader, identity): the user-clock CONTROL dict."""
-    target, error = _target(identity), _new_error()
+    raised = []
+
+    def differs(_context, bound):
+        target = bound.contents
+        current = {"slot": _text(target.slot), "architecture": target.architecture, "device_id": target.device_id,
+                   "subsystem_id": target.subsystem_id}
+        try:
+            return 1 if current != identity else 0
+        except BaseException as exc:  # raised below, at Python's point
+            raised.append(exc)
+            return 1
+
+    error = _new_error()
     mask, payload = ctypes.c_uint32(), ctypes.create_string_buffer(CONTROL_SIZE)
-    status = load().dc_clock_bios_control(gpu._handle, ctypes.byref(target) if target is not None else None,
-                                          ctypes.byref(mask), payload, CONTROL_SIZE, ctypes.byref(error))
+    status = load().dc_clock_bios_control(gpu._handle, _IDENTITY_FN(differs), None, ctypes.byref(mask), payload,
+                                          CONTROL_SIZE, ctypes.byref(error))
+    if raised:
+        raise raised[0]
     if status != DC_OK:
         _raise_failure(status, error)
     return {**_layout(), "mask": mask.value, "payload_hex": payload.raw.hex()}
@@ -175,3 +157,12 @@ def reset(gpu):
     status = load().dc_clock_bios_reset(gpu._handle)
     if status != DC_OK:
         native._raise(status)
+
+
+def held(gpu):
+    """Whether the handle's reader holds a sticky target identity (``reader._identity is not None``)."""
+    value = ctypes.c_int32()
+    status = load().dc_clock_bios_held(gpu._handle, ctypes.byref(value))
+    if status != DC_OK:
+        native._raise(status)
+    return bool(value.value)

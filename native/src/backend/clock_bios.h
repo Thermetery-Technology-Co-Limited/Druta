@@ -70,25 +70,38 @@ struct ClockControlResult {
     bool ok() const { return payload.size() == kClockControlSize; }
 };
 
-// The identity dict _control_once compares the binding against; nullopt stands for a value that
-// equals no binding (not a dict of the four keys, a slot that is not text, a value out of range).
+// The identity _control_once binds (_binding(reader)): Python's plain dict of the slot str and three
+// ints, in that key order.
 struct ClockIdentity {
     std::string slot;
     std::uint32_t architecture = 0, device_id = 0, subsystem_id = 0;
 };
+
+// Python's `_binding(reader) != identity`, evaluated by the caller on its own identity object: nonzero
+// when the caller's identity differs from `bound`. Called once per control_once, after the guards and
+// the binding and before the status check, under Gpu::lock(); it must not call back into the GPU.
+// A null function stands for an identity that equals no binding (Python's None).
+using ClockIdentityDiffers = std::int32_t (*)(void* context, const ClockIdentity& bound);
 
 class ClockBios {
 public:
     ClockBios(Gpu& gpu, Telemetry& telemetry, RmTransport& rm, ClkDom& clkdom)
         : gpu_(gpu), telemetry_(telemetry), rm_(rm), clkdom_(clkdom), binding_(gpu, telemetry) {}
 
-    // _control_once(gpu, reader, identity). The caller holds Gpu::lock().
-    ClockControlResult control_once(const std::optional<ClockIdentity>& identity);
+    // _control_once(gpu, reader, identity) with the identity comparison handed to `differs`. The
+    // caller holds Gpu::lock().
+    ClockControlResult control_once(ClockIdentityDiffers differs, void* context);
     // _binding(reader): the identity dict, or the failure (the binding's PerfDiagnosticError, or
     // _identity's ClockBiosError).
     std::optional<ClockIdentity> binding(ClockBiosFailure& failure);
     // A fresh reader: forget the sticky identity.
-    void reset() { binding_.reset(); }
+    void reset() {
+        binding_.reset();
+        held_ = false;
+    }
+    // Whether the reader holds a sticky identity (Python's `reader._identity is not None`): set by
+    // every bind() that returned a target, exactly when TargetBinding records its identity.
+    bool held() const { return held_; }
 
 private:
     Gpu& gpu_;
@@ -96,6 +109,7 @@ private:
     RmTransport& rm_;
     ClkDom& clkdom_;
     TargetBinding binding_;  // the read's PerfDiagnosticsReader
+    bool held_ = false;
 };
 
 }  // namespace druta::backend
