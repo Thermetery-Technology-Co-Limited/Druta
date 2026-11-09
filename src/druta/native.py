@@ -885,7 +885,9 @@ class Gpu:
                              "subsys": identity.nvml_subsys if identity.nvml_has_devid else None,
                              "uuid": _text(identity.uuid)}
         self.nvapi = _Half(bool(identity.nvapi_ok), _text(identity.nvapi_error), nvapi_selected)
-        self.nvapi.gpu = identity.nvapi_handle or None  # NvAPI.gpu's value, for the identity checks only
+        # NvAPI.gpu: the selected handle while the half is live; NvAPI.disable (a pairing failure) clears it
+        # but keeps the selected record, as nvbackend.GPU._pair does.
+        self.nvapi.gpu = (identity.nvapi_handle or None) if identity.nvapi_ok else None
         self.nvml = _Half(bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected)
         self.nvml.dll_path = _text(identity.nvml_path)
         self.pairing_error = _text(identity.pairing_error)

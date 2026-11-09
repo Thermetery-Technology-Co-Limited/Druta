@@ -64,6 +64,8 @@ core, then compares results, driver call sequences and messages.
 | Current-limit rows, getter and verified setter | `GPU._current_limit_state`, `get_current_limits`, `current_limit_diagnostics`, `set_current_limit_ma`, `_set_current_limit_ma` and the `_current_limit_unavailable` / `_current_limit_error` / `_current_limit_read_error` / `_current_limit_last_rows` / `_current_limit_established` / `_power_policy_pins` attributes | `dc_cl_state`, `dc_cl_get_current_limits`, `dc_cl_set_current_limit_ma` and their attribute getters | `tests/test_native_current_limit_state.py` |
 | Paired target binding and its prerequisites | `PerfDiagnosticsReader._binding`, `ClientPowerController._binding`; `GPU.arch_name`, `vf_curve_applicable`, the capability keys of `GPU.static`, `NvAPI._i` presence | `dc_gpu_target_bind`, `dc_gpu_target_reset`, `dc_nvapi_interface_present` (bound as `Gpu._target_binding`, `_client_power_binding`, `_target_binding_reset`, `nvapi_interface_present`) | `tests/test_native_target_binding.py`, `tests/test_native_telemetry.py` |
 | Power-arbitration decoder | `power_arbitration.decode`, `_geometry`, `_arbitration`, `ROW_FORMATS` | `dc_power_arbitration_*` (`drutacore/power_arbitration.h`, bound by `druta.native_power_arbitration`) | `tests/test_native_power_arbitration.py` |
+| Pure rail-limit and hold-headroom helpers | `GPU._valid_volt_rail_state`, `volt_boost_headroom_mv`, `abs_limit_mv`, `rail_ceiling_mv`, `rail_floor_mv`, `hold_headroom_architecture`, `hold_headroom_ceiling_mv`, `hold_headroom_targets`, `_headroom_enforced_mv`, `hold_headroom_bound_mv`, `hold_headroom_allowance_mv` and their constants | `dc_rl_*` (`drutacore/rail_limits.h`, bound by `druta.native_rail_limits`) | `tests/test_native_rail_limits.py` |
+| Client-power tables and geometry helpers | `client_power_runtime` constants, `_small_native_geometry`, `_definition_stride`, `_native_geometry`, `_coupled_requests`, `_project`, `_matches` | `dc_cp_*` (`drutacore/client_power.h`, bound by `druta.native_client_power`) | `tests/test_native_client_power.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
 `nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
@@ -120,6 +122,21 @@ The arbitration decoder is pure: the binding keeps Python's dynamic checks
 (a layout, size, command or packet word that is not an exact unsigned 32-bit
 int) and maps each to the sentinel the core refuses with Python's reason, so
 every reason string comes from the core.
+The rail-limit helpers carry each dict value with its Python kind (missing,
+None, int, float, an int beyond 2^53, or another object with its truth and
+`float()`), so int arithmetic stays int, `min`/`max` keep Python's order
+and every place the Python raises returns a status the binding turns back
+into the same exception type by replaying the failing operation. Two things
+are refused that Python computes: an int sum beyond 2^53 (`OverflowError`)
+and arithmetic on numeric objects that are not `int` or `float`
+(`TypeError`). `hold_headroom_grain_mv` stays in Python: it depends on
+Python's decimal `round`; only its bounds are ported as constants.
+The client-power helpers are the pure half of `ClientPowerController`: the
+size groups and command tables, the geometry a captured binding implies,
+the projection of a request into the CONTROL payloads and the exact-readback
+test that tolerates recalculated peer votes on v30 tables. The core
+reproduces CPython's own messages for `pack_into`, `unpack_from` and byte
+indexing, so a malformed payload raises the same exception natively.
 
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls

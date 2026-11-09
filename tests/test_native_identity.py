@@ -238,6 +238,8 @@ class NativeIdentityTests(unittest.TestCase):
             self.assertTrue(gpu.nvml.ok)
             self.assertEqual(gpu.nvapi.err_detail, gpu.pairing_error)
             self.assertIsNotNone(gpu.nvapi.selected)  # not cleared, as in nvbackend
+            self.assertNotEqual(gpu.nvapi.selected["handle"], 0)  # the record keeps its handle
+            self.assertIsNone(gpu.nvapi.gpu)  # NvAPI.disable clears the live handle
             self.assertTrue(gpu.status_line().startswith("NVAPI: FAIL (NVAPI and NVML disagree"))
 
     def test_pairing_is_accepted_unverified_without_nvml_pci_identity(self):

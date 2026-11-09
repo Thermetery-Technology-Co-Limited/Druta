@@ -207,7 +207,10 @@ DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* handle, dc_gpu_identi
     DC_COPY(out->nvapi_slot, gpu.nvapi.selected ? gpu.nvapi.selected->slot : std::string());
     out->nvapi_devid = gpu.nvapi.selected ? gpu.nvapi.selected->devid : 0;
     out->nvapi_subsys = gpu.nvapi.selected ? gpu.nvapi.selected->subsys : 0;
-    out->nvapi_handle = static_cast<uint64_t>(reinterpret_cast<std::uintptr_t>(gpu.nvapi.gpu));
+    // The selected record's handle, which a pairing failure leaves in place (nvbackend.GPU._pair keeps
+    // NvAPI.selected while NvAPI.disable clears NvAPI.gpu); the binding derives NvAPI.gpu from nvapi_ok.
+    out->nvapi_handle = static_cast<uint64_t>(
+        reinterpret_cast<std::uintptr_t>(gpu.nvapi.selected ? gpu.nvapi.selected->handle : nullptr));
     out->nvml_selected = gpu.nvml.selected ? 1 : 0;
     DC_COPY(out->nvml_slot, gpu.nvml.selected ? gpu.nvml.selected->slot : std::string());
     out->nvml_has_devid = gpu.nvml.selected && gpu.nvml.selected->devid ? 1 : 0;

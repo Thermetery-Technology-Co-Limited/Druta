@@ -655,7 +655,9 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
 7. The Python consumers, one module at a time. (In progress: the paired target binding shared by
    `perf_diagnostics` and `client_power_runtime` is done as `backend/target`, `dc_gpu_target_bind`,
    `tests/test_native_target_binding.py`; the pure `power_arbitration` decoder as `backend/power_arbitration`,
-   `dc_power_arbitration_*`, `tests/test_native_power_arbitration.py`.)
+   `dc_power_arbitration_*`, `tests/test_native_power_arbitration.py`; the pure rail-limit and hold-headroom
+   helpers as `backend/rail_limits`, `dc_rl_*`, `tests/test_native_rail_limits.py`; the pure client-power
+   tables and geometry helpers as `backend/client_power`, `dc_cp_*`, `tests/test_native_client_power.py`.)
 
 ### 3.10 Corrections to the design-panel output
 

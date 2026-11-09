@@ -161,7 +161,7 @@ typedef struct dc_gpu_identity {
     char vbios[96];
     char uuid[96];
     int32_t admin;
-    uint64_t nvapi_handle;     /* NvAPI.gpu, the selected handle's value (0 when none); for identity checks only */
+    uint64_t nvapi_handle;     /* NvAPI.selected["handle"] (0 when none); NvAPI.gpu is this while nvapi_ok */
 } dc_gpu_identity;
 
 DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* gpu, dc_gpu_identity* identity);
@@ -694,7 +694,9 @@ DC_API dc_status DC_CALL dc_rm_escape_raw(dc_gpu* gpu, uint8_t* packet, size_t s
  * _rm_power_transport, _current_limit_transport_layouts (DESIGN-TRANSPORT.md 3.4, 3.5, 3.7). */
 
 #include "drutacore/power_layouts.h"  /* dc_power_layout: the pure current-limit tables */
+#include "drutacore/client_power.h"   /* dc_cp_*: the pure client-power tables and geometry */
 #include "drutacore/power_arbitration.h"  /* the pure power-arbitration decoder */
+#include "drutacore/rail_limits.h"     /* the pure rail-limit and hold-headroom helpers */
 
 /* ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) --------------- */
 
