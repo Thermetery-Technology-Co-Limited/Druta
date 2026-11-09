@@ -7,7 +7,8 @@
  *
  * Increment A3: the paired transport check (_transport), the guarded single-command exchange
  * (_exchange), _reset_transport, a fresh controller, and the controller state. Increment A4: the
- * metadata read (read_metadata: _stable_locked over _metadata_once and _client_group). One sticky
+ * metadata read (read_metadata: _stable_locked over _metadata_once and _client_group). Increment
+ * A5: the full read (read: _stable_locked over _once, then the optional _arbitration). One sticky
  * controller per handle, with its own target binding. A ClientPowerError is DC_E_FAILED with a
  * dc_error: kind DC_ERR_IDENTITY / TRANSIENT / UNSUPPORTED / MALFORMED, Python's message, and
  * rm_status (nonzero only for an RM rejection); DC_ERR_UNSTABLE for two differing fresh reads. DC_ERR_INVALID is the one bare ValueError Python
@@ -145,6 +146,56 @@ typedef struct dc_cpc_metadata {
  * DC_CPC_NATIVE_INFO_MAX. Unreachable while those are SIZES' packets, the largest of every
  * DC_CP_*_SIZES group; a group with a larger packet must raise them with it. */
 DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* gpu, dc_cpc_metadata* out, dc_error* error);
+
+/* The largest CONTROL and NATIVE_CONTROL packet of any DC_CP_*_SIZES group (SIZES), and the room
+ * for the arbitration error text. */
+#define DC_CPC_CONTROL_MAX 808
+#define DC_CPC_NATIVE_CONTROL_MAX 13876
+#define DC_CPC_ARBITRATION_ERROR_MAX 1024
+
+/* read()'s dict: {**metadata, "requested_mw", "control_hex", "native_control_hex", "arbitration",
+ * "arbitration_error"}. metadata is read_metadata()'s dict for the same capture. control and
+ * native_control hold control_size / native_control_size bytes. Exactly one of has_arbitration (the
+ * decoded report, available = 1, with its mask: power_arbitration.decode's dict) and
+ * has_arbitration_error (Python's error text, never empty) is 1. */
+typedef struct dc_cpc_observation {
+    uint32_t size;                  /* sizeof(dc_cpc_observation), set by the caller */
+    dc_cpc_metadata metadata;       /* metadata.size: sizeof(dc_cpc_metadata), set by the caller */
+    uint32_t requested_mw;
+    uint32_t control_size;
+    uint32_t native_control_size;
+    uint8_t control[DC_CPC_CONTROL_MAX];
+    uint8_t native_control[DC_CPC_NATIVE_CONTROL_MAX];
+    int32_t has_arbitration;
+    dc_arbitration_report arbitration;  /* arbitration.size: sizeof(dc_arbitration_report), set by
+                                         * the caller (and written back on success) */
+    int32_t has_arbitration_error;
+    char arbitration_error[DC_CPC_ARBITRATION_ERROR_MAX];
+} dc_cpc_observation;
+
+/* read(): two equal fresh captures of the metadata, the selected client CONTROL and the native
+ * CONTROL under the GPU lock, one fresh pair after a transient failure (as dc_cpc_read_metadata),
+ * then the optional native STATUS read and its arbitration decode.
+ *
+ * STATUS is diagnostic: its failure is reported in arbitration_error, not as a status. The legacy
+ * and RM26-record groups read no STATUS ("Power arbitration diagnostics are unavailable for this
+ * policy layout"). Otherwise STATUS is tried at most twice: a transient failure resets the handle's
+ * power transport cache and tries again (the cache is reset after a second transient failure too),
+ * any other failure ends the attempts, and a decode that is not available reports its reason. An
+ * identity failure during STATUS fails the whole read (DC_E_FAILED, DC_ERR_IDENTITY).
+ *
+ * DC_OK with *out (the sizes written back), or DC_E_FAILED with *error: the ClientPowerError of the
+ * failing step (kind and message as Python's _once raises them: DC_ERR_MALFORMED for an echo, header
+ * or type disagreement, DC_ERR_UNSUPPORTED for a missing or zero FE request, DC_ERR_UNSTABLE for
+ * client and native requests that disagree or two captures that differ). The controller state keeps
+ * every group the captures selected. DC_E_ARGUMENT for a NULL handle or out, a wrong out->size,
+ * out->metadata.size or out->arbitration.size, or a dc_error whose size is wrong; *error and *out
+ * are then left untouched.
+ *
+ * DC_E_BUFFER (neither *error nor *out written) when a stable capture holds a payload larger than
+ * its array. Unreachable while the DC_CPC_*_MAX are SIZES' packets, the largest of every
+ * DC_CP_*_SIZES group. */
+DC_API dc_status DC_CALL dc_cpc_read(dc_gpu* gpu, dc_cpc_observation* out, dc_error* error);
 
 #ifdef __cplusplus
 }

@@ -8,13 +8,12 @@
 #include <optional>
 
 #include "backend/power_arbitration.h"
+#include "core/abi_arbitration.h"
 #include "core/abi_internal.h"
 
 namespace {
 
 using druta::backend::ArbitrationReport;
-using druta::backend::ArbitrationRow;
-using druta::backend::ArbitrationVector;
 using druta::backend::ArbitrationWords;
 using druta::backend::PowerLayout;
 
@@ -25,44 +24,6 @@ bool get_words(const dc_arbitration_words* in, ArbitrationWords* out) {
     out->data = in->words;
     out->count = in->count;
     return true;
-}
-
-void put_vector(const ArbitrationVector& v, dc_arbitration_vector* out) {
-    out->available = v.available ? 1 : 0;
-    DC_COPY(out->reason, v.reason);
-    DC_COPY(out->method, v.method);
-    out->method_code = v.method_code;
-    out->count = v.count;
-    out->output = v.output;
-    out->initial_value = v.initial_value;
-    for (std::size_t i = 0; i < v.inputs.size() && i < DC_ARBITRATION_INPUTS_MAX; ++i) {
-        out->inputs[i].client = v.inputs[i].client;
-        out->inputs[i].value = v.inputs[i].value;
-    }
-    out->has_computed_output = v.computed_output ? 1 : 0;
-    out->computed_output = v.computed_output.value_or(0u);
-    out->consistent = v.consistent ? (*v.consistent ? 1 : 0) : -1;
-}
-
-void put_row(const ArbitrationRow& r, dc_arbitration_row* out) {
-    out->policy = r.policy;
-    out->type = r.type;
-    out->channel = r.channel;
-    out->has_unit = r.unit ? 1 : 0;
-    DC_COPY(out->unit, r.unit.value_or(std::string()));
-    out->unit_code = r.unit_code;
-    out->available = r.available ? 1 : 0;
-    DC_COPY(out->reason, r.reason);
-    out->requested = r.requested;
-    out->effective = r.effective;
-    out->value = r.value;
-    out->delta = r.delta;
-    put_vector(r.host, &out->host);
-    put_vector(r.pmu, &out->pmu);
-    std::size_t n = 0;
-    for (; n < r.observations.size() && n < DC_ARBITRATION_OBSERVATIONS_MAX; ++n)
-        DC_COPY(out->observations[n], r.observations[n]);
-    out->observation_count = static_cast<uint32_t>(n);
 }
 
 }  // namespace
@@ -80,16 +41,7 @@ DC_API dc_status DC_CALL dc_power_arbitration_decode(const dc_power_layout* layo
     if (layout) pure = druta::abi::get_power_layout(*layout);
     const ArbitrationReport report = druta::backend::decode_power_arbitration(pure ? &*pure : nullptr, i, c, s);
     std::memset(out, 0, sizeof(*out));
-    out->size = sizeof(dc_arbitration_report);
-    out->schema = report.schema;
-    out->available = report.available ? 1 : 0;
-    DC_COPY(out->reason, report.reason);
-    out->has_mask = report.mask ? 1 : 0;
-    out->mask = report.mask.value_or(0u);
-    std::size_t n = 0;
-    for (; n < report.policies.size() && n < DC_ARBITRATION_POLICIES_MAX; ++n)
-        put_row(report.policies[n], &out->policies[n]);
-    out->policy_count = static_cast<uint32_t>(n);
+    druta::abi::arbitration::put_report(report, out);
     return DC_OK;
 }
 
@@ -107,7 +59,7 @@ DC_API dc_status DC_CALL dc_power_arbitration_vector(const uint8_t* row, uint32_
                                                      dc_arbitration_vector* out) {
     if (!out || (!row && row_bytes)) return DC_E_ARGUMENT;
     std::memset(out, 0, sizeof(*out));
-    put_vector(druta::backend::decode_arbitration_vector(row, row_bytes, offset), out);
+    druta::abi::arbitration::put_vector(druta::backend::decode_arbitration_vector(row, row_bytes, offset), out);
     return DC_OK;
 }
 

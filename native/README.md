@@ -68,6 +68,7 @@ core, then compares results, driver call sequences and messages.
 | Client-power tables and geometry helpers | `client_power_runtime` constants, `_small_native_geometry`, `_definition_stride`, `_native_geometry`, `_coupled_requests`, `_project`, `_matches` | `dc_cp_*` (`drutacore/client_power.h`, bound by `druta.native_client_power`) | `tests/test_native_client_power.py` |
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
 | Client-power metadata read | `ClientPowerController._client_group`, `_metadata_once`, `_stable_locked`, `read_metadata` | `dc_cpc_read_metadata` (bound as `Gpu._cp_read_metadata`) | `tests/test_native_client_power_metadata.py` |
+| Client-power full read | `ClientPowerController._once`, `_arbitration`, `_read_locked`, `read` (the STATUS packet decoded by the native power-arbitration decoder) | `dc_cpc_read` (bound as `Gpu._cp_read`) | `tests/test_native_client_power_read.py` |
 | PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
 | Voltage-rail getters | `GPU._read_volt_rail_blocks`, `_read_volt_rail_deltas`, `read_volt_rail_state`, `read_rail_live_mv` and the four `_volt_rail_*` read caches | `dc_rails_*` (`drutacore/rails.h`, bound by `druta.native_rails`) | `tests/test_native_rails.py` |
 | Clock-BIOS read path | `clock_bios_runtime._control_once`, `_control_shape`, `_info_once`, `_decode`, `read` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_info`, `dc_clock_bios_decode`, `dc_clock_bios_read`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
@@ -184,15 +185,18 @@ The rail getters read each rail with its own singleton mask through
 `VoltRailsAbs`, keep the Python caches (the rails each getter has read, the
 retry time of a rail that was not read, the last attempt's diagnostics, the
 version each getter answered at) and never decide presence from a record's
-contents; their diagnostics' `error` is always `None`, as a C getter cannot
-raise.
+contents; their diagnostics' `error` is always `None` and `status` always an
+int. Python reaches its `error` branch when ctypes converts a Windows
+structured exception raised inside the getter into `OSError`; the core, like
+every other NVAPI call it makes, has no such guard, so a faulting driver
+export is not survived on any native path.
 
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls
 built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
 adapter openers for older gdi32 builds; the full policy table of
 `_power_policy_rows` and the pin re-application after board-limit writes;
-the client-power runtime beyond its metadata read (the full read with its arbitration, the live request and the request SET); and the Python consumers of the transport such as
+the client-power runtime beyond its full read (the live request wiring and the request SET); and the Python consumers of the transport such as
 `_write_rail_records` with its profile checks and `_verify_rail_records`;
 `refresh_capabilities`'s live-power and rail resets wait for them), the GPU
 restart, and the front end.

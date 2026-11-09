@@ -563,6 +563,8 @@ _SIGNATURES = {
     "dc_cpc_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
     # client-power controller (increment A4); dc_cpc_metadata is Gpu._CpcMetadata, passed by address
     "dc_cpc_read_metadata": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    # client-power controller (increment A5); dc_cpc_observation is Gpu._cp_observation_type(), by address
+    "dc_cpc_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
 }
 
 _lock = threading.Lock()
@@ -804,8 +806,11 @@ def set_sleep_hook(hook):
         library.dc_set_sleep_hook(SLEEP_HOOK(0))
         _sleep_keepalive = None
         return
-    _sleep_keepalive = SLEEP_HOOK(hook)
-    library.dc_set_sleep_hook(_sleep_keepalive)
+    # Install the new thunk before dropping the old one: the core reads the hook pointer without a
+    # lock, so the previous closure must outlive dc_set_sleep_hook.
+    thunk = SLEEP_HOOK(hook)
+    library.dc_set_sleep_hook(thunk)
+    _sleep_keepalive = thunk
 
 
 _clock_keepalive = None
@@ -820,8 +825,9 @@ def set_clock_hook(hook):
         library.dc_set_clock_hook(CLOCK_HOOK(0))
         _clock_keepalive = None
         return
-    _clock_keepalive = CLOCK_HOOK(hook)
-    library.dc_set_clock_hook(_clock_keepalive)
+    thunk = CLOCK_HOOK(hook)  # installed before the old thunk is dropped, as set_sleep_hook
+    library.dc_set_clock_hook(thunk)
+    _clock_keepalive = thunk
 
 
 def _text(field):
@@ -1015,7 +1021,7 @@ class Gpu:
     # ---- client-power controller (increment A3) ------------------------------------------------- #
     # ClientPowerController._transport / _exchange / _reset_transport on this handle's one sticky
     # controller (dc_cpc_*); _cp_reset() stands for constructing a fresh controller. Increment A4 adds
-    # read_metadata (_cp_read_metadata).
+    # read_metadata (_cp_read_metadata), A5 the full read (_cp_read).
 
     class _CpcState(ctypes.Structure):  # dc_cpc_state
         _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
@@ -1174,6 +1180,10 @@ class Gpu:
                                                 "(dc_cpc_read_metadata returned DC_E_BUFFER)")
         if status != DC_OK:
             _raise(status)
+        return self._cp_metadata_dict(m)
+
+    def _cp_metadata_dict(self, m):
+        """read_metadata()'s dict from a dc_cpc_metadata, key order included."""
         binding = {
             "client_index": m.client_index,
             "native_index": m.native_index,
@@ -1199,6 +1209,56 @@ class Gpu:
             "info_hex": bytes(m.info[:m.info_size]).hex(),
             "role_info_hex": bytes(m.role_info[:m.role_info_size]).hex(),
             "native_info_hex": bytes(m.native_info[:m.native_info_size]).hex(),
+        }
+
+    _cp_observation = None
+
+    @classmethod
+    def _cp_observation_type(cls):
+        """dc_cpc_observation, built on first use: its dc_arbitration_report is native_power_arbitration's
+        ctypes struct, and that module imports this one."""
+        if cls._cp_observation is None:
+            from .native_power_arbitration import _Report
+
+            class _CpcObservation(ctypes.Structure):  # dc_cpc_observation
+                _fields_ = [("size", ctypes.c_uint32), ("metadata", cls._CpcMetadata),
+                            ("requested_mw", ctypes.c_uint32), ("control_size", ctypes.c_uint32),
+                            ("native_control_size", ctypes.c_uint32), ("control", ctypes.c_uint8 * 808),
+                            ("native_control", ctypes.c_uint8 * 13876), ("has_arbitration", ctypes.c_int32),
+                            ("arbitration", _Report), ("has_arbitration_error", ctypes.c_int32),
+                            ("arbitration_error", ctypes.c_char * 1024)]
+            cls._cp_observation = _CpcObservation
+        return cls._cp_observation
+
+    def _cp_read(self):
+        """ClientPowerController.read: Python's dict, key order included, or ClientPowerError.
+
+        "arbitration" is power_arbitration.decode's dict, rebuilt by native_power_arbitration.report_dict
+        (the conversion its decode() uses), or None; "arbitration_error" is then the text.
+        Locking and DC_E_BUFFER as _cp_read_metadata."""
+        from .client_power_runtime import ClientPowerError
+        from .native_power_arbitration import report_dict
+        o, error = self._cp_observation_type()(), _Error()
+        o.size, error.size = ctypes.sizeof(o), ctypes.sizeof(_Error)
+        o.metadata.size, o.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(o.arbitration)
+        status = load().dc_cpc_read(self._handle, ctypes.addressof(o), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status == DC_E_BUFFER:
+            raise ClientPowerError("malformed", "Client-power read does not fit the native read's buffers "
+                                                "(dc_cpc_read returned DC_E_BUFFER)")
+        if status != DC_OK:
+            _raise(status)
+        arbitration = None
+        if o.has_arbitration:
+            arbitration = report_dict(o.arbitration)
+        return {
+            **self._cp_metadata_dict(o.metadata),
+            "requested_mw": o.requested_mw,
+            "control_hex": bytes(o.control[:o.control_size]).hex(),
+            "native_control_hex": bytes(o.native_control[:o.native_control_size]).hex(),
+            "arbitration": arbitration,
+            "arbitration_error": _text(o.arbitration_error) if o.has_arbitration_error else None,
         }
 
     def arch_name(self):

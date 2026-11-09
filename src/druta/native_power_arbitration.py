@@ -230,6 +230,20 @@ def _row(r):
     }
 
 
+def report_dict(report):
+    """power_arbitration.decode's dict, key order included, from a dc_arbitration_report.
+
+    The one conversion of the report: decode() here and native.Gpu._cp_read (dc_cpc_read's
+    observation carries the same struct) both use it, so their layouts cannot diverge. The core
+    caps policy_count at DC_ARBITRATION_POLICIES_MAX (put_report in core/abi_arbitration.h).
+    """
+    result = {"schema": report.schema, "available": bool(report.available), "reason": _text(report.reason),
+              "policies": [_row(report.policies[i]) for i in range(report.policy_count)]}
+    if report.has_mask:
+        result["mask"] = report.mask
+    return result
+
+
 def decode(layout, info, control, status):
     """power_arbitration.decode through the native core."""
     library = load()
@@ -246,11 +260,7 @@ def decode(layout, info, control, status):
                                                *(ctypes.byref(w) for w in packets), ctypes.byref(report))
     if code != DC_OK or report.policy_count > DC_ARBITRATION_POLICIES_MAX:
         raise RuntimeError(f"dc_power_arbitration_decode: status {code}")
-    result = {"schema": report.schema, "available": bool(report.available), "reason": _text(report.reason),
-              "policies": [_row(report.policies[i]) for i in range(report.policy_count)]}
-    if report.has_mask:
-        result["mask"] = report.mask
-    return result
+    return report_dict(report)
 
 
 def geometry(layout):

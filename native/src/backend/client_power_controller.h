@@ -4,8 +4,9 @@
 //
 // The client-power controller (port of client_power_runtime.ClientPowerController): increment A3 adds
 // the paired transport and the guarded exchange; A4 the client group choice, the metadata capture and
-// the bounded stable read; later increments the full read and the request SET. One sticky controller per handle, with its own target binding as the Python
-// controller keeps its own PerfDiagnosticsReader.
+// the bounded stable read; A5 the full read (_once, _arbitration, _read_locked, read); later
+// increments the request SET. One sticky controller per handle, with its own target binding as the
+// Python controller keeps its own PerfDiagnosticsReader.
 #pragma once
 
 #include <cstddef>
@@ -18,6 +19,7 @@
 #include "backend/client_power.h"
 #include "backend/gpu.h"
 #include "backend/hook.h"
+#include "backend/power_arbitration.h"
 #include "backend/rm_error.h"
 #include "backend/rm_transport.h"
 #include "backend/target.h"
@@ -129,6 +131,39 @@ struct CpRead {
 // The message _stable_locked raises (kind unstable) when two fresh captures differ.
 inline constexpr const char* kCpUnstable = "Client-power definitions or requests changed between fresh reads";
 
+// _once's result dict: {**metadata, "requested_mw", "control_hex", "native_control_hex"}.
+struct CpObservation {
+    CpMetadata metadata;
+    std::uint32_t requested_mw = 0;
+    std::vector<std::uint8_t> control, native_control;
+    // Python's whole-dict `first != second`.
+    bool operator==(const CpObservation& o) const {
+        return metadata == o.metadata && requested_mw == o.requested_mw && control == o.control &&
+               native_control == o.native_control;
+    }
+    bool operator!=(const CpObservation& o) const { return !(*this == o); }
+};
+
+// The text _arbitration returns for the legacy and RM26-record groups.
+inline constexpr const char* kCpArbitrationUnavailable =
+    "Power arbitration diagnostics are unavailable for this policy layout";
+
+// _arbitration(observation): (decoded, None), (None, error), or a raised ClientPowerError (an
+// identity failure during STATUS) or bare ValueError (kind invalid) in raised.
+struct CpArbitration {
+    std::optional<ArbitrationReport> report;
+    std::string error;              // when !report and !raised
+    std::optional<RmError> raised;  // the read fails with this
+};
+
+// _read_locked's dict: {**state, "arbitration": ..., "arbitration_error": ...}. Exactly one of
+// arbitration and arbitration_error is set.
+struct CpReading {
+    CpObservation observation;
+    std::optional<ArbitrationReport> arbitration;
+    std::optional<std::string> arbitration_error;
+};
+
 // The controller state of ClientPowerController.__init__.
 struct CpControllerState {
     CpSizeGroup sizes = CpSizeGroup::sizes;  // self.sizes: which module table it is
@@ -165,6 +200,15 @@ public:
     CpRead<T> stable_locked(Capture&& capture);
     // read_metadata (the caller holds the GPU lock): _stable_locked(_metadata_once).
     CpRead<CpMetadata> read_metadata();
+    // _once: one metadata capture plus the selected client CONTROL and the native CONTROL, each
+    // checked against INFO, and their requests agreeing.
+    CpRead<CpObservation> once();
+    // _arbitration(observation): the optional STATUS read and its decode, at most two attempts.
+    CpArbitration arbitration(const CpObservation& observation);
+    // _read_locked: _stable_locked(_once), then _arbitration.
+    CpRead<CpReading> read_locked();
+    // read (the caller holds the GPU lock): _read_locked.
+    CpRead<CpReading> read();
 
     const CpControllerState& state() const { return state_; }
     const CpSizes& sizes() const { return *cp_size_group(static_cast<std::uint32_t>(state_.sizes)); }

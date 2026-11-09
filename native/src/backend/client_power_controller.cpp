@@ -528,4 +528,244 @@ CpRead<CpMetadata> ClientPowerController::read_metadata() {
     return stable_locked<CpMetadata>([this] { return metadata_once(); });
 }
 
+// ---- increment A5: the full read ------------------------------------------ //
+
+namespace {
+
+// _LAYOUT: the modern native INFO / CONTROL / STATUS geometry and SIZES' three packet sizes, in
+// kPowerGetCommands order (A618 INFO, A619 STATUS, A61A CONTROL; the fourth GET is not in it).
+PowerLayout cp_arbitration_layout() {
+    const CpSizes& sizes = *cp_size_group(static_cast<std::uint32_t>(CpSizeGroup::sizes));
+    PowerLayout layout{};
+    layout.sizes[0] = sizes[kCpIdxNativeInfo];
+    layout.sizes[1] = sizes[kCpIdxNativeStatus];
+    layout.sizes[2] = sizes[kCpIdxNativeControl];
+    layout.has_commands = false;  // no "commands" key: _geometry's default mapping
+    layout.info_base = kCpNativeInfoBase;
+    layout.info_stride = kCpNativeInfoStride;
+    layout.status_base = kCpNativeStatusBase;
+    layout.status_stride = kCpNativeStatusStride;
+    layout.control_base = kCpNativeControlBase;
+    layout.control_stride = kCpNativeControlStride;
+    return layout;  // no "status_mask_word" key: _geometry's default
+}
+
+// _words(raw): the little-endian u32 words of a packet (every packet here is whole words).
+std::vector<std::uint32_t> words_of(const std::vector<std::uint8_t>& raw) {
+    std::vector<std::uint32_t> words(raw.size() / 4);
+    for (std::size_t i = 0; i < words.size(); ++i) words[i] = u32_at(raw, 4 * i);
+    return words;
+}
+
+ArbitrationWords arbitration_words(const std::vector<std::uint32_t>& words) {
+    ArbitrationWords w;
+    w.present = true;
+    w.data = words.data();
+    w.count = words.size();
+    return w;
+}
+
+CpBinding cp_binding(const CpMetadata& m) {
+    CpBinding b;
+    b.layout = m.layout;
+    b.native_layout = m.native_layout;
+    if (m.native_info_stride) b.native_info_stride = std::int64_t{*m.native_info_stride};
+    b.client_index = std::int64_t{m.client_index};
+    b.native_index = std::int64_t{m.native_index};
+    return b;
+}
+
+}  // namespace
+
+CpRead<CpObservation> ClientPowerController::once() {
+    CpRead<CpObservation> out;
+    CpRead<CpMetadata> captured = metadata_once();
+    if (!captured.value) {
+        out.error = std::move(captured.error);
+        return out;
+    }
+    CpObservation observation;
+    observation.metadata = std::move(*captured.value);
+    const CpMetadata& metadata = observation.metadata;
+    const std::vector<std::uint8_t>& info = metadata.info;
+    const std::vector<std::uint8_t>& native_info = metadata.native_info;
+    const std::uint8_t* source = metadata.role_info.data() + 4;  // role INFO [4:], at least 20 bytes
+    const std::size_t index = metadata.client_index, native_index = metadata.native_index;
+    std::size_t base, info_stride, control_base;
+    if (state_.rm26_records)
+        base = 4, info_stride = state_.rm26_extended ? 28 : 20, control_base = 4;
+    else if (state_.legacy)
+        base = 8, info_stride = kCpInfoStride, control_base = 8;
+    else
+        base = kCpInfoBase, info_stride = kCpInfoStride, control_base = kCpControlBase;
+    const CpGeometry geometry = native_geometry(cp_binding(metadata));
+    const std::size_t native_base = static_cast<std::size_t>(geometry.control_base);
+    const std::size_t native_stride = static_cast<std::size_t>(geometry.control_stride);
+    const std::uint8_t* row = info.data() + base + index * info_stride;  // inside INFO: _metadata_once read it
+
+    // The CONTROL request: the selected client's mask bit and its row type and client.
+    const std::size_t cp = control_base + index * kCpControlStride;
+    std::vector<std::uint8_t> request(sizes()[kCpIdxControl], 0);
+    // Every group's mask, rows and CONTROL slots lie inside its packets (the row capacity bounds
+    // index), so Python's slice growth, OverflowError and struct.error cannot arise; refused as a
+    // geometry error should a table ever break that.
+    if (cp + 12 > request.size() || base > request.size() || base > info.size() ||
+        (!state_.rm26_records && index / 8 >= base - 4)) {
+        out.error = failure(RmErrorKind::malformed, "Client-power command or packet geometry is not understood");
+        return out;
+    }
+    if (state_.rm26_records) {
+        const std::uint32_t mask = std::uint32_t{1} << index;  // index < 32 for the compact rows
+        std::memcpy(request.data(), &mask, 4);
+    } else {
+        std::memcpy(request.data(), info.data(), 4);  // request[:base] = info[:base], then [4:base]
+        request[4 + index / 8] = static_cast<std::uint8_t>(1u << (index % 8));
+    }
+    request[cp] = row[0];
+    request[cp + 1] = row[1];
+    request[cp + 8] = static_cast<std::uint8_t>(kCpClient);
+    CpExchangeResult control = get(kCpControl, request);
+    if (!control.response) {
+        out.error = std::move(control.error);
+        return out;
+    }
+    const std::vector<std::uint8_t>& c = *control.response;
+    const bool group_differs = state_.rm26_records
+                                   ? std::memcmp(c.data(), request.data(), 4) != 0
+                                   : c[0] != info[0] || std::memcmp(c.data() + 4, request.data() + 4, base - 4) != 0;
+    if (group_differs) {
+        out.error = failure(RmErrorKind::malformed, "Client CONTROL group or selected mask differs");
+        return out;
+    }
+    if (c[cp] != row[0] || c[cp + 1] != row[1] || c[cp + 8] != kCpClient) {
+        out.error = failure(RmErrorKind::malformed, "Client CONTROL changed the selected row type or client");
+        return out;
+    }
+    const std::uint32_t wanted = u32_at(c, cp + 4);
+    if (wanted == kCpMissing) {
+        out.error = failure(RmErrorKind::unsupported, "The selected FE client has no existing restorable request");
+        return out;
+    }
+    if (wanted == 0) {
+        out.error = failure(RmErrorKind::unsupported, "A zero FE input has uncharacterized removal semantics");
+        return out;
+    }
+
+    // The NATIVE_CONTROL request: INFO's occupancy mask, at 0 for the short RM26 packet, else at 16.
+    const std::uint32_t native_mask = u32_at(native_info, 4);
+    const bool short_rm26 = state_.rm26_records && !state_.rm26_extended;
+    std::vector<std::uint8_t> native_request(sizes()[kCpIdxNativeControl], 0);
+    const std::size_t np = native_base + native_index * native_stride;
+    if (native_request.size() < 20 || np + 8 > native_request.size()) {  // unreachable, as above
+        out.error = failure(RmErrorKind::malformed, "Client-power command or packet geometry is not understood");
+        return out;
+    }
+    std::memcpy(native_request.data() + (short_rm26 ? 0 : 16), &native_mask, 4);
+    CpExchangeResult native = get(kCpNativeControl, native_request);
+    if (!native.response) {
+        out.error = std::move(native.error);
+        return out;
+    }
+    const std::vector<std::uint8_t>& n = *native.response;
+    const bool header_differs =
+        short_rm26 ? u32_at(n, 0) != native_mask
+                   : u32_at(n, 0) != 0 || u32_at(n, 4) != 0 || u32_at(n, 8) != 0 || u32_at(n, 12) != 255 ||
+                         u32_at(n, 16) != native_mask;
+    if (header_differs) {
+        out.error = failure(RmErrorKind::malformed, "Native CONTROL header or inventory differs from INFO");
+        return out;
+    }
+    if (u32_at(n, np) != source[4]) {
+        out.error = failure(RmErrorKind::malformed, "Bound native policy CONTROL type differs from INFO");
+        return out;
+    }
+    if (u32_at(n, np + 4) != wanted) {
+        out.error = failure(RmErrorKind::unstable, "Client and native current requests disagree");
+        return out;
+    }
+    TargetResult again = binding();
+    if (!again.target) {
+        out.error = again.error;
+        return out;
+    }
+    if (!same_identity(*again.target, metadata.identity)) {
+        out.error = failure(RmErrorKind::identity, "Client-power target changed during capture");
+        return out;
+    }
+    observation.requested_mw = wanted;
+    observation.control = std::move(*control.response);
+    observation.native_control = std::move(*native.response);
+    out.value = std::move(observation);
+    return out;
+}
+
+CpArbitration ClientPowerController::arbitration(const CpObservation& observation) {
+    CpArbitration out;
+    // The early return that also makes SIZES' fixed STATUS allocation below the current table's.
+    if (state_.legacy || state_.rm26_records) {
+        out.error = kCpArbitrationUnavailable;
+        return out;
+    }
+    const std::vector<std::uint8_t>& info = observation.metadata.native_info;
+    const CpSizes& modern = *cp_size_group(static_cast<std::uint32_t>(CpSizeGroup::sizes));
+    std::vector<std::uint8_t> request(modern[kCpIdxNativeStatus], 0);
+    std::memcpy(request.data() + 4, info.data() + 4, 4);  // request[4:8] = info[4:8]
+    static const PowerLayout layout = cp_arbitration_layout();
+    std::string error;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        CpExchangeResult status = get(kCpNativeStatus, request);
+        if (status.response) {
+            const std::vector<std::uint32_t> info_words = words_of(info);
+            const std::vector<std::uint32_t> control_words = words_of(observation.native_control);
+            const std::vector<std::uint32_t> status_words = words_of(*status.response);
+            ArbitrationReport decoded =
+                decode_power_arbitration(&layout, arbitration_words(info_words), arbitration_words(control_words),
+                                         arbitration_words(status_words));
+            if (!decoded.available) {
+                out.error = std::move(decoded.reason);
+                return out;
+            }
+            out.report = std::move(decoded);
+            return out;
+        }
+        // An identity change invalidates the binding, even when it was discovered during optional
+        // telemetry. A bare ValueError (kind invalid) is not a ClientPowerError: it passes the
+        // `except` uncaught. Other STATUS failures remain diagnostic.
+        if (status.error.kind == RmErrorKind::identity || status.error.kind == RmErrorKind::invalid) {
+            out.raised = std::move(status.error);
+            return out;
+        }
+        error = status.error.message;
+        if (status.error.kind != RmErrorKind::transient) break;
+        reset_transport();
+        if (attempt == 1) break;
+    }
+    out.error = std::move(error);
+    return out;
+}
+
+CpRead<CpReading> ClientPowerController::read_locked() {
+    CpRead<CpReading> out;
+    CpRead<CpObservation> state = stable_locked<CpObservation>([this] { return once(); });
+    if (!state.value) {
+        out.error = std::move(state.error);
+        return out;
+    }
+    CpArbitration diagnostics = arbitration(*state.value);
+    if (diagnostics.raised) {
+        out.error = std::move(*diagnostics.raised);
+        return out;
+    }
+    CpReading reading;
+    reading.observation = std::move(*state.value);
+    if (diagnostics.report)
+        reading.arbitration = std::move(diagnostics.report);
+    else
+        reading.arbitration_error = std::move(diagnostics.error);
+    out.value = std::move(reading);
+    return out;
+}
+
+CpRead<CpReading> ClientPowerController::read() { return read_locked(); }
+
 }  // namespace druta::backend

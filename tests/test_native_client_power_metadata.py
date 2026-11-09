@@ -147,13 +147,31 @@ def held(fake, call):
         lock.held = previous
 
 
+def payload(command, count, change):
+    """A configure(fake) for MetaRig: change(raw) applied by the rig to the response bytes of the
+    count-th escape of command the fake answers (counted per command, every escape the rig hands
+    the fake, refused or not, as FakeGpu counts its own faults).
+
+    The rig applies it after the fake has answered, so it works on every wire model, including
+    those whose own fault table ignores "payload" events (LegacyGpu) or keys them otherwise
+    (TuringGpu, CompactGpu). A change that resizes the response is an error of the rig."""
+    def configure(fake):
+        changes = fake.__dict__.setdefault(RIG_PAYLOADS, {})
+        changes.setdefault((command, count), []).append(change)
+    return configure
+
+
+RIG_PAYLOADS = "_meta_rig_payloads"
+
+
 class MetaRig(Rig):
     """The A3 rig with a wire model as the escape's responder.
 
     factory: builds a fresh fake (per side); configure(fake): scripts its faults or mutates its
-    buffers. accepted: {command: sizes} the fake is asked about; any other size is refused by the
-    rig with RM 0x1F (for models that assert their own sizes). recapture: the Card carries a
-    PowerPolInfo getter that issues the fake's power GET, so a reset transport is captured again.
+    buffers (payload() above scripts a response change the rig applies itself). accepted:
+    {command: sizes} the fake is asked about; any other size is refused by the rig with RM 0x1F (for
+    models that assert their own sizes). recapture: the Card carries a PowerPolInfo getter that
+    issues the fake's power GET, so a reset transport is captured again.
     """
 
     def __init__(self, factory, *, configure=None, accepted=None, recapture=False, arch=None):
@@ -161,7 +179,7 @@ class MetaRig(Rig):
         sample = factory()
         self.header, self.fields = held(sample, sample._rm_power_transport)
         self.header, self.fields = list(self.header), dict(self.fields)
-        self.errors, self.fake = [], None
+        self.errors, self.fake, self.answered = [], None, {}
         self.capturing, self.code, self.py_target, self.probe, self.enter = False, None, None, None, None
         super().__init__(arch=sample.architecture if arch is None else arch,
                          adapters=((self.fields["hAdapter"], 1, 0, 0), (222, 2, 0, 0)))
@@ -174,7 +192,7 @@ class MetaRig(Rig):
         self.fake = self.factory()
         if self.configure:
             self.configure(self.fake)
-        self.errors = []
+        self.errors, self.answered = [], {}
 
     def _fake_gdi(self):
         table = super()._fake_gdi()
@@ -200,7 +218,18 @@ class MetaRig(Rig):
         if self.accepted is not None and view[15] not in self.accepted.get(view[14], ()):
             view[5], view[11], view[16] = 1, 1, 0x1F
             return 0
-        return held(self.fake, lambda: self.fake._legacy_clk_escape(view, fields))
+        command, length = int(view[14]), int(view[15])
+        count = self.answered[command] = self.answered.get(command, 0) + 1
+        nt = held(self.fake, lambda: self.fake._legacy_clk_escape(view, fields))
+        changes = getattr(self.fake, RIG_PAYLOADS, {}).get((command, count), ())
+        if changes:
+            raw = bytearray(ctypes.string_at(address + 68, length))
+            for change in changes:
+                change(raw)
+            if len(raw) != length:
+                raise AssertionError(f"payload change resized the {command:#x} response")
+            ctypes.memmove(address + 68, bytes(raw), length)
+        return nt
 
     # the PowerPolInfo getter: the driver's own power GET, through the hook while it is patched
 

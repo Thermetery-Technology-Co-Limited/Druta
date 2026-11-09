@@ -8,6 +8,7 @@
 #include <string>
 
 #include "backend/client_power_controller.h"
+#include "core/abi_arbitration.h"
 #include "core/abi_internal.h"
 #include "core/mutex.h"
 
@@ -63,6 +64,41 @@ dc_status guarded(dc_error* error, F&& body) {
         }
     }
     return DC_E_FAILED;
+}
+
+// dc_cpc_metadata from read_metadata()'s value. The caller has zeroed *out (absent keys and
+// padding are zero) and checked the payload sizes.
+void put_metadata(const druta::backend::CpMetadata& m, dc_cpc_metadata* out) {
+    out->size = sizeof(dc_cpc_metadata);
+    out->schema = 1;
+    out->stable_reads = 2;
+    DC_COPY(out->slot, m.identity.slot);
+    out->architecture = m.identity.architecture;
+    out->device_id = m.identity.device_id;
+    out->subsystem_id = m.identity.subsystem_id;
+    out->client_index = m.client_index;
+    out->native_index = m.native_index;
+    out->semantic_role = druta::backend::kCpRole;
+    out->client = druta::backend::kCpClient;
+    DC_COPY(out->units, std::string("mW"));
+    out->minimum_mw = m.minimum_mw;
+    out->rated_mw = m.rated_mw;
+    out->maximum_mw = m.maximum_mw;
+    out->layout = static_cast<int32_t>(m.layout);
+    out->native_layout = static_cast<int32_t>(m.native_layout);
+    out->has_native_info_stride = m.native_info_stride ? 1 : 0;
+    out->native_info_stride = m.native_info_stride ? *m.native_info_stride : 0;
+    out->info_size = static_cast<uint32_t>(m.info.size());
+    out->role_info_size = static_cast<uint32_t>(m.role_info.size());
+    out->native_info_size = static_cast<uint32_t>(m.native_info.size());
+    if (!m.info.empty()) std::memcpy(out->info, m.info.data(), m.info.size());
+    if (!m.role_info.empty()) std::memcpy(out->role_info, m.role_info.data(), m.role_info.size());
+    if (!m.native_info.empty()) std::memcpy(out->native_info, m.native_info.data(), m.native_info.size());
+}
+
+bool metadata_fits(const druta::backend::CpMetadata& m) {
+    return m.info.size() <= DC_CPC_INFO_MAX && m.role_info.size() <= DC_CPC_ROLE_INFO_MAX &&
+           m.native_info.size() <= DC_CPC_NATIVE_INFO_MAX;
 }
 
 }  // namespace
@@ -137,36 +173,52 @@ DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* handle, dc_cpc_metadata* o
             return DC_E_FAILED;
         }
         const druta::backend::CpMetadata& m = *r.value;
-        if (m.info.size() > DC_CPC_INFO_MAX || m.role_info.size() > DC_CPC_ROLE_INFO_MAX ||
-            m.native_info.size() > DC_CPC_NATIVE_INFO_MAX)
+        if (!metadata_fits(m))
             return DC_E_BUFFER;  // unreachable: DC_CPC_*_MAX are SIZES' packets, every group's largest
         // Filled in place: the struct is about 23 KB.
         std::memset(out, 0, sizeof(dc_cpc_metadata));
-        out->size = sizeof(dc_cpc_metadata);
-        out->schema = 1;
-        out->stable_reads = 2;
-        DC_COPY(out->slot, m.identity.slot);
-        out->architecture = m.identity.architecture;
-        out->device_id = m.identity.device_id;
-        out->subsystem_id = m.identity.subsystem_id;
-        out->client_index = m.client_index;
-        out->native_index = m.native_index;
-        out->semantic_role = druta::backend::kCpRole;
-        out->client = druta::backend::kCpClient;
-        DC_COPY(out->units, std::string("mW"));
-        out->minimum_mw = m.minimum_mw;
-        out->rated_mw = m.rated_mw;
-        out->maximum_mw = m.maximum_mw;
-        out->layout = static_cast<int32_t>(m.layout);
-        out->native_layout = static_cast<int32_t>(m.native_layout);
-        out->has_native_info_stride = m.native_info_stride ? 1 : 0;
-        out->native_info_stride = m.native_info_stride ? *m.native_info_stride : 0;
-        out->info_size = static_cast<uint32_t>(m.info.size());
-        out->role_info_size = static_cast<uint32_t>(m.role_info.size());
-        out->native_info_size = static_cast<uint32_t>(m.native_info.size());
-        if (!m.info.empty()) std::memcpy(out->info, m.info.data(), m.info.size());
-        if (!m.role_info.empty()) std::memcpy(out->role_info, m.role_info.data(), m.role_info.size());
-        if (!m.native_info.empty()) std::memcpy(out->native_info, m.native_info.data(), m.native_info.size());
+        put_metadata(m, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_read(dc_gpu* handle, dc_cpc_observation* out, dc_error* error) {
+    if (!handle || !out || out->size != sizeof(dc_cpc_observation) ||
+        out->metadata.size != sizeof(dc_cpc_metadata) || out->arbitration.size != sizeof(dc_arbitration_report) ||
+        (error && error->size != sizeof(dc_error)))
+        return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // read: `with self.gpu._lock`
+        druta::backend::CpRead<druta::backend::CpReading> r = handle->cp.read();
+        if (!r.value) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        const druta::backend::CpReading& reading = *r.value;
+        const druta::backend::CpObservation& o = reading.observation;
+        if (!metadata_fits(o.metadata) || o.control.size() > DC_CPC_CONTROL_MAX ||
+            o.native_control.size() > DC_CPC_NATIVE_CONTROL_MAX)
+            return DC_E_BUFFER;  // unreachable, as dc_cpc_read_metadata's
+        // Filled in place: the struct is about 85 KB.
+        std::memset(out, 0, sizeof(dc_cpc_observation));
+        out->size = sizeof(dc_cpc_observation);
+        put_metadata(o.metadata, &out->metadata);
+        out->requested_mw = o.requested_mw;
+        out->control_size = static_cast<uint32_t>(o.control.size());
+        out->native_control_size = static_cast<uint32_t>(o.native_control.size());
+        if (!o.control.empty()) std::memcpy(out->control, o.control.data(), o.control.size());
+        if (!o.native_control.empty())
+            std::memcpy(out->native_control, o.native_control.data(), o.native_control.size());
+        out->arbitration.size = sizeof(dc_arbitration_report);
+        if (reading.arbitration) {
+            out->has_arbitration = 1;
+            druta::abi::arbitration::put_report(*reading.arbitration, &out->arbitration);
+        }
+        if (reading.arbitration_error) {
+            out->has_arbitration_error = 1;
+            DC_COPY(out->arbitration_error, *reading.arbitration_error);
+        }
         put_error(druta::backend::RmError{}, error);
         return DC_OK;
     });
