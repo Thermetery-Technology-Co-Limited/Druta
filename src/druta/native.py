@@ -553,8 +553,9 @@ _SIGNATURES = {
     # client-power controller (increment A3); dc_cpc_state is Gpu._CpcState, passed by address
     "dc_cpc_transport": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmTransport), ctypes.POINTER(_Error)]),
     "dc_cpc_exchange": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32,
-                                         ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32,
-                                         ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(_Error)]),
+                                         ctypes.c_int32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p,
+                                         ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_int32),
+                                         ctypes.POINTER(_Error)]),
     "dc_cpc_reset_transport": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_cpc_reset": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_cpc_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
@@ -1024,31 +1025,64 @@ class Gpu:
         header, fields = _transport_value(t)
         return tuple(header), fields
 
+    # dc_cpc_exchange flags and caller stops (drutacore/client_power_controller.h)
+    _CPC_COMMAND_NOT_STORABLE, _CPC_PAYLOAD_NOT_STORABLE, _CPC_CALLER_ECHO = 1, 2, 4
+    _CPC_STOP_COMMAND = "caller stop: the command word"
+    _CPC_STOP_PAYLOAD = "caller stop: the payload bytes"
+    _CPC_STOP_DISPATCH = "caller stop: the dispatch"
+    _CPC_DISPATCH = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p)  # dc_cpc_dispatch_fn
+
     def _cp_exchange(self, command, payload, *, write=None):
-        """ClientPowerController._exchange: the response bytes, or ClientPowerError. Sets
-        write.dispatched as Python does: on any write object passed, once the packet reaches the
-        escape."""
+        """ClientPowerController._exchange: the response bytes, or ClientPowerError. Python's own
+        failures inside the exchange (a command or payload ctypes cannot store, a write object that
+        cannot be marked) are raised at the point Python raises them, through the core's caller
+        stops; write.dispatched is set by the core's hook right before the escape."""
         from .client_power_runtime import SET, ClientPowerError, _Write
-        # Python's dynamic precondition, in its order, before any call. A command that compares equal
-        # to a known one without being an int (2080A630.0) passes Python's `in` and fails later with a
-        # TypeError; it is refused here as malformed instead.
+        # Python's precondition with its own `in` / `==` semantics on the caller's objects.
         sizes = self._cp_state()["sizes"]
-        if (command not in sizes or len(payload) != sizes[command] or (command == SET) != isinstance(write, _Write)
-                or type(command) is not int):
+        if command not in sizes or len(payload) != sizes[command] or (command == SET) != isinstance(write, _Write):
             raise ClientPowerError("malformed", "Client-power command or packet geometry is not understood")
-        data = bytes(payload)
-        out = (ctypes.c_ubyte * max(len(data), 1))()
+        key = {k: k for k in sizes}[command]  # the table's own int that `command in sizes` matched
+        size = sizes[command]
+        stops, flags = {}, self._CPC_CALLER_ECHO
+        try:
+            (ctypes.c_uint32 * 1)()[0] = command  # packet[14] = wire_command
+        except Exception as exc:
+            stops[self._CPC_STOP_COMMAND] = exc
+            flags |= self._CPC_COMMAND_NOT_STORABLE
+        data = (ctypes.c_ubyte * size)()
+        try:
+            data[:] = payload  # buffer[68:] = payload: elements masked to 8 bits, as ctypes stores them
+        except Exception as exc:
+            stops[self._CPC_STOP_PAYLOAD] = exc
+            flags |= self._CPC_PAYLOAD_NOT_STORABLE
+        hook = None
+        if write is not None:
+            def mark(_context):
+                try:
+                    write.dispatched = True
+                except BaseException as exc:  # raised below, at Python's point
+                    stops[self._CPC_STOP_DISPATCH] = exc
+                    return 1
+                return 0
+            hook = self._CPC_DISPATCH(mark)
+        out = (ctypes.c_ubyte * max(size, 1))()
         dispatched, error = ctypes.c_int32(), _Error()
         error.size = ctypes.sizeof(_Error)
-        status = load().dc_cpc_exchange(self._handle, command, data, len(data), 1 if isinstance(write, _Write) else 0,
-                                        ctypes.addressof(out), len(data), ctypes.byref(dispatched), ctypes.byref(error))
-        if write is not None and dispatched.value:
-            write.dispatched = True
+        status = load().dc_cpc_exchange(self._handle, key, bytes(data), size, 1 if isinstance(write, _Write) else 0,
+                                        flags, ctypes.cast(hook, ctypes.c_void_p) if hook else None, None,
+                                        ctypes.addressof(out), size, ctypes.byref(dispatched), ctypes.byref(error))
         if status == DC_E_FAILED:
+            stop = stops.get(_text(error.message)) if error.kind == DC_ERR_INVALID else None
+            if stop is not None:
+                raise stop
             self._cp_raise(error)
         if status != DC_OK:
             _raise(status)
-        return bytes(out)[:len(data)]
+        result = bytes(out)[:size]
+        if command == SET and result != payload:
+            raise ClientPowerError("malformed", "Client-power SET changed the requested packet")
+        return result
 
     def _cp_reset_transport(self):
         """ClientPowerController._reset_transport: clears _current_limit_transport and the layout choice."""

@@ -10,7 +10,9 @@
  * controller per handle, with its own target binding. A ClientPowerError is DC_E_FAILED with a
  * dc_error: kind DC_ERR_IDENTITY / TRANSIENT / UNSUPPORTED / MALFORMED, Python's message, and
  * rm_status (nonzero only for an RM rejection). DC_ERR_INVALID is the one bare ValueError Python
- * raises (see dc_cpc_exchange). DC_E_ARGUMENT only for a NULL or malformed argument. */
+ * raises (see dc_cpc_exchange) and the caller stops dc_cpc_exchange documents. DC_E_ARGUMENT only
+ * for a NULL or malformed argument. No C++ exception crosses this ABI: one is reported as
+ * DC_E_FAILED, with a transient *error where the call takes one. */
 #ifndef DRUTACORE_CLIENT_POWER_CONTROLLER_H
 #define DRUTACORE_CLIENT_POWER_CONTROLLER_H
 
@@ -37,21 +39,56 @@ typedef struct dc_cpc_state {
  * header_count 17), or DC_E_FAILED with *error. */
 DC_API dc_status DC_CALL dc_cpc_transport(dc_gpu* gpu, dc_rm_transport* out, dc_error* error);
 
+/* dc_cpc_exchange flags: Python's own failures inside _exchange that only the caller can see, each
+ * refused at its own point (after the binding and the transport, before any dispatch) with
+ * DC_E_FAILED, kind DC_ERR_INVALID and the matching DC_CPC_STOP_* message. A C caller with a plain
+ * byte payload passes 0. */
+#define DC_CPC_COMMAND_NOT_STORABLE 1u /* `packet[14] = command` raises (a non-integer equal to a known
+                                         command): refused there, unless the RM26 table supplies the
+                                         wire command, in which case the exchange goes on */
+#define DC_CPC_PAYLOAD_NOT_STORABLE 2u /* `buffer[68:] = payload` raises after its length check */
+#define DC_CPC_CALLER_ECHO 4u          /* the caller compares the SET echo with its own payload object
+                                         (Python's `result != payload`); the core then returns the
+                                         response bytes without comparing them */
+#define DC_CPC_STOP_COMMAND "caller stop: the command word"
+#define DC_CPC_STOP_PAYLOAD "caller stop: the payload bytes"
+#define DC_CPC_STOP_DISPATCH "caller stop: the dispatch"
+
+/* Python's `if write is not None: write.dispatched = True`, called once right before the escape
+ * (after every check that precedes it in Python). Nonzero refuses the dispatch: DC_E_FAILED,
+ * DC_ERR_INVALID, DC_CPC_STOP_DISPATCH, nothing dispatched. It runs under the GPU lock; it must not
+ * call back into this GPU. */
+typedef int32_t (DC_CALL *dc_cpc_dispatch_fn)(void* context);
+
 /* _exchange(command, payload, write=...): one exact command and one escape. write is nonzero when
- * a _Write is given (isinstance(write, _Write)). *dispatched is set on every return: 1 once the
- * packet reached the escape, where Python sets write.dispatched = True for any write object passed
- * (the caller applies that to its own object). DC_OK with the `size` response bytes in out (capacity >= size), or
- * DC_E_FAILED with *error. DC_ERR_INVALID with "Can only assign sequence of same size" is the bare
- * ValueError Python raises when _transport switched the size table under the payload. */
+ * a _Write is given (isinstance(write, _Write)); before_dispatch (may be NULL) stands for the write
+ * object being marked. flags: the DC_CPC_* bits above.
+ *
+ * *dispatched is set on every return that has a non-NULL dispatched, DC_E_ARGUMENT included: 1 once
+ * the packet was handed to the escape, whatever followed (a failure, or a C++ exception reported as
+ * a transient DC_E_FAILED), else 0.
+ *
+ * capacity: the room in out. Once the command and the geometry are understood, a capacity below
+ * the command's size in the current table returns DC_E_BUFFER (no *error written) before any
+ * binding, transport or dispatch. A response that does not fit therefore never follows a dispatch:
+ * the size table can change only through the transport, and a payload sized for the old table then
+ * fails its length check before the escape.
+ *
+ * DC_OK with the `size` response bytes in out, or DC_E_FAILED with *error. DC_ERR_INVALID with
+ * "Can only assign sequence of same size" is the bare ValueError Python raises when _transport
+ * switched the size table under the payload. DC_E_ARGUMENT for a NULL handle, payload (with size
+ * nonzero), out (with capacity nonzero) or dispatched, an unknown flag, or a dc_error whose size is
+ * wrong. */
 DC_API dc_status DC_CALL dc_cpc_exchange(dc_gpu* gpu, uint32_t command, const uint8_t* payload, uint32_t size,
-                                         int32_t write, uint8_t* out, uint32_t capacity, int32_t* dispatched,
+                                         int32_t write, uint32_t flags, dc_cpc_dispatch_fn before_dispatch,
+                                         void* context, uint8_t* out, uint32_t capacity, int32_t* dispatched,
                                          dc_error* error);
 
 /* _reset_transport: clear the handle's cached power transport and its layout choice. */
 DC_API dc_status DC_CALL dc_cpc_reset_transport(dc_gpu* gpu);
 /* A fresh controller: every attribute back to __init__, the binding's sticky identity included. */
 DC_API dc_status DC_CALL dc_cpc_reset(dc_gpu* gpu);
-/* The controller's attributes. */
+/* The controller's attributes. DC_E_ARGUMENT for a NULL out or a wrong out->size. */
 DC_API dc_status DC_CALL dc_cpc_state_get(dc_gpu* gpu, dc_cpc_state* out);
 
 #ifdef __cplusplus

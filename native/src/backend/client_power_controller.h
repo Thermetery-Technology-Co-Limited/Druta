@@ -73,10 +73,33 @@ struct CpTransportResult {
     RmError error;                               // a ClientPowerError(kind, message, rm_status=...) otherwise
 };
 
+// What the caller of _exchange holds that the core cannot see: Python's own failures inside the
+// exchange, each at its own point. The Python binding sets them from its arguments; a C caller with
+// plain bytes leaves them clear.
+struct CpCaller {
+    // `packet[14] = wire_command` raises (a command that compares equal to a known one without
+    // being an integer ctypes accepts): refused there, unless the RM26 table supplies the wire command.
+    bool command_not_storable = false;
+    // `buffer[68:] = payload` raises after its length check (an element ctypes cannot store).
+    bool payload_not_storable = false;
+    // The caller compares the SET echo itself (Python's `result != payload` on its own object).
+    bool caller_echo = false;
+    // `write.dispatched = True`, right before the escape: nonzero refuses the dispatch.
+    std::int32_t (*before_dispatch)(void* context) = nullptr;
+    void* context = nullptr;
+};
+
+// The stops a CpCaller can cause: an RmError of kind invalid carrying one of these messages.
+inline constexpr const char* kCpStopCommand = "caller stop: the command word";
+inline constexpr const char* kCpStopPayload = "caller stop: the payload bytes";
+inline constexpr const char* kCpStopDispatch = "caller stop: the dispatch";
+
 struct CpExchangeResult {
     std::optional<std::vector<std::uint8_t>> response;  // the `size` response bytes on success
     RmError error;
-    bool dispatched = false;  // the packet reached the escape: Python sets write.dispatched there
+    // The response capacity is below the command's size in the current table: refused before any
+    // binding or dispatch (no error is set).
+    bool too_small = false;
 };
 
 // The controller state of ClientPowerController.__init__ (and nothing else yet).
@@ -99,9 +122,11 @@ public:
     // _transport: the paired power transport, checked and keyed.
     CpTransportResult transport();
     // _exchange(command, payload, write=...): one exact command, one escape. has_write is
-    // isinstance(write, _Write); result.dispatched says the packet reached the escape.
+    // isinstance(write, _Write); capacity is the room for the response. dispatched becomes true the
+    // moment the packet is handed to the escape (Python's write.dispatched), so it survives a later
+    // failure, an exception included.
     CpExchangeResult exchange(std::uint32_t command, const std::uint8_t* payload, std::size_t payload_size,
-                              bool has_write);
+                              bool has_write, std::size_t capacity, const CpCaller& caller, bool& dispatched);
 
     const CpControllerState& state() const { return state_; }
     const CpSizes& sizes() const { return *cp_size_group(static_cast<std::uint32_t>(state_.sizes)); }

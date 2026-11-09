@@ -160,11 +160,20 @@ CpTransportResult ClientPowerController::transport() {
 }
 
 CpExchangeResult ClientPowerController::exchange(std::uint32_t command, const std::uint8_t* payload,
-                                                 std::size_t payload_size, bool has_write) {
+                                                 std::size_t payload_size, bool has_write, std::size_t capacity,
+                                                 const CpCaller& caller, bool& dispatched) {
     CpExchangeResult out;
+    dispatched = false;
     std::optional<std::size_t> index = command_index(command);
     if (!index || payload_size != sizes()[*index] || (command == kCpSet) != has_write) {
         out.error = failure(RmErrorKind::malformed, "Client-power command or packet geometry is not understood");
+        return out;
+    }
+    // Not Python: the response must fit before anything runs. The payload already has this size, and
+    // a size table switched by _transport below fails the payload's length check before the escape,
+    // so a dispatched packet always has room for its response.
+    if (capacity < sizes()[*index]) {
+        out.too_small = true;
         return out;
     }
     TargetResult identity = binding();
@@ -180,14 +189,14 @@ CpExchangeResult ClientPowerController::exchange(std::uint32_t command, const st
     const CapturedTransport& transport = *t.transport;
     // _transport may have switched the size table (the RM26 keys): size comes from the new one.
     const std::uint32_t size = sizes()[*index];
-    if (size != payload_size) {
-        // Python's `buffer[68:] = payload` on a ctypes array of another length raises this bare
-        // ValueError (not a ClientPowerError), before any dispatch. Reported as kind invalid.
-        out.error = failure(RmErrorKind::invalid, "Can only assign sequence of same size");
-        return out;
-    }
     GuardedBuffer buffer(68u + std::size_t{size});
     for (std::size_t i = 0; i < 17; ++i) buffer.set_word(i, transport.header[i]);
+    // Python's `wire_command = _RM26_COMMANDS[command] if self._rm26 else command`, stored at packet[14]:
+    // the caller's own value only when the RM26 table does not supply the wire command.
+    if (caller.command_not_storable && !state_.rm26) {
+        out.error = failure(RmErrorKind::invalid, kCpStopCommand);
+        return out;
+    }
     const std::uint32_t wire = state_.rm26 ? kCpRm26Commands[*index] : command;
     buffer.set_word(2, 68u + size);
     buffer.set_word(14, wire);
@@ -195,12 +204,26 @@ CpExchangeResult ClientPowerController::exchange(std::uint32_t command, const st
     buffer.set_word(16, 0);
     buffer.set_word(5, 0);
     buffer.set_word(11, 0);
+    if (size != payload_size) {
+        // _transport switched the size table (the RM26 keys) under the payload: Python's
+        // `buffer[68:] = payload` on a ctypes array of another length raises this bare ValueError
+        // (not a ClientPowerError), before any dispatch. Reported as kind invalid.
+        out.error = failure(RmErrorKind::invalid, "Can only assign sequence of same size");
+        return out;
+    }
+    if (caller.payload_not_storable) {
+        out.error = failure(RmErrorKind::invalid, kCpStopPayload);
+        return out;
+    }
     if (size) std::memcpy(buffer.data() + 68, payload, size);
     std::uint32_t expected[16];
     for (std::size_t i = 0; i < 16; ++i) expected[i] = buffer.word(i);
-    // Python sets write.dispatched here whenever a write object was passed (`if write is not None`),
-    // which the binding decides; the core reports that the packet reached this point.
-    out.dispatched = true;
+    // Python's `if write is not None: write.dispatched = True`, before the escape: the caller's hook.
+    if (caller.before_dispatch && caller.before_dispatch(caller.context) != 0) {
+        out.error = failure(RmErrorKind::invalid, kCpStopDispatch);
+        return out;
+    }
+    dispatched = true;
     // ctypes.sizeof(packet): the whole words of the guarded allocation.
     EscapeResult escape =
         escape_raw(gpu_, buffer.data(), static_cast<std::uint32_t>(buffer.words() * 4), transport.fields);
@@ -244,7 +267,7 @@ CpExchangeResult ClientPowerController::exchange(std::uint32_t command, const st
         return out;
     }
     std::vector<std::uint8_t> result(buffer.data() + 68, buffer.data() + 68 + size);
-    if (command == kCpSet && (size && std::memcmp(result.data(), payload, size) != 0)) {
+    if (!caller.caller_echo && command == kCpSet && (size && std::memcmp(result.data(), payload, size) != 0)) {
         out.error = failure(RmErrorKind::malformed, "Client-power SET changed the requested packet");
         return out;
     }
