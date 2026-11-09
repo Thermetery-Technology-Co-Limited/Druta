@@ -83,13 +83,18 @@ typedef struct dc_rails_state_set {
 typedef struct dc_rails_diagnostic {
     int32_t present;  /* 0: no such key */
     uint32_t version; /* "version": the requested version word, "0x%08X" in Python */
-    int32_t status;   /* "status": the getter's return (never None natively: a C getter cannot raise) */
+    /* "status": the getter's return. Python records None (and "error" str(exc)) when ctypes
+     * converts a Windows structured exception inside the getter into OSError; the core, like every
+     * other NVAPI call it makes, has no such guard, so a faulting export is not survived and status
+     * is always an int here. */
+    int32_t status;
     int32_t valid;    /* "valid": status 0 and both the version and the mask echoed */
     int32_t attempts; /* "attempts": 1 or 2 */
 } dc_rails_diagnostic;
 
 /* The four caches, indexed [function] or [function][rail]. A has_ / present flag of 0 is an absent
- * key. "error" of each diagnostic is always None natively (it is str(exc) when the getter raises). */
+ * key. "error" of each diagnostic is always None natively (Python's str(exc) of a getter fault that
+ * ctypes turned into OSError; see dc_rails_diagnostic.status). */
 typedef struct dc_rails_caches {
     uint32_t size;          /* sizeof(dc_rails_caches), set by the caller */
     int32_t has_known[2];   /* _volt_rail_masks_cache has the function */
@@ -104,8 +109,10 @@ typedef struct dc_rails_caches {
 /* _read_volt_rail_blocks(function, version). Candidates are rails 0 and 1 already read by that
  * getter or whose retry time has passed. Versions: the remembered one first (else `version`), then
  * (0x00020AC8, 0x00010AC8) for DC_RAILS_CONTROL or `version` for DC_RAILS_ABS. Per rail and version,
- * up to two attempts (the second only after a status other than 0 and -9); a status other than -9
- * stops trying further versions; a rail not read retries no sooner than 2 s later. No call is made
+ * up to two attempts: the second follows any first attempt that is neither valid nor status -9,
+ * which includes a status 0 whose echoed version or mask differs. A status other than -9 after the
+ * last attempt stops trying further versions; a rail not read retries no sooner than 2 s later
+ * (measured from one clock sample taken before the first getter call). No call is made
  * (and nothing cached) without a ready NVAPI half and that getter: present 0. */
 DC_API dc_status DC_CALL dc_rails_blocks(dc_gpu* handle, int32_t function, uint32_t version, dc_rails_block_set* out);
 

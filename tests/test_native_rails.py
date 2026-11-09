@@ -21,10 +21,17 @@ getter received) and the four caches afterwards must be identical. The fixture v
 to the read logic, not claims about any board.
 
 Unreachable natively, and so covered only by the Python rail tests: a getter that raises (Python
-records status None and str(exc) as the diagnostic's error; a C getter returns a status, so the
-native error is always None), a getter name other than the two (Python looks any attribute up on
-its NVAPI object; the ABI takes DC_RAILS_CONTROL or DC_RAILS_ABS and the binding raises ValueError)
-and a non-int status."""
+records status None and str(exc) when ctypes turns a Windows structured exception inside the getter
+into OSError; the core has no such guard on any NVAPI call, so the native error is always None), a
+getter name other than the two (Python looks any attribute up on its NVAPI object; the ABI takes
+DC_RAILS_CONTROL or DC_RAILS_ABS and the binding raises ValueError) and a non-int status. The
+binding also refuses, before any call, a non-int requested version (TypeError) and one outside
+0..0xFFFFFFFF (ValueError), and raises TypeError for an unhashable live_mv rail before the state
+read (Python after it).
+
+The core's NVAPI readiness is fixed when its handle is built, so a scenario that turns NVAPI off
+after the caches are filled lowers the twin's `ok` on the Python side and drops both getters from
+the QueryInterface table on the native side (Side.nvapi_off)."""
 import copy
 import ctypes
 import random
@@ -58,11 +65,13 @@ class Fake:
     accept:  {kind: versions the getter understands}; any other version answers -9
     script:  {kind: [entry per call]}: None answers normally, an int is returned without answering,
              ("echo", word, value) answers and then overwrites that u32 word
-    boost:   the live block's header word 2 (microvolts)
+    boost:   the live block's header word 2 (microvolts): one word for every rail, or {rail: word}
+    control_type: {rail: the control record's first (signed) word}; 0 for a rail not listed
     """
 
-    def __init__(self, *, control=None, live=None, accept=None, boost=0):
+    def __init__(self, *, control=None, live=None, accept=None, boost=0, control_type=None):
         self.control = copy.deepcopy({0: [0, 0, 0, 0]} if control is None else control)
+        self.control_type = dict(control_type or {})
         self.live = copy.deepcopy({0: list(STOCK)} if live is None else live)
         self.accept = {"control": {V2}, "live": {V1}}
         self.accept.update(copy.deepcopy(accept or {}))
@@ -84,7 +93,7 @@ class Fake:
         records = self.control if kind == "control" else self.live
         if rail not in records:
             return -8
-        values = [0] + records[rail] if kind == "control" else records[rail]
+        values = [self.control_type.get(rail, 0)] + records[rail] if kind == "control" else records[rail]
         signed = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_int32))
         base = (0x48 + rail * 0x54) // 4
         for index, value in enumerate(values):
@@ -93,7 +102,7 @@ class Fake:
             else:
                 words[base + index] = value
         if kind == "live":
-            words[2] = self.boost
+            words[2] = self.boost.get(rail, 0) if isinstance(self.boost, dict) else self.boost
         if entry is not None:
             _, word, value = entry
             words[word] = value
@@ -103,8 +112,10 @@ class Fake:
 class Rig:
     """A Card serving both getters from self.fake, the native handle and its Python twin."""
 
-    def __init__(self, *, with_control=True, with_live=True, nvapi_init=0, **fake):
+    def __init__(self, *, with_control=True, with_live=True, nvapi_init=0, tick=0.0, **fake):
         self.config = fake
+        self.tick = tick  # seconds the clock advances after each sample, on both sides
+        self.samples = 0  # clock samples taken by the side that ran last
         self.fake = Fake(**fake)
         self.card = Card(nvapi_init=nvapi_init)
         self.clock = [100.0]
@@ -118,16 +129,33 @@ class Rig:
             return self.fake.answer("live", handle, pointer)
 
         self._keep = (control, live)
+        self.getters = {}
         if with_control:
-            self.card.nvapi.interfaces[CONTROL_ID] = control
+            self.getters[CONTROL_ID] = control
         if with_live:
-            self.card.nvapi.interfaces[ABS_ID] = live
+            self.getters[ABS_ID] = live
+        self.card.nvapi.interfaces.update(self.getters)
         self.native = self.card.native_gpu()
         self.twin = self.card.python_twin(self.native)
+        self.twin_ok = self.twin.nvapi.ok
+        self.bind()
+
+    def bind(self):
+        """Every side starts with the getters and the NVAPI readiness the rig was built with."""
+        for ident in (CONTROL_ID, ABS_ID):
+            self.card.nvapi.interfaces.pop(ident, None)
+        self.card.nvapi.interfaces.update(self.getters)
         api = self.twin.nvapi
+        api.ok = self.twin_ok
         # as NvAPI.__init__ binds them
         api.VoltRailsCtlGet = api._i(CONTROL_ID, NV.PTR, NV.PTR)
         api.VoltRailsAbs = api._i(ABS_ID, NV.PTR, NV.PTR)
+
+    def now(self):
+        self.samples += 1
+        value = self.clock[0]
+        self.clock[0] += self.tick
+        return value
 
     def close(self):
         self.native.close()
@@ -137,29 +165,35 @@ class Rig:
     def run(self, scenario):
         """(python trace, native trace) of scenario(side, fake, clock), each from a fresh fake."""
         traces = []
-        for side in (PythonSide(self.twin), NativeSide(self.native)):
+        self.sample_counts = []
+        for side in (PythonSide(self.twin, self), NativeSide(self.native, self)):
+            self.bind()
             self.fake = Fake(**self.config)
             self.clock[0] = 100.0
+            self.samples = 0
             side.fake = self.fake
             if isinstance(side, PythonSide):
-                with mock.patch("druta.nvbackend.time.monotonic", side_effect=lambda: self.clock[0]):
+                with mock.patch("druta.nvbackend.time.monotonic", side_effect=self.now):
                     scenario(side, self.fake, self.clock)
             else:
-                native.set_clock_hook(lambda: self.clock[0])
+                native.set_clock_hook(self.now)
                 try:
                     scenario(side, self.fake, self.clock)
                 finally:
                     native.set_clock_hook(None)
             traces.append(side.trace)
+            self.sample_counts.append(self.samples)
+        self.bind()
         return traces
 
 
 class Side:
     """Runs one operation, recording (operation, result, getter calls, caches afterwards)."""
 
-    def __init__(self):
+    def __init__(self, rig):
         self.trace = []
         self.fake = None
+        self.rig = rig
 
     def _record(self, operation, call):
         self.fake.calls.clear()
@@ -183,10 +217,15 @@ class Side:
     def refresh(self):
         return self._record(("refresh",), self._refresh)
 
+    def drop_getter(self, function):
+        """The getter disappears from this side's NVAPI (the caches stay as they are)."""
+        self.rig.card.nvapi.interfaces.pop(CONTROL_ID if function == "VoltRailsCtlGet" else ABS_ID, None)
+        self._drop(function)
+
 
 class PythonSide(Side):
-    def __init__(self, gpu):
-        super().__init__()
+    def __init__(self, gpu, rig):
+        super().__init__(rig)
         self.gpu = gpu
         for name in CACHES:  # a fresh GPU: the constructor's {} for the mask cache, nothing else
             if hasattr(gpu, name):
@@ -208,13 +247,19 @@ class PythonSide(Side):
     def _refresh(self):
         self.gpu._refresh_volt_rail_capabilities()
 
+    def _drop(self, function):
+        setattr(self.gpu.nvapi, function, None)
+
+    def nvapi_off(self):
+        self.gpu.nvapi.ok = False
+
     def caches(self):
         return {name: copy.deepcopy(getattr(self.gpu, name, {})) for name in CACHES}
 
 
 class NativeSide(Side):
-    def __init__(self, gpu):
-        super().__init__()
+    def __init__(self, gpu, rig):
+        super().__init__(rig)
         self.gpu = gpu
         nr.refresh(gpu)
 
@@ -233,6 +278,16 @@ class NativeSide(Side):
     def _refresh(self):
         nr.refresh(self.gpu)
 
+    def _drop(self, function):
+        pass  # the core resolves the getter through QueryInterface on every read
+
+    def nvapi_off(self):
+        # The core's NVAPI readiness is fixed when the handle is built (Nvapi::disable runs only
+        # from pairing) and the ABI has no hook to lower it later, so the native side loses both
+        # getters instead: the same `!(a.ok && fn)` early return, reached through fn.
+        for ident in (CONTROL_ID, ABS_ID):
+            self.rig.card.nvapi.interfaces.pop(ident, None)
+
     def caches(self):
         return nr.caches(self.gpu)
 
@@ -250,7 +305,8 @@ class ParityTest(unittest.TestCase):
         return rig
 
     def parity(self, scenario, **options):
-        python, core = self.rig(**options).run(scenario)
+        self.last_rig = rig = self.rig(**options)
+        python, core = rig.run(scenario)
         self.assertEqual(len(python), len(core))
         for step, (p, c) in enumerate(zip(python, core)):
             with self.subTest(step=step, operation=p[0]):
@@ -456,6 +512,153 @@ class ReadTests(ParityTest):
                 self.assertEqual(masks(trace), [])
                 self.assertEqual(trace[-1][3], {name: {} for name in CACHES})
 
+    def test_control_type_word_decodes_signed(self):
+        def scenario(side, fake, clock):
+            side.deltas()
+
+        for types in ({0: -1, 1: -2147483648}, {0: 2147483647, 1: -2}):
+            with self.subTest(types=types):
+                trace = self.parity(scenario, control={0: [1, 2, 3, 4], 1: [5, 6, 7, 8]}, control_type=types)
+                self.assertEqual({rail: row["type"] for rail, row in trace[0][1].items()}, types)
+                self.assertEqual(trace[0][1][1]["vmin"], 0.008)
+
+    def test_boost_word_is_read_from_each_rails_own_block(self):
+        def scenario(side, fake, clock):
+            side.state()
+            fake.boost = {0: 0xFFFFFFFF, 1: 0}  # the driver's boost word changes between reads
+            side.state()
+
+        trace = self.parity(scenario, live={0: list(STOCK), 1: list(MSVDD)},
+                            boost={0: 6250, 1: 0x80000000 | 12500})
+        self.assertEqual(trace[0][1][0]["_boost_mv"], 6.25)
+        self.assertEqual(trace[0][1][1]["_boost_mv"], (0x80000000 | 12500) / 1000.0)
+        self.assertEqual(trace[1][1][0]["_boost_mv"], 0xFFFFFFFF / 1000.0)
+        self.assertEqual(trace[1][1][1]["_boost_mv"], 0.0)
+
+    def test_live_record_fields_are_unsigned_and_in_order(self):
+        record = [0x80000001, 0x80000000 + 900000, 0xFFFFFFFF, 0x80000000, 0xC0000000, 0x90000007, 0xA0000000]
+
+        def scenario(side, fake, clock):
+            side.state()
+            side.live_mv(0)
+
+        trace = self.parity(scenario, live={0: record, 1: [3, 875000, 0x80000000 + 1050000, 1, 2, 1040000, 3]})
+        row = dict(trace[0][1][0])
+        row.pop("_boost_mv")
+        self.assertEqual(row, {"type": 0x80000001, "live": (0x80000000 + 900000) / 1000.0,
+                               "reliability": 0xFFFFFFFF / 1000.0, "alt_reliability": 0x80000000 / 1000.0,
+                               "overvoltage": 0xC0000000 / 1000.0, "effective": 0x90000007 / 1000.0,
+                               "vmin": 0xA0000000 / 1000.0})
+        self.assertEqual(trace[0][1][1]["reliability"], (0x80000000 + 1050000) / 1000.0)
+        self.assertEqual(trace[0][1][1]["effective"], 1040.0)
+        self.assertEqual(trace[1][1], (0x80000000 + 900000) / 1000.0)
+
+    def test_retry_time_comes_from_one_clock_sample_before_the_first_call(self):
+        # The clock advances 0.5 s after every sample, on both sides: a reader that sampled it per
+        # rail, per version or per attempt would store a later retry time.
+        def failing(side, fake, clock):
+            fake.script["control"] = [-1] * 4  # both rails fail twice
+            side.deltas()
+            side.state()                       # live rail 1 absent, two attempts
+
+        def fallback(side, fake, clock):
+            side.deltas()                      # V2 answers -9 for both rails, V1 then -8 twice each
+
+        cases = ((failing, {}, [{("VoltRailsCtlGet", 0): 102.0, ("VoltRailsCtlGet", 1): 102.0},
+                                {("VoltRailsCtlGet", 0): 102.0, ("VoltRailsCtlGet", 1): 102.0,
+                                 ("VoltRailsAbs", 1): 102.5}]),
+                 (fallback, {"control": {}, "accept": {"control": {V1}}},
+                  [{("VoltRailsCtlGet", 0): 102.0, ("VoltRailsCtlGet", 1): 102.0}]))
+        for scenario, options, expected in cases:
+            with self.subTest(scenario=scenario.__name__):
+                trace = self.parity(scenario, tick=0.5, **options)
+                self.assertEqual([step[3]["_volt_rail_retry_after"] for step in trace], expected)
+                self.assertEqual(self.last_rig.sample_counts, [len(expected)] * 2)
+                if scenario is fallback:
+                    self.assertEqual(masks(trace), [("control", V2, 1), ("control", V1, 1), ("control", V1, 1),
+                                                    ("control", V2, 2), ("control", V1, 2), ("control", V1, 2)])
+
+    def test_failure_then_incompatible_version_still_falls_back(self):
+        def control(side, fake, clock):
+            fake.script["control"] = [-1, -9]
+            side.deltas()
+
+        trace = self.parity(control, accept={"control": {V1, V2}})
+        self.assertEqual(masks(trace)[:3], [("control", V2, 1), ("control", V2, 1), ("control", V1, 1)])
+        self.assertEqual(set(trace[0][1]), {0})
+        self.assertEqual(trace[0][3]["_volt_rail_read_versions"], {"VoltRailsCtlGet": V1})
+
+        def live(side, fake, clock):
+            fake.script["live"] = [-1, -9]
+            side.state()
+
+        trace = self.parity(live)
+        self.assertEqual(trace[0][3]["_volt_rail_getter_diagnostics"]["VoltRailsAbs"][0],
+                         {"version": "0x00010AC8", "status": -9, "valid": False, "attempts": 2, "error": None})
+        self.assertEqual([m for m in masks(trace) if m[2] == 1], [("live", V1, 1)] * 2)
+
+    def test_live_mv_looks_the_rail_up_as_a_dict_does(self):
+        keys = (0, 1, 1.0, True, False, 1.5, "1", 2 ** 32, 2 ** 32 + 1, None, -1, 2)
+
+        def scenario(side, fake, clock):
+            for key in keys:
+                side.live_mv(key)
+
+        trace = self.parity(scenario, live={0: list(STOCK), 1: list(MSVDD)})
+        self.assertEqual([step[1] for step in trace],
+                         [800.0, 850.0, 850.0, 850.0, 800.0, None, None, None, None, None, None, None])
+        # the state is read for a key that names no rail, as Python reads it before the lookup
+        self.assertTrue(all(step[2] for step in trace))
+
+    def test_live_mv_unhashable_rail_raises_type_error(self):
+        def scenario(side, fake, clock):
+            fake.calls.clear()
+            with self.assertRaises(TypeError):
+                side._live_mv([1])
+            side.trace.append(len(fake.calls))
+
+        python, core = self.rig(live={0: list(STOCK), 1: list(MSVDD)}).run(scenario)
+        self.assertGreater(python[0], 0)  # Python raises after the read
+        self.assertEqual(core, [0])       # the binding raises before it
+
+    def test_unavailable_nvapi_or_missing_getter_keeps_filled_caches(self):
+        def fill(side, fake, clock):
+            side.deltas()  # V1 fallback remembered; control rail 1 absent and backing off
+            side.state()   # live rail 1 absent and backing off
+            clock[0] = 103.0  # past every retry time
+
+        def nvapi_off(side, fake, clock):
+            fill(side, fake, clock)
+            side.nvapi_off()
+            side.deltas()
+            side.state()
+            side.live_mv(0)
+            side.blocks("VoltRailsCtlGet", V2)
+            side.blocks("VoltRailsAbs", V1)
+
+        def control_gone(side, fake, clock):
+            fill(side, fake, clock)
+            side.drop_getter("VoltRailsCtlGet")
+            side.deltas()
+            side.blocks("VoltRailsCtlGet", V2)
+
+        def live_gone(side, fake, clock):
+            fill(side, fake, clock)
+            side.drop_getter("VoltRailsAbs")
+            side.state()
+            side.live_mv(0)
+            side.blocks("VoltRailsAbs", V1)
+
+        for scenario in (nvapi_off, control_gone, live_gone):
+            with self.subTest(scenario=scenario.__name__):
+                trace = self.parity(scenario, accept={"control": {V1}})
+                filled = trace[1][3]
+                self.assertTrue(all(filled[name] for name in CACHES))
+                for step in trace[2:]:
+                    self.assertIn(step[1], ({}, None))
+                    self.assertEqual(step[2], [])
+                    self.assertEqual(step[3], filled)
+
     def test_missing_control_getter_leaves_the_live_getter(self):
         def scenario(side, fake, clock):
             side.deltas()
@@ -559,6 +762,23 @@ class AbiArgumentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             nr.read_volt_rail_blocks(self.rig.native, "VoltRailsStatus", V2)
         self.assertEqual(self.rig.fake.calls, [])
+
+    def test_out_of_range_or_non_int_version_is_refused_before_any_call(self):
+        for function in nr.FUNCTIONS:
+            for version, error in ((float(V1), TypeError), (-1, ValueError), (2 ** 32, ValueError)):
+                with self.subTest(function=function, version=version):
+                    with self.assertRaises(error):
+                        nr.read_volt_rail_blocks(self.rig.native, function, version)
+                    self.assertEqual(self.rig.fake.calls, [])
+                    self.assertEqual(nr.caches(self.rig.native), {name: {} for name in CACHES})
+        # the bounds themselves are accepted
+        for version in (0, 0xFFFFFFFF):
+            nr.refresh(self.rig.native)  # past the backoff the first read leaves
+            nr.read_volt_rail_blocks(self.rig.native, "VoltRailsAbs", version)
+        self.assertEqual({call[2] for call in self.rig.fake.calls}, {0, 0xFFFFFFFF})
+        # Python refuses a float too, once it builds a request
+        with self.assertRaises(TypeError):
+            self.rig.twin._read_volt_rail_blocks("VoltRailsAbs", float(V1))
 
     def test_struct_sizes_match_the_header(self):
         # The ctypes mirrors are accepted by the size checks, so they match the C layout's sizes.

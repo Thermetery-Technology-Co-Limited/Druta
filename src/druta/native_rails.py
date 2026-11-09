@@ -15,9 +15,22 @@ returns the four per-GPU caches as the GPU keeps them, as a dict of ``_volt_rail
 implementation for the parity tests; the Python module stays the one the backend uses.
 
 ``function`` is the getter's name, ``"VoltRailsCtlGet"`` or ``"VoltRailsAbs"``; any other name
-raises ValueError (Python would look it up on the NVAPI object). A diagnostic's ``"error"`` is
-always None: Python records ``str(exc)`` when the getter raises, and a C getter cannot raise. Dict
-keys come out in sorted order; Python's insertion order is not tracked (the contents are equal).
+raises ValueError (Python would look it up on the NVAPI object). Of the same kind, before any call:
+a ``version`` that is not an int raises TypeError (Python's u32 slot assignment raises TypeError for
+a float, but only once it builds a request) and an int outside 0..0xFFFFFFFF raises ValueError
+(Python's u32 slot would wrap it, so the read could never validate and the cached version and the
+diagnostic text would carry the raw value; no caller passes one).
+
+``read_rail_live_mv`` resolves ``rail`` as Python's dict lookup does: 0 and 1 (and values equal to
+them, such as 1.0 or True) name a rail; anything else (1.5, "1", 2**32 + 1, None, -1, 2) is None
+after the state read, which still happens. An unhashable ``rail`` raises TypeError before the read,
+where Python raises it after the read.
+
+Python's ``except`` branch (``status`` None, ``error`` ``str(exc)``) is reached when ctypes converts
+a Windows structured exception raised inside the getter into OSError. The native core, like every
+other NVAPI call it makes, has no such guard, so a faulting export is not survived; here a
+diagnostic's ``"error"`` is always None and its ``"status"`` always an int. Dict keys come out in
+sorted order; Python's insertion order is not tracked (the contents are equal).
 """
 from __future__ import annotations
 
@@ -127,9 +140,12 @@ def read_volt_rail_blocks(gpu, function, version):
     """GPU._read_volt_rail_blocks(function, version): {rail: the 8192 bytes the getter filled}."""
     if function not in FUNCTIONS:
         raise ValueError(f"unknown rail getter {function!r}")
+    if not isinstance(version, int):
+        raise TypeError(f"rail getter version must be an int, not {type(version).__name__}")
+    if not 0 <= version <= 0xFFFFFFFF:
+        raise ValueError(f"rail getter version {version!r} is outside 0..0xFFFFFFFF")
     out = _new(_BlockSet)
-    _check(load().dc_rails_blocks(gpu._handle, FUNCTIONS[function], int(version) & 0xFFFFFFFF,
-                                  ctypes.byref(out)))
+    _check(load().dc_rails_blocks(gpu._handle, FUNCTIONS[function], int(version), ctypes.byref(out)))
     return {rail: bytes(out.blocks[rail]) for rail in range(RAILS) if out.present >> rail & 1}
 
 
@@ -161,9 +177,14 @@ def read_volt_rail_state(gpu):
 
 
 def read_rail_live_mv(gpu, rail):
-    """GPU.read_rail_live_mv(rail): one rail's live millivolts, or None."""
+    """GPU.read_rail_live_mv(rail): one rail's live millivolts, or None.
+
+    The rail is looked up as Python's dict does (1.0 and True find rail 1; 1.5, "1" or 2**32 + 1
+    find nothing, and the state is still read). An unhashable rail raises TypeError before the read;
+    Python raises it after the read."""
+    index = {0: 0, 1: 1}.get(rail, -1)  # only 0, 1 or -1 reach the c_int32 argument
     has, mv = ctypes.c_int32(), ctypes.c_double()
-    _check(load().dc_rails_live_mv(gpu._handle, int(rail), ctypes.byref(has), ctypes.byref(mv)))
+    _check(load().dc_rails_live_mv(gpu._handle, index, ctypes.byref(has), ctypes.byref(mv)))
     return mv.value if has.value else None
 
 

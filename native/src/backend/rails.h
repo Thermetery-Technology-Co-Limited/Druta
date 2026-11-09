@@ -44,8 +44,10 @@ inline constexpr int kNvapiIncompatibleStructVersion = -9;
 
 using RailBlock = std::vector<std::uint8_t>;  // kRailBlockSize bytes, as the getter left them
 
-// One rail's entry of _volt_rail_getter_diagnostics[function]. Python's "error" is always None here:
-// it holds str(exc) when the getter raised, and a C function cannot raise (status is then never None).
+// One rail's entry of _volt_rail_getter_diagnostics[function]. Python's except branch (status None,
+// "error" str(exc)) is reached when ctypes converts a Windows structured exception inside the getter
+// into OSError. The core, like every other NVAPI call it makes, has no such guard, so a faulting
+// export is not survived: "error" is always None and status always an int here.
 struct RailDiagnostic {
     std::uint32_t version = 0;  // "0x%08X" in Python
     std::int32_t status = 0;
