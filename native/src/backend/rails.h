@@ -23,9 +23,9 @@
 // _refresh_volt_rail_capabilities keeps them: the reference (_volt_rail_reference, the per-rail bases
 // estimated from the first stable paired sample) and the first-read record (_volt_rail_initial_uv,
 // the four control deltas in microvolts, set once per rail). The architecture is the paired
-// adapter's own (Telemetry::arch(), Python's self.arch()); the methods take the Telemetry because the
-// handle builds Rails from the Gpu alone. Every reference and first-read value is an estimate for
-// this adapter at the operating point it was read, never a factory default or a generation constant.
+// adapter's own (Telemetry::arch(), Python's self.arch()). Every reference and first-read value is an
+// estimate for this adapter at the operating point it was read, never a factory default or a
+// generation constant.
 #pragma once
 
 #include <array>
@@ -153,7 +153,7 @@ using RailLimitsMv = std::array<std::optional<RailFields>, kRailCount>;
 
 class Rails {
 public:
-    explicit Rails(Gpu& gpu) : gpu_(gpu) {}
+    explicit Rails(Gpu& gpu, Telemetry& telemetry) : gpu_(gpu), telemetry_(telemetry) {}
 
     // _read_volt_rail_blocks(function, version): {} without a ready NVAPI half or getter.
     RailBlocks blocks(RailGetter function, std::uint32_t version);
@@ -165,20 +165,20 @@ public:
     std::optional<double> live_mv(std::int32_t rail);
 
     // read_volt_rail_limits(): nullopt is Python's None (no row).
-    std::optional<RailLimits> limits(Telemetry& telemetry);
+    std::optional<RailLimits> limits();
     // _volt_rail_profile(): nullopt unless the architecture is one of _VOLT_RAIL_ARCHITECTURES.
-    std::optional<RailProfile> profile(Telemetry& telemetry);
+    std::optional<RailProfile> profile();
     // volt_rail_diagnostics() without the keys the binding fills from its own state.
-    RailDiagnosis diagnostics(Telemetry& telemetry);
+    RailDiagnosis diagnostics();
     // volt_rail_limits_supported(rail): rail nullopt is Python's None; any rail other than 0 and 1
     // is a key no set holds.
-    bool limits_supported(Telemetry& telemetry, std::optional<std::int32_t> rail);
+    bool limits_supported(std::optional<std::int32_t> rail);
     // volt_rail_limit_fields(rail): 4 (VOLT_LIMIT_FIELDS) or 0 (the empty tuple).
-    std::size_t limit_fields(Telemetry& telemetry, std::int32_t rail);
+    std::size_t limit_fields(std::int32_t rail);
     // stock_limit_mv(rail, key) with key as its VOLT_LIMIT_FIELDS index (anything else is bad_field).
-    RailStockLimit stock_limit_mv(Telemetry& telemetry, std::int32_t rail, std::int32_t field);
+    RailStockLimit stock_limit_mv(std::int32_t rail, std::int32_t field);
     // volt_rail_limits_mv(): nullopt when read_volt_rail_limits() is None.
-    std::optional<RailLimitsMv> limits_mv(Telemetry& telemetry);
+    std::optional<RailLimitsMv> limits_mv();
 
     // The four caches _refresh_volt_rail_capabilities resets (its _volt_rail_write_error is the
     // writer's, not part of these getters). The reference and the first-read record stay: refresh
@@ -190,6 +190,7 @@ private:
     bool has_reference() const { return !order_.empty(); }
 
     Gpu& gpu_;
+    Telemetry& telemetry_;
     RailCaches caches_;
     std::array<std::optional<RailFields>, kRailCount> reference_;  // _volt_rail_reference[rail]["bases"]
     std::array<std::optional<RailInitial>, kRailCount> initial_;   // _volt_rail_initial_uv[rail]

@@ -181,7 +181,7 @@ DC_API dc_status DC_CALL dc_rails_limits(dc_gpu* handle, dc_rails_limit_set* out
     if (!handle || !out || out->size != sizeof(dc_rails_limit_set)) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        auto rows = handle->rails.limits(handle->telemetry);
+        auto rows = handle->rails.limits();
         clear(out);
         if (!rows) return DC_OK;
         for (std::size_t r = 0; r < DC_RAILS_COUNT; ++r) {
@@ -207,7 +207,7 @@ DC_API dc_status DC_CALL dc_rails_profile(dc_gpu* handle, dc_rails_profile_set* 
     if (!handle || !out || out->size != sizeof(dc_rails_profile_set)) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        auto p = handle->rails.profile(handle->telemetry);
+        auto p = handle->rails.profile();
         clear(out);
         if (!p) return DC_OK;
         out->has_profile = 1;
@@ -234,7 +234,7 @@ DC_API dc_status DC_CALL dc_rails_diagnostics(dc_gpu* handle, dc_rails_diagnosis
     if (!handle || !out || out->size != sizeof(dc_rails_diagnosis)) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        druta::backend::RailDiagnosis d = handle->rails.diagnostics(handle->telemetry);
+        druta::backend::RailDiagnosis d = handle->rails.diagnostics();
         clear(out);
         out->has_architecture = d.architecture ? 1 : 0;
         out->architecture = d.architecture.value_or(0u);
@@ -261,7 +261,7 @@ DC_API dc_status DC_CALL dc_rails_limits_supported(dc_gpu* handle, int32_t has_r
         druta::LockGuard guard(handle->gpu.lock());
         std::optional<std::int32_t> which;
         if (has_rail) which = rail;
-        *out = handle->rails.limits_supported(handle->telemetry, which) ? 1 : 0;
+        *out = handle->rails.limits_supported(which) ? 1 : 0;
         return DC_OK;
     });
 }
@@ -270,7 +270,7 @@ DC_API dc_status DC_CALL dc_rails_limit_fields(dc_gpu* handle, int32_t rail, uin
     if (!handle || !count) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        *count = static_cast<uint32_t>(handle->rails.limit_fields(handle->telemetry, rail));
+        *count = static_cast<uint32_t>(handle->rails.limit_fields(rail));
         return DC_OK;
     });
 }
@@ -279,7 +279,7 @@ DC_API dc_status DC_CALL dc_rails_stock_limit_mv(dc_gpu* handle, int32_t rail, i
     if (!handle || !has || !mv) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        druta::backend::RailStockLimit s = handle->rails.stock_limit_mv(handle->telemetry, rail, field);
+        druta::backend::RailStockLimit s = handle->rails.stock_limit_mv(rail, field);
         *has = static_cast<int32_t>(s.kind);
         *mv = s.kind == druta::backend::RailStockLimit::Kind::value ? s.mv : 0.0;
         return DC_OK;
@@ -290,7 +290,7 @@ DC_API dc_status DC_CALL dc_rails_limits_mv(dc_gpu* handle, dc_rails_limits_mv_s
     if (!handle || !out || out->size != sizeof(dc_rails_limits_mv_set)) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        auto rows = handle->rails.limits_mv(handle->telemetry);
+        auto rows = handle->rails.limits_mv();
         clear(out);
         if (!rows) return DC_OK;
         for (std::size_t r = 0; r < DC_RAILS_COUNT; ++r) {

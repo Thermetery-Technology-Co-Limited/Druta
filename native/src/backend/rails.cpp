@@ -200,7 +200,7 @@ std::optional<std::array<std::optional<RailState>, kRailCount>> Rails::state() {
     return out;
 }
 
-std::optional<RailLimits> Rails::limits(Telemetry& telemetry) {
+std::optional<RailLimits> Rails::limits() {
     // Exact signed deltas with per-device, explicitly estimated references. Pair stable control
     // samples around absolute status before capturing a reference. Status includes the reported
     // boost contribution and may be quantized; neither it nor these estimates measure an I2C
@@ -212,7 +212,7 @@ std::optional<RailLimits> Rails::limits(Telemetry& telemetry) {
         if (out[r] && !reference_[r] && valid_state(r, state[r])) needs.push_back(r);
     }
     // self.arch() is evaluated only when a rail needs a reference (`needs and self.arch() in ...`).
-    if (!needs.empty() && architecture_supported(telemetry.arch())) {
+    if (!needs.empty() && architecture_supported(telemetry_.arch())) {
         const std::array<std::optional<RailDeltas>, kRailCount> again = deltas();
         const StateRows after_rows = state_or_empty(this->state());
         for (std::size_t rail : needs) {
@@ -270,26 +270,26 @@ std::optional<RailLimits> Rails::limits(Telemetry& telemetry) {
     return rows;
 }
 
-std::optional<RailProfile> Rails::profile(Telemetry& telemetry) {
+std::optional<RailProfile> Rails::profile() {
     // Current-adapter references, not a generation's factory defaults. The absolute getter is
     // VID-quantized; its first stable paired sample anchors a displayed estimate, and only the
     // signed control deltas are exact.
-    if (!architecture_supported(telemetry.arch())) return std::nullopt;
+    if (!architecture_supported(telemetry_.arch())) return std::nullopt;
     RailProfile p;
     p.bases = reference_;
     p.poweron = initial_;
     p.order = order_;
     p.control_version = caches_.versions[static_cast<std::size_t>(RailGetter::Control)].value_or(kRailControlVersion);
     // self.arch() a second time, as the original does (cached by now: it was recognized above).
-    const std::optional<std::uint32_t> arch = telemetry.arch();
+    const std::optional<std::uint32_t> arch = telemetry_.arch();
     p.settle_vmin = arch && *arch == kArchPascal && p.control_version == kRailControlV1;
     return p;
 }
 
-RailDiagnosis Rails::diagnostics(Telemetry& telemetry) {
+RailDiagnosis Rails::diagnostics() {
     RailDiagnosis d;
-    d.architecture = telemetry.arch();
-    const std::optional<RailLimits> limits = this->limits(telemetry);
+    d.architecture = telemetry_.arch();
+    const std::optional<RailLimits> limits = this->limits();
     const RailLimits current = limits ? *limits : RailLimits{};
     const StateRows state = state_or_empty(this->state());
     for (std::size_t r = 0; r < kRailCount; ++r) {
@@ -312,14 +312,14 @@ RailDiagnosis Rails::diagnostics(Telemetry& telemetry) {
         if (reason == RailReason::none) d.available = true;
     }
     d.reason = d.available ? RailReason::none : d.reasons[0];
-    d.architecture_source = telemetry.arch_source();
+    d.architecture_source = telemetry_.arch_source();
     return d;
 }
 
-bool Rails::limits_supported(Telemetry& telemetry, std::optional<std::int32_t> rail) {
+bool Rails::limits_supported(std::optional<std::int32_t> rail) {
     // Each understood rail stands on its own current-adapter getters.
-    if (!profile(telemetry)) return false;
-    const std::optional<RailLimits> limits = this->limits(telemetry);
+    if (!profile()) return false;
+    const std::optional<RailLimits> limits = this->limits();
     const StateRows state = state_or_empty(this->state());
     std::array<bool, kRailCount> supported{};
     bool any = false;
@@ -332,18 +332,18 @@ bool Rails::limits_supported(Telemetry& telemetry, std::optional<std::int32_t> r
     return *rail >= 0 && static_cast<std::size_t>(*rail) < kRailCount && supported[static_cast<std::size_t>(*rail)];
 }
 
-std::size_t Rails::limit_fields(Telemetry& telemetry, std::int32_t rail) {
-    if (!has_reference()) limits(telemetry);
-    const std::optional<RailProfile> p = profile(telemetry);
+std::size_t Rails::limit_fields(std::int32_t rail) {
+    if (!has_reference()) limits();
+    const std::optional<RailProfile> p = profile();
     if (!p || rail < 0 || static_cast<std::size_t>(rail) >= kRailCount) return 0;
     return p->bases[static_cast<std::size_t>(rail)] ? rail::kFieldCount : 0;
 }
 
-RailStockLimit Rails::stock_limit_mv(Telemetry& telemetry, std::int32_t rail, std::int32_t field) {
+RailStockLimit Rails::stock_limit_mv(std::int32_t rail, std::int32_t field) {
     // Compatibility name: the estimated first-read value, never factory stock.
     RailStockLimit out;
-    if (!has_reference()) limits(telemetry);
-    const std::optional<RailProfile> p = profile(telemetry);
+    if (!has_reference()) limits();
+    const std::optional<RailProfile> p = profile();
     if (!p || rail < 0 || static_cast<std::size_t>(rail) >= kRailCount) return out;
     const std::size_t r = static_cast<std::size_t>(rail);
     if (!p->poweron[r]) return out;
@@ -359,8 +359,8 @@ RailStockLimit Rails::stock_limit_mv(Telemetry& telemetry, std::int32_t rail, st
     return out;
 }
 
-std::optional<RailLimitsMv> Rails::limits_mv(Telemetry& telemetry) {
-    const std::optional<RailLimits> raw = limits(telemetry);
+std::optional<RailLimitsMv> Rails::limits_mv() {
+    const std::optional<RailLimits> raw = limits();
     if (!raw) return std::nullopt;
     RailLimitsMv out;
     for (std::size_t r = 0; r < kRailCount; ++r) {
