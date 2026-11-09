@@ -67,7 +67,7 @@ core, then compares results, driver call sequences and messages.
 | Pure rail-limit and hold-headroom helpers | `GPU._valid_volt_rail_state`, `volt_boost_headroom_mv`, `abs_limit_mv`, `rail_ceiling_mv`, `rail_floor_mv`, `hold_headroom_architecture`, `hold_headroom_ceiling_mv`, `hold_headroom_targets`, `_headroom_enforced_mv`, `hold_headroom_bound_mv`, `hold_headroom_allowance_mv` and their constants | `dc_rl_*` (`drutacore/rail_limits.h`, bound by `druta.native_rail_limits`) | `tests/test_native_rail_limits.py` |
 | Client-power tables and geometry helpers | `client_power_runtime` constants, `_small_native_geometry`, `_definition_stride`, `_native_geometry`, `_coupled_requests`, `_project`, `_matches` | `dc_cp_*` (`drutacore/client_power.h`, bound by `druta.native_client_power`) | `tests/test_native_client_power.py` |
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
-| PERF diagnostics layouts, transport and GET | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `PerfDiagnosticsReader._transport`, `_get` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_get`, `dc_perf_reset` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py` |
+| PERF diagnostics layouts, transport and GET | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `PerfDiagnosticsReader._transport`, `_get` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_reset` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py` |
 | Clock-BIOS user-clock CONTROL GET | `clock_bios_runtime._control_once`, `_control_shape` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
@@ -148,6 +148,11 @@ Python does: `_legacy_clk_escape` returns `None` there, so both sides raise
 the transient "NT None" / "NTSTATUS None" failure rather than a transport
 exception. The PERF transport stays A612-only on purpose: an RM26 transport
 is a validated power transport the PERF GETs are not understood to share.
+`dc_perf_get` takes the raw header words and escape fields rather than a
+`dc_rm_transport`, because Python's `_get` copies whatever header it is given
+(a long header spills into the payload), and the binding binds the reader
+before re-raising a marshalling error, as Python binds before it builds the
+packet.
 The clock-BIOS reader's raw user-clock CONTROL GET runs the same guarded
 allocation around the exact 24996-byte NvAPI record and distinguishes the
 two Python exception types by return status (`DC_E_FAILED` with a kind for

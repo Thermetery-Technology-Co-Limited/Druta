@@ -13,10 +13,21 @@ rules). Every handle keeps one reader with its own sticky target binding; ``rese
 fresh reader. This is a parallel implementation for the parity tests; the Python module stays the
 one the backend uses.
 
-The C ABI takes unsigned 32-bit commands and sizes and a typed mask, so Python's own argument
-type rules stay here: a command or size that is not an int in 0..0xFFFFFFFF can never be in
-_GET_COMMANDS and is passed as 0 (refused with the same text); a mask that is not ``bytes`` is
-passed as DC_PERF_MASK_OTHER (refused for CONTROL, as any mask is for INFO).
+The C ABI takes unsigned 32-bit words, so ``get`` keeps Python's own argument semantics here, in
+_get's order: (1) the allow-set rule is ``(command, size) in`` a frozenset of the core's layout
+pairs (Python's equality and hashing: an int subclass or a float equal to an allowed value passes);
+(2) the mask rules; then the transport is marshalled exactly as _get builds its packet (``header,
+fields = transport``, a ``c_uint32`` packet of ``17 + size // 4`` words, every header word stored
+through ctypes, words 2/14/15/16 set). When that raises, the reader binds first (dc_perf_bind), so
+the sticky identity is recorded and a binding refusal wins, and the marshalling exception (TypeError,
+ValueError, IndexError: ctypes' and the interpreter's own text) is raised after it. Otherwise the
+stored words go to dc_perf_get, which runs the rules and the binding again (idempotent) and the GET.
+
+Documented divergence: the escape fields are marshalled with the packet, as
+nvbackend.GPU._legacy_clk_escape builds its _Escape (``dict(fields, hAdapter=...)``, ctypes
+``c_uint32`` fields). Python does that inside the escape, after enumerating the adapters, and not at
+all when the escape cannot be issued; a field value ctypes refuses (a float, a str) is raised here
+after the binding but before any driver call.
 """
 from __future__ import annotations
 
@@ -24,12 +35,10 @@ import ctypes
 import threading
 
 from . import native
-from .native import DC_E_FAILED, DC_OK, NativeUnavailable, _Error, _RmTransport, _text, _transport_struct, _transport_value
+from .native import DC_E_FAILED, DC_OK, NativeUnavailable, _Error, _EscapeFields, _RmTransport, _text, _transport_value
 
 DC_PERF_GROUP_COUNT = 3
 DC_PERF_MASK_NONE, DC_PERF_MASK_BYTES, DC_PERF_MASK_OTHER = 0, 1, 2
-DC_E_ARGUMENT = -1
-_UINT32_MAX = 0xFFFFFFFF
 _FIELDS = ("info_id", "control_id", "info_command", "control_command", "info_size", "control_size", "capacity",
            "mask_bytes", "info_offset", "info_stride", "control_offset", "control_stride")
 _KINDS = {1: "transient", 3: "unsupported", 4: "identity", 5: "malformed"}
@@ -46,9 +55,10 @@ _SIGNATURES = {
     "dc_perf_probe_architecture": (ctypes.c_int32, [ctypes.c_uint32]),
     "dc_perf_get_allowed": (ctypes.c_int32, [ctypes.c_uint32, ctypes.c_uint32]),
     "dc_perf_transport": (ctypes.c_int32, [ctypes.c_void_p, _P(_RmTransport), _P(_Error)]),
-    "dc_perf_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, _P(_RmTransport),
-                                     ctypes.c_char_p, ctypes.c_uint32, ctypes.c_int32, ctypes.c_void_p,
-                                     ctypes.c_uint32, _P(_Error)]),
+    "dc_perf_bind": (ctypes.c_int32, [ctypes.c_void_p, _P(_Error)]),
+    "dc_perf_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, _P(ctypes.c_uint32),
+                                     ctypes.c_uint32, _P(_EscapeFields), ctypes.c_char_p, ctypes.c_uint32,
+                                     ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32, _P(_Error)]),
     "dc_perf_reset": (ctypes.c_int32, [ctypes.c_void_p]),
 }
 
@@ -150,31 +160,69 @@ def transport(gpu):
     return tuple(header), dict(fields)
 
 
-def _u32(value):
-    return value if type(value) is int and 0 <= value <= _UINT32_MAX else 0
+def bind(gpu):
+    """PerfDiagnosticsReader._binding alone on this handle's reader: None, or the error it raises."""
+    error = _new_error()
+    status = load().dc_perf_bind(gpu._handle, ctypes.byref(error))
+    if status == DC_E_FAILED:
+        _raise_failure(error)
+    if status != DC_OK:
+        native._raise(status)
+
+
+class _Escape(ctypes.Structure):  # nvbackend.GPU._Escape: the D3DKMT_ESCAPE the fields fill
+    _fields_ = [("hAdapter", ctypes.c_uint32), ("hDevice", ctypes.c_uint32), ("Type", ctypes.c_uint32),
+                ("Flags", ctypes.c_uint32), ("pPrivateDriverData", ctypes.c_void_p),
+                ("PrivateDriverDataSize", ctypes.c_uint32), ("hContext", ctypes.c_uint32)]
+
+
+def _marshal(command, size, transport):
+    """_get's packet build with its own ctypes semantics: (packet, header words stored, fields)."""
+    header, fields = transport
+    packet = (ctypes.c_uint32 * (17 + size // 4))()
+    count = 0
+    for index, word in enumerate(header):
+        packet[index] = word
+        count = index + 1
+    packet[2], packet[14], packet[15], packet[16] = ctypes.sizeof(packet), command, size, 0
+    escape = _Escape(**dict(fields, hAdapter=0), pPrivateDriverData=None, PrivateDriverDataSize=0)
+    words = (ctypes.c_uint32 * max(count, 1))(*packet[:count])
+    return packet, words, count, _EscapeFields(0, escape.hDevice, escape.Type, escape.Flags, escape.hContext)
 
 
 def get(gpu, command, size, transport, mask=None):
     """PerfDiagnosticsReader._get(command, size, transport, mask): the response bytes."""
-    if mask is None:
-        kind, data = DC_PERF_MASK_NONE, None
-    elif isinstance(mask, bytes):
-        kind, data = DC_PERF_MASK_BYTES, mask
+    table = layouts().values()
+    allowed = frozenset((g["info_command"], g["info_size"]) for g in table) | frozenset(
+        (g["control_command"], g["control_size"]) for g in table)
+    if (command, size) not in allowed:
+        raise ValueError("Only understood read-only PERF commands are allowed")
+    layout = next(g for g in table if command in (g["info_command"], g["control_command"]))
+    if command == layout["control_command"]:
+        if not isinstance(mask, bytes) or len(mask) != layout["mask_bytes"]:
+            raise ValueError("PERF CONTROL GET requires an exact INFO mask")
+    elif mask is not None:
+        raise ValueError("PERF INFO GET does not accept a request mask")
+    try:
+        packet, words, count, fields = _marshal(command, size, transport)
+    except Exception as exc:  # Python binds before it builds the packet: the binding's error wins
+        failure = exc
     else:
-        kind, data = DC_PERF_MASK_OTHER, None
-    command, size = _u32(command), _u32(size)
-    request = _transport_struct(transport)
-    capacity = size if load().dc_perf_get_allowed(command, size) else 0
+        failure = None
+    if failure is not None:
+        bind(gpu)
+        raise failure
+    command_word, size_word = packet[14], packet[15]
+    kind, data = (DC_PERF_MASK_BYTES, bytes(mask)) if mask is not None else (DC_PERF_MASK_NONE, None)
+    capacity = ctypes.sizeof(packet) - 68
     out, error = ctypes.create_string_buffer(max(capacity, 1)), _new_error()
-    status = load().dc_perf_get(gpu._handle, command, size, ctypes.byref(request), data,
+    status = load().dc_perf_get(gpu._handle, command_word, size_word, words, count, ctypes.byref(fields), data,
                                 len(data) if data is not None else 0, kind, out, capacity, ctypes.byref(error))
     if status == DC_E_FAILED:
         _raise_failure(error)
-    if status == DC_E_ARGUMENT and transport is None:
-        raise TypeError("cannot unpack non-iterable NoneType object")
     if status != DC_OK:
         native._raise(status)
-    return out.raw[:size]
+    return out.raw[:size_word]
 
 
 def reset(gpu):
