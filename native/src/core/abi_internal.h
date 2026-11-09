@@ -25,6 +25,7 @@
 #include "backend/gpu.h"
 #include "backend/outcome.h"
 #include "backend/power_layouts.h"
+#include "backend/legacy_p0.h"
 #include "backend/rails.h"
 #include "backend/rm_transport.h"
 #include "backend/telemetry.h"
@@ -44,9 +45,10 @@ struct dc_gpu {
     druta::backend::PerfDiagnostics perf;      // the PERF diagnostics reader (its own sticky identity)
     druta::backend::ClockBios clock_bios;      // the clock-BIOS reader (its own sticky identity)
     druta::backend::Rails rails;               // the voltage-rail getters and their caches (GPU._volt_rail_*)
+    druta::backend::LegacyP0 legacy_p0;        // the session's legacy P0 request ownership (GPU._legacy_p0_owned)
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
     std::optional<druta::backend::VfCurve> vfcurve;             // carries the layout cache, as GPU._vfp_layout_cache
-    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm), clock_bios(gpu, telemetry, rm, clkdom), rails(gpu) {}
+    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm), clock_bios(gpu, telemetry, rm, clkdom), rails(gpu), legacy_p0(gpu, telemetry) {}
     const druta::backend::StaticCapabilities& capabilities() {
         if (!statics) statics = telemetry.read_static();
         return *statics;

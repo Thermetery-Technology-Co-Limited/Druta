@@ -44,6 +44,7 @@ inline constexpr std::uint32_t GetDriverAndBranchVersion = 0x2926AAAD;
 inline constexpr std::uint32_t PowerPolInfo = 0x34206D86;
 inline constexpr std::uint32_t VoltRailsCtlGet = 0xA3070DB0;
 inline constexpr std::uint32_t VoltRailsAbs = 0x5D0634EE;
+inline constexpr std::uint32_t ForcePstate = 0x025BFB10;  // (handle, pstate index, fallback flag): the legacy P0 request
 }  // namespace nvapi_id
 
 class Nvapi {

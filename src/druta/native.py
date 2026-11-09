@@ -375,6 +375,8 @@ _SIGNATURES = {
     "dc_gpu_status_line": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
                                             ctypes.POINTER(ctypes.c_size_t)]),
     "dc_gpu_architecture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_read_vcore_mv": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                              ctypes.POINTER(ctypes.c_double)]),
     "dc_gpu_read_telemetry": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Telemetry)]),
     "dc_gpu_capabilities_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Capabilities)]),
     "dc_gpu_fan_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanState)]),
@@ -973,6 +975,14 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         return value.value
+
+    def read_vcore_mv(self):
+        """The NVVDD rail in mV from one NVAPI call, or None (nvbackend.GPU.read_vcore_mv)."""
+        has, mv = ctypes.c_int32(), ctypes.c_double()
+        status = load().dc_gpu_read_vcore_mv(self._handle, ctypes.byref(has), ctypes.byref(mv))
+        if status != DC_OK:
+            _raise(status)
+        return mv.value if has.value else None
 
     # ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) ---------- #
 

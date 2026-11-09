@@ -38,6 +38,17 @@ struct ClkLockRange {
     std::uint32_t max_mhz = 0;
 };
 
+// One lock-table entry as the driver's getter reports it (verification_p0's target read).
+using VfLockEntry = PointLock;
+
+// GPU._vf_lock_recovery: the rollback a change still owes, as (lockMode, volt_uV) pairs.
+struct RecoveryRecord {
+    std::int64_t domain = 0;
+    std::pair<std::uint32_t, std::uint32_t> previous;   // (lockMode, volt_uV) before this request
+    std::pair<std::uint32_t, std::uint32_t> requested;
+    bool verification = false;  // the record's "verification" key: a verification_p0 hold owns it
+};
+
 // (value, error): value and error are never both set; both empty means
 // "none, and that is known" (unlocked), as nvbackend's (None, None).
 template <typename T>
@@ -66,12 +77,18 @@ public:
     Outcome clear_vf_lock(std::optional<std::int64_t> domain, std::optional<std::int64_t> expected_uv);
     Outcome self_test();
 
+    // verification_p0's accessors. entry(): that domain's entry among the first `count` entries of
+    // the driver's own buffer, or nullopt when the getter fails or the domain is absent (the caller
+    // treats both alike). recovery() / set_recovery(): read or replace the pending record, as Python
+    // marks an existing record "verification" or installs its pending record before
+    // recover_vf_lock; nullopt clears it. recover_vf_lock keeps the flag while the record stays
+    // pending.
+    std::optional<VfLockEntry> entry(std::int64_t domain);
+    std::optional<RecoveryRecord> recovery() const { return recovery_; }
+    void set_recovery(std::optional<RecoveryRecord> record) { recovery_ = std::move(record); }
+
 private:
-    struct Recovery {
-        std::int64_t domain;
-        std::pair<std::uint32_t, std::uint32_t> previous;   // (lockMode, volt_uV) before this request
-        std::pair<std::uint32_t, std::uint32_t> requested;
-    };
+    using Recovery = RecoveryRecord;
     // The Turing R472 fallback: RM performance-limit records (GET 0x20802077) through
     // the escape transport captured once from VoltRailsCtlGet; never its paired SET.
     std::optional<ClkLockRange> legacy_clk_lock();  // _read_legacy_clk_lock

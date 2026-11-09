@@ -97,8 +97,9 @@ struct StaticCapabilities {
     std::optional<OffsetRange> core_off_range, mem_off_range;
 };
 
-// NVML architecture enum (nvbackend.GPU.ARCH_*), or nullopt.
-std::optional<std::uint32_t> read_architecture(Gpu& gpu);
+// NVML architecture enum (nvbackend.GPU.ARCH_*), or nullopt. When source is given and the
+// architecture is recognized, *source is the interface that answered (GPU._arch_source).
+std::optional<std::uint32_t> read_architecture(Gpu& gpu, const char** source = nullptr);
 const char* architecture_name(std::uint32_t architecture);
 
 class Telemetry {
@@ -108,8 +109,12 @@ public:
     Snapshot read();
     StaticCapabilities read_static();
 
-    // nvbackend.GPU.arch: NVML's enum, cached once a recognized value is seen.
+    // nvbackend.GPU.arch: NVML's enum, cached once a recognized value is seen. Takes the handle
+    // lock (recursive) itself, as read() does.
     std::optional<std::uint32_t> arch();
+    // nvbackend.GPU._arch_source: "NVML" or "NVAPI V<revision>", recorded with the cached
+    // architecture; nullptr (Python's absent attribute, None) until one is recognized.
+    const char* arch_source() const { return arch_source_; }
 
     // The pieces, public so parity tests can run each against its Python twin.
     void read_clocks(Snapshot& d, const AllClocksPriv* priv);
@@ -125,6 +130,9 @@ public:
     std::optional<NativeFanState> native_fan_data();
     std::optional<OffsetRange> offset_range(std::uint32_t ctype);
     std::optional<std::int32_t> read_voltage_boost();
+    // nvbackend.GPU.read_vcore_mv: the NVVDD rail as ONE VoltRailsStatus call (version 1), in mV.
+    // nullopt when NVAPI is down, the interface is absent, the status is nonzero or the value is 0.
+    std::optional<double> read_vcore_mv();
     std::optional<std::uint32_t> read_power_limit_nvml();
     std::vector<std::uint32_t> supported_nvml_clocks(const char* function, std::optional<std::uint32_t> selector);
 
@@ -133,6 +141,7 @@ public:
 
 private:
     std::optional<std::uint32_t> arch_cache_;
+    const char* arch_source_ = nullptr;  // a static string; see arch_source()
 
 public:
     // The public P-state table (_read_pstates20 / _pstate20_clock), shared with the clock writers.

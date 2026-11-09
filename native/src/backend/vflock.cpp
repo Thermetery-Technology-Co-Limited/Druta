@@ -130,6 +130,14 @@ std::optional<std::vector<std::vector<std::uint32_t>>> VfLock::legacy_clk_limit_
     return out;
 }
 
+std::optional<VfLockEntry> VfLock::entry(std::int64_t domain) {
+    auto cl = read_raw();
+    if (!cl) return std::nullopt;
+    const LockEntry* e = find_domain(*cl, domain);
+    if (!e) return std::nullopt;
+    return VfLockEntry{e->domain, e->lockMode, e->volt_uV, cl->count};
+}
+
 Status<PointLock> VfLock::read_vf_lock_status(std::optional<std::int64_t> domain) {
     auto cl = read_raw();
     if (!cl) return {std::nullopt, "V/F lock getter failed; the current lock is unknown"};

@@ -464,5 +464,60 @@ class BindingPrerequisiteTests(unittest.TestCase):
                                      (g.arch(), g.arch_name(), g.vf_curve_applicable()))
 
 
+class ReadVcoreParityTests(unittest.TestCase):
+    """GPU.read_vcore_mv (one VoltRailsStatus call) against native.Gpu.read_vcore_mv on the same fake:
+    the result, its type and the logged call (handle and struct version) on both sides."""
+
+    def tearDown(self):
+        native.set_export_resolver(None)
+
+    def both(self, rig, *, status=0, value_uv=1043750, interface=True):
+        calls = []
+
+        def volt(vs):
+            calls.append((vs.version, vs.value_uV))
+            vs.value_uV = value_uv
+            return status
+        callback = struct_callback(NV._VoltStatus, volt)
+        if interface:
+            rig.names["VoltRailsStatus"] = rig.nvapi.interfaces[0x465F9BCF] = callback
+        else:
+            rig.names["VoltRailsStatus"] = None
+            rig.nvapi.interfaces.pop(0x465F9BCF, None)
+        runs = []
+        for kind in ("python", "native"):
+            calls.clear()
+            if kind == "python":
+                value = rig.python_gpu().read_vcore_mv()
+            else:
+                with rig.native_gpu() as gpu:
+                    calls.clear()  # only the reader's own calls are compared
+                    value = gpu.read_vcore_mv()
+            runs.append((value, type(value), list(calls)))
+        self.assertEqual(runs[0], runs[1], "Python and native runs differ")
+        return runs[0]
+
+    def test_a_value_is_returned_exactly_in_millivolts(self):
+        version = NV.NvAPI.ver(NV._VoltStatus, 1)
+        for value_uv, expected in ((1043750, 1043.75), (743001, 743.001), (1, 0.001), (0xFFFFFFFF, 4294967.295)):
+            with self.subTest(value_uv=value_uv):
+                value, kind, calls = self.both(Rig(), value_uv=value_uv)
+                self.assertEqual((value, kind), (expected, float))
+                self.assertEqual(calls, [(version, 0)])  # one call, version 1, the struct zeroed
+
+    def test_absent_interface_nonzero_status_and_zero_value_are_none(self):
+        version = NV.NvAPI.ver(NV._VoltStatus, 1)
+        for options, called in ((dict(interface=False), False), (dict(status=-5), True),
+                                (dict(status=1, value_uv=900000), True), (dict(value_uv=0), True)):
+            with self.subTest(**options):
+                value, _, calls = self.both(Rig(), **options)
+                self.assertIsNone(value)
+                self.assertEqual(calls, [(version, 0)] if called else [])
+
+    def test_nvapi_down_makes_no_call(self):
+        value, _, calls = self.both(Rig(with_nvapi=False))
+        self.assertEqual((value, calls), (None, []))
+
+
 if __name__ == "__main__":
     unittest.main()

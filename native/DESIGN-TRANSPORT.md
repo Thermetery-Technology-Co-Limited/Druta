@@ -671,7 +671,12 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `_arbitration`, `_read_locked`, `read`) as `ClientPowerController::read`, `dc_cpc_read`,
    `tests/test_native_client_power_read.py`; the voltage-rail getters and their
    read caches as `backend/rails`, `dc_rails_*`, `tests/test_native_rails.py`, with the monotonic clock behind
-   their backoff replaceable through `dc_set_clock_hook`.)
+   their backoff replaceable through `dc_set_clock_hook`; the legacy P0 hold and the core support for the
+   verification holds (`legacy_p0_supported`, `hold_legacy_p0`, `release_legacy_p0`, the request half of
+   `verification_legacy_p0`, the recovery record and lock-table entry accessors, `read_vcore_mv`) as
+   `backend/legacy_p0`, `dc_legacy_p0_*`, `dc_gpu_vf_lock_recovery_get` / `_set`, `dc_gpu_vf_lock_entry_get`,
+   `dc_gpu_read_vcore_mv`, `tests/test_native_legacy_p0.py`, with the two context managers composed in
+   `druta.native_legacy_p0`.)
 
 ### 3.10 Corrections to the design-panel output
 

@@ -240,6 +240,19 @@ DC_API dc_status DC_CALL dc_gpu_architecture(dc_gpu* handle, uint32_t* architect
     return DC_OK;
 }
 
+DC_API dc_status DC_CALL dc_gpu_read_vcore_mv(dc_gpu* handle, int32_t* has, double* mv) {
+    if (!handle || !has || !mv) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        auto value = handle->telemetry.read_vcore_mv();
+        *has = value ? 1 : 0;
+        *mv = value.value_or(0.0);
+        return DC_OK;
+    } catch (...) {  // no exception crosses the C boundary
+    }
+    return DC_E_FAILED;
+}
+
 DC_API dc_status DC_CALL dc_gpu_read_telemetry(dc_gpu* handle, dc_telemetry* out) {
     if (!handle || !out || out->size != sizeof(dc_telemetry)) return DC_E_ARGUMENT;
     druta::backend::Snapshot d = handle->telemetry.read();
@@ -555,6 +568,64 @@ DC_API dc_status DC_CALL dc_gpu_vf_lock_self_test(dc_gpu* handle, dc_outcome* ou
     druta::LockGuard guard(handle->gpu.lock());
     put_outcome(handle->vflock.self_test(), out);
     return DC_OK;
+}
+
+// verification_p0's accessors. Each body is guarded (no exception crosses the C boundary; only
+// allocation can throw) and runs under the handle lock.
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_recovery_get(dc_gpu* handle, dc_vf_lock_recovery* out) {
+    if (!handle || !out || out->size != sizeof(dc_vf_lock_recovery)) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        dc_vf_lock_recovery r{};
+        r.size = sizeof(dc_vf_lock_recovery);
+        if (auto record = handle->vflock.recovery()) {
+            r.pending = 1;
+            r.domain = record->domain;
+            r.previous_mode = record->previous.first;
+            r.previous_uv = record->previous.second;
+            r.requested_mode = record->requested.first;
+            r.requested_uv = record->requested.second;
+            r.verification = record->verification ? 1 : 0;
+        }
+        *out = r;
+        return DC_OK;
+    } catch (...) {
+    }
+    return DC_E_FAILED;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_recovery_set(dc_gpu* handle, const dc_vf_lock_recovery* record) {
+    if (!handle || !record || record->size != sizeof(dc_vf_lock_recovery)) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        std::optional<druta::backend::RecoveryRecord> value;
+        if (record->pending) {
+            druta::backend::RecoveryRecord r;
+            r.domain = record->domain;
+            r.previous = {record->previous_mode, record->previous_uv};
+            r.requested = {record->requested_mode, record->requested_uv};
+            r.verification = record->verification != 0;
+            value = r;
+        }
+        handle->vflock.set_recovery(value);
+        return DC_OK;
+    } catch (...) {
+    }
+    return DC_E_FAILED;
+}
+
+DC_API dc_status DC_CALL dc_gpu_vf_lock_entry_get(dc_gpu* handle, int64_t domain, dc_vf_point_lock* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        auto e = handle->vflock.entry(domain);
+        if (!e) return DC_E_UNAVAILABLE;
+        *out = dc_vf_point_lock{e->domain, e->lockMode, e->volt_uV, e->count};
+        return DC_OK;
+    } catch (...) {
+    }
+    return DC_E_FAILED;
 }
 
 
@@ -1041,6 +1112,7 @@ DC_API dc_status DC_CALL dc_gpu_refresh_capabilities(dc_gpu* handle, dc_clkdom_e
     if (!handle || (previous && previous->size != sizeof(dc_clkdom_error))) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
     std::optional<druta::backend::CapabilityError> before = handle->clkdom.refresh_capabilities();
+    handle->rails.refresh();  // _refresh_volt_rail_capabilities: the four rail read caches (nvbackend 3696)
     if (previous) put_clkdom_error(before, previous);
     return DC_OK;
 }

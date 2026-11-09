@@ -86,13 +86,16 @@ const char* architecture_name(std::uint32_t architecture) {
     }
 }
 
-std::optional<std::uint32_t> read_architecture(Gpu& gpu) {
+std::optional<std::uint32_t> read_architecture(Gpu& gpu, const char** source) {
     // NVML's enum first; then the public NVAPI architecture id translated to
     // it. Unlisted ids stay unknown; nothing here reads a device id.
     if (gpu.nvml.ok) {
         if (auto fn = gpu.nvml.get<HandleU32Fn>("nvmlDeviceGetArchitecture")) {
             std::uint32_t value = 0;
-            if (fn(gpu.nvml.dev, &value) == 0 && architecture_name(value)) return value;
+            if (fn(gpu.nvml.dev, &value) == 0 && architecture_name(value)) {
+                if (source) *source = "NVML";
+                return value;
+            }
         }
     }
     if (gpu.nvapi.ok) {
@@ -115,7 +118,10 @@ std::optional<std::uint32_t> read_architecture(Gpu& gpu) {
                     case 0x1B0: architecture = 10; break;
                     default: break;
                 }
-                if (status == 0 && info.version == nvapi_ver<GpuArchInfo>(revision) && architecture) return architecture;
+                if (status == 0 && info.version == nvapi_ver<GpuArchInfo>(revision) && architecture) {
+                    if (source) *source = revision == 2 ? "NVAPI V2" : "NVAPI V1";
+                    return architecture;
+                }
                 break;
             }
         }
@@ -349,6 +355,17 @@ void Telemetry::read_power(Snapshot& d) {
         vs.version = nvapi_ver<VoltStatus>(1);
         if (fn(a.gpu, &vs) == 0 && vs.value_uV) d.vcore_mv = vs.value_uV / 1000.0;
     }
+}
+
+std::optional<double> Telemetry::read_vcore_mv() {
+    // The same single VoltRailsStatus call read_power makes, without the rest of the sweep.
+    Nvapi& a = gpu_.nvapi;
+    auto fn = a.ok ? a.get<HandlePtrFn>(id::VoltRailsStatus) : nullptr;
+    if (!fn) return std::nullopt;
+    VoltStatus vs{};
+    vs.version = nvapi_ver<VoltStatus>(1);
+    if (fn(a.gpu, &vs) == 0 && vs.value_uV) return vs.value_uV / 1000.0;
+    return std::nullopt;
 }
 
 // ---- fans -----------------------------------------------------------------------------------------
@@ -630,7 +647,10 @@ void Telemetry::read_misc(Snapshot& d) {
 }
 
 std::optional<std::uint32_t> Telemetry::arch() {
-    if (!arch_cache_) arch_cache_ = read_architecture(gpu_);
+    // Under the handle lock like read(): the cache and its source are written here and read by the
+    // rail entries, which hold the lock, while dc_gpu_architecture does not take it itself.
+    LockGuard guard(gpu_.lock());
+    if (!arch_cache_) arch_cache_ = read_architecture(gpu_, &arch_source_);
     return arch_cache_;
 }
 

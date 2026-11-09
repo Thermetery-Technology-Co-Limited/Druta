@@ -174,6 +174,13 @@ DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* gpu, char* buffer, siz
 /* NVML architecture enum (1 Fermi .. 10 Blackwell), or DC_E_UNRECOGNIZED when neither library says. */
 DC_API dc_status DC_CALL dc_gpu_architecture(dc_gpu* gpu, uint32_t* architecture);
 
+/* nvbackend.GPU.read_vcore_mv: the NVVDD rail as one NVAPI VoltRailsStatus call (version 1), for
+ * callers that need the rail alone (verification_p0's loaded voltage). *has 1 and *mv = value_uV /
+ * 1000.0 when NVAPI is live, the interface is present, the status is 0 and the value is nonzero;
+ * otherwise *has 0 and *mv 0. Takes the handle lock. DC_E_ARGUMENT for a NULL pointer (nothing is
+ * written); DC_E_FAILED if a C++ exception reached the entry. */
+DC_API dc_status DC_CALL dc_gpu_read_vcore_mv(dc_gpu* gpu, int32_t* has, double* mv);
+
 typedef struct dc_fan_reading {
     int32_t has_duty;
     uint32_t duty;
@@ -411,6 +418,36 @@ DC_API dc_status DC_CALL dc_gpu_vf_lock_clear(dc_gpu* gpu, int32_t has_domain, i
 /* vf_lock_self_test: hand the driver back the exact bytes its getter produced; a verified no-op. */
 DC_API dc_status DC_CALL dc_gpu_vf_lock_self_test(dc_gpu* gpu, dc_outcome* out);
 
+/* GPU._vf_lock_recovery: the rollback an unsuccessful hold still owes (pending 0: none). The two
+ * pairs are (lockMode, volt_uV) as the record keeps them; verification is the record's
+ * "verification" key, set by a verification_p0 hold (Python adds the key only when it is True). */
+typedef struct dc_vf_lock_recovery {
+    uint32_t size;            /* sizeof(dc_vf_lock_recovery), set by the caller */
+    int32_t pending;
+    int64_t domain;
+    uint32_t previous_mode;
+    uint32_t previous_uv;
+    uint32_t requested_mode;
+    uint32_t requested_uv;
+    int32_t verification;
+} dc_vf_lock_recovery;
+
+/* Read the recovery record. DC_E_ARGUMENT (nothing written) for a NULL handle or out, or a size
+ * that is not this header's. Takes the handle lock. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_recovery_get(dc_gpu* gpu, dc_vf_lock_recovery* out);
+
+/* Replace the recovery record (pending 0 clears it), as verification_p0 marks an existing record
+ * or installs its own before recover_vf_lock. Nothing is written to the driver. DC_E_ARGUMENT
+ * (nothing changed) for a NULL handle or record, or a size that is not this header's. Takes the
+ * handle lock. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_recovery_set(dc_gpu* gpu, const dc_vf_lock_recovery* record);
+
+/* One domain's entry among the first count entries of the driver's own lock table (domain,
+ * lockMode, volt_uV and the table's count), for verification_p0's target check.
+ * DC_E_UNAVAILABLE (out untouched) when the getter does not answer or the domain is absent;
+ * DC_E_ARGUMENT for a NULL handle or out. Takes the handle lock. */
+DC_API dc_status DC_CALL dc_gpu_vf_lock_entry_get(dc_gpu* gpu, int64_t domain, dc_vf_point_lock* out);
+
 /* ---- V/F curve (nvbackend.GPU.vfp_layout, read_vf_curve, read_vfp_other_rows, apply_vf_deltas,
  *      reset_vf_curve, _vf_delta_snapshot) ------------------------------------------------------- */
 
@@ -647,7 +684,8 @@ DC_API dc_status DC_CALL dc_gpu_clkdom_flags_get(dc_gpu* gpu, int32_t* msvdd_wri
 /* retry_clock_capabilities(now): has_now == 0 uses a monotonic clock; *changed is the bool. */
 DC_API dc_status DC_CALL dc_gpu_retry_clock_capabilities(dc_gpu* gpu, int32_t has_now, double now,
                                                          int32_t* changed);
-/* refresh_capabilities: the clock-control discovery caches; previous receives the old error. */
+/* refresh_capabilities: the clock-control discovery caches and the voltage-rail read caches
+ * (_refresh_volt_rail_capabilities, dc_rails_refresh); previous receives the old error. */
 DC_API dc_status DC_CALL dc_gpu_refresh_capabilities(dc_gpu* gpu, dc_clkdom_error* previous);
 
 /* ---- RM escape transport, layer 0 (nvbackend.GPU._legacy_clk_gdi / _legacy_clk_escape) -------- */
@@ -740,6 +778,7 @@ typedef struct dc_rm_transport {
 #include "drutacore/perf_diagnostics.h"        /* dc_perf_*: the PERF diagnostics reader */
 #include "drutacore/clock_bios.h"              /* dc_clock_bios_*: the clock-BIOS reader */
 #include "drutacore/rails.h"                   /* dc_rails_*: the voltage-rail getters */
+#include "drutacore/legacy_p0.h"               /* dc_legacy_p0_*: the legacy P0 hold */
 
 typedef struct dc_rm_observed {  /* _current_limit_observed_transport: {} when seen == 0 */
     uint32_t size;
