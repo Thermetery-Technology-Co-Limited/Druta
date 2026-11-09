@@ -39,9 +39,12 @@ change the session-only rule for ordinary tuning controls.
 The root agent supervises the work. Subagents are authorized for concrete,
 independent tasks when useful; prefer Sol or Terra for easy, bounded
 implementation, documentation, or test work when that is the user's stated
-model preference. Give each task explicit paths, scope, and acceptance
-criteria. Assign one owner per file, or coordinate clear non-overlapping
-boundaries before editing shared files.
+model preference. Under Claude Code, every delegated executor (subagents and
+workflow agents) runs on Opus 5.5, never on the root agent's own model: use
+the `worker` agent definition in `.claude/agents/` or an explicit Opus model
+override. Give each task explicit paths, scope, and acceptance criteria.
+Assign one owner per file, or coordinate clear non-overlapping boundaries
+before editing shared files.
 
 Agents must share relevant findings and blockers promptly. Coordinate hardware
 access; only one agent may write to a GPU at a time. The root agent reviews
