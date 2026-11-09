@@ -72,7 +72,12 @@ class _GpuIdentity(ctypes.Structure):
                 ("nvml_has_devid", ctypes.c_int32), ("nvml_devid", ctypes.c_uint32),
                 ("nvml_subsys", ctypes.c_uint32), ("nvml_index", ctypes.c_int32),
                 ("name", ctypes.c_char * 96), ("driver", ctypes.c_char * 96), ("vbios", ctypes.c_char * 96),
-                ("uuid", ctypes.c_char * 96), ("admin", ctypes.c_int32)]
+                ("uuid", ctypes.c_char * 96), ("admin", ctypes.c_int32), ("nvapi_handle", ctypes.c_uint64)]
+
+
+class _Target(ctypes.Structure):  # dc_target
+    _fields_ = [("size", ctypes.c_uint32), ("slot", ctypes.c_char * 24), ("architecture", ctypes.c_uint32),
+                ("device_id", ctypes.c_uint32), ("subsystem_id", ctypes.c_uint32), ("handle", ctypes.c_uint64)]
 
 
 class _FanReading(ctypes.Structure):
@@ -492,6 +497,10 @@ _SIGNATURES = {
     "dc_cl_table_reset": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_cl_policy_mask_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
     "dc_cl_policy_mask_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
+    "dc_gpu_target_bind": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Target),
+                                            ctypes.POINTER(_Error)]),
+    "dc_gpu_target_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_nvapi_interface_present": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
     "dc_cl_state": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, ctypes.POINTER(_CurrentRow),
                                      ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32),
                                      ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int32),
@@ -812,6 +821,35 @@ def enumerate_gpus():
         } for e in entries[:count.value]]
 
 
+class _Static(dict):
+    """nvbackend.GPU.static: the identity keys at construction, the capability keys
+    (pl_min_mw, gfx_min, mem_clocks, ...) merged in from capabilities() on their first use.
+    nvbackend reads them all in __init__; the core reads the capabilities once, when first
+    asked, so construction issues no NVML capability calls and the parity call logs hold."""
+
+    def __init__(self, gpu, identity):
+        super().__init__(identity)
+        self._gpu, self._merged = gpu, False
+
+    def _merge(self, key):
+        if not self._merged and key not in dict.keys(self):
+            self._merged = True
+            for name, value in self._gpu.capabilities().items():
+                dict.setdefault(self, name, value)
+
+    def __getitem__(self, key):
+        self._merge(key)
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key):
+        self._merge(key)
+        return dict.__contains__(self, key)
+
+    def get(self, key, default=None):
+        self._merge(key)
+        return dict.get(self, key, default)
+
+
 class _Half:
     """The .ok / .err_detail / .selected shape of nvbackend.NvAPI and Nvml."""
 
@@ -839,7 +877,7 @@ class Gpu:
         nvapi_selected = None
         if identity.nvapi_selected:
             nvapi_selected = {"slot": _text(identity.nvapi_slot), "devid": identity.nvapi_devid,
-                              "subsys": identity.nvapi_subsys}
+                              "subsys": identity.nvapi_subsys, "handle": identity.nvapi_handle}
         nvml_selected = None
         if identity.nvml_selected:
             nvml_selected = {"slot": _text(identity.nvml_slot), "nvml_index": identity.nvml_index,
@@ -847,12 +885,16 @@ class Gpu:
                              "subsys": identity.nvml_subsys if identity.nvml_has_devid else None,
                              "uuid": _text(identity.uuid)}
         self.nvapi = _Half(bool(identity.nvapi_ok), _text(identity.nvapi_error), nvapi_selected)
+        self.nvapi.gpu = identity.nvapi_handle or None  # NvAPI.gpu's value, for the identity checks only
         self.nvml = _Half(bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected)
         self.nvml.dll_path = _text(identity.nvml_path)
         self.pairing_error = _text(identity.pairing_error)
-        self.static = {"name": _text(identity.name), "driver": _text(identity.driver),
-                       "vbios": _text(identity.vbios), "admin": bool(identity.admin),
-                       "slot": _text(identity.slot), "uuid": _text(identity.uuid)}
+        self.static = _Static(self, {"name": _text(identity.name), "driver": _text(identity.driver),
+                                     "vbios": _text(identity.vbios), "admin": bool(identity.admin),
+                                     "slot": _text(identity.slot), "uuid": _text(identity.uuid)})
+        # nvbackend.GPU._lock: the front end and the profiles serialize their own sequences on it.
+        # The core keeps its own re-entrant mutex per handle; this one exists for those callers.
+        self._lock = threading.RLock()
 
     def close(self):
         handle, self._handle = self._handle, None
@@ -894,6 +936,58 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         return value.value
+
+    # ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) ---------- #
+
+    _ERROR_KINDS = {1: "transient", 2: "invalid", 3: "unsupported", 4: "identity", 5: "malformed"}
+
+    def _target_bind(self, client_power):
+        target, error = _Target(), _Error()
+        target.size, error.size = ctypes.sizeof(_Target), ctypes.sizeof(_Error)
+        status = load().dc_gpu_target_bind(self._handle, 1 if client_power else 0, ctypes.byref(target),
+                                           ctypes.byref(error))
+        if status == DC_E_FAILED:
+            return None, (self._ERROR_KINDS.get(error.kind, "transient"), _text(error.message))
+        if status != DC_OK:
+            _raise(status)
+        return target, None
+
+    def _target_binding(self):
+        """PerfDiagnosticsReader._binding on this handle's shared binding: (api, slot, architecture),
+        or the PerfDiagnosticError it raises. One sticky identity per handle, reset with
+        _target_binding_reset() (a fresh reader)."""
+        from .perf_diagnostics import PerfDiagnosticError
+        target, failure = self._target_bind(False)
+        if failure:
+            raise PerfDiagnosticError(*failure)
+        return self.nvapi, _text(target.slot), target.architecture
+
+    def _client_power_binding(self):
+        """ClientPowerController._binding: the identity dict, or the ClientPowerError it raises."""
+        from .client_power_runtime import ClientPowerError
+        target, failure = self._target_bind(True)
+        if failure:
+            raise ClientPowerError(*failure)
+        return {"slot": _text(target.slot), "architecture": target.architecture,
+                "device_id": target.device_id, "subsystem_id": target.subsystem_id}
+
+    def _target_binding_reset(self):
+        status = load().dc_gpu_target_reset(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    def nvapi_interface_present(self, ident):
+        """NvAPI._i(ident) is not None: the binder resolves the interface id."""
+        return bool(load().dc_nvapi_interface_present(self._handle, int(ident) & 0xFFFFFFFF))
+
+    def arch_name(self):
+        from .nvbackend import GPU
+        return GPU.ARCH_NAMES.get(self.arch() or -1)
+
+    def vf_curve_applicable(self):
+        """Kepler uses ordinary clock offsets, not the V/F table (nvbackend.GPU.vf_curve_applicable)."""
+        from .nvbackend import GPU
+        return self.arch() != GPU.ARCH_KEPLER
 
     def capabilities(self):
         """The non-identity keys of nvbackend.GPU.static."""

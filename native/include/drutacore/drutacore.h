@@ -161,6 +161,7 @@ typedef struct dc_gpu_identity {
     char vbios[96];
     char uuid[96];
     int32_t admin;
+    uint64_t nvapi_handle;     /* NvAPI.gpu, the selected handle's value (0 when none); for identity checks only */
 } dc_gpu_identity;
 
 DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* gpu, dc_gpu_identity* identity);
@@ -652,7 +653,9 @@ enum {
     DC_ERR_NONE = 0,
     DC_ERR_TRANSIENT = 1,   /* ValueError after touching the driver: a failed read; a retry may recover */
     DC_ERR_INVALID = 2,     /* ValueError raised before the driver was touched */
-    DC_ERR_UNSUPPORTED = 3  /* CurrentLimitUnsupported: a fixed property of this image */
+    DC_ERR_UNSUPPORTED = 3, /* CurrentLimitUnsupported: a fixed property of this image */
+    DC_ERR_IDENTITY = 4,    /* PerfDiagnosticError / ClientPowerError "identity": the paired target changed */
+    DC_ERR_MALFORMED = 5    /* "malformed": a packet or transport geometry that is not understood */
 };
 typedef struct dc_error {
     uint32_t size;           /* sizeof(dc_error), set by the caller */
@@ -691,6 +694,28 @@ DC_API dc_status DC_CALL dc_rm_escape_raw(dc_gpu* gpu, uint8_t* packet, size_t s
  * _rm_power_transport, _current_limit_transport_layouts (DESIGN-TRANSPORT.md 3.4, 3.5, 3.7). */
 
 #include "drutacore/power_layouts.h"  /* dc_power_layout: the pure current-limit tables */
+#include "drutacore/power_arbitration.h"  /* the pure power-arbitration decoder */
+
+/* ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) --------------- */
+
+typedef struct dc_target {
+    uint32_t size;          /* sizeof(dc_target), set by the caller */
+    char slot[24];          /* GPU.slot() */
+    uint32_t architecture;  /* NVML's enum */
+    uint32_t device_id;     /* NvAPI.selected devid / subsys */
+    uint32_t subsystem_id;
+    uint64_t handle;        /* NvAPI.gpu */
+} dc_target;
+
+/* The handle's shared binding, one sticky identity per dc_gpu (each Python reader keeps its own; the
+ * consumers inside the core keep theirs). client_power nonzero applies ClientPowerController's
+ * complete-identity requirement. DC_E_FAILED with *error carries the PerfDiagnosticError /
+ * ClientPowerError kind (DC_ERR_IDENTITY, DC_ERR_TRANSIENT or DC_ERR_UNSUPPORTED) and message. */
+DC_API dc_status DC_CALL dc_gpu_target_bind(dc_gpu* gpu, int32_t client_power, dc_target* out, dc_error* error);
+/* A fresh reader: forget the sticky identity. */
+DC_API dc_status DC_CALL dc_gpu_target_reset(dc_gpu* gpu);
+/* NvAPI.QueryInterface presence for one id: nonzero when the binder resolves it (NvAPI._i(id) is not None). */
+DC_API int32_t DC_CALL dc_nvapi_interface_present(const dc_gpu* gpu, uint32_t id);
 
 enum { DC_TRANSPORT_POWER = 1, DC_TRANSPORT_LEGACY_CLK = 2 };
 

@@ -652,7 +652,10 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `state`, `get_current_limits`, `set_current_limit_ma`; `tests/test_native_current_limit_state.py`. The one
    unported dependency, `read_live_power_request`, is a callback the caller supplies (`dc_cl_confirm_fn`);
    the binding's stub never confirms until the client-power runtime is ported.)
-7. The Python consumers, one module at a time.
+7. The Python consumers, one module at a time. (In progress: the paired target binding shared by
+   `perf_diagnostics` and `client_power_runtime` is done as `backend/target`, `dc_gpu_target_bind`,
+   `tests/test_native_target_binding.py`; the pure `power_arbitration` decoder as `backend/power_arbitration`,
+   `dc_power_arbitration_*`, `tests/test_native_power_arbitration.py`.)
 
 ### 3.10 Corrections to the design-panel output
 

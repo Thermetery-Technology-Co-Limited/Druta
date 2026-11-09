@@ -13,7 +13,9 @@
 
 namespace druta::backend {
 
-enum class RmErrorKind : std::int32_t { none = 0, transient = 1, invalid = 2, unsupported = 3 };
+// identity and malformed are PerfDiagnosticError / ClientPowerError kinds (increment A1 and up):
+// the paired target changed or could not be confirmed, or a packet's geometry is not understood.
+enum class RmErrorKind : std::int32_t { none = 0, transient = 1, invalid = 2, unsupported = 3, identity = 4, malformed = 5 };
 
 struct RmError {
     RmErrorKind kind = RmErrorKind::none;

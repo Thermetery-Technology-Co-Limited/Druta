@@ -419,5 +419,50 @@ class TelemetryParityTests(unittest.TestCase):
         self.assertEqual(gpu.arch(), 7)
 
 
+class BindingPrerequisiteTests(unittest.TestCase):
+    """The nvbackend.GPU surface the front end and the profiles use directly: the RLock, the
+    capability keys on `static`, arch_name() and vf_curve_applicable()."""
+
+    def test_lock_is_reentrant(self):
+        rig = Rig()
+        install(rig.nvml, rig.nvapi)
+        with native.Gpu() as g:
+            with g._lock:
+                with g._lock:  # nvbackend._synchronized nests through its own callers
+                    acquired = True
+        self.assertTrue(acquired)
+
+    def test_static_carries_the_capability_keys_on_first_use(self):
+        rig = Rig()
+        gpu = rig.python_gpu()
+        install(rig.nvml, rig.nvapi)
+        with native.Gpu() as g:
+            identity_only = dict.keys(g.static)
+            self.assertNotIn("pl_min_mw", list(identity_only))
+            self.assertEqual((g.static.get("pl_min_mw"), g.static["pl_max_mw"], g.static.get("pl_def_mw")),
+                             (100000, 320000, 280000))
+            self.assertIn("gfx_min", g.static)
+            self.assertEqual(g.static["mem_clocks"], gpu._supported_nvml_clocks("nvmlDeviceGetSupportedMemoryClocks"))
+            self.assertEqual(g.static["name"], gpu._read_static()["name"])
+            g.static["pl_min_mw"] = 1  # read_live_power_request back-fills missing constraints this way
+            self.assertEqual(g.static["pl_min_mw"], 1)
+            self.assertIsNone(g.static.get("absent"))
+
+    def test_arch_name_and_vf_curve_applicable(self):
+        for arch, name, applicable in ((7, "Ampere", True), (2, "Kepler", False), (None, None, True)):
+            with self.subTest(arch=arch):
+                rig = Rig()
+                if arch is None:
+                    rig.nvml.exports.pop("nvmlDeviceGetArchitecture", None)
+                else:
+                    rig.nvml.exports["nvmlDeviceGetArchitecture"] = u32_callback(arch)
+                gpu = rig.python_gpu()
+                install(rig.nvml, rig.nvapi)
+                with native.Gpu() as g:
+                    self.assertEqual((g.arch(), g.arch_name(), g.vf_curve_applicable()), (arch, name, applicable))
+                    self.assertEqual((gpu.arch(), gpu.arch_name(), gpu.vf_curve_applicable()),
+                                     (g.arch(), g.arch_name(), g.vf_curve_applicable()))
+
+
 if __name__ == "__main__":
     unittest.main()

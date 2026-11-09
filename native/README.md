@@ -62,6 +62,8 @@ core, then compares results, driver call sequences and messages.
 | RM escape transport, layer 4: the rail-record splice | `GPU._write_rail_records_locked` (after its Python preconditions) | `dc_rail_write_locked` (bound as `Gpu._rail_write_locked`) | `tests/test_native_rail_splice.py` |
 | Current-limit RM operations | `GPU._current_limit_abi`, `_current_limit_probe_info`, `_current_limit_rm`, `_current_limit_capacity`, `_power_policy_table` and the `_last_policy_table` / `_power_policy_mask` attributes | `dc_cl_*` (bound as the same `Gpu` methods) | `tests/test_native_current_limits.py` |
 | Current-limit rows, getter and verified setter | `GPU._current_limit_state`, `get_current_limits`, `current_limit_diagnostics`, `set_current_limit_ma`, `_set_current_limit_ma` and the `_current_limit_unavailable` / `_current_limit_error` / `_current_limit_read_error` / `_current_limit_last_rows` / `_current_limit_established` / `_power_policy_pins` attributes | `dc_cl_state`, `dc_cl_get_current_limits`, `dc_cl_set_current_limit_ma` and their attribute getters | `tests/test_native_current_limit_state.py` |
+| Paired target binding and its prerequisites | `PerfDiagnosticsReader._binding`, `ClientPowerController._binding`; `GPU.arch_name`, `vf_curve_applicable`, the capability keys of `GPU.static`, `NvAPI._i` presence | `dc_gpu_target_bind`, `dc_gpu_target_reset`, `dc_nvapi_interface_present` (bound as `Gpu._target_binding`, `_client_power_binding`, `_target_binding_reset`, `nvapi_interface_present`) | `tests/test_native_target_binding.py`, `tests/test_native_telemetry.py` |
+| Power-arbitration decoder | `power_arbitration.decode`, `_geometry`, `_arbitration`, `ROW_FORMATS` | `dc_power_arbitration_*` (`drutacore/power_arbitration.h`, bound by `druta.native_power_arbitration`) | `tests/test_native_power_arbitration.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
 `nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
@@ -106,12 +108,25 @@ supplies it from `Gpu.read_live_power_request`, which is a stub until the
 client-power runtime is ported, so natively a derived clamp stays an invalid
 record for now rather than being guessed.
 
+The paired target binding is the first step of every PERF, client-power
+and clock-BIOS consumer. The core keeps one sticky identity per handle (the
+NvAPI object, its handle, the PCI address, devid, subsys and architecture),
+reset by `dc_gpu_target_reset` as a fresh Python reader would be, and reports
+the Python error kinds `identity`, `transient` and `unsupported` through
+`dc_error` (which gained `DC_ERR_IDENTITY` and `DC_ERR_MALFORMED`). One
+refusal is ported verbatim and flagged for the user rather than relaxed: a PCI
+domain other than 0 is refused although pairing compares bus and device only.
+The arbitration decoder is pure: the binding keeps Python's dynamic checks
+(a layout, size, command or packet word that is not an exact unsigned 32-bit
+int) and maps each to the sentinel the core refuses with Python's reason, so
+every reason string comes from the core.
+
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls
 built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
 adapter openers for older gdi32 builds; the full policy table of
 `_power_policy_rows` and the pin re-application after board-limit writes;
-the client-power runtime; and the Python consumers of the transport such as
+the client-power runtime beyond its target binding; and the Python consumers of the transport such as
 `_write_rail_records` with its profile checks and `_verify_rail_records`;
 `refresh_capabilities`'s live-power and rail resets wait for them), the GPU
 restart, and the front end.

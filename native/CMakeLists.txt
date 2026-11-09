@@ -80,6 +80,8 @@ add_library(drutacore_impl STATIC
   src/backend/clkdom_names.cpp
   src/backend/clocks.cpp
   src/backend/current_limits.cpp
+  src/backend/power_arbitration.cpp
+  src/backend/target.cpp
   src/backend/exports.cpp
   src/backend/fan.cpp
   src/backend/gdi.cpp
@@ -110,6 +112,8 @@ add_library(drutacore SHARED
   src/core/abi.cpp
   src/core/abi_clkdom.cpp
   src/core/abi_current_limits.cpp
+  src/core/abi_power_arbitration.cpp
+  src/core/abi_target.cpp
   src/core/abi_power_layouts.cpp
   src/core/abi_transport.cpp
   src/core/abi_vfplan.cpp

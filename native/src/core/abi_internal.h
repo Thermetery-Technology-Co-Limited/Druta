@@ -17,6 +17,7 @@
 #include "backend/clkdom.h"
 #include "backend/clocks.h"
 #include "backend/current_limits.h"
+#include "backend/target.h"
 #include "backend/fan.h"
 #include "backend/gpu.h"
 #include "backend/outcome.h"
@@ -34,9 +35,10 @@ struct dc_gpu {
     druta::backend::VfLock vflock;   // carries the recovery record across calls, as GPU._vf_lock_recovery
     druta::backend::ClkDom clkdom;   // the control-block discovery caches (GPU._clkdom_*)
     druta::backend::CurrentLimits cl;  // the current-policy operations and their last table
+    druta::backend::TargetBinding target;  // the handle's shared paired-target binding (one sticky identity)
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
     std::optional<druta::backend::VfCurve> vfcurve;             // carries the layout cache, as GPU._vfp_layout_cache
-    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom) {}
+    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry) {}
     const druta::backend::StaticCapabilities& capabilities() {
         if (!statics) statics = telemetry.read_static();
         return *statics;
