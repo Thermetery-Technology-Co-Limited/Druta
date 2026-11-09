@@ -69,7 +69,7 @@ core, then compares results, driver call sequences and messages.
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
 | Client-power metadata read | `ClientPowerController._client_group`, `_metadata_once`, `_stable_locked`, `read_metadata` | `dc_cpc_read_metadata` (bound as `Gpu._cp_read_metadata`) | `tests/test_native_client_power_metadata.py` |
 | PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
-| Clock-BIOS user-clock CONTROL GET | `clock_bios_runtime._control_once`, `_control_shape` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
+| Clock-BIOS read path | `clock_bios_runtime._control_once`, `_control_shape`, `_info_once`, `_decode`, `read` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_info`, `dc_clock_bios_decode`, `dc_clock_bios_read`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
 `nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
@@ -168,7 +168,14 @@ fresh captures with the `unstable` error kind (`DC_ERR_UNSTABLE`).
 The clock-BIOS reader's raw user-clock CONTROL GET runs the same guarded
 allocation around the exact 24996-byte NvAPI record and distinguishes the
 two Python exception types by return status (`DC_E_FAILED` with a kind for
-`PerfDiagnosticError`, `DC_E_UNRECOGNIZED` for `ClockBiosError`).
+`PerfDiagnosticError`, `DC_E_UNRECOGNIZED` for `ClockBiosError`). Its INFO
+GET goes through the paired A612 escape transport of the PERF reader (the
+clock-BIOS reader owns a `PerfDiagnostics` as each Python `read()` constructs
+its own `PerfDiagnosticsReader`), and `dc_clock_bios_read` runs the whole
+two-attempt, two-sample `read()` with a fresh reader per call, taking the
+handle lock per attempt as Python does and dropping the transport cache
+after the first attempt under that lock. `_shape`'s checks are not repeated
+natively: every one re-validates values the core produced itself.
 
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls

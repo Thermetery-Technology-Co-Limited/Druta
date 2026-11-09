@@ -663,7 +663,8 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `backend/perf_diagnostics`, `dc_perf_*`, `tests/test_native_perf_diagnostics.py`, with the pure decoder and
    the per-group read loop as `perf_decode_group` / `PerfDiagnostics::read_group`, `dc_perf_decode_group`,
    `dc_perf_read_group` and the embedded SHA-256 as `core/sha256`, `dc_sha256_hex` (fuzzed by
-   `native/fuzz/perf_decode_fuzz.cpp`); the clock-BIOS user-clock CONTROL GET as `backend/clock_bios`,
+   `native/fuzz/perf_decode_fuzz.cpp`); the clock-BIOS read path (the user-clock CONTROL GET, the INFO GET
+   through the paired transport, `_decode` and the two-sample `read`) as `backend/clock_bios`,
    `dc_clock_bios_*`, `tests/test_native_clock_bios.py`; the client-power metadata read (`_client_group`,
    `_metadata_once`, `_stable_locked`, `read_metadata`) as `ClientPowerController::read_metadata`,
    `dc_cpc_read_metadata`, `tests/test_native_client_power_metadata.py`.)

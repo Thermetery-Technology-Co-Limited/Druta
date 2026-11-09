@@ -1,7 +1,7 @@
 # Druta - a monitor and tuner for NVIDIA GPUs.
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The clock-BIOS reader of the native core (drutacore/clock_bios.h), increment C1.
+"""The clock-BIOS reader of the native core (drutacore/clock_bios.h), increments C1 and C2.
 
 On a ``druta.native.Gpu``, ``control_once(gpu, identity)`` is
 ``clock_bios_runtime._control_once(gpu, reader, identity)`` with the handle's own reader, and
@@ -10,6 +10,11 @@ Python returns or raises the same exception type with the same text (``ClockBios
 or ``PerfDiagnosticError(kind, message)``). Every handle keeps one reader with its own sticky
 target binding; ``reset(gpu)`` is a fresh reader. This is a parallel implementation for the parity
 tests; the Python module stays the one the backend uses.
+
+C2: ``info_once(gpu)`` is ``_info_once(gpu, reader)`` on that same handle reader, returning
+``(identity, info bytes)``; ``decode(raw)`` is the pure ``_decode``; ``read(gpu)`` is ``read(gpu)``
+with its own fresh reader per call, returning ``(observation, None)`` or ``(None, message)`` with
+the observation dict rebuilt in Python's key order and value types.
 
 The C ABI takes typed arguments, so Python's own type rules stay here:
 - ``identity`` is never converted. The core reports the identity it bound (a ``dc_target``) to a
@@ -38,8 +43,28 @@ _UINT32_MAX = 0xFFFFFFFF
 _UINT64_MAX = 0xFFFFFFFFFFFFFFFF
 
 
+INFO_SIZE = 12336
+
+
 class _Requests(ctypes.Structure):  # dc_clock_bios_requests
     _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint32), ("khz", ctypes.c_int32 * CAPACITY)]
+
+
+class _Row(ctypes.Structure):  # dc_clock_bios_row
+    _fields_ = [("type", ctypes.c_uint32), ("base_type", ctypes.c_uint32), ("api_domain_mask", ctypes.c_uint32),
+                ("typed", ctypes.c_int32), ("minimum_mhz", ctypes.c_int32), ("maximum_mhz", ctypes.c_int32)]
+
+
+class _Rows(ctypes.Structure):  # dc_clock_bios_rows
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint32), ("rows", _Row * CAPACITY)]
+
+
+class _Observation(ctypes.Structure):  # dc_clock_bios_observation
+    _fields_ = [("size", ctypes.c_uint32), ("available", ctypes.c_int32), ("identity", _Target),
+                ("info", ctypes.c_uint8 * INFO_SIZE), ("has_user_control", ctypes.c_int32),
+                ("user_control_mask", ctypes.c_uint32), ("user_control", ctypes.c_uint8 * CONTROL_SIZE),
+                ("rows", _Rows), ("stable_reads", ctypes.c_uint32), ("has_user_control_error", ctypes.c_int32),
+                ("user_control_error", ctypes.c_char * 1024)]
 
 
 _P = ctypes.POINTER
@@ -49,6 +74,10 @@ _SIGNATURES = {
                                                ctypes.c_void_p, ctypes.c_uint32, _P(_Error)]),
     "dc_clock_bios_control_shape": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_uint32, ctypes.c_uint64,
                                                      _P(_Requests), _P(_Error)]),
+    "dc_clock_bios_info": (ctypes.c_int32, [ctypes.c_void_p, _P(_Target), ctypes.c_void_p, ctypes.c_uint32,
+                                            _P(_Error)]),
+    "dc_clock_bios_decode": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_uint32, _P(_Rows), _P(_Error)]),
+    "dc_clock_bios_read": (ctypes.c_int32, [ctypes.c_void_p, _P(_Observation), _P(_Error)]),
     "dc_clock_bios_reset": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_clock_bios_held": (ctypes.c_int32, [ctypes.c_void_p, _P(ctypes.c_int32)]),
 }
@@ -150,6 +179,91 @@ def control_shape(value, identity):
         _raise_failure(status, error)
     requests = {index: out.khz[index] for index in range(CAPACITY) if out.present >> index & 1}
     return copy.deepcopy(value), requests
+
+
+def _identity(target):
+    """The plain identity dict _binding(reader) returns, in its key order."""
+    return {"slot": _text(target.slot), "architecture": target.architecture, "device_id": target.device_id,
+            "subsystem_id": target.subsystem_id}
+
+
+def _rows(rows):
+    """_decode's dict from a dc_clock_bios_rows."""
+    out = {}
+    for index in range(CAPACITY):
+        if not rows.present >> index & 1:
+            continue
+        row = rows.rows[index]
+        typed = bool(row.typed)
+        out[str(index)] = {
+            "type": row.type,
+            "base_type": row.base_type,
+            "api_domain_mask": row.api_domain_mask,
+            "minimum_mhz": row.minimum_mhz if typed else None,
+            "maximum_mhz": row.maximum_mhz if typed else None,
+        }
+    return out
+
+
+def decode(raw):
+    """clock_bios_runtime._decode(raw): {str(index): row} for every masked INFO row.
+
+    Python's own type rules first: ``len(raw)`` raises for an object without a length, and a
+    12336-element object that is not bytes-like raises the ``TypeError`` ``struct.unpack_from``
+    raises, after the geometry check as in ``_decode``.
+    """
+    if len(raw) != INFO_SIZE:
+        from .clock_bios_runtime import ClockBiosError
+        raise ClockBiosError("Clock INFO geometry is not understood")
+    if not isinstance(raw, (bytes, bytearray, memoryview)):
+        raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
+    data = bytes(raw)
+    out, error = _Rows(), _new_error()
+    out.size = ctypes.sizeof(_Rows)
+    status = load().dc_clock_bios_decode(data, len(data), ctypes.byref(out), ctypes.byref(error))
+    if status != DC_OK:
+        _raise_failure(status, error)
+    return _rows(out)
+
+
+def info_once(gpu):
+    """clock_bios_runtime._info_once(gpu, reader) on the handle's reader: (identity, INFO bytes)."""
+    target, error = _Target(), _new_error()
+    target.size = ctypes.sizeof(_Target)
+    payload = ctypes.create_string_buffer(INFO_SIZE)
+    status = load().dc_clock_bios_info(gpu._handle, ctypes.byref(target), payload, INFO_SIZE, ctypes.byref(error))
+    if status != DC_OK:
+        _raise_failure(status, error)
+    return _identity(target), payload.raw
+
+
+def read(gpu):
+    """clock_bios_runtime.read(gpu): (observation, None) or (None, message)."""
+    from .clock_bios_runtime import _LAYOUT
+    out, error = _Observation(), _new_error()
+    out.size = ctypes.sizeof(_Observation)
+    status = load().dc_clock_bios_read(gpu._handle, ctypes.byref(out), ctypes.byref(error))
+    if status == DC_E_FAILED:
+        # An exception inside the core (only allocation can throw) ends the read where Python's
+        # `except Exception` would record str(exc) as the failure of that attempt: read() never raises.
+        return None, _text(error.message) or "Clock INFO is unavailable"
+    if status != DC_OK:
+        native._raise(status)
+    if not out.available:
+        return None, _text(error.message)
+    control = None
+    if out.has_user_control:
+        control = {**_layout(), "mask": out.user_control_mask, "payload_hex": bytes(out.user_control).hex()}
+    observation = {
+        **_LAYOUT,
+        "identity": _identity(out.identity),
+        "info_hex": bytes(out.info).hex(),
+        "user_control": control,
+        "rows": _rows(out.rows),
+        "stable_reads": out.stable_reads,
+        "user_control_error": _text(out.user_control_error) if out.has_user_control_error else None,
+    }
+    return observation, None
 
 
 def reset(gpu):
