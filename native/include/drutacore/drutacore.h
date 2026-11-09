@@ -851,7 +851,11 @@ DC_API dc_status DC_CALL dc_rail_write_locked(dc_gpu* gpu, const dc_rail_write_r
  * _current_limit_rm and _power_policy_table. Word buffers hold the parameter words after the
  * 17-word header; at most capacity are written and *count is the total. DC_E_FAILED carries the
  * Python exception in *error (DC_ERR_UNSUPPORTED = CurrentLimitUnsupported, DC_ERR_INVALID a
- * ValueError raised before the driver was touched, DC_ERR_TRANSIENT one raised after). */
+ * ValueError raised before the driver was touched, DC_ERR_TRANSIENT one raised after).
+ * Every dc_cl_* entry (6a, 6b and B2) is guarded: no exception crosses the C boundary. A failure
+ * inside the core (only allocation throws) returns DC_E_FAILED, with, where the entry takes a
+ * dc_error, kind DC_ERR_TRANSIENT and the fixed text "native core: allocation failed";
+ * dc_cl_max_words returns 0 then. */
 
 /* The largest policy packet any layout sizes, in words: the bound for the word buffers. */
 DC_API uint32_t DC_CALL dc_cl_max_words(void);
@@ -944,6 +948,63 @@ DC_API dc_status DC_CALL dc_cl_set_current_limit_ma(dc_gpu* gpu, dc_cl_confirm_f
 DC_API dc_status DC_CALL dc_cl_pins_get(dc_gpu* gpu, uint32_t* policies, int64_t* values, uint32_t capacity,
                                         uint32_t* count);
 DC_API dc_status DC_CALL dc_cl_pins_set(dc_gpu* gpu, const uint32_t* policies, const int64_t* values, uint32_t count);
+
+/* ---- every policy in the table (increment B2) ---------------------------------------------------- */
+/* nvbackend.GPU._policy_amount, _power_policy_rows, power_policy_unwritable_reason and
+ * read_power_policies. Units: 0 mW, 1 mA, -1 Python's None (any other value prints "?"). */
+
+/* One key of the caller's `static` dict: absent, present as None, or present with `value`. */
+enum { DC_CL_STATIC_ABSENT = 0, DC_CL_STATIC_NONE = 1, DC_CL_STATIC_VALUE = 2 };
+/* pl_min_mw / pl_def_mw / pl_max_mw as _power_policy_rows reads them: st.get("pl_min_mw", minimum)
+ * (absent equals the row's minimum, None does not) and st.get(key) == x for the other two (absent
+ * and None both unequal). The caller owns the dict, so it supplies these. The caller sets `size`. */
+typedef struct dc_cl_statics {
+    uint32_t size;
+    int32_t pl_min_state, pl_def_state, pl_max_state; /* DC_CL_STATIC_* */
+    int64_t pl_min_mw, pl_def_mw, pl_max_mw;
+} dc_cl_statics;
+
+/* One dict of _power_policy_rows. The caller sets `size`. maybe_board is "" or why this policy may
+ * be the board limit; has_pinned 0 is pinned None. */
+typedef struct dc_policy_row {
+    uint32_t size;
+    uint32_t policy, type, channel;
+    int32_t unit;
+    int64_t minimum, default_value, maximum, requested, limit, value;
+    int32_t has_pinned;
+    int64_t pinned;
+    int32_t named_current, board;
+    char maybe_board[96];
+    int32_t consistent, in_range, writable;
+} dc_policy_row;
+
+/* _policy_amount(value, unit): "5001 W", "0.001 A", ... NUL-terminated within `capacity`, *needed its
+ * full length plus the terminator. DC_E_RANGE for |value| > 2**53. */
+DC_API dc_status DC_CALL dc_cl_policy_amount(int64_t value, int32_t unit, char* out, size_t capacity, size_t* needed);
+/* power_policy_unwritable_reason(row), the text as dc_cl_policy_amount's. */
+DC_API dc_status DC_CALL dc_cl_policy_unwritable_reason(const dc_policy_row* row, char* out, size_t capacity,
+                                                        size_t* needed);
+/* _power_policy_rows(layout, info, control, status, named, board_mw) on the caller's words: named is a
+ * policy mask, the pins and GPU._board_policy are this handle's, and a unique board candidate is
+ * stored as GPU._board_policy. At most `capacity` rows, *count the total. DC_E_RANGE: a record
+ * index lies outside a block (Python's IndexError); nothing is stored. */
+DC_API dc_status DC_CALL dc_cl_policy_rows(dc_gpu* gpu, const dc_power_layout* layout, const uint32_t* info,
+                                           uint32_t info_count, const uint32_t* control, uint32_t control_count,
+                                           const uint32_t* status, uint32_t status_count, uint32_t named,
+                                           const dc_cl_statics* statics, int32_t has_board_mw, int64_t board_mw,
+                                           dc_policy_row* rows, uint32_t capacity, uint32_t* count);
+/* What read_power_policies reads after the table, where Python calls read_power_limit_mw: set
+ * *has_board_mw / *board_mw (0: None, as when it raised), then fill *statics (its size is set). It
+ * runs under the recursive GPU lock and only once a table is in hand. */
+typedef void (DC_CALL *dc_cl_policy_inputs_fn)(void* context, int32_t* has_board_mw, int64_t* board_mw,
+                                               dc_cl_statics* statics);
+/* GPU.read_power_policies: DC_OK with the rows, or DC_E_FAILED with Python's error text in
+ * error->message (kind DC_ERR_INVALID; DC_ERR_TRANSIENT is the guard's allocation failure) and no rows. confirm is get_current_limits' callback; inputs
+ * must not be NULL. A unique board candidate is stored as GPU._board_policy. */
+DC_API dc_status DC_CALL dc_cl_power_policies_read(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
+                                                   dc_cl_policy_inputs_fn inputs, void* inputs_context,
+                                                   dc_policy_row* rows, uint32_t capacity, uint32_t* count,
+                                                   dc_error* error);
 
 /* Test seams. While a resolver is installed the hook uses a buffer patcher (a served D3DKMTEscape is a
  * trampoline that must never be overwritten) and the thunk body is reached through dc_hook_test_entry,

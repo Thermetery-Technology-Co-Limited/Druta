@@ -97,6 +97,56 @@ struct SetResult {  // set_current_limit_ma: (ok, message)
     std::string message;
 };
 
+// ---- increment B2: every policy in the table (GPU._power_policy_rows, read_power_policies) ---- //
+
+// One key of the binding's `static` dict as _power_policy_rows reads it: absent, present as None,
+// or present with an integer value. The binding owns the dict and supplies these; nothing here
+// derives them from the core's capability snapshot.
+struct StaticKey {
+    enum class Kind { absent, none, value };
+    Kind kind = Kind::absent;
+    std::int64_t value = 0;
+};
+struct StaticTriState {  // pl_min_mw, pl_def_mw, pl_max_mw
+    StaticKey pl_min, pl_def, pl_max;
+};
+
+inline constexpr std::int32_t kPolicyUnitMw = 0, kPolicyUnitMa = 1, kPolicyUnitNone = -1;
+
+// One dict of _power_policy_rows. unit is kPolicyUnitMw / kPolicyUnitMa, or kPolicyUnitNone for
+// Python's None (any other value is a unit Druta does not print).
+struct PolicyRow {
+    std::uint32_t policy = 0, type = 0, channel = 0;
+    std::int32_t unit = kPolicyUnitNone;
+    std::int64_t minimum = 0, default_value = 0, maximum = 0, requested = 0, limit = 0, value = 0;
+    std::optional<std::int64_t> pinned;
+    bool named_current = false, board = false;
+    std::string maybe_board;  // "" or why this may be the board limit
+    bool consistent = false, in_range = false, writable = false;
+};
+
+struct PolicyRowsResult {
+    bool in_bounds = true;                  // false: a record index lies outside a block (Python's IndexError)
+    std::vector<PolicyRow> rows;
+    std::optional<std::uint32_t> remember;  // the unique candidate to store as GPU._board_policy
+};
+
+// What read_power_policies reads after the table, in Python's order: read_power_limit_mw (None
+// when it raised), then, inside _power_policy_rows, the static keys and GPU._board_policy.
+struct PolicyInputs {
+    std::optional<std::int64_t> board_mw;
+    StaticTriState statics;
+    std::optional<std::uint32_t> board_policy;
+};
+using ReadPolicyInputs = PolicyInputs (*)(void* context);
+
+struct ReadPoliciesResult {  // read_power_policies: (rows, error)
+    bool in_bounds = true;  // as PolicyRowsResult::in_bounds (Python raises instead of returning)
+    std::vector<PolicyRow> rows;
+    std::optional<std::string> error;
+    std::optional<std::uint32_t> remember;  // as PolicyRowsResult::remember
+};
+
 class CurrentLimits {
 public:
     CurrentLimits(Gpu& gpu, Telemetry& telemetry, RmTransport& rm, ClkDom& clkdom)
@@ -111,6 +161,23 @@ public:
     // `policy` and `ma` are Python ints the binding has already type-checked.
     SetResult set_current_limit_ma(std::int64_t policy, std::int64_t ma, bool pin, ConfirmDerivedClamp confirm,
                                    void* context);
+
+    // _power_policy_rows(layout, info, control, status, named, board_mw): named is a policy mask
+    // (a policy >= 32 names no row) and board_policy is GPU._board_policy as read now. Reads only
+    // `pins`; the caller stores `remember`.
+    PolicyRowsResult policy_rows(const PowerLayout& layout, const std::vector<std::uint32_t>& info,
+                                 const std::vector<std::uint32_t>& control, const std::vector<std::uint32_t>& status,
+                                 std::uint32_t named, std::optional<std::int64_t> board_mw, const StaticTriState& st,
+                                 std::optional<std::uint32_t> board_policy) const;
+    // power_policy_unwritable_reason(row): Python's checks in Python's order.
+    static std::string unwritable_reason(const PolicyRow& row);
+    // _policy_amount(value, unit), for |value| <= 2**53 (where value / 1000 is Python's exact quotient).
+    static std::string policy_amount(std::int64_t value, std::int32_t unit);
+    // read_power_policies: `inputs` runs where Python calls read_power_limit_mw (only once a table is
+    // in hand); the caller stores `remember` as GPU._board_policy. nullptr inputs: board_mw None and
+    // every static key None.
+    ReadPoliciesResult read_power_policies(ConfirmDerivedClamp confirm, void* context, ReadPolicyInputs inputs,
+                                           void* inputs_context);
 
     // _current_limit_capacity: indices bounded by the three blocks and the 32-bit mask.
     static std::uint32_t capacity(const PowerLayout& layout);

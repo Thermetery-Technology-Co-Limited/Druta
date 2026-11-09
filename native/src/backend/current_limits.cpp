@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "backend/gdi.h"
 
@@ -628,6 +629,153 @@ SetResult CurrentLimits::set_unpinned(std::int64_t policy, std::int64_t ma, Conf
             note = "original current limit restored and verified";
     }
     return {false, failure + "; " + note};
+}
+
+// ---- increment B2: every policy in the table ----------------------------------------------------- //
+
+namespace {
+
+// st.get(key) == x: an absent key and a None value are both unequal.
+bool static_equals(const StaticKey& key, std::int64_t x) { return key.kind == StaticKey::Kind::value && key.value == x; }
+
+// st.get(key, x) == x: an absent key is the default and so equal; a None value is unequal.
+bool static_equals_or_absent(const StaticKey& key, std::int64_t x) {
+    return key.kind == StaticKey::Kind::absent || static_equals(key, x);
+}
+
+constexpr const char* kBoardUnreadable = "NVML's power limit is unreadable right now";
+constexpr const char* kBoardAmbiguous = "its request equals the Power limit, as another policy's does";
+
+}  // namespace
+
+std::string CurrentLimits::policy_amount(std::int64_t value, std::int32_t unit) {
+    return amps(value) + (unit == kPolicyUnitMw ? " W" : unit == kPolicyUnitMa ? " A" : " ?");
+}
+
+PolicyRowsResult CurrentLimits::policy_rows(const PowerLayout& layout, const std::vector<std::uint32_t>& info,
+                                            const std::vector<std::uint32_t>& control,
+                                            const std::vector<std::uint32_t>& status, std::uint32_t named,
+                                            std::optional<std::int64_t> board_mw, const StaticTriState& st,
+                                            std::optional<std::uint32_t> board_policy) const {
+    PolicyRowsResult out;
+    if (info.size() < 2) {
+        out.in_bounds = false;
+        return out;
+    }
+    const std::uint32_t mask = info[1];
+    for (std::uint32_t p = 0; p < 32; ++p) {
+        if (!(mask >> p & 1)) continue;
+        const std::uint64_t meta = (std::uint64_t{layout.info_base} + std::uint64_t{p} * layout.info_stride) / 4;
+        const std::uint64_t state = (std::uint64_t{layout.status_base} + std::uint64_t{p} * layout.status_stride) / 4;
+        const std::uint64_t record = (std::uint64_t{layout.control_base} + std::uint64_t{p} * layout.control_stride) / 4;
+        if (meta + 4 >= info.size() || state + 2 >= status.size() || record + 1 >= control.size()) {
+            out.in_bounds = false;
+            out.rows.clear();
+            return out;
+        }
+        // the three indices are in bounds (checked above); vector::size_type is 32-bit on i686
+        const std::size_t m = static_cast<std::size_t>(meta), s = static_cast<std::size_t>(state),
+                          c = static_cast<std::size_t>(record);
+        const std::uint32_t word = info[m + 1];
+        const std::uint32_t unit_code = word >> 16 & 255;
+        PolicyRow row;
+        row.policy = p;
+        row.type = word & 255;
+        row.channel = word >> 8 & 255;
+        row.unit = unit_code == 0 ? kPolicyUnitMw : unit_code == 1 ? kPolicyUnitMa : kPolicyUnitNone;
+        row.minimum = info[m + 2];
+        row.default_value = info[m + 3];
+        row.maximum = info[m + 4];
+        row.requested = control[c + 1];
+        row.limit = status[s + 1];
+        row.value = status[s + 2];
+        if (auto pin = pins.find(p); pin != pins.end()) row.pinned = pin->second;
+        row.named_current = named >> p & 1;
+        row.consistent = (status[s] & 255) == row.type && control[c] == row.type;
+        row.in_range = row.minimum <= row.requested && row.requested <= row.maximum;
+        // The board limit is the one NVML sets (the Power limit slider): the mW policy whose range
+        // is NVML's own power-limit range.
+        row.board = row.unit == kPolicyUnitMw && static_equals(st.pl_def, row.default_value) &&
+                    static_equals(st.pl_max, row.maximum) && static_equals_or_absent(st.pl_min, row.minimum);
+        out.rows.push_back(std::move(row));
+    }
+    // NVML's range can be unknown or differ in its minimum: the board is then the policy already
+    // seen to be it, or the one mW policy whose request is NVML's configured limit (remembered from
+    // then on). While it cannot be told apart, every candidate is read-only rather than none.
+    if (std::none_of(out.rows.begin(), out.rows.end(), [](const PolicyRow& r) { return r.board; })) {
+        std::vector<PolicyRow*> match;
+        for (PolicyRow& r : out.rows)
+            if (board_policy && r.policy == *board_policy) match.push_back(&r);
+        if (match.empty()) {
+            std::vector<PolicyRow*> candidates;
+            for (PolicyRow& r : out.rows)
+                if (r.unit == kPolicyUnitMw && (!board_mw || r.requested == *board_mw)) candidates.push_back(&r);
+            if (board_mw && candidates.size() == 1) {
+                out.remember = candidates[0]->policy;
+                match = std::move(candidates);  // no copy: GCC's -Warray-bounds misfires on a one-element copy under ASan
+            } else {
+                for (PolicyRow* r : candidates) r->maybe_board = board_mw ? kBoardAmbiguous : kBoardUnreadable;
+            }
+        }
+        for (PolicyRow* r : match) r->board = true;
+    }
+    for (PolicyRow& r : out.rows)
+        r.writable = r.unit != kPolicyUnitNone && r.minimum < r.maximum && r.consistent && r.in_range && !r.board &&
+                     r.maybe_board.empty() && !r.named_current;
+    return out;
+}
+
+std::string CurrentLimits::unwritable_reason(const PolicyRow& row) {
+    if (row.board) return "the board limit is set with the Power limit slider";
+    if (!row.maybe_board.empty()) return "it may be the board limit (" + row.maybe_board + ")";
+    if (row.named_current) return "set with its current-limit slider";
+    if (row.unit == kPolicyUnitNone) return "its unit is not one Druta understands";
+    if (row.minimum >= row.maximum) return "it has no range to write";
+    if (!row.consistent) return "its record type differs between the driver's blocks";
+    return "its request lies outside its own range";
+}
+
+ReadPoliciesResult CurrentLimits::read_power_policies(ConfirmDerivedClamp confirm, void* context,
+                                                      ReadPolicyInputs inputs, void* inputs_context) {
+    ReadPoliciesResult out;
+    if (!rm_.profile_supported()) {
+        out.error = "current policies are not validated for this GPU generation";
+        return out;
+    }
+    last_policy_table.reset();
+    // a named policy read correctly earlier this session keeps its slider through a failed read
+    // (get_current_limits then returns nothing)
+    std::uint32_t named = 0;
+    for (const CurrentRow& row : get_current_limits(confirm, context))
+        if (row.policy < 32) named |= std::uint32_t{1} << row.policy;
+    named |= established;
+    std::optional<PolicyTable> table = last_policy_table;
+    if (!table) {
+        PolicyTableResult read = policy_table();
+        if (!read.table) {
+            out.error = read.error.message;
+            return out;
+        }
+        table = std::move(read.table);
+    }
+    if (!table->control) {
+        out.error = "the driver's policy mask is empty";
+        return out;
+    }
+    PolicyInputs in;
+    if (inputs) {
+        in = inputs(inputs_context);
+    } else {
+        in.statics.pl_min.kind = in.statics.pl_def.kind = in.statics.pl_max.kind = StaticKey::Kind::none;
+    }
+    static const std::vector<std::uint32_t> kNoWords;
+    PolicyRowsResult rows = policy_rows(*table->layout, table->info, *table->control,
+                                        table->dynamic ? *table->dynamic : kNoWords, named, in.board_mw, in.statics,
+                                        in.board_policy);
+    out.in_bounds = rows.in_bounds;
+    out.rows = std::move(rows.rows);
+    out.remember = rows.remember;
+    return out;
 }
 
 }  // namespace druta::backend

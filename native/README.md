@@ -63,6 +63,7 @@ core, then compares results, driver call sequences and messages.
 | RM escape transport, layer 4: the rail-record splice | `GPU._write_rail_records_locked` (after its Python preconditions) | `dc_rail_write_locked` (bound as `Gpu._rail_write_locked`) | `tests/test_native_rail_splice.py` |
 | Current-limit RM operations | `GPU._current_limit_abi`, `_current_limit_probe_info`, `_current_limit_rm`, `_current_limit_capacity`, `_power_policy_table` and the `_last_policy_table` / `_power_policy_mask` attributes | `dc_cl_*` (bound as the same `Gpu` methods) | `tests/test_native_current_limits.py` |
 | Current-limit rows, getter and verified setter | `GPU._current_limit_state`, `get_current_limits`, `current_limit_diagnostics`, `set_current_limit_ma`, `_set_current_limit_ma` and the `_current_limit_unavailable` / `_current_limit_error` / `_current_limit_read_error` / `_current_limit_last_rows` / `_current_limit_established` / `_power_policy_pins` attributes | `dc_cl_state`, `dc_cl_get_current_limits`, `dc_cl_set_current_limit_ma` and their attribute getters | `tests/test_native_current_limit_state.py` |
+| Policy rows and `read_power_policies` | `GPU._policy_amount`, `_power_policy_rows`, `power_policy_unwritable_reason`, `read_power_policies` | `dc_cl_policy_amount`, `dc_cl_policy_unwritable_reason`, `dc_cl_policy_rows`, `dc_cl_power_policies_read` with `dc_cl_statics`, `dc_policy_row` and the `dc_cl_policy_inputs_fn` callback (bound as the same `Gpu` methods) | `tests/test_native_power_policies.py` |
 | Paired target binding and its prerequisites | `PerfDiagnosticsReader._binding`, `ClientPowerController._binding`; `GPU.arch_name`, `vf_curve_applicable`, the capability keys of `GPU.static`, `NvAPI._i` presence | `dc_gpu_target_bind`, `dc_gpu_target_reset`, `dc_nvapi_interface_present` (bound as `Gpu._target_binding`, `_client_power_binding`, `_target_binding_reset`, `nvapi_interface_present`) | `tests/test_native_target_binding.py`, `tests/test_native_telemetry.py` |
 | Power-arbitration decoder | `power_arbitration.decode`, `_geometry`, `_arbitration`, `ROW_FORMATS` | `dc_power_arbitration_*` (`drutacore/power_arbitration.h`, bound by `druta.native_power_arbitration`) | `tests/test_native_power_arbitration.py` |
 | Pure rail-limit and hold-headroom helpers | `GPU._valid_volt_rail_state`, `volt_boost_headroom_mv`, `abs_limit_mv`, `rail_ceiling_mv`, `rail_floor_mv`, `hold_headroom_architecture`, `hold_headroom_ceiling_mv`, `hold_headroom_targets`, `_headroom_enforced_mv`, `hold_headroom_bound_mv`, `hold_headroom_allowance_mv` and their constants | `dc_rl_*` (`drutacore/rail_limits.h`, bound by `druta.native_rail_limits`) | `tests/test_native_rail_limits.py` |
@@ -222,8 +223,8 @@ four read caches and keeps the reference and the first-read record, as
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls
 built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
-adapter openers for older gdi32 builds; the full policy table of
-`_power_policy_rows` and the pin re-application after board-limit writes;
+adapter openers for older gdi32 builds; the pin re-application after
+board-limit writes;
 the client-power request SET with its rollback; and the remaining Python
 consumers of the transport, the verified rail setters and the hold-headroom
 runtime over the ported write sequence), the GPU restart, and the front end.

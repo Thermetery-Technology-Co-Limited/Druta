@@ -651,7 +651,17 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    the `dc_cl_*` ABI, `tests/test_native_current_limits.py`. The rows, getter and verified setter are done:
    `state`, `get_current_limits`, `set_current_limit_ma`; `tests/test_native_current_limit_state.py`. The derived-clamp
    confirmation, `read_live_power_request`, is a callback the caller supplies (`dc_cl_confirm_fn`); since
-   increment A6 the binding supplies the real native reader.)
+   increment A6 the binding supplies the real native reader. The full policy table is done too:
+   `_policy_amount`, `_power_policy_rows`, `power_policy_unwritable_reason` and `read_power_policies` as
+   `CurrentLimits::policy_rows`, `unwritable_reason` and `read_power_policies`, `dc_cl_policy_amount`,
+   `dc_cl_policy_unwritable_reason`, `dc_cl_policy_rows`, `dc_cl_power_policies_read`;
+   `tests/test_native_power_policies.py`. `read_power_limit_mw` belongs to the power-limit layer, which is
+   not ported, so `read_power_policies` reads it, with the `pl_*` statics, through a second caller-supplied
+   callback (`dc_cl_policy_inputs_fn`); the binding supplies both until that layer lands. As in Python, the
+   derived-clamp confirmation is remembered only after the confirm callback has returned and the request
+   has passed its bounds check, so a refused or failed confirmation names no policy. Every `dc_cl_*` entry
+   is guarded: an exception inside the core, in practice an allocation failure, returns `DC_E_FAILED` with
+   `DC_ERR_TRANSIENT` instead of crossing the C boundary.)
 7. The Python consumers, one module at a time. (In progress: the paired target binding shared by
    `perf_diagnostics` and `client_power_runtime` is done as `backend/target`, `dc_gpu_target_bind`,
    `tests/test_native_target_binding.py`; the pure `power_arbitration` decoder as `backend/power_arbitration`,

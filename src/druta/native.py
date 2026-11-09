@@ -255,6 +255,27 @@ CL_CONFIRM = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32, 
                               ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
                               ctypes.c_uint32)
 
+
+class _ClStatics(ctypes.Structure):  # dc_cl_statics (increment B2)
+    _fields_ = [("size", ctypes.c_uint32), ("pl_min_state", ctypes.c_int32), ("pl_def_state", ctypes.c_int32),
+                ("pl_max_state", ctypes.c_int32), ("pl_min_mw", ctypes.c_int64), ("pl_def_mw", ctypes.c_int64),
+                ("pl_max_mw", ctypes.c_int64)]
+
+
+class _PolicyRow(ctypes.Structure):  # dc_policy_row (increment B2)
+    _fields_ = [("size", ctypes.c_uint32), ("policy", ctypes.c_uint32), ("type", ctypes.c_uint32),
+                ("channel", ctypes.c_uint32), ("unit", ctypes.c_int32), ("minimum", ctypes.c_int64),
+                ("default_value", ctypes.c_int64), ("maximum", ctypes.c_int64), ("requested", ctypes.c_int64),
+                ("limit", ctypes.c_int64), ("value", ctypes.c_int64), ("has_pinned", ctypes.c_int32),
+                ("pinned", ctypes.c_int64), ("named_current", ctypes.c_int32), ("board", ctypes.c_int32),
+                ("maybe_board", ctypes.c_char * 96), ("consistent", ctypes.c_int32), ("in_range", ctypes.c_int32),
+                ("writable", ctypes.c_int32)]
+
+
+# dc_cl_policy_inputs_fn: read_power_limit_mw and the static keys, where read_power_policies reads them.
+CL_POLICY_INPUTS = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(_ClStatics))
+
 class _ClockDomainRow(ctypes.Structure):
     _fields_ = [("domain", ctypes.c_uint32), ("name", ctypes.c_char * 24), ("grade", ctypes.c_char * 16),
                 ("kind", ctypes.c_char * 12), ("prog_khz", ctypes.c_uint32), ("meas_khz", ctypes.c_uint32),
@@ -528,6 +549,18 @@ _SIGNATURES = {
                                         ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
     "dc_cl_pins_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int64),
                                         ctypes.c_uint32]),
+    "dc_cl_policy_amount": (ctypes.c_int32, [ctypes.c_int64, ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t,
+                                             ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_policy_unwritable_reason": (ctypes.c_int32, [ctypes.POINTER(_PolicyRow), ctypes.c_char_p, ctypes.c_size_t,
+                                                        ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_policy_rows": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                           ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                                           ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.c_uint32,
+                                           ctypes.POINTER(_ClStatics), ctypes.c_int32, ctypes.c_int64,
+                                           ctypes.POINTER(_PolicyRow), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_power_policies_read": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
+                                                   ctypes.c_void_p, ctypes.POINTER(_PolicyRow), ctypes.c_uint32,
+                                                   ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
     "dc_hook_test_entry": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_hook_test_state": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32),
                                             ctypes.POINTER(ctypes.c_uint32)]),
@@ -2311,6 +2344,213 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
 
+    # ---- every policy in the table (nvbackend.GPU._power_policy_rows / read_power_policies, B2) -- #
+    #
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_policies.py):
+    # - power_policy_unwritable_reason refuses what dc_policy_row cannot carry instead of truncating
+    #   or wrapping it: bounds that are not plain ints within int64 (floats and bools: TypeError;
+    #   beyond int64: OverflowError), and a truthy maybe_board that is not a str, holds a NUL or is
+    #   96 UTF-8 bytes or more (ValueError). Python compares and formats them as given. It reads
+    #   every key it passes, in Python's order, so a missing key raises KeyError even where Python
+    #   returns from an earlier check; a bound is refused even where Python answers before it.
+    # - a static pl_* value or a board reading whose int() or == raises is taken as unequal to every
+    #   driver word; Python raises from the comparison when its loop reaches it.
+    # - _power_policy_rows on a layout with a negative offset or stride: Python indexes from the end
+    #   of the block; dc_power_layout holds unsigned words, so the core reports IndexError.
+    # - a failure inside the core (only allocation throws there) is a MemoryError from
+    #   read_power_policies and _power_policy_rows, with the core's fixed text.
+
+    _POLICY_UNITS = {"mW": 0, "mA": 1}
+    _ABSENT = object()
+
+    @staticmethod
+    def _policy_word(value):
+        """(1, int) for a value equal to an int64, else (1, -1): equal to no driver word (all >= 0).
+        A value whose int() or == raises is taken as unequal too (Python raises when it compares)."""
+        try:
+            whole = int(value)
+            if whole == value and -(1 << 63) <= whole < (1 << 63):
+                return 1, whole
+        except Exception:                                               # noqa: BLE001 - see above
+            pass
+        return 1, -1
+
+    def _cl_statics_fill(self, s):
+        """The three pl_* keys of self.static as dc_cl_statics tri-states, read now (the dict is the
+        binding's: an absent key and a None value mean different things to pl_min_mw)."""
+        st = getattr(self, "static", None) or {}
+        for name in ("pl_min", "pl_def", "pl_max"):
+            value = st.get(name + "_mw", self._ABSENT)
+            state, word = (0, 0) if value is self._ABSENT else (1, 0) if value is None else (2, None)
+            if word is None:
+                _, word = self._policy_word(value)
+                if word < 0:
+                    state, word = 1, 0  # equal to no row's range word: as unequal as None
+            setattr(s, name + "_state", state)
+            setattr(s, name + "_mw", word)
+        s.size = ctypes.sizeof(_ClStatics)
+        return s
+
+    @staticmethod
+    def _policy_rows_buffer():
+        out = (_PolicyRow * 32)()
+        for row in out:
+            row.size = ctypes.sizeof(_PolicyRow)
+        return out
+
+    @staticmethod
+    def _policy_row_dict(r):
+        return {"policy": r.policy, "type": r.type, "channel": r.channel,
+                "unit": {0: "mW", 1: "mA"}.get(r.unit), "minimum": r.minimum, "default": r.default_value,
+                "maximum": r.maximum, "requested": r.requested, "limit": r.limit, "value": r.value,
+                "pinned": r.pinned if r.has_pinned else None, "named_current": bool(r.named_current),
+                "maybe_board": _text(r.maybe_board), "consistent": bool(r.consistent),
+                "in_range": bool(r.in_range), "board": bool(r.board), "writable": bool(r.writable)}
+
+    @staticmethod
+    def _policy_amount(value, unit):
+        """nvbackend.GPU._policy_amount for integer amounts within +-2**53 (every driver word)."""
+        if not _is_plain_int(value) or not -(1 << 53) <= value <= (1 << 53):
+            raise ValueError("policy amounts are integers within +-2**53")
+        buffer, needed = ctypes.create_string_buffer(64), ctypes.c_size_t()
+        status = load().dc_cl_policy_amount(value, Gpu._POLICY_UNITS.get(unit, -1), buffer, len(buffer),
+                                            ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode()
+
+    @staticmethod
+    def power_policy_unwritable_reason(row):
+        """Why the full list does not write this row (nvbackend's order of checks).
+
+        The keys are read in Python's order (board, maybe_board with .get as Python does,
+        named_current, unit, minimum, maximum, consistent). Recorded divergences: every key is read,
+        so a missing one raises KeyError even where Python returns from an earlier check; minimum
+        and maximum must be plain ints within int64 (TypeError / OverflowError, where Python compares
+        floats, bools and larger ints as given), checked even where Python answers before them; a
+        truthy maybe_board must be a str without NUL, under 96 UTF-8 bytes (ValueError, where Python
+        formats any value). Rows from read_power_policies and _power_policy_rows always qualify."""
+        def bound(key):
+            value = row[key]
+            if not _is_plain_int(value):
+                raise TypeError(f"power policy {key} must be an int, not {type(value).__name__}")
+            if not -(1 << 63) <= value < (1 << 63):
+                raise OverflowError(f"power policy {key} does not fit a 64-bit integer")
+            return value
+        r = _PolicyRow()
+        r.size = ctypes.sizeof(_PolicyRow)
+        r.board = 1 if row["board"] else 0
+        maybe, text = row.get("maybe_board"), b""
+        if maybe:
+            if not isinstance(maybe, str) or "\0" in maybe:
+                raise ValueError("maybe_board must be a text without NUL")
+            text = maybe.encode()
+            if len(text) >= _PolicyRow.maybe_board.size:
+                raise ValueError("maybe_board text does not fit dc_policy_row")
+        r.maybe_board = text
+        r.named_current = 1 if row["named_current"] else 0
+        unit = row["unit"]
+        r.unit = -1 if unit is None else Gpu._POLICY_UNITS.get(unit, 2) if isinstance(unit, str) else 2
+        r.minimum = bound("minimum")
+        r.maximum = bound("maximum")
+        r.consistent = 1 if row["consistent"] else 0
+        buffer, needed = ctypes.create_string_buffer(256), ctypes.c_size_t()
+        status = load().dc_cl_policy_unwritable_reason(ctypes.byref(r), buffer, len(buffer), ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode()
+
+    @staticmethod
+    def _policy_rows_walk(layout, info, control, status, named):
+        """nvbackend's _power_policy_rows loop over the caller's own objects, every subscript and
+        `p in named` in its order, the values discarded: a short or None block (or a str named)
+        raises Python's own exception here, before anything reaches the core. Returns the named
+        mask: bit p is Python's `p in named` for each policy the table's mask selects."""
+        mask, named_mask = info[1], 0
+        for p in range(32):
+            if not mask >> p & 1:
+                continue
+            meta = (layout["info"][0] + p * layout["info"][1]) // 4
+            state = (layout["status"][0] + p * layout["status"][1]) // 4
+            record = (layout["control"][0] + p * layout["control"][1]) // 4
+            kind = info[meta + 1] & 255
+            minimum, default, maximum = info[meta + 2:meta + 5]
+            control[record + 1], status[state + 1], status[state + 2]  # noqa: B018 - Python's reads
+            if p in named:
+                named_mask |= 1 << p
+            status[state] & 255 == kind and control[record] == kind  # noqa: B015 - `consistent`'s reads
+        return named_mask
+
+    def _power_policy_rows(self, layout, info, control, status, named=frozenset(), board_mw=None):
+        """One dict per policy in the table, as the adapter reports it; a unique board candidate is
+        remembered as _board_policy. The table is walked first as Python's loop subscripts it (a
+        short slice raises the unpack's ValueError, a None block TypeError, a missing word
+        IndexError, a str `named` TypeError, each with Python's text and nothing stored), and
+        `named` is Python's membership. The layout's "sizes" is not read, as in Python."""
+        def words(block):
+            block = list(block or ())
+            return (ctypes.c_uint32 * max(len(block), 1))(*block), len(block)
+        mask = self._policy_rows_walk(layout, info, control, status, named)
+        row = _layout_struct(layout, records_only=True)
+        (i, ni), (c, nc), (s, ns) = words(info), words(control), words(status)
+        has_board, board = (0, 0) if board_mw is None else self._policy_word(board_mw)
+        out, count = self._policy_rows_buffer(), ctypes.c_uint32()
+        result = load().dc_cl_policy_rows(self._handle, ctypes.byref(row), i, ni, c, nc, s, ns, mask,
+                                          ctypes.byref(self._cl_statics_fill(_ClStatics())), has_board, board,
+                                          out, len(out), ctypes.byref(count))
+        if result == DC_E_RANGE:  # the core's own bounds check (a negative layout word, see above)
+            raise IndexError("list index out of range")
+        if result == DC_E_FAILED:  # the core's guard: only allocation throws there
+            raise MemoryError("native core: allocation failed")
+        if result != DC_OK:
+            _raise(result)
+        return [self._policy_row_dict(out[k]) for k in range(min(count.value, len(out)))]
+
+    def _power_policies_board_mw(self):
+        """read_power_limit_mw where the binding has it (increment A8), else None (unreadable)."""
+        reader = getattr(self, "read_power_limit_mw", None)
+        return reader() if reader is not None else None
+
+    def read_power_policies(self):
+        """(rows, error): every policy in the driver's table, as nvbackend.GPU.read_power_policies.
+        Read-only apart from the bookkeeping it shares with get_current_limits and _board_policy.
+
+        The core calls back where Python calls read_power_limit_mw (its exception is Python's None),
+        then reads the static pl_* keys and _board_policy, so a reader that changes them is seen.
+        Recorded divergence: a static value or a reading whose int() or == raises is treated as
+        unequal to every driver word; Python raises from the comparison. Any other exception in
+        the callback is raised once the core returns (the core has then used its defaults: board
+        None, every static key unequal)."""
+        confirm = self._confirm_derived_clamp()
+        failure = []
+
+        def inputs(_context, has_board_mw, board_mw, statics):
+            try:
+                try:
+                    value = self._power_policies_board_mw()
+                except Exception:                                       # noqa: BLE001 - Python's None
+                    value = None
+                has_board_mw[0], board_mw[0] = (0, 0) if value is None else self._policy_word(value)
+                self._cl_statics_fill(statics.contents)
+            except BaseException as exc:                                # noqa: BLE001 - raised below
+                failure.append(exc)
+        callback = CL_POLICY_INPUTS(inputs)
+        out, count, error = self._policy_rows_buffer(), ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_cl_power_policies_read(self._handle, confirm, None, callback, None, out, len(out),
+                                                  ctypes.byref(count), ctypes.byref(error))
+        if failure:
+            raise failure[0]
+        if status == DC_E_FAILED and error.kind == DC_ERR_TRANSIENT:  # the core's guard: allocation
+            raise MemoryError(_text(error.message))
+        if status == DC_E_FAILED:
+            return [], _text(error.message)
+        if status == DC_E_RANGE:
+            raise IndexError("list index out of range")
+        if status != DC_OK:
+            _raise(status)
+        return [self._policy_row_dict(out[k]) for k in range(min(count.value, len(out)))], None
+
     # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
 
     def _list_u32(self, function):
@@ -2718,11 +2958,18 @@ def _cl_max_words():
     return load().dc_cl_max_words()
 
 
-def _layout_struct(layout):
-    """A Python layout dict (the _CURRENT_LIMIT_LAYOUTS shape) as a dc_power_layout row."""
+def _layout_struct(layout, records_only=False):
+    """A Python layout dict (the _CURRENT_LIMIT_LAYOUTS shape) as a dc_power_layout row.
+    records_only: just the three (offset, stride) pairs, all that _power_policy_rows reads (Python's
+    never reads "sizes", "commands" or the mask words, so a layout without them is accepted)."""
     from . import native_power_layouts as tables
     row = tables._PowerLayout()
     row.size = ctypes.sizeof(tables._PowerLayout)
+    row.info_base, row.info_stride = layout["info"]
+    row.status_base, row.status_stride = layout["status"]
+    row.control_base, row.control_stride = layout["control"]
+    if records_only:
+        return row
     sizes = layout["sizes"]
     for index, command in enumerate(tables.POWER_GET_COMMANDS):
         row.sizes[index] = int(sizes.get(command, 0))
@@ -2730,9 +2977,6 @@ def _layout_struct(layout):
         row.has_commands = 1
         for index, command in enumerate(tables.POWER_GET_COMMANDS):
             row.commands[index] = int(layout["commands"].get(command, 0))
-    row.info_base, row.info_stride = layout["info"]
-    row.status_base, row.status_stride = layout["status"]
-    row.control_base, row.control_stride = layout["control"]
     if "status_mask_word" in layout:
         row.has_status_mask_word, row.status_mask_word = 1, int(layout["status_mask_word"])
     if "control_mask_word" in layout:
