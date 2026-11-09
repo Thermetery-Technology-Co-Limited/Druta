@@ -27,15 +27,33 @@ raised after the binding but before any driver call, where Python raises them in
 Unreachable natively, and so covered only by tests/test_perf_diagnostics.py: a cached transport
 that is not a (header, fields) pair, header words that are not 32-bit ints and an escape-field set
 other than the five fields (the core's types hold these by construction). The transport ARGUMENT
-of _get is marshalled with Python's own semantics (TransportArgumentTests)."""
+of _get is marshalled with Python's own semantics (TransportArgumentTests).
+
+Increment P2 (Sha256Tests, DecodeTests, ReadTests): the embedded SHA-256 against hashlib,
+decode_group over every decode case of tests/test_perf_diagnostics.py plus seeded random mutations
+(the whole dict, key order and value types included, compared through repr; captured_at is only
+checked to be a fresh float), and PerfDiagnosticsReader.read against perf.Reader on the P1 PerfRig
+with a scripted driver that serves tests/test_perf_diagnostics.packets payloads.
+
+Python-only, and so covered only by tests/test_perf_diagnostics.py: the mid-call target change
+(the core reads the identity once when the handle opens), the process-exit signal that read()
+must not suppress, and the `except Exception` branch (a non-PerfDiagnosticError from the capture
+or the escape: the core reports every failure as a kinded error). The "PERF INFO mask exceeds
+group capacity" check cannot fire for any layout (mask_bytes * 8 == capacity everywhere) on either
+side."""
 import ctypes
+import hashlib
+import random
 import struct
+import time
 from types import SimpleNamespace
 import unittest
 from dataclasses import asdict
 
 from druta import native, nvbackend
 from druta.perf_diagnostics import LAYOUTS, PROBE_ARCHITECTURES, _GET_COMMANDS, PerfDiagnosticError, PerfDiagnosticsReader
+from druta import perf_diagnostics as py_perf
+from tests.test_perf_diagnostics import packets
 from tests.test_native_rm_transport import ARCH_STEP, FIELDS as HOOK_FIELDS, HookCase, HookRig, header as rm_header
 from tests.test_native_rm_transport import owner, power_packet
 from tests.test_native_identity import CDECL, write_u32
@@ -732,6 +750,578 @@ class TransportArgumentTests(PerfCase):
                 with self.assertRaisesRegex(ValueError, "^invalid argument$"):
                     perf.get(gpu, CF.info_command, CF.info_size, value)
         self.assertEqual(rig.calls, [])
+
+
+# ---- increment P2: SHA-256 ------------------------------------------------------------------------
+
+class Sha256Tests(unittest.TestCase):
+    def test_standard_vectors(self):
+        vectors = {
+            b"": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            b"abc": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq":
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+            b"a" * 1000000: "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+        }
+        for data, digest in vectors.items():
+            with self.subTest(size=len(data)):
+                self.assertEqual(perf.sha256_hex(data), digest)
+                self.assertEqual(perf.sha256_hex(data), hashlib.sha256(data).hexdigest())
+
+    def test_lengths_across_block_boundaries(self):
+        generator = random.Random(0x5A256)
+        for size in (1, 55, 56, 57, 63, 64, 65, 119, 120, 127, 128, 129, 1000, 0x230, 0x7A8C, 0x16850):
+            data = bytes(generator.randrange(256) for _ in range(size))
+            with self.subTest(size=size):
+                self.assertEqual(perf.sha256_hex(data), hashlib.sha256(data).hexdigest())
+
+
+# ---- increment P2: decode_group -------------------------------------------------------------------
+
+def fresh(value, now):
+    """value with every captured_at checked to be a fresh float and replaced by a marker."""
+    if isinstance(value, dict):
+        out = {}
+        for key, item in value.items():
+            if key == "captured_at":
+                assert type(item) is float and abs(item - now) < 60, item
+                out[key] = "<captured_at>"
+            else:
+                out[key] = fresh(item, now)
+        return out
+    if isinstance(value, (list, tuple)):
+        return type(value)(fresh(item, now) for item in value)
+    return value
+
+
+def decoded(call):
+    """The outcome of a decode: the whole dict through repr (key order and bool/int types count)."""
+    try:
+        return ("ok", repr(fresh(call(), time.time())))
+    except PerfDiagnosticError as exc:
+        return ("PerfDiagnosticError", exc.kind, str(exc), exc.status)
+    except (ValueError, TypeError) as exc:
+        return (type(exc).__name__, str(exc))
+
+
+def mutated(data, *changes):
+    data = bytearray(data)
+    for offset, value in changes:
+        data[offset] = value
+    return bytes(data)
+
+
+def row(name, index, *, control=False):
+    layout = LAYOUTS[name]
+    return (layout.control_offset + index * layout.control_stride if control
+            else layout.info_offset + index * layout.info_stride)
+
+
+def decode_cases():
+    cases = []
+    for name in LAYOUTS:
+        info, control = packets(name)
+        empty_info, empty_control = packets(name, [])
+        cases += [
+            (f"{name} default", name, info, control, {}),
+            (f"{name} slot and architecture", name, info, control, {"slot": "0000:72:1d.0", "architecture": 7}),
+            (f"{name} empty with control", name, empty_info, empty_control, {}),
+            (f"{name} empty without control", name, empty_info, None, {}),
+            (f"{name} populated without control", name, info, None, {}),
+            (f"{name} short info", name, info[:-1], control, {}),
+            (f"{name} long info", name, info + b"\0", control, {}),
+            (f"{name} short control", name, info, control[:-1], {}),
+            (f"{name} short control, empty mask", name, empty_info, empty_control[:-1], {}),
+            (f"{name} mask disagrees", name, info, mutated(control, (4, control[4] ^ 1)), {}),
+            (f"{name} identifier disagrees", name, info, mutated(control, (0, control[0] ^ 1)), {}),
+            (f"{name} row types disagree", name, info, mutated(control, (row(name, 5, control=True), 3)), {}),
+            (f"{name} unknown row type", name, *packets(name, [1, 2, 3], types={2: 99}), {}),
+            (f"{name} every slot", name, *packets(name, list(range(LAYOUTS[name].capacity))), {}),
+            (f"{name} bytearray and memoryview", name, bytearray(info), memoryview(control), {}),
+            (f"{name} short info, bad control", name, info[:-1], 1.5, {}),
+            (f"{name} bad control", name, info, 1.5, {}),
+            (f"{name} int control", name, info, 7, {}),
+        ]
+    limits_info, limits_control = packets("limits")
+    damaged = mutated(packets("limits", [1, 2, 3], types={2: 99})[0], (row("limits", 3) + 2, 0xFF))
+    label_at = row("limits", 1) + 2
+    cases += [
+        ("limits full capacity", "limits", *packets("limits", [0, 257, 511]), {}),
+        ("limits invalid label", "limits", damaged, packets("limits", [1, 2, 3], types={2: 99})[1], {}),
+        ("limits empty label", "limits", mutated(limits_info, *((label_at + k, 0) for k in range(30))),
+         limits_control, {}),
+        ("limits label without NUL", "limits", mutated(limits_info, *((label_at + k, 0x41) for k in range(30))),
+         limits_control, {}),
+        ("limits 29-character label", "limits", mutated(limits_info, *((label_at + k, 0x42) for k in range(29))),
+         limits_control, {}),
+        ("limits DEL in label", "limits", mutated(limits_info, (label_at + 3, 0x7F)), limits_control, {}),
+        ("limits control byte past the NUL", "limits", mutated(limits_info, (label_at + 20, 0x01)), limits_control,
+         {}),
+        ("limits 0x4c not Boolean", "limits", limits_info, mutated(limits_control, (0x4C, 7)), {}),
+        ("limits 0x4d and 0x7a88 not Boolean", "limits", mutated(limits_info, (0x7A88, 2)),
+         mutated(limits_control, (0x4D, 0xFF)), {}),
+        ("limits unknown subclass", "limits", mutated(limits_info, (0x44, 12)), mutated(limits_control, (0x44, 12)),
+         {}),
+        ("limits subclass only in INFO", "limits", limits_info, mutated(limits_control, (0x44, 12)), {}),
+        ("limits non-label type", "limits", *packets("limits", [4], types={4: 3}), {}),
+    ]
+    ctl_info, ctl_control = packets("cf_controller")
+    cases += [
+        ("cf_controller flags not Boolean", "cf_controller", ctl_info, mutated(ctl_control, (8, 2), (9, 0xFF)), {}),
+        ("cf_controller flags zero", "cf_controller", ctl_info, mutated(ctl_control, (8, 0), (9, 0)), {}),
+    ]
+    pol_info, pol_control = packets("cf_policy")
+    three = packets("cf_policy", [3, 24])
+    masked = bytearray(three[0])
+    struct.pack_into("<I", masked, row("cf_policy", 24) + 0xC, (1 << 6) | (1 << 31))
+    role = mutated(pol_info, (row("cf_policy", 5) + 3, 9))
+    outside = bytearray(pol_info)
+    struct.pack_into("<H", outside, 0x18, 31)
+    all_targets = bytearray(pol_info)
+    for offset, index in ((0x18, 1), (0x14, 5), (0x20, 5)):
+        struct.pack_into("<H", all_targets, offset, index)
+    all_targets = mutated(all_targets, (row("cf_policy", 1) + 3, 7))
+    cases += [
+        ("cf_policy target from current INFO", "cf_policy", *three, {}),
+        ("cf_policy controller mask", "cf_policy", bytes(masked), three[1], {}),
+        ("cf_policy role table disagreement", "cf_policy", role, pol_control, {}),
+        ("cf_policy mismatched row type", "cf_policy", pol_info, mutated(pol_control, (8 + 5 * 4, 4)), {}),
+        ("cf_policy target outside the mask", "cf_policy", bytes(outside),
+         mutated(pol_control, (8 + 5 * 4 + 2, 2)), {}),
+        ("cf_policy every target", "cf_policy", all_targets, pol_control, {}),
+        ("cf_policy target flag not Boolean", "cf_policy", all_targets, mutated(pol_control, (8 + 1 * 4 + 2, 9)),
+         {}),
+        ("cf_policy target on a non-zero type", "cf_policy", *packets("cf_policy", [5], types={5: 2}), {}),
+        ("cf_policy target index 0", "cf_policy", *packets("cf_policy", [0]), {}),
+    ]
+    return cases
+
+
+class DecodeTests(unittest.TestCase):
+    def assert_same(self, name, info, control, **kwargs):
+        python = decoded(lambda: py_perf.decode_group(name, info, control, **kwargs))
+        core = decoded(lambda: perf.decode_group(name, info, control, **kwargs))
+        self.assertEqual(core, python)
+        return python
+
+    def test_every_decode_case_of_the_python_suite(self):
+        outcomes = set()
+        for label, name, info, control, kwargs in decode_cases():
+            with self.subTest(label):
+                outcomes.add(self.assert_same(name, info, control, **kwargs)[0])
+        self.assertEqual(outcomes, {"ok", "PerfDiagnosticError", "TypeError"})
+
+    def test_the_messages_the_python_suite_matches(self):
+        info, control = packets("cf_policy")
+        for args, text in (((info[:-1], control), "Unexpected PERF INFO parameter geometry"),
+                           ((info, control[:-1]), "Unexpected PERF CONTROL parameter geometry"),
+                           ((info, mutated(control, (4, control[4] ^ 1))),
+                            "PERF INFO and CONTROL group identifiers or masks disagree"),
+                           ((info, None), "A populated PERF group needs matching CONTROL readback")):
+            with self.subTest(text):
+                self.assertEqual(decoded(lambda: perf.decode_group("cf_policy", *args)),
+                                 ("PerfDiagnosticError", "malformed", text, None))
+
+    def test_snapshot_values(self):
+        snapshot = perf.decode_group("cf_policy", *packets("cf_policy", [3, 24]))
+        target = next(item for item in snapshot["registry_targets"] if item["field"] == "bits2_1")
+        self.assertEqual(target, {"registry_name": "RmPerfCfPolicyOverrides", "field": "bits2_1", "index": 24,
+                                  "present": True, "flag_raw": 0, "issue": None})
+        info, control = packets("cf_policy", [3, 24])
+        self.assertEqual(snapshot["info_sha256"], hashlib.sha256(info).hexdigest())
+        self.assertEqual(snapshot["control_sha256"], hashlib.sha256(control).hexdigest())
+        self.assertIsNone(perf.decode_group("cf_policy", packets("cf_policy", [])[0], None)["control_sha256"])
+
+    def test_unknown_names(self):
+        info, control = packets("limits")
+        for name in ("nope", "", "Limits", "limits ", "x'y", "x'\"y", "tab\there", "nul\0limits", "é", 5, None,
+                     b"limits", ("limits",)):
+            with self.subTest(name=name):
+                self.assertEqual(self.assert_same(name, info, control)[0], "ValueError")
+        self.assertEqual(self.assert_same(["limits"], info, control), ("TypeError", "unhashable type: 'list'"))
+        # _layout comes before the INFO conversion
+        self.assertEqual(self.assert_same("nope", 1.5, None)[0], "ValueError")
+        self.assertEqual(self.assert_same("limits", 1.5, None)[0], "TypeError")
+
+    def test_seeded_random_mutations(self):
+        generator = random.Random(0xDEC0DE)
+        for trial in range(150):
+            name = generator.choice(list(LAYOUTS))
+            layout = LAYOUTS[name]
+            indices = sorted(generator.sample(range(layout.capacity), generator.randrange(0, 6)))
+            info, control = map(bytearray, packets(name, indices))
+            for _ in range(generator.randrange(0, 12)):
+                packet = generator.choice((info, control))
+                where = generator.choice(("row", "header", "any"))
+                if where == "row" and indices:
+                    index = generator.choice(indices)
+                    start = row(name, index, control=packet is control)
+                    stride = layout.control_stride if packet is control else layout.info_stride
+                    offset = start + generator.randrange(stride)
+                elif where == "header":
+                    offset = generator.randrange(0x80)
+                else:
+                    offset = generator.randrange(len(packet))
+                packet[offset] = generator.choice((0, 1, 2, 5, 6, 7, 8, 11, 0x20, 0x41, 0x7F, 0xFF,
+                                                   generator.randrange(256)))
+            if generator.random() < 0.3:  # keep the masks and identifiers paired so the rows decode
+                control[0], control[4:4 + layout.mask_bytes] = info[0], info[4:4 + layout.mask_bytes]
+            with self.subTest(trial=trial, name=name):
+                self.assert_same(name, bytes(info), bytes(control), slot="0000:01:00.0", architecture=8)
+
+
+# ---- increment P2: the read loop ------------------------------------------------------------------
+
+PERF_IDS = tuple(i for layout in LAYOUTS.values() for i in (layout.info_id, layout.control_id))
+
+
+@CDECL(ctypes.c_int)
+def _present():
+    return 0
+
+
+class Driver:
+    """The fake driver's PERF answers: each command's payload (tests/test_perf_diagnostics.packets) and
+    a per-command script of (NTSTATUS, RM status) outcomes, consumed in order, then (0, 0)."""
+
+    def __init__(self, rig):
+        self.rig = rig
+        self.payloads = {}
+        for name, layout in LAYOUTS.items():
+            self.payloads[layout.info_command], self.payloads[layout.control_command] = packets(name)
+        self.script, self.outcomes = {}, {}
+        self.after = None
+
+    def group(self, name, info, control):
+        layout = LAYOUTS[name]
+        self.payloads[layout.info_command], self.payloads[layout.control_command] = info, control
+
+    def reset(self):
+        self.outcomes = {command: list(steps) for command, steps in self.script.items()}
+
+    def __call__(self, words):
+        command = words[14]
+        steps = self.outcomes.get(command, [])
+        status, rm = steps.pop(0) if steps else (0, 0)
+        self.rig.escape_status = status
+        words[16] = rm
+        if status == 0 and rm == 0 and command in self.payloads:
+            data = self.payloads[command]
+            ctypes.memmove(ctypes.addressof(words) + 68, data, min(len(data), ctypes.sizeof(words) - 68))
+        if self.after:
+            self.after(words)
+
+
+class ReadRig(PerfRig):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.driver = Driver(self)
+        self.respond = self.driver
+        for ident in PERF_IDS:
+            self.nvapi.interfaces[ident] = _present
+
+    def reset(self):
+        super().reset()
+        self.escape_status = 0
+        if hasattr(self, "driver"):  # TransportRig.__init__ resets before the driver exists
+            self.driver.reset()
+
+
+def report_errors(reader):
+    return {name: (error.kind, str(error), error.status) for name, error in reader.last_errors.items()}
+
+
+class ReadTests(PerfCase):
+    def run_both(self, rig, action, *, attempts=2, assign=MODERN, construct=None):
+        """action(reader) with PerfDiagnosticsReader(twin) and perf.Reader(handle) from one fake state:
+        (outcome, gdi calls, cache, last_valid, last_errors), asserted equal."""
+        opened = rig.native_gpu()
+        runs = []
+        try:
+            twin = Card.python_twin(rig, opened)
+            for gpu in (twin, opened):
+                rig.reset()
+                if assign is not None:
+                    gpu._current_limit_transport = assign
+                seed_choice(gpu)
+                make = PerfDiagnosticsReader if gpu is twin else perf.Reader
+                reader = None
+
+                def call():
+                    nonlocal reader
+                    reader = make(gpu, attempts=attempts) if construct is None else construct(make, gpu)
+                    return action(reader)
+                if gpu is twin:
+                    with rig.python_windll():
+                        result = decoded(call)
+                else:
+                    result = decoded(call)
+                history = (repr(fresh(reader.last_valid, time.time())), report_errors(reader)) if reader else None
+                runs.append((result, list(rig.calls), cache(gpu), history))
+        finally:
+            opened.close()
+        self.assertEqual(rig.errors, [])
+        self.assertEqual(runs[0][0], runs[1][0], "Python and native results differ")
+        self.assertEqual(runs[0], runs[1], "Python and native runs differ")
+        return runs[0]
+
+    def report(self, rig, groups=None, **kw):
+        result, calls, stored, history = self.run_both(rig, lambda reader: reader.read(groups), **kw)
+        self.assertEqual(result[0], "ok", result)
+        return eval(result[1]), calls, stored, history  # the repr of plain dicts, lists, str, int, None, bool
+
+    def test_every_group_ready(self):
+        report, calls, stored, (_, errors) = self.report(ReadRig())
+        self.assertEqual(list(report), ["slot", "architecture", "captured_at", "groups"])
+        self.assertEqual((report["slot"], report["architecture"]), ("0000:01:00.0", 7))
+        self.assertEqual(list(report["groups"]), list(LAYOUTS))
+        for name, group in report["groups"].items():
+            self.assertEqual((group["status"], group["attempts"], group["error"], group["last_valid"]),
+                             ("ready", 1, None, None))
+            self.assertEqual(group["snapshot"]["present_count"], 2)
+            self.assertEqual(group["snapshot"]["slot"], "0000:01:00.0")
+        self.assertEqual([c[-2] - 68 for c in calls if c[0] == "Escape"],
+                         [size for layout in LAYOUTS.values() for size in (layout.info_size, layout.control_size)])
+        self.assertEqual((stored, errors), (((MODERN[0], MODERN[1]), True), {}))
+
+    def test_groups_subset_order_and_empty_inventory(self):
+        rig = ReadRig()
+        rig.driver.group("limits", *packets("limits", []))
+        report, calls, _, _ = self.report(rig, ["cf_policy", "limits"])
+        self.assertEqual(list(report["groups"]), ["cf_policy", "limits"])
+        limits = report["groups"]["limits"]
+        self.assertEqual((limits["status"], limits["snapshot"]["entries"], limits["snapshot"]["flags"]),
+                         ("empty", [], {}))
+        self.assertEqual(sum(1 for c in calls if c[0] == "Escape"), 3)  # no CONTROL GET for the empty group
+
+    def test_attempt_counts(self):
+        command = LAYOUTS["limits"].info_command
+        for attempts in (1, 2, 3):
+            for failures in (0, 1, 2, 3):
+                with self.subTest(attempts=attempts, failures=failures):
+                    rig = ReadRig()
+                    rig.driver.script[command] = [(0, 0x40)] * failures
+                    report, _, _, _ = self.report(rig, ["limits"], attempts=attempts)
+                    group = report["groups"]["limits"]
+                    if failures < attempts:
+                        self.assertEqual((group["status"], group["attempts"]), ("ready", failures + 1))
+                    else:
+                        self.assertEqual((group["status"], group["attempts"], group["error"]),
+                                         ("transient", attempts, f"PERF GET 0x{command:08X} rejected (RM 0x40)"))
+
+    def test_each_failure_kind_and_independence(self):
+        limits, controller, policy = (LAYOUTS[name] for name in LAYOUTS)
+        rig = ReadRig()
+        rig.driver.script[limits.info_command] = [(0, 0x56)]
+        rig.driver.script[controller.control_command] = [(0, 0x40), (0, 0x1F)]  # transient, then stop
+        rig.driver.payloads[policy.control_command] = mutated(rig.driver.payloads[policy.control_command], (4, 0))
+        report, _, _, (_, errors) = self.report(rig)
+        groups = report["groups"]
+        self.assertEqual({name: (g["status"], g["attempts"]) for name, g in groups.items()},
+                         {"limits": ("unsupported", 1), "cf_controller": ("unsupported", 2),
+                          "cf_policy": ("malformed", 1)})
+        self.assertEqual(errors["cf_policy"], ("malformed", "PERF INFO and CONTROL group identifiers or masks disagree",
+                                               None))
+        self.assertEqual(errors["limits"][2], 0x56)
+
+    def test_ntstatus_failure_drops_the_transport(self):
+        command = LAYOUTS["cf_controller"].info_command
+        rig = ReadRig()
+        rig.driver.script[command] = [(NTSTATUS_INVALID_PARAMETER, 0)]
+        report, calls, stored, (_, errors) = self.report(rig, ["cf_controller", "cf_policy"])
+        group = report["groups"]["cf_controller"]
+        # the second attempt must capture afresh, which this rig cannot: a transient capture failure
+        self.assertEqual((group["status"], group["attempts"]), ("transient", 2))
+        self.assertEqual(group["error"], "unsupported current-policy transport: no recognized power GET captured")
+        self.assertEqual(report["groups"]["cf_policy"]["status"], "transient")  # no transport for the peer either
+        self.assertEqual(sum(1 for c in calls if c[0] == "Escape"), 1)
+        self.assertEqual(stored, (None, False))
+
+    def test_malformed_echo_stops(self):
+        rig = ReadRig()
+        rig.driver.after = lambda words: words.__setitem__(14, 0xDEADBEEF)
+        report, calls, _, _ = self.report(rig, ["limits"])
+        self.assertEqual((report["groups"]["limits"]["status"], report["groups"]["limits"]["attempts"]),
+                         ("malformed", 1))
+
+    def test_identity_and_architecture_refusals(self):
+        for rig, kind in ((ReadRig(nvml_devid=0x1B02), "identity"), (ReadRig(arch=3), "unsupported")):
+            with self.subTest(kind):
+                report, calls, _, _ = self.report(rig)
+                self.assertEqual((report["slot"], report["architecture"]), ("", None))
+                self.assertTrue(all(g["status"] == kind and g["attempts"] == 1 for g in report["groups"].values()))
+                self.assertEqual(calls, [])
+
+    def test_missing_export_is_unsupported_without_an_escape(self):
+        rig = ReadRig()
+        del rig.nvapi.interfaces[LAYOUTS["limits"].control_id]
+        report, calls, _, _ = self.report(rig)
+        limits = report["groups"]["limits"]
+        self.assertEqual((limits["status"], limits["error"], limits["attempts"]),
+                         ("unsupported", "PERF getter exports are unavailable", 1))
+        self.assertNotIn(LAYOUTS["limits"].info_command, [c[-1][56:60] and struct.unpack_from("<I", c[-1], 56)[0]
+                                                          for c in calls if c[0] == "Escape"])
+        self.assertEqual(report["groups"]["cf_policy"]["status"], "ready")
+        self.assertEqual(report["slot"], "0000:01:00.0")
+
+    def test_history_is_kept_and_never_returned_as_fresh(self):
+        command = LAYOUTS["limits"].info_command
+        rig = ReadRig()
+        rig.driver.script[command] = [(0, 0), (0, 0x40), (0, 0x40)]
+
+        def action(reader):
+            first = reader.read(["limits"])
+            failed = reader.read(["limits"])
+            failed["groups"]["limits"]["last_valid"]["entries"].clear()  # a deep copy
+            errors = report_errors(reader)
+            again = reader.read(["limits"])
+            return first, failed, errors, report_errors(reader), again, len(reader.last_valid["limits"]["entries"])
+        result, _, _, (history, errors) = self.run_both(rig, action)
+        self.assertEqual(result[0], "ok")
+        first, failed, errors_after_failure, errors_after_success, again, kept = eval(result[1])
+        group = failed["groups"]["limits"]
+        self.assertEqual((group["status"], group["snapshot"], group["attempts"]), ("transient", None, 2))
+        self.assertEqual(group["last_valid"]["entries"], [])
+        self.assertEqual(errors_after_failure, {"limits": ("transient", f"PERF GET 0x{command:08X} rejected (RM 0x40)",
+                                                           0x40)})
+        self.assertEqual((errors_after_success, kept), ({}, 2))
+        self.assertEqual(again["groups"]["limits"]["status"], "ready")
+        self.assertEqual(errors, {})
+
+    def test_duplicate_and_unknown_names_before_any_read(self):
+        for groups, expected in ((["limits", "limits"], ("ValueError", "PERF groups must not be duplicated")),
+                                 (["limits", "nope"], ("ValueError", "Unknown PERF diagnostic group 'nope'")),
+                                 (["limits", 5], ("ValueError", "Unknown PERF diagnostic group 5")),
+                                 (["é"], ("ValueError", "Unknown PERF diagnostic group 'é'")),
+                                 ([["limits"]], ("TypeError", "unhashable type: 'list'")),
+                                 ("limits", ("ValueError", "PERF groups must not be duplicated")),  # 'i' twice
+                                 ("cf", ("ValueError", "Unknown PERF diagnostic group 'c'"))):
+            with self.subTest(groups=groups):
+                result, calls, _, history = self.run_both(ReadRig(), lambda reader: reader.read(groups))
+                self.assertEqual((result, calls, history), (expected, [], ("{}", {})))
+
+    def test_invalid_attempts(self):
+        for attempts in (0, 4, -1, True, 1.2, "2", None):
+            with self.subTest(attempts=attempts):
+                result, calls, _, _ = self.run_both(ReadRig(), lambda reader: reader.read(), attempts=attempts)
+                self.assertEqual((result, calls), (("ValueError", "PERF read attempts must be between 1 and 3"), []))
+
+    def test_abi_refuses_invalid_attempts_and_names(self):
+        rig = ReadRig()
+        gpu = rig.native_gpu()
+        try:
+            for name, attempts, text in ((b"limits", 0, "PERF read attempts must be between 1 and 3"),
+                                         (b"limits", 4, "PERF read attempts must be between 1 and 3"),
+                                         (b"nope", 2, "Unknown PERF diagnostic group 'nope'")):
+                out, error = perf._GroupResult(), perf._new_error()
+                out.size, out.snapshot.size = ctypes.sizeof(out), ctypes.sizeof(perf._Snapshot)
+                status = perf.load().dc_perf_read_group(gpu._handle, name, attempts, ctypes.byref(out),
+                                                        ctypes.byref(error))
+                self.assertEqual((status, error.kind, perf._text(error.message)), (native.DC_E_FAILED, 2, text))
+            self.assertEqual(rig.calls, [])
+        finally:
+            gpu.close()
+
+
+class HookReadRig(HookRig):
+    """HookRig (a real capture through the hook for each round) whose escape also answers the PERF
+    GETs from a Driver; every other escape goes to HookRig's driver model."""
+
+    def __init__(self, *args, **kw):
+        super().__init__(*args, **kw)
+        self.driver = Driver(self)
+        for ident in PERF_IDS:
+            self.nvapi.interfaces[ident] = _present
+
+    def _fake_gdi(self):
+        table = super()._fake_gdi()
+        parent = table[ESCAPE]
+
+        @KMT
+        def escape(pointer):
+            e = NV.GPU._Escape.from_address(pointer)
+            words = (u32 * (e.PrivateDriverDataSize // 4)).from_address(e.pPrivateDriverData)
+            if len(words) < 17 or not perf.load().dc_perf_get_allowed(words[14], words[15]):
+                return parent(pointer)
+            try:
+                self.calls.append(("PERF", e.hAdapter, e.hDevice, e.Type, e.Flags, e.hContext,
+                                   ctypes.string_at(e.pPrivateDriverData, e.PrivateDriverDataSize)))
+                self.escape_status = 0
+                self.driver(words)
+            except BaseException as exc:  # an exception would vanish inside the callback
+                self.errors.append(repr(exc))
+            return self.escape_status
+        table[ESCAPE] = escape
+        return table
+
+    def reset(self):
+        super().reset()
+        if hasattr(self, "driver"):
+            self.driver.reset()
+
+    def python_windll(self):
+        """HookRig's gdi32 with an escape export that keeps the code address the hook patches but,
+        called directly (_legacy_clk_escape's later GETs), runs the fake driver instead of the bytes."""
+        patcher = super().python_windll()
+        load = patcher.kwargs["side_effect"]
+        rig = self
+
+        class Forwarding(KMT):
+            _flags_, _restype_, _argtypes_ = KMT._flags_, KMT._restype_, KMT._argtypes_
+
+            def __call__(self, argument):
+                return rig._callbacks[ESCAPE](argument)
+
+        def wrapped(name, *args, **kwargs):
+            library = load(name, *args, **kwargs)
+            if name != "kernel32" and hasattr(library, ESCAPE):
+                setattr(library, ESCAPE, Forwarding(ctypes.addressof(rig.code)))
+            return library
+        patcher.kwargs["side_effect"] = wrapped
+        return patcher
+
+
+class RecaptureTests(HookCase):
+    def read_both(self, rig, groups):
+        probe = rig.native_gpu()  # the identity the twin carries, as Card.python_twin copies it
+        selected, handle, other = dict(probe.nvapi.selected), probe.nvapi.gpu, dict(probe.nvml.selected)
+        probe.close()
+        runs = []
+        for side in ("python", "native"):
+            rig.reset()
+            if side == "python":
+                gpu = rig.python_gpu()
+                gpu.nvapi.selected, gpu.nvapi.gpu = selected, handle
+                binder = SimpleNamespace(_qi=rig.nvapi.query)
+                gpu.nvapi._i = lambda ident, *argtypes: NV.NvAPI._i(binder, ident, *argtypes)
+                gpu.nvml.selected = {k: other[k] for k in ("slot", "devid", "subsys")}
+                make = PerfDiagnosticsReader
+            else:
+                gpu = rig.native_gpu()
+                gpu.capabilities()
+                rig.calls.clear()
+                make = perf.Reader
+            try:
+                ran = rig.run(lambda g: decoded(lambda: make(g).read(groups)))(gpu)
+            finally:
+                if side == "native":
+                    gpu.close()
+            runs.append((ran, list(rig.calls), cache(gpu) if side == "python" else None))
+        self.assertEqual(rig.errors, [])
+        self.assertEqual(runs[0][:2], runs[1][:2], "Python and native runs differ")
+        self.assertEqual(runs[0][0][0], "ok")
+        return runs[0]
+
+    def test_a_failed_escape_recaptures_and_the_second_attempt_succeeds(self):
+        rounds = [[ARCH_STEP, owner(power_packet())], [ARCH_STEP, owner(power_packet())]]
+        rig = HookReadRig(rounds=rounds)
+        rig.driver.script[LAYOUTS["cf_policy"].info_command] = [(NTSTATUS_INVALID_PARAMETER, 0)]
+        (_, (kind, text)), calls, _ = self.read_both(rig, ["cf_policy"])
+        self.assertEqual(kind, "ok")
+        group = eval(text)["groups"]["cf_policy"]
+        self.assertEqual((group["status"], group["attempts"], group["error"]), ("ready", 2, None))
+        self.assertEqual(rig.getter_calls, 2)  # captured afresh after the dropped transport
+        self.assertEqual([c[0] for c in calls].count("PERF"), 3)  # INFO (failed), INFO, CONTROL
 
 
 if __name__ == "__main__":

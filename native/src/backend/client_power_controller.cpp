@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "backend/client_power_controller.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -44,7 +45,31 @@ std::string hex(std::uint32_t value) {  // Python's f"{value:#x}"
     return text;
 }
 
+std::uint32_t u32_at(const std::vector<std::uint8_t>& raw, std::size_t offset) {  // struct "<I"
+    return static_cast<std::uint32_t>(raw[offset]) | static_cast<std::uint32_t>(raw[offset + 1]) << 8 |
+           static_cast<std::uint32_t>(raw[offset + 2]) << 16 | static_cast<std::uint32_t>(raw[offset + 3]) << 24;
+}
+
+// _A612_FALLBACKS: the A612 client groups, in probe order after the modern one is refused for its
+// size, each with the attribute that records the choice.
+struct CpFallback {
+    CpSizeGroup sizes;
+    bool CpControllerState::*mark;
+};
+constexpr CpFallback kA612Fallbacks[] = {
+    {CpSizeGroup::legacy, &CpControllerState::legacy},
+    {CpSizeGroup::a612_compact, &CpControllerState::rm26_records},
+};
+constexpr std::size_t kA612FallbackCount = sizeof(kA612Fallbacks) / sizeof(kA612Fallbacks[0]);
+
 }  // namespace
+
+bool CpMetadata::operator==(const CpMetadata& o) const {
+    return same_identity(identity, o.identity) && client_index == o.client_index && native_index == o.native_index &&
+           minimum_mw == o.minimum_mw && rated_mw == o.rated_mw && maximum_mw == o.maximum_mw && layout == o.layout &&
+           native_layout == o.native_layout && native_info_stride == o.native_info_stride && info == o.info &&
+           role_info == o.role_info && native_info == o.native_info;
+}
 
 // ---- GuardedBuffer ------------------------------------------------------ //
 
@@ -273,6 +298,234 @@ CpExchangeResult ClientPowerController::exchange(std::uint32_t command, const st
     }
     out.response = std::move(result);
     return out;
+}
+
+// ---- increment A4: the client group, the metadata capture, the stable read -- //
+
+CpExchangeResult ClientPowerController::get(std::uint32_t command, const std::vector<std::uint8_t>& payload) {
+    bool dispatched = false;
+    CpExchangeResult r = exchange(command, payload.data(), payload.size(), false, payload.size(), CpCaller{}, dispatched);
+    if (r.too_small) {
+        // Unreachable: the payload has the command's size in the current table, and so does the room.
+        r.too_small = false;
+        r.error = failure(RmErrorKind::malformed, "Client-power command or packet geometry is not understood");
+    }
+    return r;
+}
+
+CpExchangeResult ClientPowerController::client_group(const Target& identity) {
+    CpExchangeResult first = get(kCpInfo, std::vector<std::uint8_t>(sizes()[kCpIdxInfo], 0));
+    if (first.response) return first;
+    // A bare ValueError (kind invalid, rm_status 0) is not a ClientPowerError: it escapes the
+    // `except` uncaught, which is what the size-refusal test below does with it too.
+    if (state_.legacy || state_.rm26_records || !contains(cp_size_refusals(), first.error.rm_status) ||
+        !contains(cp_legacy_group_architectures(), identity.architecture))
+        return first;
+    const CpSizeGroup previous = state_.sizes;
+    for (std::size_t position = 0; position < kA612FallbackCount; ++position) {
+        const CpFallback& fallback = kA612Fallbacks[position];
+        // _exchange checks the payload against self.sizes, so the table has to be in place to probe
+        // with it. Put back on any failure: a transient error must leave no group half-selected.
+        state_.sizes = fallback.sizes;
+        CpExchangeResult info = get(kCpInfo, std::vector<std::uint8_t>(sizes()[kCpIdxInfo], 0));
+        if (!info.response) {
+            // Python's `except ClientPowerError` restores the table; a bare ValueError passes it by.
+            if (info.error.kind == RmErrorKind::invalid) return info;
+            state_.sizes = previous;
+            if (!contains(cp_size_refusals(), info.error.rm_status) || position == kA612FallbackCount - 1) return info;
+            continue;
+        }
+        state_.*fallback.mark = true;
+        if (fallback.sizes == CpSizeGroup::a612_compact) state_.rm26_extended = true;
+        return info;
+    }
+    CpExchangeResult none;  // unreachable: the last fallback either returns or raises
+    none.error = failure(RmErrorKind::unsupported, "No understood client-power group was accepted");
+    return none;
+}
+
+CpRead<CpMetadata> ClientPowerController::metadata_once() {
+    CpRead<CpMetadata> out;
+    TargetResult identity = binding();
+    if (!identity.target) {
+        out.error = identity.error;
+        return out;
+    }
+    CpTransportResult transport_now = transport();  // select the command family before allocating INFO
+    if (!transport_now.transport) {
+        out.error = transport_now.error;
+        return out;
+    }
+    CpExchangeResult group = client_group(*identity.target);
+    if (!group.response) {
+        out.error = group.error;
+        return out;
+    }
+    const std::vector<std::uint8_t>& info = *group.response;
+
+    std::size_t base, info_stride, capacity;
+    if (state_.rm26_records)
+        base = 4, info_stride = state_.rm26_extended ? 28 : 20, capacity = 32;
+    else if (state_.legacy)
+        base = 8, info_stride = kCpInfoStride, capacity = 32;
+    else
+        base = kCpInfoBase, info_stride = kCpInfoStride, capacity = kCpCapacity;
+    std::size_t native_base, default_stride;
+    if (state_.rm26_extended)
+        native_base = 60, default_stride = 132;
+    else if (state_.rm26_records)
+        native_base = 52, default_stride = 116;
+    else if (state_.legacy)
+        native_base = 88, default_stride = 228;
+    else
+        native_base = kCpNativeInfoBase, default_stride = kCpNativeInfoStride;
+
+    // int.from_bytes(info[:4] if _rm26_records else info[4:base], "little"): bit i is byte i / 8.
+    const std::size_t mask_begin = state_.rm26_records ? 0 : 4;
+    const std::size_t mask_end = std::min(state_.rm26_records ? std::size_t{4} : base, info.size());
+    const std::size_t mask_bytes = mask_end > mask_begin ? mask_end - mask_begin : 0;
+    auto mask_bit = [&](std::size_t i) {
+        return i / 8 < mask_bytes && (static_cast<unsigned>(info[mask_begin + i / 8]) >> (i % 8) & 1u) != 0;
+    };
+    for (std::size_t j = capacity / 8; j < mask_bytes; ++j) {  // mask >> capacity (capacity is whole bytes)
+        if (info[mask_begin + j] != 0) {
+            out.error = failure(RmErrorKind::malformed, "Client-power inventory exceeds the understood row capacity");
+            return out;
+        }
+    }
+    std::vector<std::size_t> candidates;
+    for (std::size_t i = 0; i < capacity; ++i) {
+        const std::size_t at = base + i * info_stride + 2;
+        // Every understood group's rows lie inside its INFO, so Python's IndexError cannot arise.
+        if (mask_bit(i) && at < info.size() && info[at] == 1) candidates.push_back(i);
+    }
+    if (candidates.size() != 1) {
+        out.error = failure(RmErrorKind::unsupported, "No unique role1 client-power policy is available");
+        return out;
+    }
+    const std::size_t index = candidates[0];
+    const std::size_t at = base + index * info_stride;
+    const std::uint8_t* row = info.data() + at;
+    if (row[0] != row[1]) {
+        out.error = failure(RmErrorKind::malformed, "Selected client INFO type discriminants disagree");
+        return out;
+    }
+    if (row[3] != 0) {
+        out.error = failure(RmErrorKind::unsupported, "Selected client-power policy does not report milliwatts");
+        return out;
+    }
+    const std::uint32_t limits[3] = {u32_at(info, at + 4), u32_at(info, at + 8), u32_at(info, at + 12)};
+    if (!(limits[0] <= limits[1] && limits[1] <= limits[2])) {
+        out.error = failure(RmErrorKind::malformed, "Client-power ordinary limits are inconsistent");
+        return out;
+    }
+
+    auto role_request = [&] {
+        std::vector<std::uint8_t> request(sizes()[kCpIdxRoleInfo], 0);
+        request[0] = static_cast<std::uint8_t>(kCpRole);
+        return request;
+    };
+    std::vector<std::uint8_t> request = role_request();
+    CpExchangeResult role = get(kCpRoleInfo, request);
+    if (!role.response) {
+        // A role GET refused for its SIZE: try the one other understood small-group record size
+        // (INFO216); a transient error selects nothing.
+        if (!state_.legacy || state_.role_info216 || role.error.rm_status != 0x1F) {
+            out.error = role.error;
+            return out;
+        }
+        state_.sizes = CpSizeGroup::info216;
+        state_.role_info216 = true;
+        request = role_request();
+        role = get(kCpRoleInfo, request);
+        if (!role.response) {
+            out.error = role.error;
+            return out;
+        }
+    }
+    const std::vector<std::uint8_t>& role_info = *role.response;
+    if (std::memcmp(role_info.data(), request.data(), 4) != 0) {
+        out.error = failure(RmErrorKind::malformed, "Power-role INFO changed its semantic selector");
+        return out;
+    }
+    const std::optional<std::int64_t> derived = definition_stride(static_cast<std::int64_t>(role_info.size()));
+    if (!derived || *derived <= 0 || *derived % 4 != 0 || *derived < 20) {
+        out.error = failure(RmErrorKind::malformed, "Power-role INFO carries no usable policy definition");
+        return out;
+    }
+    const std::size_t native_stride = static_cast<std::size_t>(*derived);
+    const std::uint8_t* definition = role_info.data() + 4;  // role[4:], native_stride bytes
+
+    CpExchangeResult native = get(kCpNativeInfo, std::vector<std::uint8_t>(sizes()[kCpIdxNativeInfo], 0));
+    if (!native.response) {
+        if (!state_.legacy || state_.native_policy124 || state_.role_info216 || native.error.rm_status != 0x1F) {
+            out.error = native.error;
+            return out;
+        }
+        state_.sizes = CpSizeGroup::turing;
+        state_.native_policy124 = true;
+        native = get(kCpNativeInfo, std::vector<std::uint8_t>(sizes()[kCpIdxNativeInfo], 0));
+        if (!native.response) {
+            out.error = native.error;
+            return out;
+        }
+    }
+    const std::vector<std::uint8_t>& native_info = *native.response;
+    const std::uint32_t native_mask = u32_at(native_info, 4);
+    std::vector<std::size_t> matches;
+    for (std::size_t i = 0; i < kCpNativeCapacity; ++i) {
+        if (!(native_mask >> i & 1u)) continue;
+        const std::size_t begin = native_base + i * native_stride;
+        // A slice running past the end is shorter than the definition, so it never equals it.
+        if (begin + native_stride > native_info.size()) continue;
+        if (std::memcmp(native_info.data() + begin, definition, native_stride) == 0) matches.push_back(i);
+    }
+    if (matches.size() != 1) {
+        out.error = failure(RmErrorKind::malformed, "Role1 INFO does not uniquely bind a current native policy");
+        return out;
+    }
+    const std::size_t native_index = matches[0];
+    // This byte describes the firmware policy table, not the RM packet capacity.
+    const bool v30_only = state_.legacy || state_.rm26_records;
+    const std::uint8_t version = definition[0];
+    const bool version_ok = version == 0x30 || (!v30_only && version == 0x40);
+    const std::vector<std::uint8_t> source(definition, definition + native_stride);
+    if (!version_ok || source[6] != row[3] || u32_at(source, 8) != limits[0] || u32_at(source, 12) != limits[1] ||
+        u32_at(source, 16) != limits[2]) {
+        out.error = failure(RmErrorKind::malformed, "Client INFO differs from the bound native policy definition");
+        return out;
+    }
+    TargetResult again = binding();
+    if (!again.target) {
+        out.error = again.error;
+        return out;
+    }
+    if (!same_identity(*again.target, *identity.target)) {
+        out.error = failure(RmErrorKind::identity, "Client-power target changed during metadata capture");
+        return out;
+    }
+    CpMetadata m;
+    m.identity = *identity.target;
+    m.client_index = static_cast<std::uint32_t>(index);
+    m.native_index = static_cast<std::uint32_t>(native_index);
+    m.minimum_mw = limits[0];
+    m.rated_mw = limits[1];
+    m.maximum_mw = limits[2];
+    // The dict literal's later ** entries replace an earlier same-named key's value in place.
+    if (state_.legacy) m.layout = CpLayout::legacy32;
+    if (state_.rm26_records) m.layout = CpLayout::rm26;
+    if (state_.rm26_extended) m.native_layout = CpNativeLayout::rm26_extended;
+    if (state_.native_policy124 || state_.role_info216) m.native_layout = CpNativeLayout::policy124;
+    if (native_stride != default_stride) m.native_info_stride = static_cast<std::uint32_t>(native_stride);
+    m.info = info;
+    m.role_info = role_info;
+    m.native_info = native_info;
+    out.value = std::move(m);
+    return out;
+}
+
+CpRead<CpMetadata> ClientPowerController::read_metadata() {
+    return stable_locked<CpMetadata>([this] { return metadata_once(); });
 }
 
 }  // namespace druta::backend

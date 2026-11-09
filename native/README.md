@@ -22,7 +22,7 @@ feature at a time, and the tools built from it. Nothing here is shipped yet.
 ```
 native/build.sh                      # linux, linux-asan, mingw-x86_64, mingw-i686
 native/build.sh mingw-i686           # one configuration
-native/fuzz/run.sh                   # libFuzzer over the rail packet parser (clang)
+native/fuzz/run.sh                   # libFuzzer over the rail packet parser and the PERF decoder (clang)
 ```
 
 Linux needs cmake, ninja, g++ or clang++, and `mingw-w64` for the Windows
@@ -67,7 +67,8 @@ core, then compares results, driver call sequences and messages.
 | Pure rail-limit and hold-headroom helpers | `GPU._valid_volt_rail_state`, `volt_boost_headroom_mv`, `abs_limit_mv`, `rail_ceiling_mv`, `rail_floor_mv`, `hold_headroom_architecture`, `hold_headroom_ceiling_mv`, `hold_headroom_targets`, `_headroom_enforced_mv`, `hold_headroom_bound_mv`, `hold_headroom_allowance_mv` and their constants | `dc_rl_*` (`drutacore/rail_limits.h`, bound by `druta.native_rail_limits`) | `tests/test_native_rail_limits.py` |
 | Client-power tables and geometry helpers | `client_power_runtime` constants, `_small_native_geometry`, `_definition_stride`, `_native_geometry`, `_coupled_requests`, `_project`, `_matches` | `dc_cp_*` (`drutacore/client_power.h`, bound by `druta.native_client_power`) | `tests/test_native_client_power.py` |
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
-| PERF diagnostics layouts, transport and GET | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `PerfDiagnosticsReader._transport`, `_get` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_reset` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py` |
+| Client-power metadata read | `ClientPowerController._client_group`, `_metadata_once`, `_stable_locked`, `read_metadata` | `dc_cpc_read_metadata` (bound as `Gpu._cp_read_metadata`) | `tests/test_native_client_power_metadata.py` |
+| PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
 | Clock-BIOS user-clock CONTROL GET | `clock_bios_runtime._control_once`, `_control_shape` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
@@ -152,7 +153,18 @@ is a validated power transport the PERF GETs are not understood to share.
 `dc_rm_transport`, because Python's `_get` copies whatever header it is given
 (a long header spills into the payload), and the binding binds the reader
 before re-raising a marshalling error, as Python binds before it builds the
-packet.
+packet. `dc_perf_read_group` runs one group of `read` and takes the handle
+lock per attempt, as Python takes `gpu._lock` inside its attempts loop, so a
+caller must not hold the lock around it; the decoded snapshot is a fixed-size
+struct (512 entries of the largest rows, about 870 KB) the caller allocates,
+and the binding adds `captured_at`, the registry name and the per-group
+`last_valid` / `last_errors` bookkeeping that Python keeps on the reader. The
+digests come from an embedded SHA-256 (`core/sha256`), checked against
+`hashlib`.
+The client-power metadata read probes the A612 groups by acceptance alone
+(a definite size refusal moves to the next group, a transient error selects
+nothing and puts the previous size table back) and reports two differing
+fresh captures with the `unstable` error kind (`DC_ERR_UNSTABLE`).
 The clock-BIOS reader's raw user-clock CONTROL GET runs the same guarded
 allocation around the exact 24996-byte NvAPI record and distinguishes the
 two Python exception types by return status (`DC_E_FAILED` with a kind for
@@ -163,7 +175,7 @@ needs the transport), the rest of the RM escape transport and the controls
 built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
 adapter openers for older gdi32 builds; the full policy table of
 `_power_policy_rows` and the pin re-application after board-limit writes;
-the client-power runtime beyond its target binding; and the Python consumers of the transport such as
+the client-power runtime beyond its metadata read (the full read with its arbitration, the live request and the request SET); and the Python consumers of the transport such as
 `_write_rail_records` with its profile checks and `_verify_rail_records`;
 `refresh_capabilities`'s live-power and rail resets wait for them), the GPU
 restart, and the front end.

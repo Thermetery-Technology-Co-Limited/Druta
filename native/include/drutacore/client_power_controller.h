@@ -6,10 +6,11 @@
  * dc_cpc_*. Included by drutacore.h; do not include directly.
  *
  * Increment A3: the paired transport check (_transport), the guarded single-command exchange
- * (_exchange), _reset_transport, a fresh controller, and the controller state. One sticky
+ * (_exchange), _reset_transport, a fresh controller, and the controller state. Increment A4: the
+ * metadata read (read_metadata: _stable_locked over _metadata_once and _client_group). One sticky
  * controller per handle, with its own target binding. A ClientPowerError is DC_E_FAILED with a
  * dc_error: kind DC_ERR_IDENTITY / TRANSIENT / UNSUPPORTED / MALFORMED, Python's message, and
- * rm_status (nonzero only for an RM rejection). DC_ERR_INVALID is the one bare ValueError Python
+ * rm_status (nonzero only for an RM rejection); DC_ERR_UNSTABLE for two differing fresh reads. DC_ERR_INVALID is the one bare ValueError Python
  * raises (see dc_cpc_exchange) and the caller stops dc_cpc_exchange documents. DC_E_ARGUMENT only
  * for a NULL or malformed argument. No C++ exception crosses this ABI: one is reported as
  * DC_E_FAILED, with a transient *error where the call takes one. */
@@ -90,6 +91,51 @@ DC_API dc_status DC_CALL dc_cpc_reset_transport(dc_gpu* gpu);
 DC_API dc_status DC_CALL dc_cpc_reset(dc_gpu* gpu);
 /* The controller's attributes. DC_E_ARGUMENT for a NULL out or a wrong out->size. */
 DC_API dc_status DC_CALL dc_cpc_state_get(dc_gpu* gpu, dc_cpc_state* out);
+
+/* The largest INFO, ROLE_INFO and NATIVE_INFO packet of any DC_CP_*_SIZES group (SIZES). */
+#define DC_CPC_INFO_MAX 2340
+#define DC_CPC_ROLE_INFO_MAX 264
+#define DC_CPC_NATIVE_INFO_MAX 20512
+
+/* read_metadata()'s dict. binding.layout is DC_CP_ABSENT, DC_CP_LAYOUT_LEGACY32 or DC_CP_LAYOUT_RM26;
+ * binding.native_layout DC_CP_ABSENT, DC_CP_NATIVE_POLICY124 or DC_CP_NATIVE_RM26_EXTENDED (the
+ * enums of drutacore/client_power.h). Present keys appear in Python's order: layout, native_layout,
+ * native_info_stride. The payloads hold info_size / role_info_size / native_info_size bytes. */
+typedef struct dc_cpc_metadata {
+    uint32_t size;          /* sizeof(dc_cpc_metadata), set by the caller */
+    int32_t schema;         /* 1 */
+    int32_t stable_reads;   /* 2 */
+    char slot[24];          /* identity */
+    uint32_t architecture;
+    uint32_t device_id;
+    uint32_t subsystem_id;
+    uint32_t client_index;  /* binding */
+    uint32_t native_index;
+    uint32_t semantic_role; /* ROLE */
+    uint32_t client;        /* CLIENT */
+    char units[4];          /* "mW" */
+    uint32_t minimum_mw;
+    uint32_t rated_mw;
+    uint32_t maximum_mw;
+    int32_t layout;
+    int32_t native_layout;
+    int32_t has_native_info_stride; /* recorded only when it differs from the layout's usual stride */
+    uint32_t native_info_stride;
+    uint32_t info_size;
+    uint32_t role_info_size;
+    uint32_t native_info_size;
+    uint8_t info[DC_CPC_INFO_MAX];
+    uint8_t role_info[DC_CPC_ROLE_INFO_MAX];
+    uint8_t native_info[DC_CPC_NATIVE_INFO_MAX];
+} dc_cpc_metadata;
+
+/* read_metadata(): two equal fresh metadata captures under the GPU lock, one fresh pair after a
+ * transient failure (the handle's power transport cache is reset before the retry and after a
+ * second transient failure). DC_OK with *out, or DC_E_FAILED with *error: the ClientPowerError of
+ * the failing step, DC_ERR_UNSTABLE when the two captures differ. The controller state keeps every
+ * group the captures selected. DC_E_ARGUMENT for a NULL handle or out, a wrong out->size, or a
+ * dc_error whose size is wrong. */
+DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* gpu, dc_cpc_metadata* out, dc_error* error);
 
 #ifdef __cplusplus
 }

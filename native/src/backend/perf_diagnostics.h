@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "backend/gpu.h"
@@ -45,6 +46,70 @@ bool perf_get_allowed(std::uint32_t command, std::uint32_t size);
 const PerfGroupLayout* perf_layout_for_command(std::uint32_t command);
 
 inline constexpr std::uint32_t kPerfTransportCommand = 0x2080A612;  // the modern power GET family
+
+// ---- decode_group: the pure decoder (perf_diagnostics.decode_group) ----------------------------
+
+// The LAYOUTS entry named `name` (exact bytes), or nullptr.
+const PerfGroupLayout* perf_layout_named(const std::string& name);
+// _layout's ValueError text: "Unknown PERF diagnostic group " + repr(name), with Python's str repr for
+// an ASCII name (quote choice, \\ \' \t \n \r and \xNN escapes). Bytes past 0x7F are copied as
+// they are; Python keeps a printable non-ASCII character too but escapes a non-printable one, so the
+// binding formats non-ASCII names itself.
+std::string perf_unknown_group_message(const std::string& name);
+
+inline constexpr std::uint32_t kPerfMaxEntries = 512;         // the largest capacity (limits)
+inline constexpr std::uint32_t kPerfMaxInfoStride = 0x350;    // the largest INFO stride (cf_controller)
+inline constexpr std::uint32_t kPerfMaxControlStride = 0x2C4; // the largest CONTROL stride (cf_controller)
+inline constexpr std::uint32_t kPerfMaxMaskBytes = 64;
+
+struct PerfEntry {  // one row of "entries"
+    std::uint32_t index = 0;
+    std::uint8_t type = 0, control_type = 0;
+    std::optional<std::string> driver_label;  // None unless a limits type-6 label decoded
+    std::vector<std::uint8_t> info_raw, control_raw;  // the row's bytes (info_hex / control_hex)
+    std::vector<const char*> issues;  // static texts, in Python's order (at most one is ever appended)
+    // cf_policy type-0 extras: role_bytes_raw, role_id and controller_mask are set together.
+    bool policy = false;
+    std::uint8_t role_bytes_raw[2] = {0, 0};
+    std::uint8_t role_id = 0;
+    std::uint32_t controller_mask = 0;
+    std::optional<std::uint8_t> registry_controlled_flag_raw;  // only when Boolean
+};
+
+struct PerfFlag {  // one "flags" item: label -> {"raw", "boolean"}
+    const char* label;
+    std::uint8_t raw;
+    std::optional<bool> boolean;  // None when raw is not 0 or 1
+};
+
+struct PerfTarget {  // one "registry_targets" item
+    const char* field;  // bit0, bits2_1, bit3
+    std::optional<std::uint32_t> index;  // None for 0xFFFF
+    bool present = false;
+    std::optional<std::uint8_t> flag_raw;
+    const char* issue = nullptr;  // None
+};
+
+struct PerfSnapshot {  // decode_group's dict without slot, architecture and captured_at
+    const PerfGroupLayout* layout = nullptr;  // group, capacity, commands and sizes
+    std::vector<std::uint8_t> mask;           // mask_hex
+    std::vector<PerfEntry> entries;           // present_count = entries.size()
+    std::vector<PerfFlag> flags;              // in Python's dict order
+    std::vector<PerfTarget> targets;
+    std::vector<std::string> issues;
+    std::string info_sha256;
+    std::optional<std::string> control_sha256;
+};
+
+struct PerfDecodeResult {
+    std::optional<PerfSnapshot> snapshot;
+    // Otherwise the exception: kind invalid is _layout's ValueError, malformed a PerfDiagnosticError.
+    RmError error;
+};
+
+// decode_group(name, info, control): control == nullptr is Python's None. Pure: no driver call.
+PerfDecodeResult perf_decode_group(const std::string& name, const std::uint8_t* info, std::size_t info_size,
+                                   const std::uint8_t* control, std::size_t control_size);
 
 // ---- the reader -------------------------------------------------------------------------------
 
@@ -96,6 +161,17 @@ public:
                       const std::uint8_t* mask, std::uint32_t mask_size);
     // A fresh reader: forget the sticky identity.
     void reset() { binding_.reset(); }
+
+    // One group of PerfDiagnosticsReader.read: the bounded attempts loop for `layout`, attempts 1..3
+    // (the caller validates). Each attempt holds Gpu::lock() itself, as Python holds gpu._lock per
+    // attempt, so the lock is released between attempts.
+    struct GroupRead {
+        std::optional<PerfSnapshot> snapshot;  // ready / empty; otherwise `error` (a kinded failure)
+        RmError error;
+        std::uint32_t attempts = 0;            // Python's _attempt after the loop
+        std::optional<Target> target;          // the last successful binding: report slot / architecture
+    };
+    GroupRead read_group(const PerfGroupLayout& layout, std::uint32_t attempts);
 
 private:
     Gpu& gpu_;

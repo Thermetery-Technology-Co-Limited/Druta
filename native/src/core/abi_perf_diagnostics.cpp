@@ -8,6 +8,7 @@
 #include "backend/perf_diagnostics.h"
 #include "core/abi_internal.h"
 #include "core/mutex.h"
+#include "core/sha256.h"
 
 namespace {
 
@@ -38,6 +39,79 @@ void put_transport(const CapturedTransport& t, dc_rm_transport* out) {
     for (std::size_t i = 0; i < 17; ++i) r.header[i] = t.header[i];
     r.fields = dc_escape_fields{t.fields.hAdapter, t.fields.hDevice, t.fields.Type, t.fields.Flags, t.fields.hContext};
     *out = r;
+}
+
+void put_snapshot(const druta::backend::PerfSnapshot& snap, dc_perf_snapshot* out) {
+    const uint32_t size = out->size;
+    std::memset(out, 0, sizeof(*out));
+    out->size = size;
+    const druta::backend::PerfGroupLayout& g = *snap.layout;
+    DC_COPY(out->group, std::string(g.name));
+    out->capacity = g.capacity;
+    out->mask_bytes = g.mask_bytes;
+    std::memcpy(out->mask, snap.mask.data(), snap.mask.size());
+    out->info_command = g.info_command;
+    out->control_command = g.control_command;
+    out->info_bytes = g.info_size;
+    out->control_bytes = g.control_size;
+    DC_COPY(out->info_sha256, snap.info_sha256);
+    out->has_control_sha256 = snap.control_sha256 ? 1 : 0;
+    if (snap.control_sha256) DC_COPY(out->control_sha256, *snap.control_sha256);
+    out->flag_count = static_cast<uint32_t>(snap.flags.size());
+    for (std::size_t i = 0; i < snap.flags.size() && i < DC_PERF_MAX_FLAGS; ++i) {
+        dc_perf_flag& f = out->flags[i];
+        DC_COPY(f.label, std::string(snap.flags[i].label));
+        f.raw = snap.flags[i].raw;
+        f.has_boolean = snap.flags[i].boolean ? 1 : 0;
+        f.boolean = snap.flags[i].boolean.value_or(false) ? 1 : 0;
+    }
+    out->target_count = static_cast<uint32_t>(snap.targets.size());
+    for (std::size_t i = 0; i < snap.targets.size() && i < DC_PERF_TARGET_COUNT; ++i) {
+        const druta::backend::PerfTarget& t = snap.targets[i];
+        dc_perf_target& r = out->targets[i];
+        DC_COPY(r.field, std::string(t.field));
+        r.has_index = t.index ? 1 : 0;
+        r.index = t.index.value_or(0u);
+        r.present = t.present ? 1 : 0;
+        r.has_flag_raw = t.flag_raw ? 1 : 0;
+        r.flag_raw = t.flag_raw.value_or(0);
+        r.has_issue = t.issue ? 1 : 0;
+        if (t.issue) DC_COPY(r.issue, std::string(t.issue));
+    }
+    out->issue_count = static_cast<uint32_t>(snap.issues.size());
+    for (std::size_t i = 0; i < snap.issues.size() && i < DC_PERF_MAX_FLAGS; ++i)
+        DC_COPY(out->issues[i], snap.issues[i]);
+    out->entry_count = static_cast<uint32_t>(snap.entries.size());
+    for (std::size_t i = 0; i < snap.entries.size() && i < DC_PERF_MAX_ENTRIES; ++i) {
+        const druta::backend::PerfEntry& e = snap.entries[i];
+        dc_perf_entry& r = out->entries[i];
+        r.index = e.index;
+        r.type = e.type;
+        r.control_type = e.control_type;
+        r.info_bytes = static_cast<uint32_t>(e.info_raw.size());
+        r.control_bytes = static_cast<uint32_t>(e.control_raw.size());
+        std::memcpy(r.info_raw, e.info_raw.data(), std::min<std::size_t>(e.info_raw.size(), sizeof r.info_raw));
+        std::memcpy(r.control_raw, e.control_raw.data(),
+                    std::min<std::size_t>(e.control_raw.size(), sizeof r.control_raw));
+        r.has_driver_label = e.driver_label ? 1 : 0;
+        if (e.driver_label) DC_COPY(r.driver_label, *e.driver_label);
+        r.issue_count = static_cast<uint32_t>(e.issues.size());
+        if (!e.issues.empty()) DC_COPY(r.issue, std::string(e.issues.front()));
+        r.has_policy = e.policy ? 1 : 0;
+        r.role_bytes_raw[0] = e.role_bytes_raw[0];
+        r.role_bytes_raw[1] = e.role_bytes_raw[1];
+        r.role_id = e.role_id;
+        r.controller_mask = e.controller_mask;
+        r.has_registry_flag = e.registry_controlled_flag_raw ? 1 : 0;
+        r.registry_controlled_flag_raw = e.registry_controlled_flag_raw.value_or(0);
+    }
+}
+
+druta::backend::RmError invalid(std::string message) {
+    druta::backend::RmError e;
+    e.kind = druta::backend::RmErrorKind::invalid;
+    e.message = std::move(message);
+    return e;
 }
 
 }  // namespace
@@ -144,6 +218,69 @@ DC_API dc_status DC_CALL dc_perf_reset(dc_gpu* handle) {
     if (!handle) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
     handle->perf.reset();
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_perf_decode_group(const char* name, const uint8_t* info, size_t info_size,
+                                              const uint8_t* control, size_t control_size, int32_t has_control,
+                                              dc_perf_snapshot* out, dc_error* error) {
+    if (!name || (!info && info_size) || (has_control && !control && control_size) || (!has_control && control) ||
+        !out || out->size != sizeof(dc_perf_snapshot) || !error_ok(error))
+        return DC_E_ARGUMENT;
+    static const uint8_t empty = 0;  // a zero-length buffer passed as NULL
+    druta::backend::PerfDecodeResult r = druta::backend::perf_decode_group(
+        name, info ? info : &empty, info_size, has_control ? (control ? control : &empty) : nullptr, control_size);
+    if (!r.snapshot) {
+        put_error(r.error, error);
+        return DC_E_FAILED;
+    }
+    put_snapshot(*r.snapshot, out);
+    put_error(druta::backend::RmError{}, error);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_perf_read_group(dc_gpu* handle, const char* name, uint32_t attempts,
+                                            dc_perf_group_result* out, dc_error* error) {
+    if (!handle || !name || !out || out->size != sizeof(dc_perf_group_result) ||
+        out->snapshot.size != sizeof(dc_perf_snapshot) || !error_ok(error))
+        return DC_E_ARGUMENT;
+    const druta::backend::PerfGroupLayout* layout = druta::backend::perf_layout_named(name);
+    if (!layout) {
+        put_error(invalid(druta::backend::perf_unknown_group_message(name)), error);
+        return DC_E_FAILED;
+    }
+    if (attempts < 1 || attempts > 3) {
+        put_error(invalid("PERF read attempts must be between 1 and 3"), error);
+        return DC_E_FAILED;
+    }
+    // The reader takes the handle lock per attempt (Python's `with gpu._lock` inside the loop).
+    druta::backend::PerfDiagnostics::GroupRead r = handle->perf.read_group(*layout, attempts);
+    const uint32_t snapshot_size = out->snapshot.size;
+    out->attempts = r.attempts;
+    out->has_target = r.target ? 1 : 0;
+    std::memset(out->slot, 0, sizeof out->slot);
+    out->architecture = 0;
+    if (r.target) {
+        DC_COPY(out->slot, r.target->slot);
+        out->architecture = r.target->architecture;
+    }
+    if (r.snapshot) {
+        out->snapshot.size = snapshot_size;
+        put_snapshot(*r.snapshot, &out->snapshot);
+        out->status = r.snapshot->entries.empty() ? DC_PERF_STATUS_EMPTY : DC_PERF_STATUS_READY;
+        put_error(druta::backend::RmError{}, error);
+    } else {
+        out->status = DC_PERF_STATUS_FAILED;
+        put_error(r.error, error);
+    }
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_sha256_hex(const uint8_t* data, size_t size, char out[65]) {
+    if ((!data && size) || !out) return DC_E_ARGUMENT;
+    static const uint8_t empty = 0;
+    const std::string hex = druta::sha256_hex(data ? data : &empty, size);
+    std::memcpy(out, hex.c_str(), 65);
     return DC_OK;
 }
 

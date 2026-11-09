@@ -8,6 +8,8 @@
  * Increment P1: the pure group layouts (LAYOUTS, PROBE_ARCHITECTURES, _GET_COMMANDS) and the
  * reader's _transport and _get on a handle. Each dc_gpu keeps one reader with its own sticky
  * target binding (the Python reader's _identity); dc_perf_reset is a fresh reader.
+ * Increment P2: the pure decode_group (dc_perf_decode_group), one group of the bounded read loop
+ * (dc_perf_read_group) and the embedded SHA-256 (dc_sha256_hex).
  *
  * Errors: DC_E_FAILED fills the dc_error with the exception Python raises.
  *   - kind DC_ERR_INVALID: a plain ValueError raised before the driver was touched (the allow-set
@@ -90,6 +92,113 @@ DC_API dc_status DC_CALL dc_perf_get(dc_gpu* gpu, uint32_t command, uint32_t siz
 
 /* A fresh reader: forget the reader's sticky target identity. */
 DC_API dc_status DC_CALL dc_perf_reset(dc_gpu* gpu);
+
+
+/* ---- increment P2: decode_group and the read loop ---------------------------------------------- */
+
+#define DC_PERF_MAX_ENTRIES 512        /* the largest capacity (limits) */
+#define DC_PERF_MAX_INFO_STRIDE 0x350  /* the largest INFO row (cf_controller) */
+#define DC_PERF_MAX_CONTROL_STRIDE 0x2C4 /* the largest CONTROL row (cf_controller) */
+#define DC_PERF_MAX_MASK_BYTES 64
+#define DC_PERF_MAX_FLAGS 3
+#define DC_PERF_TARGET_COUNT 3
+#define DC_PERF_ISSUE_CHARS 64
+#define DC_PERF_LABEL_CHARS 32
+
+/* One "entries" row. The issue texts are Python's fixed strings; at most one is ever appended. */
+typedef struct dc_perf_entry {
+    uint32_t index;
+    uint32_t type, control_type;           /* INFO and CONTROL row byte 0 */
+    uint32_t info_bytes, control_bytes;    /* the row lengths (the group's strides) */
+    int32_t has_driver_label;              /* 0: driver_label is None */
+    char driver_label[DC_PERF_LABEL_CHARS];
+    uint32_t issue_count;                  /* 0 or 1 */
+    char issue[DC_PERF_ISSUE_CHARS];
+    int32_t has_policy;                    /* role_bytes_raw, role_id and controller_mask are present */
+    uint32_t role_bytes_raw[2];
+    uint32_t role_id;
+    uint32_t controller_mask;
+    int32_t has_registry_flag;             /* registry_controlled_flag_raw is present */
+    uint32_t registry_controlled_flag_raw;
+    uint8_t info_raw[DC_PERF_MAX_INFO_STRIDE];       /* info_hex: the first info_bytes */
+    uint8_t control_raw[DC_PERF_MAX_CONTROL_STRIDE]; /* control_hex: the first control_bytes */
+} dc_perf_entry;
+
+/* One "flags" item, in Python's dict order: label -> {"raw", "boolean"}. */
+typedef struct dc_perf_flag {
+    char label[DC_PERF_LABEL_CHARS];
+    uint32_t raw;
+    int32_t has_boolean;  /* 0: boolean is None (raw is not 0 or 1) */
+    int32_t boolean;
+} dc_perf_flag;
+
+/* One "registry_targets" item (registry_name is always "RmPerfCfPolicyOverrides"). */
+typedef struct dc_perf_target {
+    char field[DC_PERF_LABEL_CHARS];  /* bit0, bits2_1, bit3 */
+    int32_t has_index;                /* 0: index is None (0xFFFF) */
+    uint32_t index;
+    int32_t present;
+    int32_t has_flag_raw;
+    uint32_t flag_raw;
+    int32_t has_issue;
+    char issue[DC_PERF_ISSUE_CHARS];
+} dc_perf_target;
+
+/* decode_group's dict without slot, architecture and captured_at (the caller adds those). group,
+ * capacity, info_command, control_command, info_bytes and control_bytes are the layout's. */
+typedef struct dc_perf_snapshot {
+    uint32_t size;  /* sizeof(dc_perf_snapshot), set by the caller */
+    char group[DC_PERF_NAME_CHARS];
+    uint32_t capacity, mask_bytes;
+    uint8_t mask[DC_PERF_MAX_MASK_BYTES];  /* mask_hex: the first mask_bytes */
+    uint32_t info_command, control_command, info_bytes, control_bytes;
+    char info_sha256[65];
+    char control_sha256[65];
+    int32_t has_control_sha256;  /* 0: control_sha256 is None (no CONTROL) */
+    uint32_t flag_count;
+    dc_perf_flag flags[DC_PERF_MAX_FLAGS];
+    uint32_t target_count;  /* 0 or DC_PERF_TARGET_COUNT */
+    dc_perf_target targets[DC_PERF_TARGET_COUNT];
+    uint32_t issue_count;
+    char issues[DC_PERF_MAX_FLAGS][DC_PERF_ISSUE_CHARS];
+    uint32_t entry_count;  /* present_count */
+    dc_perf_entry entries[DC_PERF_MAX_ENTRIES];
+} dc_perf_snapshot;
+
+/* decode_group(name, info, control): pure, no driver call. control == NULL with has_control == 0 is
+ * Python's None. DC_OK fills *out; DC_E_FAILED fills *error with _layout's ValueError (kind
+ * DC_ERR_INVALID, "Unknown PERF diagnostic group " + an ASCII repr of the name) or the
+ * PerfDiagnosticError (kind DC_ERR_MALFORMED) with Python's message. */
+DC_API dc_status DC_CALL dc_perf_decode_group(const char* name, const uint8_t* info, size_t info_size,
+                                              const uint8_t* control, size_t control_size, int32_t has_control,
+                                              dc_perf_snapshot* out, dc_error* error);
+
+enum { DC_PERF_STATUS_READY = 0, DC_PERF_STATUS_EMPTY = 1, DC_PERF_STATUS_FAILED = 2 };
+
+/* One group of PerfDiagnosticsReader.read, on the handle's reader. */
+typedef struct dc_perf_group_result {
+    uint32_t size;      /* sizeof(dc_perf_group_result), set by the caller */
+    int32_t status;     /* DC_PERF_STATUS_*: FAILED carries the error's kind in *error */
+    uint32_t attempts;  /* Python's _attempt after the loop */
+    int32_t has_target; /* a binding succeeded: slot and architecture update the report */
+    char slot[32];
+    uint32_t architecture;
+    dc_perf_snapshot snapshot;  /* READY / EMPTY only; its size is set by the caller */
+} dc_perf_group_result;
+
+/* The attempts loop of read() for group `name`, attempts in 1..3: per attempt, under the handle
+ * lock (taken per attempt, as Python takes gpu._lock per attempt; it is released between attempts):
+ * the binding, the presence of both NvAPI getter exports (DC_ERR_UNSUPPORTED "PERF getter exports
+ * are unavailable"), _transport, the INFO GET, its mask, the CONTROL GET only when a mask byte is
+ * set, and decode_group. A DC_ERR_TRANSIENT failure retries; any other kind stops. DC_OK always
+ * reports the group (FAILED with *error filled as dc_perf_get does); DC_E_FAILED with kind
+ * DC_ERR_INVALID is _layout's ValueError for an unknown name or attempts outside 1..3 ("PERF read
+ * attempts must be between 1 and 3"), before anything is read. */
+DC_API dc_status DC_CALL dc_perf_read_group(dc_gpu* gpu, const char* name, uint32_t attempts,
+                                            dc_perf_group_result* out, dc_error* error);
+
+/* hashlib.sha256(data).hexdigest(): 64 lowercase hex characters and a NUL into out. */
+DC_API dc_status DC_CALL dc_sha256_hex(const uint8_t* data, size_t size, char out[65]);
 
 #ifdef __cplusplus
 }

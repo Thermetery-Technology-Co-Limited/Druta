@@ -21,7 +21,6 @@ using HandleFn = int(DRUTA_CDECL*)(void*);
 constexpr std::uint32_t Pstates20Set = 0x0F4DAE6B;
 constexpr std::uint32_t kArchPascal = 4;
 constexpr std::int64_t kInt32Min = -(std::int64_t(1) << 31);
-constexpr std::int64_t kInt32Max = (std::int64_t(1) << 31) - 1;
 
 std::string g_format(double value, bool sign) {  // Python's :g / :+g
     char text[64];

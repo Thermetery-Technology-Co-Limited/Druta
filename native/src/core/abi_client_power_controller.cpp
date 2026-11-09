@@ -126,6 +126,52 @@ DC_API dc_status DC_CALL dc_cpc_exchange(dc_gpu* handle, uint32_t command, const
     return status;
 }
 
+DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* handle, dc_cpc_metadata* out, dc_error* error) {
+    if (!handle || !out || out->size != sizeof(dc_cpc_metadata) || (error && error->size != sizeof(dc_error)))
+        return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // read_metadata: `with self.gpu._lock`
+        druta::backend::CpRead<druta::backend::CpMetadata> r = handle->cp.read_metadata();
+        if (!r.value) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        const druta::backend::CpMetadata& m = *r.value;
+        if (m.info.size() > DC_CPC_INFO_MAX || m.role_info.size() > DC_CPC_ROLE_INFO_MAX ||
+            m.native_info.size() > DC_CPC_NATIVE_INFO_MAX)
+            return DC_E_BUFFER;  // unreachable: DC_CPC_*_MAX are SIZES' packets, every group's largest
+        // Filled in place: the struct is about 23 KB.
+        std::memset(out, 0, sizeof(dc_cpc_metadata));
+        out->size = sizeof(dc_cpc_metadata);
+        out->schema = 1;
+        out->stable_reads = 2;
+        DC_COPY(out->slot, m.identity.slot);
+        out->architecture = m.identity.architecture;
+        out->device_id = m.identity.device_id;
+        out->subsystem_id = m.identity.subsystem_id;
+        out->client_index = m.client_index;
+        out->native_index = m.native_index;
+        out->semantic_role = druta::backend::kCpRole;
+        out->client = druta::backend::kCpClient;
+        DC_COPY(out->units, std::string("mW"));
+        out->minimum_mw = m.minimum_mw;
+        out->rated_mw = m.rated_mw;
+        out->maximum_mw = m.maximum_mw;
+        out->layout = static_cast<int32_t>(m.layout);
+        out->native_layout = static_cast<int32_t>(m.native_layout);
+        out->has_native_info_stride = m.native_info_stride ? 1 : 0;
+        out->native_info_stride = m.native_info_stride ? *m.native_info_stride : 0;
+        out->info_size = static_cast<uint32_t>(m.info.size());
+        out->role_info_size = static_cast<uint32_t>(m.role_info.size());
+        out->native_info_size = static_cast<uint32_t>(m.native_info.size());
+        if (!m.info.empty()) std::memcpy(out->info, m.info.data(), m.info.size());
+        if (!m.role_info.empty()) std::memcpy(out->role_info, m.role_info.data(), m.role_info.size());
+        if (!m.native_info.empty()) std::memcpy(out->native_info, m.native_info.data(), m.native_info.size());
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
 DC_API dc_status DC_CALL dc_cpc_reset_transport(dc_gpu* handle) {
     if (!handle) return DC_E_ARGUMENT;
     return guarded(nullptr, [&]() -> dc_status {

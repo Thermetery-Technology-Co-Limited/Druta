@@ -559,6 +559,8 @@ _SIGNATURES = {
     "dc_cpc_reset_transport": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_cpc_reset": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_cpc_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
+    # client-power controller (increment A4); dc_cpc_metadata is Gpu._CpcMetadata, passed by address
+    "dc_cpc_read_metadata": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
 }
 
 _lock = threading.Lock()
@@ -994,7 +996,8 @@ class Gpu:
 
     # ---- client-power controller (increment A3) ------------------------------------------------- #
     # ClientPowerController._transport / _exchange / _reset_transport on this handle's one sticky
-    # controller (dc_cpc_*); _cp_reset() stands for constructing a fresh controller.
+    # controller (dc_cpc_*); _cp_reset() stands for constructing a fresh controller. Increment A4 adds
+    # read_metadata (_cp_read_metadata).
 
     class _CpcState(ctypes.Structure):  # dc_cpc_state
         _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
@@ -1110,6 +1113,60 @@ class Gpu:
                 "role_info216": bool(s.role_info216), "rm26": bool(s.rm26),
                 "rm26_records": bool(s.rm26_records), "rm26_extended": bool(s.rm26_extended),
                 "transport_key": tuple(s.transport_key) if s.has_transport_key else None}
+
+    class _CpcMetadata(ctypes.Structure):  # dc_cpc_metadata
+        _fields_ = ([("size", ctypes.c_uint32), ("schema", ctypes.c_int32), ("stable_reads", ctypes.c_int32),
+                     ("slot", ctypes.c_char * 24)]
+                    + [(name, ctypes.c_uint32) for name in (
+                        "architecture", "device_id", "subsystem_id", "client_index", "native_index",
+                        "semantic_role", "client")]
+                    + [("units", ctypes.c_char * 4)]
+                    + [(name, ctypes.c_uint32) for name in ("minimum_mw", "rated_mw", "maximum_mw")]
+                    + [(name, ctypes.c_int32) for name in ("layout", "native_layout", "has_native_info_stride")]
+                    + [(name, ctypes.c_uint32) for name in (
+                        "native_info_stride", "info_size", "role_info_size", "native_info_size")]
+                    + [("info", ctypes.c_uint8 * 2340), ("role_info", ctypes.c_uint8 * 264),
+                       ("native_info", ctypes.c_uint8 * 20512)])
+
+    # dc_cpc_metadata.layout / native_layout: the DC_CP_LAYOUT_* / DC_CP_NATIVE_* values present.
+    _CP_LAYOUTS = {2: "rm26", 3: "legacy32"}
+    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended"}
+
+    def _cp_read_metadata(self):
+        """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError."""
+        m, error = self._CpcMetadata(), _Error()
+        m.size, error.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(_Error)
+        status = load().dc_cpc_read_metadata(self._handle, ctypes.addressof(m), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status != DC_OK:
+            _raise(status)
+        binding = {
+            "client_index": m.client_index,
+            "native_index": m.native_index,
+            "semantic_role": m.semantic_role,
+            "client": m.client,
+            "units": _text(m.units),
+            "minimum_mw": m.minimum_mw,
+            "rated_mw": m.rated_mw,
+            "maximum_mw": m.maximum_mw,
+        }
+        if m.layout:
+            binding["layout"] = self._CP_LAYOUTS[m.layout]
+        if m.native_layout:
+            binding["native_layout"] = self._CP_NATIVE_LAYOUTS[m.native_layout]
+        if m.has_native_info_stride:
+            binding["native_info_stride"] = m.native_info_stride
+        return {
+            "schema": m.schema,
+            "stable_reads": m.stable_reads,
+            "identity": {"slot": _text(m.slot), "architecture": m.architecture, "device_id": m.device_id,
+                         "subsystem_id": m.subsystem_id},
+            "binding": binding,
+            "info_hex": bytes(m.info[:m.info_size]).hex(),
+            "role_info_hex": bytes(m.role_info[:m.role_info_size]).hex(),
+            "native_info_hex": bytes(m.native_info[:m.native_info_size]).hex(),
+        }
 
     def arch_name(self):
         from .nvbackend import GPU
