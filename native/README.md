@@ -68,6 +68,7 @@ core, then compares results, driver call sequences and messages.
 | Client-power tables and geometry helpers | `client_power_runtime` constants, `_small_native_geometry`, `_definition_stride`, `_native_geometry`, `_coupled_requests`, `_project`, `_matches` | `dc_cp_*` (`drutacore/client_power.h`, bound by `druta.native_client_power`) | `tests/test_native_client_power.py` |
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
 | PERF diagnostics layouts, transport and GET | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `PerfDiagnosticsReader._transport`, `_get` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_get`, `dc_perf_reset` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py` |
+| Clock-BIOS user-clock CONTROL GET | `clock_bios_runtime._control_once`, `_control_shape` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
 `nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
@@ -147,6 +148,10 @@ Python does: `_legacy_clk_escape` returns `None` there, so both sides raise
 the transient "NT None" / "NTSTATUS None" failure rather than a transport
 exception. The PERF transport stays A612-only on purpose: an RM26 transport
 is a validated power transport the PERF GETs are not understood to share.
+The clock-BIOS reader's raw user-clock CONTROL GET runs the same guarded
+allocation around the exact 24996-byte NvAPI record and distinguishes the
+two Python exception types by return status (`DC_E_FAILED` with a kind for
+`PerfDiagnosticError`, `DC_E_UNRECOGNIZED` for `ClockBiosError`).
 
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls

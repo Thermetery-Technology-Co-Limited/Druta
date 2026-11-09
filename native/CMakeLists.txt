@@ -83,6 +83,7 @@ add_library(drutacore_impl STATIC
   src/backend/client_power.cpp
   src/backend/client_power_controller.cpp
   src/backend/perf_diagnostics.cpp
+  src/backend/clock_bios.cpp
   src/backend/power_arbitration.cpp
   src/backend/rail_limits.cpp
   src/backend/target.cpp
@@ -119,6 +120,7 @@ add_library(drutacore SHARED
   src/core/abi_client_power.cpp
   src/core/abi_client_power_controller.cpp
   src/core/abi_perf_diagnostics.cpp
+  src/core/abi_clock_bios.cpp
   src/core/abi_power_arbitration.cpp
   src/core/abi_rail_limits.cpp
   src/core/abi_target.cpp

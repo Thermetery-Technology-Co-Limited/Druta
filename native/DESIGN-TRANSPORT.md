@@ -660,7 +660,8 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    tables and geometry helpers as `backend/client_power`, `dc_cp_*`, `tests/test_native_client_power.py`; the
    controller's transport and guarded exchange as `backend/client_power_controller`, `dc_cpc_*`,
    `tests/test_native_client_power_controller.py`; the PERF layouts, transport and GET as
-   `backend/perf_diagnostics`, `dc_perf_*`, `tests/test_native_perf_diagnostics.py`.)
+   `backend/perf_diagnostics`, `dc_perf_*`, `tests/test_native_perf_diagnostics.py`; the clock-BIOS user-clock
+   CONTROL GET as `backend/clock_bios`, `dc_clock_bios_*`, `tests/test_native_clock_bios.py`.)
 
 ### 3.10 Corrections to the design-panel output
 

@@ -56,6 +56,15 @@ struct PerfTransportResult {
 // _get's mask argument as Python sees it.
 enum class PerfMask { none, bytes, other };  // None, a bytes object, any other value
 
+// _get's transport argument once the binding has marshalled it as ctypes does (`header, fields =
+// transport`, each header word stored modulo 2^32 into the packet in order): `header_count` words,
+// copied from packet word 0 (a word past 16 lands in the payload), and the escape fields.
+struct PerfRequest {
+    const std::uint32_t* header = nullptr;
+    std::uint32_t header_count = 0;
+    EscapeFields fields;
+};
+
 struct PerfGetResult {
     std::optional<std::vector<std::uint8_t>> payload;  // the `size` bytes after offset 68
     // Otherwise the exception. kind invalid is a plain ValueError raised before the driver was touched
@@ -63,7 +72,10 @@ struct PerfGetResult {
     // attribute is ntstatus for the transport failure (unset when no escape was issued, Python's None)
     // and rm_status for an RM rejection.
     RmError error;
-    bool no_transport = false;  // transport was None: Python's tuple unpacking raised TypeError here
+    // The transport could not be used where Python builds the packet, after the rules and the first
+    // binding: None (Python's unpacking TypeError) or a header longer than the packet (ctypes'
+    // IndexError). No escape was issued.
+    bool bad_transport = false;
 };
 
 class PerfDiagnostics {
@@ -73,11 +85,15 @@ public:
 
     // PerfDiagnosticsReader._transport. The caller holds Gpu::lock().
     PerfTransportResult transport();
+    // PerfDiagnosticsReader._binding alone, on the reader's sticky identity. The caller holds Gpu::lock().
+    TargetResult bind() { return binding_.bind(); }
     // PerfDiagnosticsReader._get(command, size, transport, mask). The caller holds Gpu::lock().
-    // `transport` is the caller's (header, fields), as Python takes the tuple _transport() returned;
-    // nullptr is Python's None, refused (no_transport) where Python unpacks it, after the first binding.
-    PerfGetResult get(std::uint32_t command, std::uint32_t size, const CapturedTransport* transport,
-                      PerfMask mask_kind, const std::uint8_t* mask, std::uint32_t mask_size);
+    // `transport` is the caller's marshalled (header, fields); nullptr is Python's None. Either is
+    // refused (bad_transport) where Python builds the packet, after the rules and the first binding.
+    // A second binding of an unchanged handle is idempotent: the sticky identity matches and the
+    // recognised architecture is cached, so it makes no driver call.
+    PerfGetResult get(std::uint32_t command, std::uint32_t size, const PerfRequest* transport, PerfMask mask_kind,
+                      const std::uint8_t* mask, std::uint32_t mask_size);
     // A fresh reader: forget the sticky identity.
     void reset() { binding_.reset(); }
 

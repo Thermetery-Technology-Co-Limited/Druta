@@ -13,6 +13,7 @@ namespace {
 
 using druta::backend::CapturedTransport;
 using druta::backend::PerfMask;
+using druta::backend::PerfRequest;
 
 void put_error(const druta::backend::RmError& why, dc_error* out) {
     if (!out) return;
@@ -37,15 +38,6 @@ void put_transport(const CapturedTransport& t, dc_rm_transport* out) {
     for (std::size_t i = 0; i < 17; ++i) r.header[i] = t.header[i];
     r.fields = dc_escape_fields{t.fields.hAdapter, t.fields.hDevice, t.fields.Type, t.fields.Flags, t.fields.hContext};
     *out = r;
-}
-
-CapturedTransport get_transport(const dc_rm_transport& in) {
-    CapturedTransport t;
-    t.header_count = in.header_count;
-    for (std::size_t i = 0; i < 17; ++i) t.header[i] = in.header[i];
-    t.fields = druta::backend::EscapeFields{in.fields.hAdapter, in.fields.hDevice, in.fields.Type, in.fields.Flags,
-                                            in.fields.hContext};
-    return t;
 }
 
 }  // namespace
@@ -101,10 +93,23 @@ DC_API dc_status DC_CALL dc_perf_transport(dc_gpu* handle, dc_rm_transport* out,
     return DC_OK;
 }
 
-DC_API dc_status DC_CALL dc_perf_get(dc_gpu* handle, uint32_t command, uint32_t size, const dc_rm_transport* transport,
-                                     const uint8_t* mask, uint32_t mask_size, int32_t has_mask, uint8_t* out,
-                                     uint32_t capacity, dc_error* error) {
-    if (!handle || !transport || transport->size != sizeof(dc_rm_transport) || !error_ok(error) ||
+DC_API dc_status DC_CALL dc_perf_bind(dc_gpu* handle, dc_error* error) {
+    if (!handle || !error_ok(error)) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    druta::backend::TargetResult r = handle->perf.bind();
+    if (!r.target) {
+        put_error(r.error, error);
+        return DC_E_FAILED;
+    }
+    put_error(druta::backend::RmError{}, error);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_perf_get(dc_gpu* handle, uint32_t command, uint32_t size, const uint32_t* header,
+                                     uint32_t header_count, const dc_escape_fields* fields, const uint8_t* mask,
+                                     uint32_t mask_size, int32_t has_mask, uint8_t* out, uint32_t capacity,
+                                     dc_error* error) {
+    if (!handle || !error_ok(error) || (!header && header_count) || (!fields && header_count) ||
         has_mask < DC_PERF_MASK_NONE || has_mask > DC_PERF_MASK_OTHER ||
         (has_mask == DC_PERF_MASK_BYTES && !mask && mask_size) || (!out && capacity))
         return DC_E_ARGUMENT;
@@ -115,11 +120,17 @@ DC_API dc_status DC_CALL dc_perf_get(dc_gpu* handle, uint32_t command, uint32_t 
     // The core takes the output buffer up front, so an allowed size it cannot hold is refused
     // before the driver is touched.
     if (druta::backend::perf_get_allowed(command, size) && capacity < size) return DC_E_BUFFER;
-    std::optional<CapturedTransport> given;
-    if (transport->captured) given = get_transport(*transport);
+    std::optional<PerfRequest> given;
+    if (fields) {
+        given.emplace();
+        given->header = header;
+        given->header_count = header_count;
+        given->fields = druta::backend::EscapeFields{fields->hAdapter, fields->hDevice, fields->Type, fields->Flags,
+                                                     fields->hContext};
+    }
     druta::backend::PerfGetResult r =
         handle->perf.get(command, size, given ? &*given : nullptr, kind, mask, mask_size);
-    if (r.no_transport) return DC_E_ARGUMENT;  // Python's TypeError unpacking None
+    if (r.bad_transport) return DC_E_ARGUMENT;  // Python's TypeError (None) or IndexError (too long)
     if (!r.payload) {
         put_error(r.error, error);
         return DC_E_FAILED;

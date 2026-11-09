@@ -733,6 +733,7 @@ typedef struct dc_rm_transport {
 /* The handle-bound readers that take or return a dc_rm_transport. */
 #include "drutacore/client_power_controller.h" /* dc_cpc_*: the controller on a handle */
 #include "drutacore/perf_diagnostics.h"        /* dc_perf_*: the PERF diagnostics reader */
+#include "drutacore/clock_bios.h"              /* dc_clock_bios_*: the clock-BIOS reader */
 
 typedef struct dc_rm_observed {  /* _current_limit_observed_transport: {} when seen == 0 */
     uint32_t size;

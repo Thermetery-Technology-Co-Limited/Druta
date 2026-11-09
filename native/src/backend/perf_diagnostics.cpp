@@ -93,7 +93,7 @@ PerfTransportResult PerfDiagnostics::transport() {
     return out;
 }
 
-PerfGetResult PerfDiagnostics::get(std::uint32_t command, std::uint32_t size, const CapturedTransport* transport,
+PerfGetResult PerfDiagnostics::get(std::uint32_t command, std::uint32_t size, const PerfRequest* transport,
                                    PerfMask mask_kind, const std::uint8_t* mask, std::uint32_t mask_size) {
     PerfGetResult out;
     if (!perf_get_allowed(command, size)) {
@@ -115,16 +115,17 @@ PerfGetResult PerfDiagnostics::get(std::uint32_t command, std::uint32_t size, co
         out.error = bound.error;
         return out;
     }
-    if (!transport) {
-        out.no_transport = true;
-        return out;
-    }
     const std::uint32_t words = kHeaderWords + size / 4;
     const std::uint32_t packet_bytes = words * 4;
+    // Python unpacks the transport and copies every header word into a zeroed packet of `words`
+    // words: a shorter header leaves the rest 0, words past 16 land in the payload, and a header
+    // longer than the packet raises IndexError before anything is sent.
+    if (!transport || transport->header_count > words || (transport->header_count && !transport->header)) {
+        out.bad_transport = true;
+        return out;
+    }
     std::vector<std::uint32_t> packet(words, 0);
-    // Python copies every header word it was given; a stored header is at most 17 words here.
-    const std::uint32_t count = transport->header_count < kHeaderWords ? transport->header_count : kHeaderWords;
-    for (std::uint32_t i = 0; i < count; ++i) packet[i] = transport->header[i];
+    for (std::uint32_t i = 0; i < transport->header_count; ++i) packet[i] = transport->header[i];
     packet[2] = packet_bytes;
     packet[14] = command;
     packet[15] = size;

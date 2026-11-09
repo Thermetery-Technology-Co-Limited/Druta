@@ -20,10 +20,11 @@
  *   which is Python's None. An escape that could not be issued at all is Python's
  *   "PERF GET transport failed (NTSTATUS None)" with status None (has_ntstatus = 0), as
  *   nvbackend.GPU._legacy_clk_escape returns None there.
- * DC_E_ARGUMENT is only for a NULL or malformed argument, and for transport->captured == 0 once the
- * checks Python runs before unpacking the transport (the rules and the first binding) have passed:
- * Python's tuple unpacking of None raises TypeError there. DC_E_BUFFER for an allowed size larger
- * than capacity, before the driver is touched. */
+ * DC_E_ARGUMENT is only for a NULL or malformed argument, and for a transport dc_perf_get cannot
+ * use (fields == NULL, Python's None, or more header words than the packet holds) once the checks
+ * Python runs before building the packet (the rules and the first binding) have passed: Python
+ * raises TypeError (unpacking None) or IndexError (ctypes' invalid index) there. DC_E_BUFFER for an
+ * allowed size larger than capacity, before the driver is touched. */
 #ifndef DRUTACORE_PERF_DIAGNOSTICS_H
 #define DRUTACORE_PERF_DIAGNOSTICS_H
 
@@ -62,14 +63,30 @@ DC_API dc_status DC_CALL dc_perf_transport(dc_gpu* gpu, dc_rm_transport* out, dc
 /* _get(command, size, transport, mask)'s request mask, as Python sees the argument. */
 enum { DC_PERF_MASK_NONE = 0, DC_PERF_MASK_BYTES = 1, DC_PERF_MASK_OTHER = 2 };
 
-/* _get(command, size, transport, mask): one read-only PERF GET through the caller's transport
- * (what dc_perf_transport returned, or an altered copy). has_mask is DC_PERF_MASK_*: BYTES passes
- * mask[0..mask_size); OTHER is a value that is not bytes (refused for CONTROL, as any mask is for
- * INFO). On DC_OK out[0..size) holds the response bytes after the 68-byte header. A transport
- * failure (a non-zero or missing NTSTATUS) drops the cached power transport and layout choice. */
-DC_API dc_status DC_CALL dc_perf_get(dc_gpu* gpu, uint32_t command, uint32_t size, const dc_rm_transport* transport,
-                                     const uint8_t* mask, uint32_t mask_size, int32_t has_mask, uint8_t* out,
-                                     uint32_t capacity, dc_error* error);
+/* _binding() alone on the reader's sticky identity: DC_OK, or DC_E_FAILED with the
+ * PerfDiagnosticError (DC_ERR_IDENTITY, DC_ERR_TRANSIENT or DC_ERR_UNSUPPORTED). A binding that
+ * must run before an exception of the caller's own (Python's _get binds before it unpacks the
+ * transport and builds the packet) runs this first and raises its error instead, if any. */
+DC_API dc_status DC_CALL dc_perf_bind(dc_gpu* gpu, dc_error* error);
+
+/* _get(command, size, transport, mask): one read-only PERF GET through the caller's transport.
+ * The transport is the (header, fields) pair after the ctypes marshalling Python's packet build
+ * does: header[0..header_count) are the words as stored into the c_uint32 packet (already reduced
+ * modulo 2^32), copied from packet word 0 into a zeroed packet of 17 + size / 4 words, so a shorter
+ * header leaves the remaining words 0 and a word past 16 lands in the payload; words 2, 14, 15
+ * and 16 are then set to the packet bytes, command, size and 0. fields are the escape fields
+ * (hAdapter is replaced by the paired adapter). fields == NULL is Python's None (header_count must
+ * then be 0). What dc_perf_transport returned is passed as its 17 words and fields.
+ * has_mask is DC_PERF_MASK_*: BYTES passes mask[0..mask_size); OTHER is a value that is not bytes
+ * (refused for CONTROL, as any mask is for INFO). On DC_OK out[0..size) holds the response bytes
+ * after the 68-byte header. A transport failure (a non-zero or missing NTSTATUS) drops the cached
+ * power transport and layout choice. Order: the allow-set and mask rules, the binding, the
+ * transport (DC_E_ARGUMENT, above), the escape, the binding again, then the NTSTATUS, RM status
+ * and echo checks. */
+DC_API dc_status DC_CALL dc_perf_get(dc_gpu* gpu, uint32_t command, uint32_t size, const uint32_t* header,
+                                     uint32_t header_count, const dc_escape_fields* fields, const uint8_t* mask,
+                                     uint32_t mask_size, int32_t has_mask, uint8_t* out, uint32_t capacity,
+                                     dc_error* error);
 
 /* A fresh reader: forget the reader's sticky target identity. */
 DC_API dc_status DC_CALL dc_perf_reset(dc_gpu* gpu);

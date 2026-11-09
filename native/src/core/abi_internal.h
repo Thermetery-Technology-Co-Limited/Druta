@@ -15,6 +15,7 @@
 #include <string>
 
 #include "backend/clkdom.h"
+#include "backend/clock_bios.h"
 #include "backend/clocks.h"
 #include "backend/current_limits.h"
 #include "backend/client_power_controller.h"
@@ -40,9 +41,10 @@ struct dc_gpu {
     druta::backend::TargetBinding target;  // the handle's shared paired-target binding (one sticky identity)
     druta::backend::ClientPowerController cp;  // the sticky client-power controller (_get_live_power_controller)
     druta::backend::PerfDiagnostics perf;      // the PERF diagnostics reader (its own sticky identity)
+    druta::backend::ClockBios clock_bios;      // the clock-BIOS reader (its own sticky identity)
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
     std::optional<druta::backend::VfCurve> vfcurve;             // carries the layout cache, as GPU._vfp_layout_cache
-    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm) {}
+    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm), clock_bios(gpu, telemetry, rm, clkdom) {}
     const druta::backend::StaticCapabilities& capabilities() {
         if (!statics) statics = telemetry.read_static();
         return *statics;
