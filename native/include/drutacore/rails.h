@@ -347,6 +347,126 @@ typedef struct dc_rails_verify_result {
 DC_API dc_status DC_CALL dc_rails_verify_records(dc_gpu* handle, const dc_rails_records* records, int32_t has_boost,
                                                  int32_t boost, dc_rails_verify_result* out);
 
+/* ---- Increment R5: the verified rail setters -----------------------------------------------------
+ *
+ * nvbackend.GPU.set_volt_rail_limits, set_volt_rail_limits_raw, reset_volt_rail_limits and
+ * _adopt_verified_hold_fields over dc_rails_write_records / dc_rails_verify_records. The session
+ * flags volt_limits_write_enabled and voltage_xoc_enabled are inputs of each call (write_enabled,
+ * xoc), never stored by the core: a GPU driver restart is the user's reset, and nothing here is
+ * persisted or reapplied. The restore target of a reset is this session's first read
+ * (_volt_rail_initial_uv), never a factory default. No driver, board or VBIOS identity is consulted.
+ * Every entry takes the handle lock (then the hook mutex inside each write sequence). The caller
+ * texts (unknown, bad, joined) travel as presence + pointer + byte length: a present text may be
+ * empty and may hold NUL bytes, and the refusals they drive test presence, never emptiness. They are
+ * refused above DC_RAILS_TEXT_MAX bytes so that the longest composed message (a two-rail reset
+ * joining two restored texts) stays below dc_outcome.message's 4096 bytes. That message is
+ * NUL-terminated, so a NUL inside a caller text shortens only the printed message, never the
+ * refusal decision. */
+
+#define DC_RAILS_LIMIT_XOC_MAX_MV 1500.0 /* VOLT_LIMIT_XOC_MAX_MV: the request bound with XOC on */
+#define DC_RAILS_TEXT_MAX 1024u           /* longest caller text accepted (bytes, without the NUL) */
+
+/* One keyword of set_volt_rail_limits that names a field (indexed by VOLT_LIMIT_FIELDS). */
+typedef struct dc_rails_limit_field {
+    int32_t passed;    /* the keyword was passed */
+    int32_t has_value; /* 0: passed as None (skipped by the bounds and the write, still named) */
+    double value_mv;   /* the absolute request in mV */
+} dc_rails_limit_field;
+
+typedef struct dc_rails_limit_request {
+    uint32_t size;      /* sizeof(dc_rails_limit_request), set by the caller */
+    uint32_t count;     /* fields passed, 0 .. 4 */
+    uint32_t order[4];  /* their field indices in the caller's keyword order (the first bound refusal) */
+    dc_rails_limit_field fields[4];
+    /* has_unknown 0: every keyword names a field. 1: some keyword names none (even the empty name);
+     * unknown holds unknown_length bytes of ", ".join(sorted(other keywords)) (may be empty or hold
+     * NUL bytes; NULL only with length 0), printed by the "not a rail limit: " refusal (which
+     * follows the support check). */
+    int32_t has_unknown;
+    uint32_t unknown_length;
+    const char* unknown;
+} dc_rails_limit_request;
+
+/* set_volt_rail_limits_raw's keywords, already checked by the caller (named fields, plain int32). */
+typedef struct dc_rails_raw_request {
+    uint32_t size;      /* sizeof(dc_rails_raw_request), set by the caller */
+    uint32_t count;     /* 0 .. 4 */
+    uint32_t order[4];  /* field indices in keyword order */
+    int32_t passed[4];  /* per field index */
+    int32_t uv[4];      /* per field index: the signed microvolts */
+} dc_rails_raw_request;
+
+/* reset_volt_rail_limits' `fields`. */
+typedef struct dc_rails_reset_request {
+    uint32_t size;        /* sizeof(dc_rails_reset_request), set by the caller */
+    int32_t has_fields;   /* bool(fields): 0 restores every field and says "limits" */
+    uint32_t field_mask;  /* with has_fields: bit k set when tuple(fields) holds VOLT_LIMIT_FIELDS[k] */
+    int32_t has_bad;      /* 1: set(keys) - VOLT_LIMIT_FIELDS is not empty (even {""}) */
+    const char* bad;      /* bad_length bytes of ", ".join(sorted(set(keys) - VOLT_LIMIT_FIELDS)) */
+    uint32_t bad_length;
+    int32_t has_joined;   /* 1: joined is given (has_fields and no bad key) */
+    const char* joined;   /* joined_length bytes of ", ".join(tuple(fields)), printed on success */
+    uint32_t joined_length;
+    int32_t reserved;
+} dc_rails_reset_request;
+
+/* What the setter's _write_rail_records calls left in the writer's three attributes. */
+typedef struct dc_rails_setter_writes {
+    uint32_t size;           /* sizeof(dc_rails_setter_writes), set by the caller */
+    uint32_t calls;          /* _write_rail_records calls: 0 leaves all three attributes untouched */
+    int32_t attributes;      /* 1: some call ran a locked write; result is the last such write's
+                                (_volt_rail_write_protocol, _volt_rail_observed_packets) */
+    int32_t last_attributes; /* 1: the last call ran one (its error is result.error); 0 with calls:
+                                the last call cleared _volt_rail_write_error to None */
+    dc_rail_write_result result; /* its size is set by the core */
+} dc_rails_setter_writes;
+
+/* set_volt_rail_limits(rail, **limits). rail -1 is any key that names no rail. Refusals, in order:
+ * write disabled, volt_rail_limits_supported(rail), unknown keywords, read_volt_rail_limits None,
+ * the rail absent from it, fields not validated (volt_rail_limit_fields), the boost read None; then
+ * per non-None field in order the bound [min(650, current, first-read estimate), max(1200 or 1500
+ * with xoc, current)] in mV, the delta int(round((mv - base) * 1000)) (half to even), the write,
+ * the verification of every referenced rail and the boost, the hold adoption and the stored text.
+ * DC_E_ARGUMENT for a NULL argument, a size mismatch, count > 4, an order index above 3 or repeated
+ * or not passed, a passed field missing from order, or an unknown text above DC_RAILS_TEXT_MAX or
+ * NULL with a nonzero length. `writes` is filled even when the call then fails (DC_E_FAILED): it
+ * describes the write that ran before the failure. */
+DC_API dc_status DC_CALL dc_rails_set_limits(dc_gpu* handle, int32_t rail, const dc_rails_limit_request* limits,
+                                             int32_t write_enabled, int32_t xoc, dc_outcome* out,
+                                             dc_rails_setter_writes* writes);
+
+/* set_volt_rail_limits_raw(rail, **limits_uv) after the caller's "rail controls must be named signed
+ * 32-bit microvolt values" check: read_volt_rail_limits, "selected rail has no readable current-card
+ * reference" without the rail's bases, else set_volt_rail_limits with base + uv / 1000.0. `writes` as
+ * for dc_rails_set_limits. */
+DC_API dc_status DC_CALL dc_rails_set_limits_raw(dc_gpu* handle, int32_t rail, const dc_rails_raw_request* limits,
+                                                 int32_t write_enabled, int32_t xoc, dc_outcome* out,
+                                                 dc_rails_setter_writes* writes);
+
+/* reset_volt_rail_limits(rail, fields): has_rail 0 is rail=None (more than one first-read rail:
+ * one reset per rail in first-read order, messages joined with "; "). Takes no session flag: Python's
+ * reset reads neither. The hold record is cleared when its rail was reset and its written fields are
+ * a subset of the reset keys. DC_E_ARGUMENT as above, a field_mask beyond the four fields, or a
+ * text above DC_RAILS_TEXT_MAX or NULL with a nonzero length. `writes` as for dc_rails_set_limits. */
+DC_API dc_status DC_CALL dc_rails_reset_limits(dc_gpu* handle, int32_t has_rail, int32_t rail,
+                                               const dc_rails_reset_request* fields, dc_outcome* out,
+                                               dc_rails_setter_writes* writes);
+
+/* The hold-headroom record (_hold_headroom) as far as the setters read and clear it. Increment R6
+ * (apply/restore_hold_headroom) owns its fuller shape and extends this struct. */
+typedef struct dc_rails_hold_record {
+    uint32_t size;          /* sizeof(dc_rails_hold_record), set by the caller */
+    int32_t present;        /* 0: None */
+    int32_t rail;           /* "rail" */
+    int32_t has_written[4]; /* "written_uv" has VOLT_LIMIT_FIELDS[k] */
+    int32_t written_uv[4];
+    int32_t has_prior[4];   /* "prior_uv" has VOLT_LIMIT_FIELDS[k] */
+    int32_t prior_uv[4];
+} dc_rails_hold_record;
+
+DC_API dc_status DC_CALL dc_rails_hold_record_get(dc_gpu* handle, dc_rails_hold_record* out);
+DC_API dc_status DC_CALL dc_rails_hold_record_set(dc_gpu* handle, const dc_rails_hold_record* record);
+
 #ifdef __cplusplus
 }
 #endif

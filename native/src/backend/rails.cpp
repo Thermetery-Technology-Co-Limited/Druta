@@ -4,6 +4,7 @@
 #include "backend/rails.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -92,7 +93,88 @@ std::string values_text(const RailRecord& record) {
     return text;
 }
 
+// Python's f"{x:.0f}": printf's "%.0f" (both round half to even on the exact binary value), with
+// Python's spellings of the non-finite values (printf may write "-nan").
+std::string fixed0(double x) {
+    if (std::isnan(x)) return "nan";
+    if (std::isinf(x)) return x < 0 ? "-inf" : "inf";
+    char text[400];  // DBL_MAX is 309 digits
+    std::snprintf(text, sizeof text, "%.0f", x);
+    return text;
+}
+
+// Python's min(a, b) and max(a, b): the first argument unless the second compares strictly beyond it.
+double py_min(double a, double b) { return b < a ? b : a; }
+double py_max(double a, double b) { return b > a ? b : a; }
+
+// A read_volt_rail_limits row as the rail_limits port's Row (the four fields, "_base_mv" and
+// "_boost_mv"), for abs_limit_mv, rail_floor_mv and rail_ceiling_mv.
+rail::Row port_row(const RailLimitRow& row) {
+    rail::Row fields;
+    const RailFields limit = fields_of(row.deltas);
+    fields.bases = rail::Bases::mapping;  // "_base_mv" is always a dict here ({} without a reference)
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) {
+        fields.limit[k] = rail::Value::real(limit[k]);
+        if (row.base) fields.base[k] = rail::Value::real((*row.base)[k]);
+    }
+    fields.boost_mv = rail::Value::real(row.boost_mv);
+    return fields;
+}
+
+// The rows of read_volt_rail_limits hold floats with a dict base, so the port's error paths are
+// unreachable: abs_limit_mv is fields[key] + base.get(key, nan).
+double abs_mv(const RailLimitRow& row, std::size_t field) { return rail::abs_limit_mv(port_row(row), field).value.v; }
+
+// {r: [int(round(row[k] * 1000)) for k in VOLT_LIMIT_FIELDS]}: one exact list record.
+RailRecord record_of(std::size_t rail, const RailLimitRow& row) {
+    RailRecord record;
+    record.rail = static_cast<std::int32_t>(rail);
+    record.key = RailKey::plain;
+    record.count = rail::kFieldCount;
+    record.is_list = true;
+    const RailFields fields = fields_of(row.deltas);
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) record.values[k] = microvolts(fields[k]);
+    record.exact = true;
+    return record;
+}
+
+bool fits_i32(std::int64_t v) { return v >= INT32_MIN && v <= INT32_MAX; }
+
+// `expected = {r: [round(row[k] * 1000) ...] for r, row in cur.items() if row.get("_base_mv")}`,
+// then `expected.update(recs)`: a rail of recs replaces its entry in place, or is appended.
+RailRecords expected_records(const RailLimits& cur, const RailRecords& recs) {
+    RailRecords expected;
+    for (std::size_t r = 0; r < kRailCount; ++r) {
+        if (cur[r] && cur[r]->base) expected.records[expected.count++] = record_of(r, *cur[r]);
+    }
+    for (std::size_t i = 0; i < recs.count; ++i) {
+        bool replaced = false;
+        for (std::size_t j = 0; j < expected.count; ++j) {
+            if (expected.records[j].rail == recs.records[i].rail) {
+                expected.records[j] = recs.records[i];
+                replaced = true;
+            }
+        }
+        if (!replaced) expected.records[expected.count++] = recs.records[i];
+    }
+    return expected;
+}
+
+std::string hex_upper(std::uint32_t value) {
+    char text[16];
+    std::snprintf(text, sizeof text, "%X", static_cast<unsigned>(value));
+    return text;
+}
+
 }  // namespace
+
+const char* rail_name(std::size_t rail) {
+    switch (rail) {
+        case 0: return "core rail (NVVDD)";
+        case 1: return "MSVDD";
+        default: return nullptr;
+    }
+}
 
 const char* rail_reason_text(RailReason reason) {
     switch (reason) {
@@ -543,6 +625,225 @@ RailVerifyOutcome Rails::verify_records(const RailRecords& records, std::optiona
     }
     out.back = back;
     return out;
+}
+
+// ---- Increment R5: the verified setters ---------------------------------------------------------
+
+RailWriteOutcome Rails::write_traced(const RailRecords& records, RailWriterTrace& trace) {
+    RailWriteOutcome out = write_records(records);
+    // _write_rail_records clears _volt_rail_write_error first; a locked write that ran sets all three.
+    ++trace.calls;
+    trace.last_attributes = out.attributes;
+    if (out.attributes) {
+        trace.attributes = true;
+        trace.result = out.result;
+    }
+    return out;
+}
+
+void Rails::adopt_verified_hold_fields(std::int32_t rail, std::uint32_t fields, const RailLimits& back) {
+    // Retain an explicit selected request equal to our temporary raise.
+    if (!hold_.present || hold_.rail != rail) return;
+    if (rail < 0 || static_cast<std::size_t>(rail) >= kRailCount) return;
+    const auto& row = back[static_cast<std::size_t>(rail)];
+    if (!row) return;  // the verified read-back always holds the written rail
+    const RailFields values = fields_of(row->deltas);
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) {
+        if (!(fields >> k & 1u)) continue;
+        if (hold_.written_uv[k] && hold_.prior_uv[k] && microvolts(values[k]) == *hold_.written_uv[k])
+            hold_.prior_uv[k] = hold_.written_uv[k];
+    }
+}
+
+Outcome Rails::set_limits(std::int32_t rail, const RailLimitRequest& limits, bool write_enabled, bool xoc,
+                          RailWriterTrace& trace) {
+    if (!write_enabled)
+        return {false, "rail limit writes are disabled: nothing bounds this value but Druta, so it is off by default"};
+    if (!limits_supported(rail)) return {false, "rail limit runtime getters are unavailable or structurally inconsistent"};
+    // `if unknown:` tests the set, so the keyword "" alone refuses with an empty text
+    if (limits.unknown) return {false, "not a rail limit: " + *limits.unknown};
+    const std::optional<RailLimits> cur = this->limits();
+    if (!cur) return {false, "cannot read the current limits"};
+    const bool valid_rail = rail >= 0 && static_cast<std::size_t>(rail) < kRailCount;
+    if (!valid_rail || !(*cur)[static_cast<std::size_t>(rail)])
+        return {false, "rail " + std::to_string(rail) + " is not present on this GPU"};
+    const std::size_t r = static_cast<std::size_t>(rail);
+    // set(limits) - set(volt_rail_limit_fields(rail)): the fields are all four or none
+    const std::size_t validated = limit_fields(rail);
+    if (limits.count && validated == 0)
+        return {false, "one or more fields are not validated for rail " + std::to_string(rail)};
+    const std::optional<std::int32_t> boost = telemetry_.read_voltage_boost();
+    if (!boost) return {false, "cannot preserve the current voltage boost"};
+    const RailLimitRow& row = *(*cur)[r];
+    RailRecords recs;
+    recs.records[0] = record_of(r, row);
+    recs.count = 1;
+    RailRecord& rec = recs.records[0];
+    for (std::size_t i = 0; i < limits.count; ++i) {
+        const std::size_t key = limits.order[i];
+        if (!limits.value_mv[key]) continue;
+        const double mv = *limits.value_mv[key];
+        double maximum = xoc ? kVoltLimitXocMaxMv : kVoltLimitMaxMv;
+        // Leaving XOC keeps existing values and permits lowering them, but cannot raise an already
+        // above-normal value any further.
+        const double current = abs_mv(row, key);
+        maximum = py_max(maximum, current);
+        const RailStockLimit initial = stock_limit_mv(rail, static_cast<std::int32_t>(key));
+        const double minimum = py_min(py_min(kVoltLimitMinMv, current),
+                                      initial.kind == RailStockLimit::Kind::value ? initial.mv : kVoltLimitMinMv);
+        if (!(minimum <= mv && mv <= maximum))
+            return {false, std::string(rail::field_name(key)) + " " + fixed0(mv) + " mV is outside Druta's " +
+                               fixed0(minimum) + "-" + fixed0(maximum) + " mV bound"};
+        // int(round((mv - base) * 1000)): round half to even, as nearbyint is in the default mode
+        const double delta = std::nearbyint((mv - (*row.base)[key]) * 1000);
+        rec.values[key] = static_cast<std::int64_t>(delta);
+    }
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) rec.exact = rec.exact && fits_i32(rec.values[k]);
+    const RailWriteOutcome w = write_traced(recs, trace);
+    if (!w.ok) {
+        if (trace.last_attributes && !trace.result.error.empty()) return {false, trace.result.error};
+        return {false, "the rails request was not seen - nothing was written"};
+    }
+    if (w.status && *w.status) return {false, "driver refused the write (NV_STATUS 0x" + hex_upper(*w.status) + ")"};
+    const RailVerifyOutcome v = verify_records(expected_records(*cur, recs), boost);
+    if (!v.error.empty()) return {false, v.error};
+    const RailLimits& back = *v.back;
+    // A user can deliberately select the exact value currently supplied by our temporary hold raise.
+    // Readback alone cannot distinguish that choice from the raise, so make it the release target
+    // only after the selected write and all preserved records have been verified.
+    std::uint32_t chosen = 0;
+    for (std::size_t i = 0; i < limits.count; ++i) {
+        if (limits.value_mv[limits.order[i]]) chosen |= 1u << limits.order[i];
+    }
+    adopt_verified_hold_fields(rail, chosen, back);
+    const RailLimitRow& stored = *back[r];
+    // sorted(limits): the field names in alphabetical order, including keys passed as None
+    static constexpr std::size_t kSorted[] = {1, 2, 0, 3};  // alt_reliability, overvoltage, reliability, vmin
+    std::string wrote;
+    bool vmin_named = false;
+    for (std::size_t key : kSorted) {
+        bool named = false;
+        for (std::size_t i = 0; i < limits.count; ++i) named = named || limits.order[i] == key;
+        if (!named) continue;
+        if (key == 3) vmin_named = true;
+        if (!wrote.empty()) wrote += ", ";
+        wrote += std::string(rail::field_name(key)) + " " + fixed0(abs_mv(stored, key));
+    }
+    std::string note;
+    if (vmin_named) {
+        const std::optional<std::uint32_t> arch = telemetry_.arch();
+        if (arch && *arch == kArchPascal)
+            note = "; Pascal vmin was verified at idle; a V/F point lock or P2 can hold the live voltage below this floor";
+    }
+    const rail::Row fields = port_row(stored);
+    return {true, std::string(rail_name(r)) + ": " + wrote + " mV stored; floor " +
+                      fixed0(rail::rail_floor_mv(fields).value.v) + ", estimated cap at current boost " +
+                      fixed0(rail::rail_ceiling_mv(fields).value.v) +
+                      " mV; absolute requests are relative to this session's quantized first read" + note};
+}
+
+Outcome Rails::set_limits_raw(std::int32_t rail, const RailRawRequest& limits, bool write_enabled, bool xoc,
+                              RailWriterTrace& trace) {
+    // Replay exact saved signed fields; request bounds still apply.
+    const std::optional<RailLimits> current = this->limits();
+    const bool valid_rail = rail >= 0 && static_cast<std::size_t>(rail) < kRailCount;
+    const RailLimitRow* row = current && valid_rail && (*current)[static_cast<std::size_t>(rail)]
+                                  ? &*(*current)[static_cast<std::size_t>(rail)]
+                                  : nullptr;
+    if (!row || !row->base) return {false, "selected rail has no readable current-card reference"};
+    RailLimitRequest request;
+    request.count = limits.count;
+    request.order = limits.order;
+    for (std::size_t i = 0; i < limits.count; ++i) {
+        const std::size_t key = limits.order[i];
+        request.value_mv[key] = (*row->base)[key] + limits.uv[key] / 1000.0;  // bases[k] + v / 1000.0
+    }
+    return set_limits(rail, request, write_enabled, xoc, trace);
+}
+
+Outcome Rails::reset_limits(std::optional<std::int32_t> rail, const RailResetRequest& fields, RailWriterTrace& trace) {
+    // Restore selected fields to their exact first-read control values: this session's initial state,
+    // which may already include another application's tuning. It is not a factory reset.
+    if (!rail) {
+        this->limits();
+        const std::optional<RailProfile> p = profile();
+        std::vector<std::int32_t> initial;
+        if (p) {
+            for (std::size_t r : p->order) {
+                if (p->poweron[r]) initial.push_back(static_cast<std::int32_t>(r));
+            }
+        }
+        if (initial.size() > 1) {
+            bool ok = true;
+            std::string message;
+            for (std::size_t i = 0; i < initial.size(); ++i) {
+                const Outcome one = reset_limits(initial[i], fields, trace);
+                ok = ok && one.ok;
+                if (i) message += "; ";
+                message += one.message;
+            }
+            return {ok, message};
+        }
+    }
+    if (!limits_supported(std::nullopt)) return {false, "no readable initial rail state is available for restoration"};
+    const std::optional<RailProfile> p = profile();
+    const std::optional<RailLimits> cur = this->limits();
+    if (!cur) return {false, "cannot read the current limits"};
+    // supported() has just found the profile; the architecture it depends on is cached once recognized.
+    if (!p) return {false, "no readable initial rail state is available for restoration"};
+    std::vector<std::size_t> rails;
+    bool present = true;
+    if (!rail) {
+        for (std::size_t r = 0; r < kRailCount; ++r) {
+            if ((*cur)[r] && p->bases[r]) rails.push_back(r);
+        }
+    } else if (*rail >= 0 && static_cast<std::size_t>(*rail) < kRailCount) {
+        rails.push_back(static_cast<std::size_t>(*rail));
+    } else {
+        present = false;  // a key that names no rail is in neither dict
+    }
+    // any(r not in cur or r not in profile["fields"] or not supported(r)), stopping at the first
+    for (std::size_t i = 0; present && i < rails.size(); ++i) {
+        const std::size_t r = rails[i];
+        present = (*cur)[r] && p->bases[r] && limits_supported(static_cast<std::int32_t>(r));
+    }
+    if (rails.empty() || !present) return {false, "requested rail is not present on this GPU"};
+    const std::uint32_t keys = fields.has_fields ? fields.mask : (1u << rail::kFieldCount) - 1;
+    // `if bad:` tests the set, so the key "" alone refuses with an empty text
+    if (fields.bad) return {false, "not a rail limit: " + *fields.bad};
+    const std::optional<std::int32_t> boost = telemetry_.read_voltage_boost();
+    if (!boost) return {false, "cannot preserve the current voltage boost"};
+    RailRecords recs;
+    for (std::size_t r : rails) {
+        RailRecord record = record_of(r, *(*cur)[r]);
+        for (std::size_t k = 0; k < rail::kFieldCount; ++k) {
+            // a rail in profile["fields"] has its first-read record: both are set together
+            if (keys >> k & 1u) record.values[k] = (*p->poweron[r])[k];
+        }
+        recs.records[recs.count++] = record;
+    }
+    const RailWriteOutcome w = write_traced(recs, trace);
+    if (!w.ok || (w.status && *w.status))
+        return {false, "reset refused (NV_STATUS 0x" + hex_upper(w.status.value_or(0u)) + ")"};
+    const RailVerifyOutcome v = verify_records(expected_records(*cur, recs), boost);
+    if (!v.error.empty()) return {false, v.error};
+    for (std::size_t r : rails) adopt_verified_hold_fields(static_cast<std::int32_t>(r), keys, *v.back);
+    if (hold_.present) {
+        bool in_rails = false;
+        for (std::size_t r : rails) in_rails = in_rails || hold_.rail == static_cast<std::int32_t>(r);
+        bool subset = true;
+        for (std::size_t k = 0; k < rail::kFieldCount; ++k) subset = subset && (!hold_.written_uv[k] || (keys >> k & 1u));
+        // The raise was overwritten by first-read values; restoring its "prior" values later would
+        // write stale limits back over them.
+        if (in_rails && subset) hold_ = HoldRecord{};
+    }
+    std::string what;
+    if (!rail && !fields.has_fields) {
+        what = "rail limits";
+    } else {
+        what = std::string(rail_name(rails[0])) + " " + (fields.has_fields ? fields.joined : std::string("limits"));
+    }
+    return {true, what + " restored to first-read values (not factory defaults)"};
 }
 
 }  // namespace druta::backend

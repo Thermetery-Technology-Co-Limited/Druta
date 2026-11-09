@@ -85,6 +85,41 @@ Divergences of R4:
   int (Python prints "rail True" / "rail 1.0"), or a boost other than None or an int32 (Python would
   compare and print any value). The write path only verifies records it could
   write, which are always exact.
+
+Increment R5, the verified setters: ``set_volt_rail_limits(gpu, rail, limits)``,
+``set_volt_rail_limits_raw(gpu, rail, limits_uv)`` and ``reset_volt_rail_limits(gpu, rail=None,
+fields=None)`` are the GPU methods of those names (``limits`` / ``limits_uv`` the keyword dicts; the
+native.Gpu methods keep Python's keyword interface and delegate here). The session flags
+``volt_limits_write_enabled`` and ``voltage_xoc_enabled`` are read from ``gpu`` at each call and
+passed to the core, which never stores them. The writer's three attributes are set as Python's
+``_write_rail_records`` calls leave them. ``hold_record(gpu)`` / ``set_hold_record(gpu, record)``
+read and set the core's minimal ``_hold_headroom`` (``{"rail", "written_uv", "prior_uv"}``; R6 owns
+the fuller record), which the setters adopt into and clear.
+
+Divergences of R5:
+
+- ``rail`` must be a plain int or a key that names no rail: a bool or float equal to a rail (True,
+  1.0) raises TypeError before any read (Python carries it into the write, where prepare_write or
+  the rail mask refuses it). A limit value must be an int or a float (TypeError otherwise, before
+  any read; an int beyond the double range raises OverflowError before any read, where Python's
+  ``:.0f`` raises it after them); a value under a keyword that names no field is never converted.
+- ``reset_volt_rail_limits`` materializes ``fields`` once with ``tuple()``: a one-shot iterator is
+  seen by every per-rail reset (Python's first per-rail call consumes it). Its texts (``bad`` and
+  ``joined``) are computed before any read, so a TypeError of ``sorted`` / ``join`` is raised then.
+- The unknown, bad and joined texts are refused above 1024 UTF-8 bytes (ValueError) so every
+  composed message fits ``dc_outcome``. Below that they reach the core exactly: each travels as
+  presence + pointer + byte length, so an empty name (the keyword or field ``""``) refuses with
+  "not a rail limit: " as Python does, a NUL byte is carried, and a lone surrogate is carried with
+  ``surrogatepass`` (and decoded back from the message the same way).
+- ``dc_outcome.message`` is NUL-terminated (it has no length field), so a NUL inside an unknown or
+  bad name shortens the printed refusal at that NUL ("not a rail limit: x" for the name x, NUL,
+  y, where Python prints the whole name). The refusal decision, its place in the order
+  and everything else the call does are the same.
+- When a setter fails after its write ran (DC_E_FAILED: only an allocation failure reaches that),
+  the writer's three attributes are still set from that write before the error is raised, as
+  Python's ``_write_rail_records`` had already set them.
+- ``set_hold_record`` accepts None (or an empty dict) or a dict whose ``rail`` is a plain int and
+  whose ``written_uv`` / ``prior_uv`` map field names to int32 values; anything else raises.
 """
 
 from __future__ import annotations
@@ -201,6 +236,39 @@ class _VerifyResult(ctypes.Structure):  # dc_rails_verify_result
                 ("back", _LimitSet)]
 
 
+class _LimitField(ctypes.Structure):  # dc_rails_limit_field
+    _fields_ = [("passed", ctypes.c_int32), ("has_value", ctypes.c_int32), ("value_mv", ctypes.c_double)]
+
+
+class _LimitRequest(ctypes.Structure):  # dc_rails_limit_request
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("order", ctypes.c_uint32 * 4),
+                ("fields", _LimitField * 4), ("has_unknown", ctypes.c_int32), ("unknown_length", ctypes.c_uint32),
+                ("unknown", ctypes.c_char_p)]
+
+
+class _RawRequest(ctypes.Structure):  # dc_rails_raw_request
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("order", ctypes.c_uint32 * 4),
+                ("passed", ctypes.c_int32 * 4), ("uv", ctypes.c_int32 * 4)]
+
+
+class _ResetRequest(ctypes.Structure):  # dc_rails_reset_request
+    _fields_ = [("size", ctypes.c_uint32), ("has_fields", ctypes.c_int32), ("field_mask", ctypes.c_uint32),
+                ("has_bad", ctypes.c_int32), ("bad", ctypes.c_char_p), ("bad_length", ctypes.c_uint32),
+                ("has_joined", ctypes.c_int32), ("joined", ctypes.c_char_p), ("joined_length", ctypes.c_uint32),
+                ("reserved", ctypes.c_int32)]
+
+
+class _SetterWrites(ctypes.Structure):  # dc_rails_setter_writes
+    _fields_ = [("size", ctypes.c_uint32), ("calls", ctypes.c_uint32), ("attributes", ctypes.c_int32),
+                ("last_attributes", ctypes.c_int32), ("result", native._RailWriteResult)]
+
+
+class _HoldRecord(ctypes.Structure):  # dc_rails_hold_record
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_int32), ("rail", ctypes.c_int32),
+                ("has_written", ctypes.c_int32 * 4), ("written_uv", ctypes.c_int32 * 4),
+                ("has_prior", ctypes.c_int32 * 4), ("prior_uv", ctypes.c_int32 * 4)]
+
+
 _P = ctypes.POINTER
 _SIGNATURES = {
     "dc_rails_blocks": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_uint32, _P(_BlockSet)]),
@@ -222,6 +290,14 @@ _SIGNATURES = {
     "dc_rails_write_records": (ctypes.c_int32, [ctypes.c_void_p, _P(_Records), _P(_WriteOutcome)]),
     "dc_rails_verify_records": (ctypes.c_int32, [ctypes.c_void_p, _P(_Records), ctypes.c_int32, ctypes.c_int32,
                                                  _P(_VerifyResult)]),
+    "dc_rails_set_limits": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(_LimitRequest), ctypes.c_int32,
+                                             ctypes.c_int32, _P(native._Outcome), _P(_SetterWrites)]),
+    "dc_rails_set_limits_raw": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(_RawRequest), ctypes.c_int32,
+                                                 ctypes.c_int32, _P(native._Outcome), _P(_SetterWrites)]),
+    "dc_rails_reset_limits": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32, _P(_ResetRequest),
+                                               _P(native._Outcome), _P(_SetterWrites)]),
+    "dc_rails_hold_record_get": (ctypes.c_int32, [ctypes.c_void_p, _P(_HoldRecord)]),
+    "dc_rails_hold_record_set": (ctypes.c_int32, [ctypes.c_void_p, _P(_HoldRecord)]),
 }
 
 _lock = threading.Lock()
@@ -558,3 +634,169 @@ def verify_rail_records(gpu, records, boost):
     if not out.has_back:
         return None, out.error.decode()
     return _limit_rows(out.back), None
+
+
+# ---- increment R5: the verified setters ------------------------------------------------------- #
+
+VOLT_LIMIT_MIN_MV = 650.0       # DC_RAILS_LIMIT_MIN_MV
+VOLT_LIMIT_MAX_MV = 1200.0      # DC_RAILS_LIMIT_MAX_MV
+VOLT_LIMIT_XOC_MAX_MV = 1500.0  # DC_RAILS_LIMIT_XOC_MAX_MV
+RAIL_NAME = {0: "core rail (NVVDD)", 1: "MSVDD"}  # _RAIL_NAME, as the core prints it
+TEXT_MAX = 1024                 # DC_RAILS_TEXT_MAX
+RAW_REFUSAL = "rail controls must be named signed 32-bit microvolt values"
+
+
+def _setter_rail(rail):
+    """The ABI rail of a setter's rail argument: 0 or 1 for a plain int naming one, -1 for a key that
+    names no rail. A key equal to a rail that is not a plain int (True, 1.0) raises TypeError."""
+    index = _rail(rail)
+    if index >= 0 and not _plain_int(rail):
+        raise TypeError("native rail setters need a plain int rail")
+    return index
+
+
+def _text(value):
+    """A caller text's bytes: UTF-8 with lone surrogates carried (surrogatepass), NUL bytes kept (the
+    core takes the byte length, not strlen)."""
+    data = value.encode("utf-8", "surrogatepass")
+    if len(data) > TEXT_MAX:
+        raise ValueError(f"native rail setters accept texts of at most {TEXT_MAX} bytes")
+    return data
+
+
+def _put_text(request, name, value):
+    """Set a present text: has_<name> 1, the pointer and the byte length (an empty text is present)."""
+    data = _text(value)
+    setattr(request, "has_" + name, 1)
+    setattr(request, name, data)
+    setattr(request, name + "_length", len(data))
+
+
+def _message(outcome):
+    """dc_outcome.message as the core composed it: surrogatepass undoes _text's encoding of a lone
+    surrogate; anything else that does not decode is replaced."""
+    try:
+        return outcome.message.decode("utf-8", "surrogatepass")
+    except UnicodeDecodeError:
+        return outcome.message.decode("utf-8", "replace")
+
+
+def _take_writes(gpu, writes):
+    """Leave the writer's three attributes as the setter's _write_rail_records calls left them."""
+    if not writes.calls:
+        return
+    if writes.attributes:
+        gpu._take_rail_write_result(writes.result)
+    if not writes.last_attributes:
+        gpu._volt_rail_write_error = None
+
+
+def _flags(gpu):
+    return (1 if getattr(gpu, "volt_limits_write_enabled", False) else 0,
+            1 if getattr(gpu, "voltage_xoc_enabled", False) else 0)
+
+
+def _finish(gpu, status, outcome, writes):
+    # The writer's attributes first: the core fills `writes` even when a step after a write failed,
+    # and Python had set them inside _write_rail_records before any later failure.
+    _take_writes(gpu, writes)
+    _check(status)
+    return bool(outcome.ok), _message(outcome)
+
+
+def set_volt_rail_limits(gpu, rail, limits):
+    """GPU.set_volt_rail_limits(rail, **limits): (ok, message)."""
+    index = _setter_rail(rail)
+    request = _new(_LimitRequest)
+    unknown = sorted(set(limits) - set(VOLT_LIMIT_FIELDS))
+    if unknown:  # the set, not the text: the keyword "" alone is unknown
+        _put_text(request, "unknown", ", ".join(unknown))
+    for key, value in limits.items():
+        if key not in VOLT_LIMIT_FIELDS:
+            continue
+        field = VOLT_LIMIT_FIELDS.index(key)
+        request.order[request.count] = field
+        request.count += 1
+        entry = request.fields[field]
+        entry.passed = 1
+        if value is None or unknown:  # never converted: refused before the bounds
+            continue
+        if not isinstance(value, (int, float)):
+            raise TypeError("native rail setters need int or float millivolts")
+        entry.has_value, entry.value_mv = 1, float(value)
+    write_enabled, xoc = _flags(gpu)
+    outcome, writes = native._Outcome(), _new(_SetterWrites)
+    status = load().dc_rails_set_limits(gpu._handle, index, ctypes.byref(request), write_enabled, xoc,
+                                        ctypes.byref(outcome), ctypes.byref(writes))
+    return _finish(gpu, status, outcome, writes)
+
+
+def set_volt_rail_limits_raw(gpu, rail, limits_uv):
+    """GPU.set_volt_rail_limits_raw(rail, **limits_uv): (ok, message)."""
+    if any(k not in VOLT_LIMIT_FIELDS or type(v) is not int
+           or not -(1 << 31) <= v < (1 << 31) for k, v in limits_uv.items()):
+        return False, RAW_REFUSAL
+    index = _setter_rail(rail)
+    request = _new(_RawRequest)
+    for key, value in limits_uv.items():
+        field = VOLT_LIMIT_FIELDS.index(key)
+        request.order[request.count] = field
+        request.count += 1
+        request.passed[field], request.uv[field] = 1, value
+    write_enabled, xoc = _flags(gpu)
+    outcome, writes = native._Outcome(), _new(_SetterWrites)
+    status = load().dc_rails_set_limits_raw(gpu._handle, index, ctypes.byref(request), write_enabled, xoc,
+                                            ctypes.byref(outcome), ctypes.byref(writes))
+    return _finish(gpu, status, outcome, writes)
+
+
+def reset_volt_rail_limits(gpu, rail=None, fields=None):
+    """GPU.reset_volt_rail_limits(rail, fields): (ok, message)."""
+    request = _new(_ResetRequest)
+    if fields:
+        keys = tuple(fields)
+        request.has_fields = 1
+        bad = set(keys) - set(VOLT_LIMIT_FIELDS)
+        if bad:  # the set, not the text: the key "" alone is bad
+            _put_text(request, "bad", ", ".join(sorted(bad)))
+        else:
+            _put_text(request, "joined", ", ".join(keys))
+        for key in keys:
+            if key in VOLT_LIMIT_FIELDS:
+                request.field_mask |= 1 << VOLT_LIMIT_FIELDS.index(key)
+    has_rail = rail is not None
+    index = _setter_rail(rail) if has_rail else 0
+    outcome, writes = native._Outcome(), _new(_SetterWrites)
+    status = load().dc_rails_reset_limits(gpu._handle, 1 if has_rail else 0, index, ctypes.byref(request),
+                                          ctypes.byref(outcome), ctypes.byref(writes))
+    return _finish(gpu, status, outcome, writes)
+
+
+def hold_record(gpu):
+    """The core's _hold_headroom: None or {"rail", "written_uv", "prior_uv"} (fields in
+    VOLT_LIMIT_FIELDS order)."""
+    out = _new(_HoldRecord)
+    _check(load().dc_rails_hold_record_get(gpu._handle, ctypes.byref(out)))
+    if not out.present:
+        return None
+    return {"rail": out.rail,
+            "written_uv": {k: out.written_uv[i] for i, k in enumerate(VOLT_LIMIT_FIELDS) if out.has_written[i]},
+            "prior_uv": {k: out.prior_uv[i] for i, k in enumerate(VOLT_LIMIT_FIELDS) if out.has_prior[i]}}
+
+
+def set_hold_record(gpu, record):
+    """Set the core's _hold_headroom from None (or {}) or a dict with the keys hold_record returns."""
+    value = _new(_HoldRecord)
+    if record:
+        rail = record["rail"]
+        if not _plain_int(rail) or not _INT32[0] <= rail <= _INT32[1]:
+            raise TypeError("the hold record's rail must be a plain int32")
+        value.present, value.rail = 1, rail
+        for name, has, values in (("written_uv", value.has_written, value.written_uv),
+                                  ("prior_uv", value.has_prior, value.prior_uv)):
+            for key, uv in (record.get(name) or {}).items():
+                if key not in VOLT_LIMIT_FIELDS or not _plain_int(uv) or not _INT32[0] <= uv <= _INT32[1]:
+                    raise TypeError(f"the hold record's {name} must map field names to int32 values")
+                index = VOLT_LIMIT_FIELDS.index(key)
+                has[index], values[index] = 1, uv
+    _check(load().dc_rails_hold_record_set(gpu._handle, ctypes.byref(value)))

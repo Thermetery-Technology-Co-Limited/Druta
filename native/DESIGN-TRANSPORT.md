@@ -693,6 +693,17 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `_write_rail_records_locked` and `_verify_rail_records`, under the handle lock then the process-wide rail hook
    mutex, the settle re-send decided by the profile's `settle_vmin` only) as `Rails::write_records` /
    `verify_records`, `dc_rails_write_records`, `dc_rails_verify_records`, `tests/test_native_rail_write.py`; the
+   verified rail setters over it (`set_volt_rail_limits`, `set_volt_rail_limits_raw`, `reset_volt_rail_limits`,
+   `_adopt_verified_hold_fields` and the setters' part of `_hold_headroom`) as `Rails::set_limits` /
+   `set_limits_raw` / `reset_limits` / `adopt_verified_hold_fields`, `dc_rails_set_limits`,
+   `dc_rails_set_limits_raw`, `dc_rails_reset_limits`, `dc_rails_hold_record_get` / `_set`,
+   `tests/test_native_rail_setters.py`. The session flags `volt_limits_write_enabled` and
+   `voltage_xoc_enabled` are inputs of each call, never stored by the core, so nothing survives a GPU
+   driver restart or is reapplied. The reset's restore target is this session's first read
+   (`_volt_rail_initial_uv`, in first-read rail order), never a factory default. The writer's three attributes
+   come back as a trace the ABI entry owns (`dc_rails_setter_writes`), filled even when a later step fails,
+   so they describe the last write that ran as Python's `_write_rail_records` leaves them; the caller texts
+   travel as presence, pointer and byte length, so an empty or NUL-bearing name is refused as in Python. The
    legacy P0 hold and the core support for the
    verification holds (`legacy_p0_supported`, `hold_legacy_p0`, `release_legacy_p0`, the request half of
    `verification_legacy_p0`, the recovery record and lock-table entry accessors, `read_vcore_mv`) as

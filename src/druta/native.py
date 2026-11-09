@@ -1953,6 +1953,23 @@ class Gpu:
         from . import native_rails
         return native_rails.verify_rail_records(self, records, boost)
 
+    def set_volt_rail_limits(self, rail, **limits):
+        """nvbackend.GPU.set_volt_rail_limits (druta.native_rails.set_volt_rail_limits); the session
+        flags volt_limits_write_enabled and voltage_xoc_enabled are read at the call."""
+        from . import native_rails
+        return native_rails.set_volt_rail_limits(self, rail, limits)
+
+    def set_volt_rail_limits_raw(self, rail, **limits_uv):
+        """nvbackend.GPU.set_volt_rail_limits_raw (druta.native_rails.set_volt_rail_limits_raw)."""
+        from . import native_rails
+        return native_rails.set_volt_rail_limits_raw(self, rail, limits_uv)
+
+    def reset_volt_rail_limits(self, rail=None, fields=None):
+        """nvbackend.GPU.reset_volt_rail_limits (druta.native_rails.reset_volt_rail_limits): this
+        session's first-read values, never factory defaults."""
+        from . import native_rails
+        return native_rails.reset_volt_rail_limits(self, rail, fields)
+
     # ---- current-policy operations on the transport (nvbackend.GPU._current_limit_*) --------- #
 
     _CL_COMMANDS = (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)

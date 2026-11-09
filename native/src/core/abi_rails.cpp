@@ -25,6 +25,13 @@ static_assert(DC_RAILS_ABS == static_cast<int>(RailGetter::Abs), "live index");
 static_assert(DC_RAILS_LIMIT_FIELDS == druta::backend::rail::kFieldCount, "field count");
 static_assert(DC_RAILS_LIMIT_MIN_MV == druta::backend::kVoltLimitMinMv, "min");
 static_assert(DC_RAILS_LIMIT_MAX_MV == druta::backend::kVoltLimitMaxMv, "max");
+static_assert(DC_RAILS_LIMIT_XOC_MAX_MV == druta::backend::kVoltLimitXocMaxMv, "xoc max");
+// The longest composed message (a two-rail reset: two "<rail name> <joined> restored ..." texts and
+// "; ") must fit dc_outcome.message with its NUL.
+static_assert(2 * (sizeof("core rail (NVVDD) ") - 1 + DC_RAILS_TEXT_MAX +
+                   sizeof(" restored to first-read values (not factory defaults)") - 1) + 2 <
+                  sizeof(((dc_outcome*)nullptr)->message),
+              "message capacity");
 using druta::backend::RailReason;
 static_assert(DC_RAILS_REASON_NONE == static_cast<int>(RailReason::none), "reasons");
 static_assert(DC_RAILS_REASON_NO_ARCHITECTURE == static_cast<int>(RailReason::no_architecture), "reasons");
@@ -112,6 +119,63 @@ bool get_records(const dc_rails_records* in, druta::backend::RailRecords& out, b
         for (std::size_t k = 0; k < 4; ++k) e.values[k] = k < r.count ? r.values[k] : 0;
     }
     return true;
+}
+
+// A caller text as presence + pointer + byte length: exactly `length` bytes (NUL bytes included),
+// nullopt when absent. Refused above DC_RAILS_TEXT_MAX bytes, or NULL with a nonzero length.
+bool get_text(int32_t present, const char* text, uint32_t length, std::optional<std::string>& out) {
+    out.reset();
+    if (!present) return true;
+    if (length > DC_RAILS_TEXT_MAX || (!text && length)) return false;
+    out.emplace(text ? text : "", length);
+    return true;
+}
+
+// Field indices in keyword order: distinct, below 4, exactly the passed fields.
+template <typename Passed>
+bool get_order(uint32_t count, const uint32_t (&order)[4], Passed passed, std::size_t& out_count,
+               std::array<std::size_t, 4>& out) {
+    if (count > DC_RAILS_LIMIT_FIELDS) return false;
+    unsigned seen = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        const uint32_t k = order[i];
+        if (k >= DC_RAILS_LIMIT_FIELDS || (seen >> k & 1u) || !passed(k)) return false;
+        seen |= 1u << k;
+        out[i] = k;
+    }
+    for (uint32_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
+        if (passed(k) && !(seen >> k & 1u)) return false;
+    }
+    out_count = count;
+    return true;
+}
+
+// The writer trace into the caller's struct.
+void put_writes(const druta::backend::RailWriterTrace& trace, dc_rails_setter_writes* writes) {
+    clear(writes);
+    writes->calls = trace.calls;
+    writes->attributes = trace.attributes ? 1 : 0;
+    writes->last_attributes = trace.last_attributes ? 1 : 0;
+    writes->result.size = sizeof(dc_rail_write_result);
+    if (trace.attributes) druta::abi::put_rail_write_result(&writes->result, trace.result);
+}
+
+// One setter call under the handle lock. The trace is the entry's own, so whatever the setter's
+// _write_rail_records calls left in it reaches `writes` even when a later step throws (only
+// allocation can): the status is then DC_E_FAILED, as guarded() gives, but the writer's attributes
+// still describe the write that ran.
+template <typename Setter>
+dc_status run_setter(dc_gpu* handle, Setter&& setter, dc_outcome* out, dc_rails_setter_writes* writes) {
+    druta::backend::RailWriterTrace trace;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::abi::put_outcome(setter(trace), out);
+    } catch (...) {
+        put_writes(trace, writes);  // copies into fixed fields only: does not throw
+        throw;                      // guarded() turns it into DC_E_FAILED
+    }
+    put_writes(trace, writes);
+    return DC_OK;
 }
 
 }  // namespace
@@ -371,6 +435,111 @@ DC_API dc_status DC_CALL dc_rails_verify_records(dc_gpu* handle, const dc_rails_
         out->has_back = r.back ? 1 : 0;
         put_text(out->error, r.error.c_str());
         put_limits(&out->back, r.back);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_set_limits(dc_gpu* handle, int32_t rail, const dc_rails_limit_request* limits,
+                                             int32_t write_enabled, int32_t xoc, dc_outcome* out,
+                                             dc_rails_setter_writes* writes) {
+    if (!handle || !limits || !out || !writes || limits->size != sizeof(dc_rails_limit_request) ||
+        writes->size != sizeof(dc_rails_setter_writes))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::backend::RailLimitRequest request;
+        const auto passed = [&](uint32_t k) { return limits->fields[k].passed != 0; };
+        if (!get_order(limits->count, limits->order, passed, request.count, request.order)) return DC_E_ARGUMENT;
+        if (!get_text(limits->has_unknown, limits->unknown, limits->unknown_length, request.unknown))
+            return DC_E_ARGUMENT;
+        for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
+            if (limits->fields[k].passed && limits->fields[k].has_value) request.value_mv[k] = limits->fields[k].value_mv;
+        }
+        return run_setter(
+            handle,
+            [&](druta::backend::RailWriterTrace& trace) {
+                return handle->rails.set_limits(rail, request, write_enabled != 0, xoc != 0, trace);
+            },
+            out, writes);
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_set_limits_raw(dc_gpu* handle, int32_t rail, const dc_rails_raw_request* limits,
+                                                 int32_t write_enabled, int32_t xoc, dc_outcome* out,
+                                                 dc_rails_setter_writes* writes) {
+    if (!handle || !limits || !out || !writes || limits->size != sizeof(dc_rails_raw_request) ||
+        writes->size != sizeof(dc_rails_setter_writes))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::backend::RailRawRequest request;
+        const auto passed = [&](uint32_t k) { return limits->passed[k] != 0; };
+        if (!get_order(limits->count, limits->order, passed, request.count, request.order)) return DC_E_ARGUMENT;
+        for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) request.uv[k] = limits->uv[k];
+        return run_setter(
+            handle,
+            [&](druta::backend::RailWriterTrace& trace) {
+                return handle->rails.set_limits_raw(rail, request, write_enabled != 0, xoc != 0, trace);
+            },
+            out, writes);
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_reset_limits(dc_gpu* handle, int32_t has_rail, int32_t rail,
+                                               const dc_rails_reset_request* fields, dc_outcome* out,
+                                               dc_rails_setter_writes* writes) {
+    if (!handle || !fields || !out || !writes || fields->size != sizeof(dc_rails_reset_request) ||
+        writes->size != sizeof(dc_rails_setter_writes) || fields->field_mask >> DC_RAILS_LIMIT_FIELDS)
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::backend::RailResetRequest request;
+        request.has_fields = fields->has_fields != 0;
+        request.mask = fields->field_mask;
+        std::optional<std::string> joined;
+        if (!get_text(fields->has_bad, fields->bad, fields->bad_length, request.bad) ||
+            !get_text(fields->has_joined, fields->joined, fields->joined_length, joined))
+            return DC_E_ARGUMENT;
+        request.joined = joined.value_or(std::string());
+        std::optional<std::int32_t> which;
+        if (has_rail) which = rail;
+        return run_setter(
+            handle,
+            [&](druta::backend::RailWriterTrace& trace) { return handle->rails.reset_limits(which, request, trace); },
+            out, writes);
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_record_get(dc_gpu* handle, dc_rails_hold_record* out) {
+    if (!handle || !out || out->size != sizeof(dc_rails_hold_record)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::HoldRecord& h = handle->rails.hold_record();
+        clear(out);
+        if (!h.present) return DC_OK;
+        out->present = 1;
+        out->rail = h.rail;
+        for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
+            out->has_written[k] = h.written_uv[k] ? 1 : 0;
+            out->written_uv[k] = h.written_uv[k].value_or(0);
+            out->has_prior[k] = h.prior_uv[k] ? 1 : 0;
+            out->prior_uv[k] = h.prior_uv[k].value_or(0);
+        }
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_record_set(dc_gpu* handle, const dc_rails_hold_record* record) {
+    if (!handle || !record || record->size != sizeof(dc_rails_hold_record)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::backend::HoldRecord h;
+        if (record->present) {
+            h.present = true;
+            h.rail = record->rail;
+            for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
+                if (record->has_written[k]) h.written_uv[k] = record->written_uv[k];
+                if (record->has_prior[k]) h.prior_uv[k] = record->prior_uv[k];
+            }
+        }
+        druta::LockGuard guard(handle->gpu.lock());
+        handle->rails.set_hold_record(h);
         return DC_OK;
     });
 }
