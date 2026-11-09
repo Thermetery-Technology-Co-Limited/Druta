@@ -730,6 +730,10 @@ typedef struct dc_rm_transport {
     dc_escape_fields fields;  /* the escape's hAdapter, hDevice, Type, Flags, hContext */
 } dc_rm_transport;
 
+/* The handle-bound readers that take or return a dc_rm_transport. */
+#include "drutacore/client_power_controller.h" /* dc_cpc_*: the controller on a handle */
+#include "drutacore/perf_diagnostics.h"        /* dc_perf_*: the PERF diagnostics reader */
+
 typedef struct dc_rm_observed {  /* _current_limit_observed_transport: {} when seen == 0 */
     uint32_t size;
     int32_t seen;

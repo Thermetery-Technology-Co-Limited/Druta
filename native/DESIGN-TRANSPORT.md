@@ -657,7 +657,10 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `tests/test_native_target_binding.py`; the pure `power_arbitration` decoder as `backend/power_arbitration`,
    `dc_power_arbitration_*`, `tests/test_native_power_arbitration.py`; the pure rail-limit and hold-headroom
    helpers as `backend/rail_limits`, `dc_rl_*`, `tests/test_native_rail_limits.py`; the pure client-power
-   tables and geometry helpers as `backend/client_power`, `dc_cp_*`, `tests/test_native_client_power.py`.)
+   tables and geometry helpers as `backend/client_power`, `dc_cp_*`, `tests/test_native_client_power.py`; the
+   controller's transport and guarded exchange as `backend/client_power_controller`, `dc_cpc_*`,
+   `tests/test_native_client_power_controller.py`; the PERF layouts, transport and GET as
+   `backend/perf_diagnostics`, `dc_perf_*`, `tests/test_native_perf_diagnostics.py`.)
 
 ### 3.10 Corrections to the design-panel output
 

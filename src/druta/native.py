@@ -550,6 +550,14 @@ _SIGNATURES = {
                                                ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
     "dc_rail_packet_summary": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
                                                 ctypes.POINTER(ctypes.c_size_t)]),
+    # client-power controller (increment A3); dc_cpc_state is Gpu._CpcState, passed by address
+    "dc_cpc_transport": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmTransport), ctypes.POINTER(_Error)]),
+    "dc_cpc_exchange": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32,
+                                         ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32,
+                                         ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(_Error)]),
+    "dc_cpc_reset_transport": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_cpc_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_cpc_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
 }
 
 _lock = threading.Lock()
@@ -981,6 +989,92 @@ class Gpu:
     def nvapi_interface_present(self, ident):
         """NvAPI._i(ident) is not None: the binder resolves the interface id."""
         return bool(load().dc_nvapi_interface_present(self._handle, int(ident) & 0xFFFFFFFF))
+
+    # ---- client-power controller (increment A3) ------------------------------------------------- #
+    # ClientPowerController._transport / _exchange / _reset_transport on this handle's one sticky
+    # controller (dc_cpc_*); _cp_reset() stands for constructing a fresh controller.
+
+    class _CpcState(ctypes.Structure):  # dc_cpc_state
+        _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
+            "sizes", "legacy", "native_policy124", "role_info216", "rm26_records", "rm26", "rm26_extended",
+            "has_transport_key")] + [("transport_key", ctypes.c_uint32 * 3)]
+
+    # dc_cpc_state.sizes: the DC_CP_*_SIZES group, by its client_power_runtime name.
+    _CP_SIZE_GROUPS = ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES",
+                       "RM26_EXTENDED_SIZES", "A612_COMPACT_SIZES")
+
+    def _cp_raise(self, error):
+        """The ClientPowerError a dc_error stands for; DC_ERR_INVALID is the one bare ValueError."""
+        from .client_power_runtime import ClientPowerError
+        message = _text(error.message)
+        if error.kind == DC_ERR_INVALID:
+            raise ValueError(message)
+        raise ClientPowerError(self._ERROR_KINDS.get(error.kind, "transient"), message,
+                               rm_status=error.rm_status if error.rm_status else None)
+
+    def _cp_transport(self):
+        """ClientPowerController._transport: (header tuple, fields dict), or ClientPowerError."""
+        t, error = _RmTransport(), _Error()
+        t.size, error.size = ctypes.sizeof(_RmTransport), ctypes.sizeof(_Error)
+        status = load().dc_cpc_transport(self._handle, ctypes.byref(t), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status != DC_OK:
+            _raise(status)
+        header, fields = _transport_value(t)
+        return tuple(header), fields
+
+    def _cp_exchange(self, command, payload, *, write=None):
+        """ClientPowerController._exchange: the response bytes, or ClientPowerError. Sets
+        write.dispatched as Python does: on any write object passed, once the packet reaches the
+        escape."""
+        from .client_power_runtime import SET, ClientPowerError, _Write
+        # Python's dynamic precondition, in its order, before any call. A command that compares equal
+        # to a known one without being an int (2080A630.0) passes Python's `in` and fails later with a
+        # TypeError; it is refused here as malformed instead.
+        sizes = self._cp_state()["sizes"]
+        if (command not in sizes or len(payload) != sizes[command] or (command == SET) != isinstance(write, _Write)
+                or type(command) is not int):
+            raise ClientPowerError("malformed", "Client-power command or packet geometry is not understood")
+        data = bytes(payload)
+        out = (ctypes.c_ubyte * max(len(data), 1))()
+        dispatched, error = ctypes.c_int32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_cpc_exchange(self._handle, command, data, len(data), 1 if isinstance(write, _Write) else 0,
+                                        ctypes.addressof(out), len(data), ctypes.byref(dispatched), ctypes.byref(error))
+        if write is not None and dispatched.value:
+            write.dispatched = True
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status != DC_OK:
+            _raise(status)
+        return bytes(out)[:len(data)]
+
+    def _cp_reset_transport(self):
+        """ClientPowerController._reset_transport: clears _current_limit_transport and the layout choice."""
+        status = load().dc_cpc_reset_transport(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    def _cp_reset(self):
+        """A fresh controller: every attribute back to __init__, the sticky identity included."""
+        status = load().dc_cpc_reset(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    def _cp_state(self):
+        """The controller's attributes; "sizes" is the very client_power_runtime table object."""
+        from . import client_power_runtime
+        s = self._CpcState()
+        s.size = ctypes.sizeof(self._CpcState)
+        status = load().dc_cpc_state_get(self._handle, ctypes.addressof(s))
+        if status != DC_OK:
+            _raise(status)
+        return {"sizes": getattr(client_power_runtime, self._CP_SIZE_GROUPS[s.sizes]),
+                "legacy": bool(s.legacy), "native_policy124": bool(s.native_policy124),
+                "role_info216": bool(s.role_info216), "rm26": bool(s.rm26),
+                "rm26_records": bool(s.rm26_records), "rm26_extended": bool(s.rm26_extended),
+                "transport_key": tuple(s.transport_key) if s.has_transport_key else None}
 
     def arch_name(self):
         from .nvbackend import GPU
@@ -2257,7 +2351,8 @@ class Gpu:
 
 def _error_record(error):
     """A dc_error as a dict with the Python exception's kind and text."""
-    return {"kind": ("none", "transient", "invalid", "unsupported")[error.kind], "fixed": bool(error.fixed),
+    return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed")[error.kind],
+            "fixed": bool(error.fixed),
             "ntstatus": error.ntstatus if error.has_ntstatus else None, "rm_status": error.rm_status,
             "message": _text(error.message)}
 
