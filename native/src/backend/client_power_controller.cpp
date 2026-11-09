@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 
 #include "backend/gdi.h"
 
@@ -767,5 +768,46 @@ CpRead<CpReading> ClientPowerController::read_locked() {
 }
 
 CpRead<CpReading> ClientPowerController::read() { return read_locked(); }
+
+CpRead<CpReading> ClientPowerController::live_read(StaticCapabilities& statics) {
+    CpRead<CpReading> r;
+    try {
+        r = read();
+    } catch (const std::exception& e) {
+        // Python's `except Exception` around a non-ClientPowerError: the read failed, kind transient.
+        r = CpRead<CpReading>{};
+        r.error = failure(RmErrorKind::transient, std::string("Client-power controller failed: ") + e.what());
+    } catch (...) {
+        r = CpRead<CpReading>{};
+        r.error = failure(RmErrorKind::transient, "Client-power controller failed: unknown exception");
+    }
+    if (!r.value) {
+        // `exc.kind if isinstance(exc, ClientPowerError) else "transient"`: the bare ValueError (kind
+        // invalid) is not a ClientPowerError.
+        const RmErrorKind kind = (r.error.kind == RmErrorKind::invalid || r.error.kind == RmErrorKind::none)
+                                     ? RmErrorKind::transient
+                                     : r.error.kind;
+        live_.error = r.error.message;
+        live_.error_kind = kind;
+        if (kind != RmErrorKind::transient) live_.last.reset();
+        return r;
+    }
+    live_.last = *r.value;
+    live_.error.reset();
+    live_.error_kind.reset();
+    const CpMetadata& m = r.value->observation.metadata;
+    live_.board_policy = m.native_index;
+    if (!statics.pl_min_mw) statics.pl_min_mw = m.minimum_mw;
+    if (!statics.pl_def_mw) statics.pl_def_mw = m.rated_mw;
+    if (!statics.pl_max_mw) statics.pl_max_mw = m.maximum_mw;
+    return r;
+}
+
+void ClientPowerController::refresh_live() {
+    reset();  // _live_power_controller = None: the next read builds a fresh controller
+    live_.last.reset();
+    live_.error.reset();
+    live_.error_kind.reset();
+}
 
 }  // namespace druta::backend

@@ -649,9 +649,9 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
 6. The current-limit tables, then the logic. (Tables done, see increment 2. The RM operations are done:
    `CurrentLimits` in `backend/current_limits` with `abi`, `probe_info`, `rm`, `policy_table` and `capacity`,
    the `dc_cl_*` ABI, `tests/test_native_current_limits.py`. The rows, getter and verified setter are done:
-   `state`, `get_current_limits`, `set_current_limit_ma`; `tests/test_native_current_limit_state.py`. The one
-   unported dependency, `read_live_power_request`, is a callback the caller supplies (`dc_cl_confirm_fn`);
-   the binding's stub never confirms until the client-power runtime is ported.)
+   `state`, `get_current_limits`, `set_current_limit_ma`; `tests/test_native_current_limit_state.py`. The derived-clamp
+   confirmation, `read_live_power_request`, is a callback the caller supplies (`dc_cl_confirm_fn`); since
+   increment A6 the binding supplies the real native reader.)
 7. The Python consumers, one module at a time. (In progress: the paired target binding shared by
    `perf_diagnostics` and `client_power_runtime` is done as `backend/target`, `dc_gpu_target_bind`,
    `tests/test_native_target_binding.py`; the pure `power_arbitration` decoder as `backend/power_arbitration`,
@@ -669,7 +669,12 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `_metadata_once`, `_stable_locked`, `read_metadata`) as `ClientPowerController::read_metadata`,
    `dc_cpc_read_metadata`, `tests/test_native_client_power_metadata.py`, and its full read (`_once`,
    `_arbitration`, `_read_locked`, `read`) as `ClientPowerController::read`, `dc_cpc_read`,
-   `tests/test_native_client_power_read.py`; the voltage-rail getters and their
+   `tests/test_native_client_power_read.py`, and the live power request with its bookkeeping
+   (`read_live_power_request`, `_live_power_*`, `_board_policy`, the static `pl_*` back-fill and the live-power
+   part of `refresh_capabilities`) as `ClientPowerController::live_read` / `refresh_live`, `dc_cpc_live_read`,
+   `dc_cpc_live_state_get`, `dc_cpc_board_policy_set`, `tests/test_native_live_power.py`; `rephase_deltas`
+   composed on the ported V/F curve as `VfCurve::rephase_deltas`, `dc_gpu_rephase_deltas`,
+   `tests/test_native_rephase.py`; the voltage-rail getters and their
    read caches as `backend/rails`, `dc_rails_*`, `tests/test_native_rails.py`, with the monotonic clock behind
    their backoff replaceable through `dc_set_clock_hook`; the rail reference capture and the readers over it
    (`read_volt_rail_limits`, `_volt_rail_profile`, `volt_rail_diagnostics`, `volt_rail_limits_supported`,

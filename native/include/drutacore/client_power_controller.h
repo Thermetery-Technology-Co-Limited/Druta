@@ -8,7 +8,8 @@
  * Increment A3: the paired transport check (_transport), the guarded single-command exchange
  * (_exchange), _reset_transport, a fresh controller, and the controller state. Increment A4: the
  * metadata read (read_metadata: _stable_locked over _metadata_once and _client_group). Increment
- * A5: the full read (read: _stable_locked over _once, then the optional _arbitration). One sticky
+ * A5: the full read (read: _stable_locked over _once, then the optional _arbitration). Increment
+ * A6: the live power request (read_live_power_request) and its bookkeeping. One sticky
  * controller per handle, with its own target binding. A ClientPowerError is DC_E_FAILED with a
  * dc_error: kind DC_ERR_IDENTITY / TRANSIENT / UNSUPPORTED / MALFORMED, Python's message, and
  * rm_status (nonzero only for an RM rejection); DC_ERR_UNSTABLE for two differing fresh reads. DC_ERR_INVALID is the one bare ValueError Python
@@ -196,6 +197,55 @@ typedef struct dc_cpc_observation {
  * its array. Unreachable while the DC_CPC_*_MAX are SIZES' packets, the largest of every
  * DC_CP_*_SIZES group. */
 DC_API dc_status DC_CALL dc_cpc_read(dc_gpu* gpu, dc_cpc_observation* out, dc_error* error);
+
+/* The live power request (nvbackend.GPU.read_live_power_request) and its bookkeeping on the handle:
+ * _live_power_last, _live_power_error, _live_power_error_kind and _board_policy. */
+
+/* read_live_power_request(): dc_cpc_read on the handle's sticky controller, then the bookkeeping,
+ * under the GPU lock.
+ *
+ * DC_OK with *out: the observation becomes the last one, the error and its kind are cleared, the
+ * board policy becomes binding.native_index, and each of the handle's capabilities pl_min_mw,
+ * pl_def_mw and pl_max_mw that is absent (DC_C_PL_* clear in dc_gpu_capabilities_get) is filled from
+ * binding.minimum_mw, rated_mw and maximum_mw; a present one is never replaced.
+ *
+ * DC_E_FAILED with *error (dc_cpc_read's kind and message, DC_ERR_INVALID included): the error text
+ * is recorded with its kind, which is the error's own, or DC_ERR_TRANSIENT for DC_ERR_INVALID (the
+ * bare ValueError is not a ClientPowerError) and for a C++ exception (reported as transient). A
+ * transient kind keeps the last observation; any other kind drops it. The board policy and the
+ * capabilities are left as they were. Python's (None, str(exc)) is DC_E_FAILED with
+ * error->message.
+ *
+ * DC_E_ARGUMENT as dc_cpc_read (nothing read, the bookkeeping untouched). DC_E_BUFFER as dc_cpc_read
+ * (unreachable); the bookkeeping then already holds the successful read. */
+DC_API dc_status DC_CALL dc_cpc_live_read(dc_gpu* gpu, dc_cpc_observation* out, dc_error* error);
+
+#define DC_CPC_LIVE_ERROR_MAX 1024
+
+typedef struct dc_cpc_live_state {
+    uint32_t size;               /* sizeof(dc_cpc_live_state), set by the caller */
+    int32_t has_last;            /* _live_power_last is not None */
+    dc_cpc_observation last;     /* last.size, last.metadata.size and last.arbitration.size set by
+                                  * the caller; zero apart from those when has_last is 0 */
+    int32_t has_error;           /* _live_power_error is not None */
+    int32_t error_kind;          /* _live_power_error_kind as DC_ERR_* (never DC_ERR_INVALID); 0 when
+                                  * has_error is 0 */
+    char error[DC_CPC_LIVE_ERROR_MAX]; /* _live_power_error, truncated to fit */
+    int32_t board_policy;        /* _board_policy, or -1 for None */
+} dc_cpc_live_state;
+
+/* dc_gpu_refresh_capabilities also releases the live power request (GPU.refresh_capabilities): the
+ * controller becomes a fresh one (as dc_cpc_reset) and the last observation, the error and its kind
+ * are cleared, with no escape; the board policy and the capabilities are kept. */
+
+/* The bookkeeping above. DC_E_ARGUMENT for a NULL handle or out, or a wrong out->size,
+ * out->last.size, out->last.metadata.size or out->last.arbitration.size. DC_E_BUFFER (nothing
+ * written) when the last observation does not fit (unreachable, as dc_cpc_read's). */
+DC_API dc_status DC_CALL dc_cpc_live_state_get(dc_gpu* gpu, dc_cpc_live_state* out);
+
+/* _board_policy = policy: a native policy index, or -1 for None (DC_E_ARGUMENT below -1). Written
+ * by GPU._power_policy_rows and set_power_limit_mw as well as by a successful live read. */
+DC_API dc_status DC_CALL dc_cpc_board_policy_set(dc_gpu* gpu, int32_t policy);
 
 #ifdef __cplusplus
 }

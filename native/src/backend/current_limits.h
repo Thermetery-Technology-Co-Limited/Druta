@@ -15,9 +15,10 @@
 //
 // Increment 6b adds the policy rows and the setter: _current_limit_state,
 // get_current_limits, set_current_limit_ma and the attributes they keep. The
-// one dependency not ported is read_live_power_request (client_power_runtime):
-// the confirmation of a derived clamp on Turing/Ampere is a callback the
-// caller supplies, and without one a derived clamp stays an invalid record.
+// read_live_power_request dependency is a callback the caller supplies: since
+// increment A6 the binding's callback reads the live request through the
+// native ClientPowerController (dc_cpc_live_read), and without a callback a
+// derived clamp on Turing/Ampere stays an invalid record.
 #pragma once
 
 #include <cstdint>
@@ -79,7 +80,8 @@ struct UnavailablePolicy {
 
 // The read_live_power_request branch of _current_limit_state: whether a fresh paired FE
 // observation confirms the derived clamp (requested, effective) of `policy` against the table
-// just read. The caller owns that read; nullptr never confirms.
+// just read. The caller owns that read (the binding's callback makes it through the native live
+// read, dc_cpc_live_read, under the recursive GPU lock); nullptr never confirms.
 using ConfirmDerivedClamp = bool (*)(void* context, std::uint32_t policy, std::uint32_t requested_ma,
                                      std::uint32_t effective_ma, const std::vector<std::uint32_t>& info,
                                      const std::vector<std::uint32_t>& control);

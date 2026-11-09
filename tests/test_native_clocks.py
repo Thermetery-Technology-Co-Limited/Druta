@@ -33,11 +33,15 @@ class ClockRig(CurveRig):
     offsets:     NVML ctype -> {off, mn, mx} (GetClockOffsets answers from it, SetClockOffsets changes off)
     p0:          NVAPI domain -> {value, min, max, flags} for the single P0 entry
     grid:        the graphics clocks enumerated at the top memory clock
+    log_grid:    opt-in (default off, so every existing call log is unchanged): each
+                 nvmlDeviceGetSupportedGraphicsClocks call appends ("GfxClocks", mem, filled),
+                 filled False for the count query and True for the call given a buffer
     """
 
     def __init__(self, *, nvml_offsets=True, nvml_set=True, nvml_set_status=0, nvml_apply=True, pstates=True,
                  pstates_set=True, pstates_set_status=0, grid=None, with_lock=True, lock_status=0,
-                 reset_status=0, mem_div=4, **kw):
+                 reset_status=0, mem_div=4, log_grid=False, **kw):
+        self.log_grid = log_grid
         self.grid_config = list(grid if grid is not None else [2100 - 15 * k for k in range(100)])
         self.nvml_set_status, self.nvml_apply = nvml_set_status, nvml_apply
         self.pstates_set_status, self.lock_status, self.reset_status = pstates_set_status, lock_status, reset_status
@@ -50,6 +54,8 @@ class ClockRig(CurveRig):
 
         @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
         def gfxclocks(device, mem, count, values):
+            if self.log_grid:
+                self.calls.append(("GfxClocks", mem, bool(values)))
             wanted = self.grid if mem == 7001 else [300]
             k = ctypes.cast(count, ctypes.POINTER(ctypes.c_uint32))
             if not values or k[0] < len(wanted):

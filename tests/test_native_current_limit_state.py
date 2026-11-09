@@ -18,9 +18,11 @@ the core, and compares
 """
 import struct
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import tests.test_native_current_limits as base
+from druta import client_power_runtime as cp
 
 GPU = base.GPU
 INFO, STATUS, CONTROL, SET = base.INFO, base.STATUS, base.CONTROL, base.SET
@@ -729,67 +731,246 @@ class DiagnosticsTests(StateCase):
 
 
 # ---- 5. the derived clamp ------------------------------------------------------------------------
+#
+# The confirmation is the real read_live_power_request on both sides: nvbackend's on the twin, the
+# core's (dc_cpc_live_read, reached through _confirm_derived_clamp's callback) natively. PowerDriver
+# serves the client-power half of the driver in front of the current-limit fixture: the client INFO,
+# ROLE_INFO and CONTROL of the small client group (LEGACY_SIZES) from its own buffers, the native
+# INFO and CONTROL from the fixture's very blocks, so the confirmation reads the table the current
+# limits read. The board power policy is native policy BOARD, its FE request POWER_REQUEST, above
+# its maximum: the case in which the driver derives a current above the current policy's maximum.
+# Every case also compares the live-power bookkeeping and static's pl_* keys.
 
-def observation(side, byte=0x30, requested=500000, maximum=400000, info=None, control=None):
-    """What read_live_power_request returns, built from side's fixture at call time."""
-    def observe():
-        return ({"role_info_hex": "00000000" + f"{byte:02x}" + "00", "requested_mw": requested,
-                 "binding": {"maximum_mw": maximum},
-                 "native_info_hex": info if info is not None else
-                 struct.pack(f"<{len(side.state.info)}I", *side.state.info).hex(),
-                 "native_control_hex": control if control is not None else
-                 struct.pack(f"<{len(side.state.control)}I", *side.state.control).hex()}, None)
-    return observe
+TURING_SMALL = dict(arch=GPU.ARCH_TURING)  # the 11748-byte transport: TURING_SIZES' native blocks
+ENVELOPE = {0: 0x4E564441, 1: 0x10002, 3: 0x4E562A2A, 4: 0x0500002B}  # the RM escape's packet words
+BOARD, CLIENT_ROW, KIND = 2, 5, 0x0A
+POWER_LIMITS = (100000, 300000, 400000)  # the board policy's minimum, rated and maximum (mW)
+POWER_REQUEST = 500000
+NVML_RANGE = {"pl_min_mw": 100000, "pl_def_mw": 280000, "pl_max_mw": 320000}  # CLRig's NVML getters
+PL = tuple(NVML_RANGE)
+
+
+class PowerDriver:
+    """The client-power commands answered in front of the current-limit fixture (inner).
+
+    version: the board definition's table version (0x30 is the one understood); power_request: the FE
+    request in the client and native CONTROL; rm: an RM status for the accepted client INFO; change:
+    applied to the fixture's state at the first client-power escape (a table changing between the
+    current-limit read and the confirmation)."""
+
+    COMMANDS = (cp.INFO, cp.ROLE_INFO, cp.CONTROL)
+    SIZES, CONTROL_BASE = cp.LEGACY_SIZES, 8  # the small client group's sizes and client CONTROL base
+
+    def __init__(self, inner, state, *, ampere, version=0x30, power_request=POWER_REQUEST, rm=0, change=None):
+        self.inner, self.state, self.rm, self.change = inner, state, rm, change
+        self.blocks = {INFO: state.info, CONTROL: state.control, STATUS: state.dynamic}
+        self.ampere_info = ampere  # the fixture refuses (and records) other INFO sizes itself
+        bit = 1 << BOARD
+        state.info[1] |= bit
+        state.control[4] |= bit
+        state.dynamic[1] |= bit
+        record = bytes([version, 0x12, 0x23, 0x34, KIND, 9, 0, 0]) + struct.pack("<III", *POWER_LIMITS)
+        self.at = 88 + BOARD * 228  # the small group's native INFO record (the fixture's 0x58 / 0xE4)
+        state.info[self.at // 4:(self.at + len(record)) // 4] = struct.unpack(f"<{len(record) // 4}I", record)
+        native = (20 + BOARD * (184 if ampere else 124)) // 4
+        state.control[native:native + 2] = [KIND, power_request]
+        self.info = bytearray(cp.LEGACY_SIZES[cp.INFO])
+        self.info[:4] = b"\xff\x17\x28\x39"
+        struct.pack_into("<I", self.info, 4, 1 << CLIENT_ROW)
+        row = 8 + CLIENT_ROW * 36
+        self.info[row:row + 4] = b"\x57\x57\x01\x00"
+        struct.pack_into("<III", self.info, row + 4, *POWER_LIMITS)
+        self.requested = power_request
+
+    def __call__(self, packet, fields):
+        command, size = packet[14], packet[15]
+        if command in self.COMMANDS:
+            if self.change is not None:
+                change, self.change = self.change, None
+                change(self.state)
+            result = bytearray(bytes(packet)[68:])
+            rm = 0x1F if size != self.SIZES[command] else self.rm if command == cp.INFO else 0
+            if not rm:
+                if command == cp.INFO:
+                    result[:] = self.info
+                elif command == cp.ROLE_INFO:
+                    native = struct.pack(f"<{len(self.state.info)}I", *self.state.info)
+                    result[4:] = native[self.at:self.at + size - 4]
+                else:
+                    struct.pack_into("<I", result, self.CONTROL_BASE + CLIENT_ROW * 12 + 4, self.requested)
+            packet[17:] = struct.unpack(f"<{size // 4}I", bytes(result))
+            packet[5], packet[11], packet[16] = 1, 1, rm
+            return 0
+        block = self.blocks.get(command)
+        if block is not None and size != len(block) * 4 and not (self.ampere_info and command == INFO):
+            packet[5], packet[11], packet[16] = 1, 1, RM_SIZE  # a size this driver's structure is not
+            return 0
+        status = self.inner(packet, fields)
+        if status == 0:
+            packet[5] = packet[11] = 1  # completion, as a driver reports it
+        return status
+
+
+# The modern (full-size) client group on the 20512-byte native table: the 54420-byte transport's
+# second fallback layout, reached when the 20000- and 8632-byte info GETs are refused for their size
+# (as the AD103 entry of _CURRENT_LIMIT_LAYOUT_FALLBACKS records). Its native INFO/CONTROL are the
+# client-power SIZES' own (20512 / 13876, record strides 0x104 / 0xC4), so the confirmation reads the
+# very table the current limits read, and the modern group accepts board tables 0x30 and 0x40.
+MODERN_KEY = (0x2080A612, 54420, 54352)
+MODERN_TABLE = GPU._CURRENT_LIMIT_LAYOUT_FALLBACKS[MODERN_KEY][1]
+TURING_MODERN = dict(arch=GPU.ARCH_TURING, newer=True)
+AMPERE_MODERN = dict(arch=GPU.ARCH_AMPERE, newer=True)
+
+
+def modern_table(side):
+    """Rebuild side's fixture blocks (the 20000-byte newer layout) as MODERN_TABLE's, carrying every
+    occupied policy's info, status and control words over to the new geometry."""
+    old, sizes = side.state, MODERN_TABLE["sizes"]
+    geometry_old = {"info": (0xCC, 0xFC), "status": (0x9C, 0x1720), "control": (0x14, 0xC4)}
+    mask = old.info[1]
+    info = [0] * (sizes[INFO] // 4)
+    control = [(i * 17) & 0xFFFFFFFF for i in range(sizes[CONTROL] // 4)]
+    dynamic = [0] * (sizes[STATUS] // 4)
+    info[1], control[:5], dynamic[1] = mask, [0, 0, 0, 255, mask], mask
+    for policy in range(32):
+        if not mask >> policy & 1:
+            continue
+        for name, new, source, width in (("info", info, old.info, 5), ("status", dynamic, old.dynamic, 3),
+                                         ("control", control, old.control, 2)):
+            at = (MODERN_TABLE[name][0] + policy * MODERN_TABLE[name][1]) // 4
+            was = (geometry_old[name][0] + policy * geometry_old[name][1]) // 4
+            new[at:at + width] = source[was:was + width]
+    old.info, old.control, old.dynamic = info, control, dynamic
+
+
+def modern_words(policy):
+    """(info meta word, status state word, control record word) of policy in MODERN_TABLE."""
+    return tuple((MODERN_TABLE[name][0] + policy * MODERN_TABLE[name][1]) // 4
+                 for name in ("info", "status", "control"))
+
+
+class ModernPowerDriver(PowerDriver):
+    """PowerDriver answering the modern client group (client-power SIZES: a 0x924-byte INFO with
+    rows at 0x24, a 0x108-byte ROLE_INFO, CONTROL rows at 0x28) on MODERN_TABLE's native blocks."""
+
+    SIZES, CONTROL_BASE = cp.SIZES, cp.CONTROL_BASE
+
+    def __init__(self, inner, state, *, ampere=False, version=0x40, power_request=POWER_REQUEST, rm=0,
+                 change=None):
+        self.inner, self.state, self.rm, self.change = inner, state, rm, change
+        self.blocks = {INFO: state.info, CONTROL: state.control, STATUS: state.dynamic}
+        self.ampere_info = False  # every other info size is refused here for its size
+        bit = 1 << BOARD
+        state.info[1] |= bit
+        state.control[4] |= bit
+        state.dynamic[1] |= bit
+        record = bytes([version, 0x12, 0x23, 0x34, KIND, 9, 0, 0]) + struct.pack("<III", *POWER_LIMITS)
+        self.at = cp.NATIVE_INFO_BASE + BOARD * cp.NATIVE_INFO_STRIDE
+        state.info[self.at // 4:(self.at + len(record)) // 4] = struct.unpack(f"<{len(record) // 4}I", record)
+        native = (cp.NATIVE_CONTROL_BASE + BOARD * cp.NATIVE_CONTROL_STRIDE) // 4
+        state.control[native:native + 2] = [KIND, power_request]
+        self.info = bytearray(cp.SIZES[cp.INFO])
+        self.info[:4] = b"\xff\x17\x28\x39"
+        struct.pack_into("<I", self.info, 4, 1 << CLIENT_ROW)
+        row = cp.INFO_BASE + CLIENT_ROW * cp.INFO_STRIDE
+        self.info[row:row + 4] = b"\x57\x57\x01\x00"
+        struct.pack_into("<III", self.info, row + 4, *POWER_LIMITS)
+        self.requested = power_request
+
+
+def serve_power(side, *, ampere, driver=None, **power):
+    """PowerDriver (or driver) in front of side's fixture, the transport with its envelope words,
+    and (on the twin) the paired identity CLRig gives the core."""
+    if driver is None:
+        driver = PowerDriver
+    side.driver.inner = driver(side.driver.inner, side.state, ampere=ampere, **power)
+    header = list(side.header)
+    for index, value in ENVELOPE.items():
+        header[index] = value
+    side.gpu._current_limit_transport = (header, dict(base.FIELDS))
+    if side.kind == "python":
+        twin = side.gpu
+        twin.pairing_error, twin.requested_slot = "", ""
+        twin.nvapi.gpu = 929
+        twin.nvapi.selected.update(handle=929, devid=0x1E02, subsys=0x12A010DE)  # CLRig's TITAN
+        twin.nvml = SimpleNamespace(ok=False, selected=None)
+
+
+def live_attrs(gpu):
+    return {"last": getattr(gpu, "_live_power_last", None), "error": getattr(gpu, "_live_power_error", None),
+            "kind": getattr(gpu, "_live_power_error_kind", None), "board": getattr(gpu, "_board_policy", None),
+            "static": {key: gpu.static.get(key) for key in PL}}
+
+
+def captures(log):
+    """The client-power captures in a driver log: each begins with the client INFO (one escape, or
+    a refused size and the accepted one). A successful confirmation is two."""
+    count, previous = 0, None
+    for entry in log:
+        command = entry[1][14]
+        if command == cp.INFO and previous != cp.INFO:
+            count += 1
+        previous = command
+    return count
 
 
 class DerivedClampTests(StateCase):
-    CASES = {"turing": (TURING, 390000, 400000, 380000), "ampere": (AMPERE, 270000, 280000, 260000)}
+    CASES = {"turing": (TURING_SMALL, 390000, 400000, 380000), "ampere": (AMPERE, 270000, 280000, 260000)}
 
-    def clamp(self, kw, maximum, requested, effective=None, observe=None):
-        """Requested above the maximum, effective saturated; read_live_power_request mocked on BOTH
-        sides by observe(side) -> the Mock's side_effect."""
+    def clamp(self, kw, maximum, requested, effective=None, serve=True, **power):
+        """Requested above the maximum, effective saturated; the client-power driver served."""
         _, state_word, record = geometry(kw)(13)
 
         def setup(side):
             side.state.control[record + 1] = requested
             side.state.dynamic[state_word + 1] = maximum if effective is None else effective
-            side.mock = Mock(side_effect=(observe or observation)(side))
-            side.gpu.read_live_power_request = side.mock
+            if side.kind == "python":
+                side.gpu.static.update(NVML_RANGE)  # what GPU.__init__ reads from CLRig's NVML
+            if serve:
+                serve_power(side, ampere=bool(kw.get("ampere_layout")), **power)
         return setup
 
+    def run_side(self, side, action, rig_errors=()):
+        return (*super().run_side(side, action, rig_errors), live_attrs(side.gpu))
+
     def run_both(self, action, setup, kw):
-        runs, calls = [], []
-        for kind in ("python", "native"):
-            side = self.side(kind, setup, **kw)
-            runs.append(self.run_side(side, action))
-            calls.append(side.mock.call_count)
-        for name, python, core in zip(("outcome", "driver log", "fixture state", "cache", "attributes"), *runs):
+        runs = [self.run_side(self.side(kind, setup, **kw), action) for kind in ("python", "native")]
+        for name, python, core in zip(("outcome", "driver log", "fixture state", "cache", "attributes",
+                                       "live power"), *runs, strict=True):
             self.assertEqual(python, core, f"Python and native {name} differ")
-        self.assertEqual(calls[0], calls[1], "read_live_power_request call counts differ")
-        return runs[0], calls[0]
+        return runs[0][:5], captures(runs[0][1]), runs[0][5]
+
+    def test_the_twin_holds_the_core_nvml_range(self):
+        side = self.side("native", None, **TURING_SMALL)
+        self.assertEqual({key: side.gpu.capabilities().get(key) for key in PL}, NVML_RANGE)
 
     def test_confirmed_row_is_present_and_settable(self):
         for name, (kw, maximum, requested, target) in self.CASES.items():
             with self.subTest(name):
                 setup = self.clamp(kw, maximum, requested)
-                (result, _, _, _, after), calls = self.run_both(lambda g: g.get_current_limits(), setup, kw)
+                (result, _, _, _, after), calls, live = self.run_both(lambda g: g.get_current_limits(), setup, kw)
                 self.assertEqual([(r["limit_ma"], r["requested_ma"], r["maximum_ma"]) for r in result[1]],
                                  [(maximum, requested, maximum)])
                 self.assertEqual(after["_current_limit_unavailable"], [])
-                self.assertEqual(calls, 1)
+                self.assertEqual(calls, 2)  # one confirmation: two fresh captures
+                self.assertEqual((live["board"], live["error"], live["static"]), (BOARD, None, NVML_RANGE))
+                self.assertEqual((live["last"]["requested_mw"], live["last"]["binding"]["maximum_mw"]),
+                                 (POWER_REQUEST, POWER_LIMITS[2]))
+                self.assertEqual(live["last"]["binding"]["layout"], "legacy32")
 
                 original = self.original(kw, setup)
-                (result, _, state, _, after), calls = self.run_both(
+                (result, _, state, _, after), calls, _ = self.run_both(
                     lambda g: g.set_current_limit_ma(13, target), setup, kw)
                 amps = format(target / 1000, ".3f").rstrip("0").rstrip(".")
                 self.assertEqual(result, ("ok", (True, f"Core current set to {amps} A; effective limit verified")))
                 record = geometry(kw)(13)[2] + 1
                 self.assertEqual(state["writes"], [set_buffer(original, record, target, 13)])
                 self.assertEqual(after["_power_policy_pins"], {13: target})
-                self.assertEqual(calls, 1)  # the read-back is in range: not consulted again
+                self.assertEqual(calls, 2)  # the read-back is in range: not consulted again
 
                 # the setter's bound is the policy's own maximum, not the derived request
-                (result, _, state, *_), _ = self.run_both(lambda g: g.set_current_limit_ma(13, maximum + 1), setup, kw)
+                (result, _, state, *_), _, _ = self.run_both(
+                    lambda g: g.set_current_limit_ma(13, maximum + 1), setup, kw)
                 self.assertEqual(result[1][0], False)
                 self.assertIn("must be between", result[1][1])
                 self.assertEqual(state["writes"], [])
@@ -800,67 +981,132 @@ class DerivedClampTests(StateCase):
         return list(side.state.control)
 
     def test_unconfirmed_is_an_invalid_record(self):
+        def flip_last(block):
+            def change(state):
+                words = getattr(state, block)
+                words[-1] ^= 1  # a tail word past every record: the table changed after the current read
+            return change
+
         for name, (kw, maximum, requested, target) in self.CASES.items():
             spec = GPU.CURRENT_LIMIT_GENERATION_POLICIES[GPU.ARCH_TURING if name == "turing" else GPU.ARCH_AMPERE][13]
             text = invalid(13, spec["type"], 19, 1, 1, maximum - (39220 if name == "turing" else 27000), maximum)
-            for reason, observe in (
-                    ("role byte 0x31", lambda side: observation(side, byte=0x31)),
-                    ("info mismatch", lambda side: observation(side, info="00")),
-                    ("control mismatch", lambda side: observation(side, control="00")),
-                    ("request not above the maximum", lambda side: observation(side, requested=400000)),
-                    ("request not an int", lambda side: observation(side, requested=500000.0)),
-                    ("failed read", lambda side: lambda: (None, "probe failed")),
-                    ("no observation", lambda side: lambda: (None, None))):
+            for reason, power, count, kind in (
+                    ("definition version 0x31", dict(version=0x31), 1, "malformed"),
+                    ("info changed", dict(change=flip_last("info")), 2, None),
+                    ("control changed", dict(change=flip_last("control")), 2, None),
+                    ("request not above the maximum", dict(power_request=POWER_LIMITS[2]), 2, None),
+                    ("failed read", dict(rm=0x56), 1, "unsupported")):
                 with self.subTest(name=name, reason=reason):
-                    setup = self.clamp(kw, maximum, requested, observe=observe)
-                    (result, _, _, _, after), calls = self.run_both(lambda g: g.get_current_limits(), setup, kw)
+                    setup = self.clamp(kw, maximum, requested, **power)
+                    (result, _, _, _, after), calls, live = self.run_both(
+                        lambda g: g.get_current_limits(), setup, kw)
                     self.assertEqual(result, ("ok", []))
                     self.assertEqual(after["_current_limit_unavailable"],
                                      [{"policy": 13, "label": "Core current", "present": True,
                                        "unsupported": False, "error": text}])
                     self.assertEqual((after["_current_limit_error"], after["_current_limit_read_error"]),
                                      (text, text))
-                    self.assertEqual(calls, 1)
-                    (result, _, state, *_), _ = self.run_both(lambda g: g.set_current_limit_ma(13, target), setup, kw)
+                    self.assertEqual(calls, count)
+                    self.assertEqual(live["kind"], kind)
+                    self.assertEqual(live["last"] is None, kind is not None)
+                    (result, _, state, *_), _, _ = self.run_both(lambda g: g.set_current_limit_ma(13, target),
+                                                                 setup, kw)
                     self.assertEqual(result, ("ok", (False, f"policy 13: {text}; nothing written")))
                     self.assertEqual(state["writes"], [])
+
+    def test_modern_table_version_0x40_is_an_invalid_record(self):
+        # The role-byte clause of the confirmation: on the modern client group the controller itself
+        # accepts a 0x40 board table (the small group's v30-only check never runs), so the live read
+        # SUCCEEDS on both sides, every other clause holds (FE request above binding.maximum_mw, the
+        # same native INFO and CONTROL as the current-limit table) and only role_info_hex[4] == 0x30
+        # refuses the derived clamp. Version 0x30 on the same table is the control: confirmed.
+        for name, kw, maximum, requested in (("turing", TURING_MODERN, 390000, 400000),
+                                             ("ampere", AMPERE_MODERN, 270000, 280000)):
+            arch = GPU.ARCH_TURING if name == "turing" else GPU.ARCH_AMPERE
+            spec = GPU.CURRENT_LIMIT_GENERATION_POLICIES[arch][13]
+            default = 350780 if name == "turing" else 243000
+            text = invalid(13, spec["type"], 19, 1, 1, default, maximum)
+            for version in (0x30, 0x40):
+                with self.subTest(name=name, version=hex(version)):
+                    _, state_word, record = modern_words(13)
+
+                    def setup(side, state_word=state_word, record=record, maximum=maximum, requested=requested,
+                              version=version):
+                        modern_table(side)
+                        side.state.control[record + 1] = requested
+                        side.state.dynamic[state_word + 1] = maximum
+                        if side.kind == "python":
+                            side.gpu.static.update(NVML_RANGE)
+                        serve_power(side, ampere=False, driver=ModernPowerDriver, version=version)
+                    (result, log, _, cache, after), calls, live = self.run_both(
+                        lambda g: g.get_current_limits(), setup, kw)
+                    # the current-limit read chose the 20512-byte table after two size refusals
+                    self.assertEqual([(e[1][15], e[5]) for e in log if e[1][14] == INFO][:3],
+                                     [(20000, RM_SIZE), (8632, RM_SIZE), (20512, 0)])
+                    self.assertEqual(cache["choice"], 2)
+                    self.assertEqual(calls, 2)  # the live read succeeded: two fresh captures
+                    self.assertEqual((live["error"], live["kind"], live["board"]), (None, None, BOARD))
+                    self.assertNotIn("layout", live["last"]["binding"])  # the modern group
+                    self.assertEqual(bytes.fromhex(live["last"]["role_info_hex"])[4], version)
+                    self.assertEqual((live["last"]["requested_mw"], live["last"]["binding"]["maximum_mw"]),
+                                     (POWER_REQUEST, POWER_LIMITS[2]))
+                    if version == 0x30:
+                        self.assertEqual([(r["limit_ma"], r["requested_ma"]) for r in result[1]],
+                                         [(maximum, requested)])
+                        self.assertEqual(after["_current_limit_unavailable"], [])
+                        continue
+                    self.assertEqual(result, ("ok", []))
+                    self.assertEqual(after["_current_limit_unavailable"],
+                                     [{"policy": 13, "label": "Core current", "present": True,
+                                       "unsupported": False, "error": text}])
+                    self.assertEqual((after["_current_limit_error"], after["_current_limit_read_error"]),
+                                     (text, text))
 
     def test_effective_not_saturated_never_consults(self):
         kw, maximum, requested, _ = self.CASES["turing"]
         setup = self.clamp(kw, maximum, requested, effective=maximum - 1)
-        (result, *_), calls = self.run_both(lambda g: g.get_current_limits(), setup, kw)
+        (result, *_), calls, live = self.run_both(lambda g: g.get_current_limits(), setup, kw)
         self.assertEqual(result, ("ok", []))
         self.assertEqual(calls, 0)
+        self.assertIsNone(live["last"])
 
     def test_effective_equal_to_the_request_consults(self):
         # effective in (requested, maximum): the request itself counts too
         kw, maximum, requested, _ = self.CASES["turing"]
         setup = self.clamp(kw, maximum, requested, effective=requested)
-        (result, *_), calls = self.run_both(lambda g: g.get_current_limits(), setup, kw)
-        self.assertEqual(calls, 1)
+        (result, *_), calls, _ = self.run_both(lambda g: g.get_current_limits(), setup, kw)
+        self.assertEqual(calls, 2)
         self.assertEqual([r["limit_ma"] for r in result[1]], [requested])
 
     def test_other_generations_never_consult(self):
         for name, kw, maximum in (("pascal", OLDER, 218000), ("pascal newer", PASCAL_NEWER, 218000),
                                   ("blackwell", NEWER, 5001000)):
             with self.subTest(name):
-                setup = self.clamp(kw, maximum, maximum + 1000)
-                (result, _, _, _, after), calls = self.run_both(lambda g: g.get_current_limits(), setup, kw)
+                setup = self.clamp(kw, maximum, maximum + 1000, serve=False)
+                (result, log, _, _, after), calls, live = self.run_both(lambda g: g.get_current_limits(), setup, kw)
                 self.assertEqual(calls, 0)
+                self.assertFalse([entry for entry in log if entry[1][14] in PowerDriver.COMMANDS])
                 self.assertNotIn(13, [r["policy"] for r in result[1]])
                 self.assertEqual([i["policy"] for i in after["_current_limit_unavailable"]], [13])
+                self.assertIsNone(live["last"])
 
     def test_exception_in_the_predicate_diverges(self):
-        # RECORDED DIVERGENCE: an exception raised by read_live_power_request (or inside the
+        # RECORDED DIVERGENCE, reachable only through a substituted reader: the real
+        # read_live_power_request never raises (both sides return (None, text) for a failed read)
+        # and its role_info_hex is always hex. An exception raised by a substitute (or inside the
         # predicate, e.g. a non-hex role_info_hex) escapes nvbackend's _current_limit_state, so
         # get_current_limits reports its text as the error; the core's callback cannot carry it
         # and refuses, so the record is an invalid one.
         kw, maximum, requested, _ = self.CASES["turing"]
         text = invalid(13, 0x0B, 19, 1, 1, 350780, maximum)
-        for reason, observe in (("raises", lambda side: Mock(side_effect=RuntimeError("boom"))),
-                                ("non-hex role", lambda side: lambda: ({"role_info_hex": "zz"}, None))):
+        for reason, observe in (("raises", Mock(side_effect=RuntimeError("boom"))),
+                                ("non-hex role", Mock(return_value=({"role_info_hex": "zz"}, None)))):
             with self.subTest(reason):
-                setup = self.clamp(kw, maximum, requested, observe=observe)
+                clamp = self.clamp(kw, maximum, requested, serve=False)
+
+                def setup(side, clamp=clamp, observe=observe):
+                    clamp(side)
+                    side.gpu.read_live_power_request = observe  # the substitute
                 runs = self.sides(lambda g: (g._current_limit_state(), g.get_current_limits()), setup, **kw)
                 py_error = "boom" if reason == "raises" else "non-hexadecimal number found in fromhex() arg at position 0"
                 self.assertEqual(runs[0][0], ("RuntimeError", "boom", False) if reason == "raises"

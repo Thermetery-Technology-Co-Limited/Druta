@@ -515,6 +515,12 @@ DC_API dc_status DC_CALL dc_gpu_vf_deltas_apply(dc_gpu* gpu, const dc_vf_delta* 
 /* reset_vf_curve: every GPU point's delta to zero (the factory curve). */
 DC_API dc_status DC_CALL dc_gpu_vf_curve_reset(dc_gpu* gpu, dc_outcome* out);
 
+/* rephase_deltas: every GPU point's delta onto ONE phase of this card's grid (clock_step_khz x
+ * freq_div); off-phase deltas are rounded DOWN to the most common phase and written in one
+ * apply_vf_deltas. A curve-read error, a missing layout or a failed write comes back as
+ * ok = 0 with the message; out->message otherwise names the points moved or that none were. */
+DC_API dc_status DC_CALL dc_gpu_rephase_deltas(dc_gpu* gpu, dc_outcome* out);
+
 /* _vf_delta_snapshot: the graphics deltas by index, or DC_E_UNAVAILABLE when the card has no readable curve. */
 typedef struct dc_vf_delta_snapshot {
     uint32_t size;
@@ -873,11 +879,13 @@ DC_API dc_status DC_CALL dc_cl_policy_mask_set(dc_gpu* gpu, uint32_t mask);
 
 /* ---- the policy rows, the getter's bookkeeping and the verified setter (increment 6b) ---------- */
 
-/* The read_live_power_request branch of GPU._current_limit_state. The client-power runtime is not
- * ported, so the caller supplies the check: nonzero when a fresh paired FE observation confirms the
- * derived clamp (requested above the policy's maximum, effective equal to it or saturated) of
- * `policy` against the info and control blocks just read. NULL never confirms. The callback runs
- * under the GPU lock; it must not call back into this GPU. */
+/* The read_live_power_request branch of GPU._current_limit_state, as a callback the caller
+ * supplies: nonzero when a fresh paired FE observation confirms the derived clamp (requested above
+ * the policy's maximum, effective equal to it or saturated) of `policy` against the info and
+ * control blocks just read. NULL never confirms. The callback runs under the GPU lock, which is
+ * recursive: it may read this GPU from the same thread, as the Python binding's callback does
+ * through dc_cpc_live_read (increment A6), but it must not wait on another thread that needs this
+ * GPU. */
 typedef int32_t (DC_CALL *dc_cl_confirm_fn)(void* context, uint32_t policy, uint32_t requested_ma,
                                             uint32_t effective_ma, const uint32_t* info, uint32_t info_count,
                                             const uint32_t* control, uint32_t control_count);

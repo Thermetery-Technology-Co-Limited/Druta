@@ -407,6 +407,7 @@ _SIGNATURES = {
     "dc_gpu_vf_deltas_apply": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDelta), ctypes.c_size_t,
                                                 ctypes.POINTER(_Outcome)]),
     "dc_gpu_vf_curve_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_rephase_deltas": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
     "dc_gpu_vf_delta_snapshot": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDeltaSnapshot)]),
     "dc_gpu_mem_offset_scale": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_MemOffsetScale)]),
     "dc_gpu_memory_offset_step_units": (ctypes.c_uint32, [ctypes.c_void_p]),
@@ -567,6 +568,10 @@ _SIGNATURES = {
     "dc_cpc_read_metadata": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
     # client-power controller (increment A5); dc_cpc_observation is Gpu._cp_observation_type(), by address
     "dc_cpc_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    # the live power request (increment A6); dc_cpc_live_state is Gpu._cp_live_state_type(), by address
+    "dc_cpc_live_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_cpc_live_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
+    "dc_cpc_board_policy_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32]),
 }
 
 _lock = threading.Lock()
@@ -1247,7 +1252,6 @@ class Gpu:
         (the conversion its decode() uses), or None; "arbitration_error" is then the text.
         Locking and DC_E_BUFFER as _cp_read_metadata."""
         from .client_power_runtime import ClientPowerError
-        from .native_power_arbitration import report_dict
         o, error = self._cp_observation_type()(), _Error()
         o.size, error.size = ctypes.sizeof(o), ctypes.sizeof(_Error)
         o.metadata.size, o.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(o.arbitration)
@@ -1259,6 +1263,11 @@ class Gpu:
                                                 "(dc_cpc_read returned DC_E_BUFFER)")
         if status != DC_OK:
             _raise(status)
+        return self._cp_reading_dict(o)
+
+    def _cp_reading_dict(self, o):
+        """read()'s dict from a dc_cpc_observation, key order included."""
+        from .native_power_arbitration import report_dict
         arbitration = None
         if o.has_arbitration:
             arbitration = report_dict(o.arbitration)
@@ -1573,6 +1582,14 @@ class Gpu:
             array[k].idx, array[k].delta_khz = idx, delta
         outcome = _Outcome()
         status = load().dc_gpu_vf_deltas_apply(self._handle, array, len(items), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def rephase_deltas(self):
+        """(ok, message): every delta onto one phase of this card's grid (nvbackend.GPU.rephase_deltas)."""
+        outcome = _Outcome()
+        status = load().dc_gpu_rephase_deltas(self._handle, ctypes.byref(outcome))
         if status != DC_OK:
             _raise(status)
         return self._outcome(outcome)
@@ -2011,11 +2028,88 @@ class Gpu:
     _CL_ERROR, _CL_READ_ERROR = 0, 1
     _CL_MAX_ROWS = 32  # one row per policy bit at most
 
+    # ---- the live power request (nvbackend.GPU.read_live_power_request, increment A6) ------------- #
+    # The core keeps GPU._live_power_last / _live_power_error / _live_power_error_kind / _board_policy
+    # on the handle (dc_cpc_live_state); the properties below read them, and _board_policy writes.
+
+    _cp_live_state = None
+
+    @classmethod
+    def _cp_live_state_type(cls):
+        """dc_cpc_live_state, built on first use (it holds a dc_cpc_observation)."""
+        if cls._cp_live_state is None:
+            class _CpcLiveState(ctypes.Structure):  # dc_cpc_live_state
+                _fields_ = [("size", ctypes.c_uint32), ("has_last", ctypes.c_int32),
+                            ("last", cls._cp_observation_type()), ("has_error", ctypes.c_int32),
+                            ("error_kind", ctypes.c_int32), ("error", ctypes.c_char * 1024),
+                            ("board_policy", ctypes.c_int32)]
+            cls._cp_live_state = _CpcLiveState
+        return cls._cp_live_state
+
     def read_live_power_request(self):
-        """nvbackend.GPU.read_live_power_request is the client-power runtime, which is not ported:
-        natively a derived clamp cannot be confirmed yet and stays an invalid record. The parity
-        tests patch this on the instance, as they mock it on the Python twin."""
-        return None, "the live power request is not ported"
+        """nvbackend.GPU.read_live_power_request: (observation, None), or (None, the error text).
+
+        The core reads on the handle's sticky controller and keeps the bookkeeping (a transient
+        failure keeps the last observation, any other drops it), the board policy and the back-fill
+        of the handle's absent pl_min_mw / pl_def_mw / pl_max_mw capabilities. self.static then
+        reflects that store: a key that is None (or absent) there takes the core's value. Never
+        raises for a failed read, as Python's catches every exception."""
+        o, error = self._cp_observation_type()(), _Error()
+        o.size, error.size = ctypes.sizeof(o), ctypes.sizeof(_Error)
+        o.metadata.size, o.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(o.arbitration)
+        status = load().dc_cpc_live_read(self._handle, ctypes.addressof(o), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            return None, _text(error.message)
+        if status == DC_E_BUFFER:  # unreachable: every size group's payloads fit dc_cpc_observation
+            return None, "Client-power read does not fit the native read's buffers (dc_cpc_live_read returned DC_E_BUFFER)"
+        if status != DC_OK:
+            _raise(status)
+        observation = self._cp_reading_dict(o)
+        capabilities = self.capabilities()
+        for key in ("pl_min_mw", "pl_def_mw", "pl_max_mw"):
+            if self.static.get(key) is None and capabilities.get(key) is not None:
+                self.static[key] = capabilities[key]
+        return observation, None
+
+    def _cp_live(self):
+        s = self._cp_live_state_type()()
+        s.size, s.last.size = ctypes.sizeof(s), ctypes.sizeof(s.last)
+        s.last.metadata.size, s.last.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(s.last.arbitration)
+        status = load().dc_cpc_live_state_get(self._handle, ctypes.addressof(s))
+        if status != DC_OK:
+            _raise(status)
+        return s
+
+    @property
+    def _live_power_last(self):
+        """GPU._live_power_last: the last successful observation's dict, or None."""
+        s = self._cp_live()
+        return self._cp_reading_dict(s.last) if s.has_last else None
+
+    @property
+    def _live_power_error(self):
+        s = self._cp_live()
+        return _text(s.error) if s.has_error else None
+
+    @property
+    def _live_power_error_kind(self):
+        """The Python kind: the ClientPowerError's, or "transient" for any other failure."""
+        s = self._cp_live()
+        return self._ERROR_KINDS.get(s.error_kind, "transient") if s.has_error else None
+
+    @property
+    def _board_policy(self):
+        policy = self._cp_live().board_policy
+        return None if policy < 0 else policy
+
+    @_board_policy.setter
+    def _board_policy(self, value):
+        """A native policy index (0 .. 2**31 - 1) or None."""
+        if value is not None and (type(value) is not int or not 0 <= value <= 0x7FFFFFFF):
+            raise ValueError(f"board policy must be a policy index or None, not {value!r}")
+        status = load().dc_cpc_board_policy_set(self._handle, -1 if value is None else value)
+        if status != DC_OK:
+            _raise(status)
 
     def _confirm_derived_clamp(self):
         """The dc_cl_confirm_fn: the read_live_power_request branch of _current_limit_state, on the

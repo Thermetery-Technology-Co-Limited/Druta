@@ -9,6 +9,7 @@
 #include <set>
 
 #include "backend/nvapi.h"
+#include "core/vf_plan.h"
 
 namespace druta::backend {
 namespace {
@@ -30,6 +31,12 @@ std::int64_t floor_div(std::int64_t a, std::int64_t b) {  // Python's //
 std::string format_0f(double value) {  // Python f"{value:.0f}"
     char text[64];
     std::snprintf(text, sizeof text, "%.0f", value);
+    return text;
+}
+
+std::string format_4g(double value) {  // Python f"{value:.4g}" (see native/README.md on :g)
+    char text[64];
+    std::snprintf(text, sizeof text, "%.4g", value);
     return text;
 }
 
@@ -284,6 +291,42 @@ std::optional<DeltaSnapshot> VfCurve::vf_delta_snapshot() {
     snapshot.freq_div = lay->freq_div;
     for (const VfPoint& p : *curve.points) snapshot.deltas.emplace_back(p.idx, p.delta_khz);
     return snapshot;
+}
+
+Outcome VfCurve::rephase_deltas(const std::function<std::uint32_t()>& clock_step_khz) {
+    // Uniform offsets only stay grid-exact if all deltas share a remainder mod
+    // the grid step; this card's step, not 15 MHz (a Pascal curve rephased
+    // onto a Turing lattice would BE the de-phasing this removes).
+    CurveResult curve = read_vf_curve();
+    if (!curve.error.empty()) return {false, curve.error};
+    const std::vector<VfPoint>& points = curve.points ? *curve.points : std::vector<VfPoint>{};
+    const std::uint32_t physical_grid = clock_step_khz();
+    auto lay = layout();
+    if (!lay) return {false, "could not determine this card's VF delta units"};
+    const std::int64_t grid = std::int64_t{physical_grid} * lay->freq_div;
+    std::vector<vfplan::Num> deltas;
+    deltas.reserve(points.size());
+    for (const VfPoint& p : points) deltas.push_back(vfplan::Num::of(p.delta_khz));
+    vfplan::Rephase rephase;
+    if (vfplan::compute_rephase(deltas, vfplan::Num::of(grid), rephase) != vfplan::Error::none)
+        return {false, "could not re-phase the VF deltas"};  // unreachable: the grid is never zero
+    const std::string gm = format_4g(physical_grid / 1000.0);
+    if (rephase.changes.empty())
+        return {true, "all " + std::to_string(points.size()) + " deltas already share one " + gm + " MHz phase"};
+    std::vector<std::pair<std::int64_t, std::int64_t>> changes;  // in curve order, as the Python dict
+    std::vector<std::int64_t> sorted_idx;
+    for (const auto& [pos, delta] : rephase.changes) {
+        changes.emplace_back(points[pos].idx, delta);
+        sorted_idx.push_back(points[pos].idx);
+    }
+    Outcome applied = apply_vf_deltas(changes);
+    if (!applied.ok) return applied;
+    std::sort(sorted_idx.begin(), sorted_idx.end());
+    std::string idx_text = "[";  // Python's repr of a sorted list of ints
+    for (std::size_t k = 0; k < sorted_idx.size(); ++k) idx_text += (k ? ", " : "") + std::to_string(sorted_idx[k]);
+    idx_text += "]";
+    return {true, "re-phased " + std::to_string(changes.size()) + " off-phase point(s) (idx " + idx_text +
+                      ") onto the common " + gm + " MHz grid"};
 }
 
 }  // namespace druta::backend

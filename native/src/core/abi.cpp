@@ -702,6 +702,14 @@ DC_API dc_status DC_CALL dc_gpu_vf_curve_reset(dc_gpu* handle, dc_outcome* out) 
     return DC_OK;
 }
 
+DC_API dc_status DC_CALL dc_gpu_rephase_deltas(dc_gpu* handle, dc_outcome* out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    druta::LockGuard guard(handle->gpu.lock());
+    druta::backend::Clocks& clocks = handle->clocks();
+    put_outcome(handle->curve().rephase_deltas([&clocks] { return clocks.clock_step_khz(); }), out);
+    return DC_OK;
+}
+
 DC_API dc_status DC_CALL dc_gpu_vf_delta_snapshot(dc_gpu* handle, dc_vf_delta_snapshot* out) {
     if (!handle || !out || out->size != sizeof(dc_vf_delta_snapshot)) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
@@ -1112,6 +1120,7 @@ DC_API dc_status DC_CALL dc_gpu_refresh_capabilities(dc_gpu* handle, dc_clkdom_e
     if (!handle || (previous && previous->size != sizeof(dc_clkdom_error))) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
     std::optional<druta::backend::CapabilityError> before = handle->clkdom.refresh_capabilities();
+    handle->cp.refresh_live();  // _live_power_controller / _last / _error / _error_kind = None (nvbackend 3692)
     handle->rails.refresh();  // _refresh_volt_rail_capabilities: the four rail read caches (nvbackend 3696)
     if (previous) put_clkdom_error(before, previous);
     return DC_OK;

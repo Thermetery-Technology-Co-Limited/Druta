@@ -164,6 +164,17 @@ struct CpReading {
     std::optional<std::string> arbitration_error;
 };
 
+// nvbackend.GPU's live-power bookkeeping, kept by read_live_power_request:
+// _live_power_last, _live_power_error, _live_power_error_kind and _board_policy. error_kind is the
+// Python kind: a ClientPowerError's own, and transient for anything else (the bare ValueError of
+// kind invalid, or an exception), so it is never invalid.
+struct CpLivePower {
+    std::optional<CpReading> last;
+    std::optional<std::string> error;
+    std::optional<RmErrorKind> error_kind;
+    std::optional<std::uint32_t> board_policy;
+};
+
 // The controller state of ClientPowerController.__init__.
 struct CpControllerState {
     CpSizeGroup sizes = CpSizeGroup::sizes;  // self.sizes: which module table it is
@@ -210,6 +221,20 @@ public:
     // read (the caller holds the GPU lock): _read_locked.
     CpRead<CpReading> read();
 
+    // GPU.read_live_power_request (the caller holds the GPU lock): read() on this sticky controller,
+    // then the bookkeeping. A failure records its text and kind, and drops the last observation
+    // unless the kind is transient; success records the observation, clears the error, takes the
+    // bound native policy as the board policy and back-fills statics' pl_min_mw / pl_def_mw /
+    // pl_max_mw from the binding where each is absent (Python's `static.get(key) is None`). A C++
+    // exception is a transient failure here (Python's non-ClientPowerError), never thrown.
+    CpRead<CpReading> live_read(StaticCapabilities& statics);
+    // GPU.refresh_capabilities' live-power part: a fresh controller (reset()) and no last
+    // observation, error or kind. The board policy is kept, as Python keeps _board_policy. No escape.
+    void refresh_live();
+    const CpLivePower& live() const { return live_; }
+    // GPU._board_policy = value (nullopt is None): _power_policy_rows and set_power_limit_mw set it.
+    void set_board_policy(std::optional<std::uint32_t> policy) { live_.board_policy = policy; }
+
     const CpControllerState& state() const { return state_; }
     const CpSizes& sizes() const { return *cp_size_group(static_cast<std::uint32_t>(state_.sizes)); }
     // The index of command in kCpCommands (the current table's keys), or nullopt: `command in self.sizes`.
@@ -225,6 +250,7 @@ private:
     RmTransport& rm_;
     TargetBinding binding_;  // self._reader: the controller's own sticky identity
     CpControllerState state_;
+    CpLivePower live_;  // the GPU's bookkeeping: reset() (a fresh controller) leaves it
 };
 
 template <typename T, typename Capture>

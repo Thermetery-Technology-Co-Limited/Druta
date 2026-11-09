@@ -101,6 +101,41 @@ bool metadata_fits(const druta::backend::CpMetadata& m) {
            m.native_info.size() <= DC_CPC_NATIVE_INFO_MAX;
 }
 
+// The caller-set sizes of a dc_cpc_observation (dc_cpc_read's DC_E_ARGUMENT checks).
+bool observation_sized(const dc_cpc_observation* out) {
+    return out && out->size == sizeof(dc_cpc_observation) && out->metadata.size == sizeof(dc_cpc_metadata) &&
+           out->arbitration.size == sizeof(dc_arbitration_report);
+}
+
+bool reading_fits(const druta::backend::CpReading& reading) {
+    const druta::backend::CpObservation& o = reading.observation;
+    return metadata_fits(o.metadata) && o.control.size() <= DC_CPC_CONTROL_MAX &&
+           o.native_control.size() <= DC_CPC_NATIVE_CONTROL_MAX;
+}
+
+// dc_cpc_observation from read()'s value; the caller checked reading_fits.
+void put_reading(const druta::backend::CpReading& reading, dc_cpc_observation* out) {
+    const druta::backend::CpObservation& o = reading.observation;
+    // Filled in place: the struct is about 85 KB.
+    std::memset(out, 0, sizeof(dc_cpc_observation));
+    out->size = sizeof(dc_cpc_observation);
+    put_metadata(o.metadata, &out->metadata);
+    out->requested_mw = o.requested_mw;
+    out->control_size = static_cast<uint32_t>(o.control.size());
+    out->native_control_size = static_cast<uint32_t>(o.native_control.size());
+    if (!o.control.empty()) std::memcpy(out->control, o.control.data(), o.control.size());
+    if (!o.native_control.empty()) std::memcpy(out->native_control, o.native_control.data(), o.native_control.size());
+    out->arbitration.size = sizeof(dc_arbitration_report);
+    if (reading.arbitration) {
+        out->has_arbitration = 1;
+        druta::abi::arbitration::put_report(*reading.arbitration, &out->arbitration);
+    }
+    if (reading.arbitration_error) {
+        out->has_arbitration_error = 1;
+        DC_COPY(out->arbitration_error, *reading.arbitration_error);
+    }
+}
+
 }  // namespace
 
 extern "C" {
@@ -184,10 +219,7 @@ DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* handle, dc_cpc_metadata* o
 }
 
 DC_API dc_status DC_CALL dc_cpc_read(dc_gpu* handle, dc_cpc_observation* out, dc_error* error) {
-    if (!handle || !out || out->size != sizeof(dc_cpc_observation) ||
-        out->metadata.size != sizeof(dc_cpc_metadata) || out->arbitration.size != sizeof(dc_arbitration_report) ||
-        (error && error->size != sizeof(dc_error)))
-        return DC_E_ARGUMENT;
+    if (!handle || !observation_sized(out) || (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
     return guarded(error, [&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());  // read: `with self.gpu._lock`
         druta::backend::CpRead<druta::backend::CpReading> r = handle->cp.read();
@@ -195,31 +227,64 @@ DC_API dc_status DC_CALL dc_cpc_read(dc_gpu* handle, dc_cpc_observation* out, dc
             put_error(r.error, error);
             return DC_E_FAILED;
         }
-        const druta::backend::CpReading& reading = *r.value;
-        const druta::backend::CpObservation& o = reading.observation;
-        if (!metadata_fits(o.metadata) || o.control.size() > DC_CPC_CONTROL_MAX ||
-            o.native_control.size() > DC_CPC_NATIVE_CONTROL_MAX)
-            return DC_E_BUFFER;  // unreachable, as dc_cpc_read_metadata's
-        // Filled in place: the struct is about 85 KB.
-        std::memset(out, 0, sizeof(dc_cpc_observation));
-        out->size = sizeof(dc_cpc_observation);
-        put_metadata(o.metadata, &out->metadata);
-        out->requested_mw = o.requested_mw;
-        out->control_size = static_cast<uint32_t>(o.control.size());
-        out->native_control_size = static_cast<uint32_t>(o.native_control.size());
-        if (!o.control.empty()) std::memcpy(out->control, o.control.data(), o.control.size());
-        if (!o.native_control.empty())
-            std::memcpy(out->native_control, o.native_control.data(), o.native_control.size());
-        out->arbitration.size = sizeof(dc_arbitration_report);
-        if (reading.arbitration) {
-            out->has_arbitration = 1;
-            druta::abi::arbitration::put_report(*reading.arbitration, &out->arbitration);
-        }
-        if (reading.arbitration_error) {
-            out->has_arbitration_error = 1;
-            DC_COPY(out->arbitration_error, *reading.arbitration_error);
-        }
+        if (!reading_fits(*r.value)) return DC_E_BUFFER;  // unreachable, as dc_cpc_read_metadata's
+        put_reading(*r.value, out);
         put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_live_read(dc_gpu* handle, dc_cpc_observation* out, dc_error* error) {
+    if (!handle || !observation_sized(out) || (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // GPU.read_live_power_request runs under the GPU lock
+        handle->capabilities();  // GPU.static: read once per handle, the store the back-fill writes
+        druta::backend::CpRead<druta::backend::CpReading> r = handle->cp.live_read(*handle->statics);
+        if (!r.value) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        if (!reading_fits(*r.value)) return DC_E_BUFFER;  // unreachable, as dc_cpc_read's
+        put_reading(*r.value, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_live_state_get(dc_gpu* handle, dc_cpc_live_state* out) {
+    if (!handle || !out || out->size != sizeof(dc_cpc_live_state) || !observation_sized(&out->last))
+        return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::CpLivePower& live = handle->cp.live();
+        if (live.last && !reading_fits(*live.last)) return DC_E_BUFFER;  // unreachable
+        // Filled in place: the struct is about 86 KB.
+        std::memset(out, 0, sizeof(dc_cpc_live_state));
+        out->size = sizeof(dc_cpc_live_state);
+        out->last.size = sizeof(dc_cpc_observation);
+        out->last.metadata.size = sizeof(dc_cpc_metadata);
+        out->last.arbitration.size = sizeof(dc_arbitration_report);
+        if (live.last) {
+            out->has_last = 1;
+            put_reading(*live.last, &out->last);
+        }
+        if (live.error) {
+            out->has_error = 1;
+            out->error_kind = static_cast<int32_t>(live.error_kind ? *live.error_kind
+                                                                   : druta::backend::RmErrorKind::transient);
+            DC_COPY(out->error, *live.error);
+        }
+        out->board_policy = live.board_policy ? static_cast<int32_t>(*live.board_policy) : -1;
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_board_policy_set(dc_gpu* handle, int32_t policy) {
+    if (!handle || policy < -1) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        handle->cp.set_board_policy(policy == -1 ? std::nullopt
+                                                 : std::optional<std::uint32_t>(static_cast<std::uint32_t>(policy)));
         return DC_OK;
     });
 }

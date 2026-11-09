@@ -53,6 +53,7 @@ core, then compares results, driver call sequences and messages.
 | V/F curve | `GPU.vfp_layout`, `read_vf_curve`, `read_vfp_other_rows`, `apply_vf_deltas`, `reset_vf_curve`, `_vf_delta_snapshot` | `dc_gpu_vf_layout`, `dc_gpu_vf_curve_*`, `dc_gpu_vf_other_rows`, `dc_gpu_vf_deltas_apply`, `dc_gpu_vf_delta_snapshot` | `tests/test_native_vfcurve.py` |
 | Clock offsets, frequency lock, clock grid | `GPU.set_clock_offset`, `_set_pstate20_offset`, `_keep_vf_shape`, `clock_step_khz`, `lockable_clocks_by_mem`, `lock_gpu_clocks`, `reset_gpu_clocks` | `dc_gpu_clock_offset_set`, `dc_gpu_clocks_*`, `dc_gpu_clock_step_khz`, `dc_gpu_lockable_clocks`, `dc_gpu_mem_offset_scale` | `tests/test_native_clocks.py` |
 | Pure V/F planners | `GPU.peak_info`, `resolve_vf_point`, `compute_deflatten`, `evaluate_curve_law`, `predict_curve`, `cascade_meta`, `compute_hard_deflatten`, `compute_ramp`, `compute_rephase` | `dc_vfp_*` (`drutacore/vfplan.h`, bound by `druta.native_vfplan`) | `tests/test_native_vfplan.py` |
+| Re-phasing the V/F deltas | `GPU.rephase_deltas` (the curve read, this card's clock step times `freq_div`, `compute_rephase`, one `apply_vf_deltas`) | `dc_gpu_rephase_deltas` (bound as `Gpu.rephase_deltas`) | `tests/test_native_rephase.py` |
 | Private clock-domain rows and names | `GPU.read_clock_domains`, `classify_domain_names` | `dc_gpu_clock_domains`, `dc_clock_domains_classify` (`drutacore/clkdom.h`) | `tests/test_native_clkdom_names.py` |
 | Clock-domain control block and rail offsets | `GPU.clkdom_*`, `read_clk_domain_offsets`, `set_clk_domain_offset`, `rail_offset_capability`, `read_rail_offset_mv`, `set_rail_offset_mv`, `reset_msvdd_offset_mv`, `retry_clock_capabilities`, `refresh_capabilities` | `dc_gpu_clkdom_*`, `dc_gpu_rail_offset_*`, `dc_gpu_msvdd_offset_reset`, `dc_gpu_retry_clock_capabilities`, `dc_gpu_refresh_capabilities` | `tests/test_native_clkdom.py` |
 | RM escape transport, layer 0: gdi32 capability and raw escape | `GPU._legacy_clk_gdi`, `_legacy_clk_escape` | `dc_escape_capability_get`, `dc_rm_escape_raw` (bound as `native.escape_capability` and `Gpu._legacy_clk_escape`) | `tests/test_native_transport.py` |
@@ -69,6 +70,7 @@ core, then compares results, driver call sequences and messages.
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
 | Client-power metadata read | `ClientPowerController._client_group`, `_metadata_once`, `_stable_locked`, `read_metadata` | `dc_cpc_read_metadata` (bound as `Gpu._cp_read_metadata`) | `tests/test_native_client_power_metadata.py` |
 | Client-power full read | `ClientPowerController._once`, `_arbitration`, `_read_locked`, `read` (the STATUS packet decoded by the native power-arbitration decoder) | `dc_cpc_read` (bound as `Gpu._cp_read`) | `tests/test_native_client_power_read.py` |
+| Live power request and its bookkeeping | `GPU._get_live_power_controller`, `read_live_power_request` (`_live_power_last`, `_live_power_error`, `_live_power_error_kind`, `_board_policy`, the static `pl_*` back-fill), the live-power part of `refresh_capabilities`; the derived-clamp confirmation of `_current_limit_state` now runs through it | `dc_cpc_live_read`, `dc_cpc_live_state_get`, `dc_cpc_board_policy_set` (bound as `Gpu.read_live_power_request` and the four attributes) | `tests/test_native_live_power.py`, `tests/test_native_current_limit_state.py` |
 | PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
 | Voltage-rail getters, reference and queries | `GPU._read_volt_rail_blocks`, `_read_volt_rail_deltas`, `read_volt_rail_state`, `read_rail_live_mv` and the four `_volt_rail_*` read caches; `read_volt_rail_limits` (the reference capture `_volt_rail_reference` and the first-read record `_volt_rail_initial_uv`), `_volt_rail_profile`, `volt_rail_diagnostics`, `volt_rail_limits_supported`, `volt_rail_limit_fields`, `stock_limit_mv`, `volt_rail_limits_mv` | `dc_rails_*` (`drutacore/rails.h`, bound by `druta.native_rails`) | `tests/test_native_rails.py`, `tests/test_native_rail_reference.py` |
 | Legacy P0 hold and verification holds | `GPU.legacy_p0_supported`, `legacy_p0_owned`, `hold_legacy_p0`, `release_legacy_p0`, the request half of `verification_legacy_p0`, the `_vf_lock_recovery` record and the lock-table entry read (`_vf_lock_read_raw` / `_vf_lock_entries`) that `verification_p0` needs, `read_vcore_mv`; the two context managers are composed in the binding | `dc_legacy_p0_*` (`drutacore/legacy_p0.h`), `dc_gpu_vf_lock_recovery_get` / `dc_gpu_vf_lock_recovery_set`, `dc_gpu_vf_lock_entry_get`, `dc_gpu_read_vcore_mv` (bound by `druta.native_legacy_p0` and `Gpu.read_vcore_mv`) | `tests/test_native_legacy_p0.py` |
@@ -111,13 +113,12 @@ a GET refused for its size is a fixed `CurrentLimitUnsupported`, and a failed
 escape drops the cached transport and layout choice. The layout choice is
 kept as an index into the candidate list rather than a copy of the layout.
 The rows, the getter's error bookkeeping and the setter's write, read-back
-and restoration are the Python ones line for line. One dependency is not
-ported: `read_live_power_request` (the client-power runtime), which
-`_current_limit_state` consults to accept a derived clamp on a Turing or
-Ampere FE board. The core takes that check as a callback; the binding
-supplies it from `Gpu.read_live_power_request`, which is a stub until the
-client-power runtime is ported, so natively a derived clamp stays an invalid
-record for now rather than being guessed.
+and restoration are the Python ones line for line. The confirmation of a
+derived clamp on a Turing or Ampere FE board, which `_current_limit_state`
+takes from `read_live_power_request`, is a callback the core receives
+(`dc_cl_confirm_fn`); since increment A6 the binding supplies the real native
+reader (`dc_cpc_live_read`), so a derived clamp is confirmed or refused from a
+fresh paired observation on both sides.
 
 The paired target binding is the first step of every PERF, client-power
 and clock-BIOS consumer. The core keeps one sticky identity per handle (the
@@ -222,10 +223,9 @@ needs the transport), the rest of the RM escape transport and the controls
 built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
 adapter openers for older gdi32 builds; the full policy table of
 `_power_policy_rows` and the pin re-application after board-limit writes;
-the client-power runtime beyond its full read (the live request wiring and the request SET); and the Python consumers of the transport such as
-`_write_rail_records` with its profile checks and `_verify_rail_records`;
-`refresh_capabilities`'s live-power and rail resets wait for them), the GPU
-restart, and the front end.
+the client-power request SET with its rollback; and the Python consumers of
+the transport such as `_write_rail_records` with its profile checks and
+`_verify_rail_records`), the GPU restart, and the front end.
 
 Text formatting follows Python's `:g` / `:+.2f` through the C runtime's
 `printf`; the rounding of an exact half by an old msvcrt has not been checked
