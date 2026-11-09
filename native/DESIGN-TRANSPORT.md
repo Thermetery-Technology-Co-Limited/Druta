@@ -667,7 +667,9 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    through the paired transport, `_decode` and the two-sample `read`) as `backend/clock_bios`,
    `dc_clock_bios_*`, `tests/test_native_clock_bios.py`; the client-power metadata read (`_client_group`,
    `_metadata_once`, `_stable_locked`, `read_metadata`) as `ClientPowerController::read_metadata`,
-   `dc_cpc_read_metadata`, `tests/test_native_client_power_metadata.py`.)
+   `dc_cpc_read_metadata`, `tests/test_native_client_power_metadata.py`; the voltage-rail getters and their
+   read caches as `backend/rails`, `dc_rails_*`, `tests/test_native_rails.py`, with the monotonic clock behind
+   their backoff replaceable through `dc_set_clock_hook`.)
 
 ### 3.10 Corrections to the design-panel output
 

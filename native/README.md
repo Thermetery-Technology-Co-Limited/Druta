@@ -69,12 +69,15 @@ core, then compares results, driver call sequences and messages.
 | Client-power transport and guarded exchange | `ClientPowerController._transport`, `_exchange`, `_reset_transport` and its `__init__` state; `clock_bios_runtime._guarded` / `_guards` | `dc_cpc_transport`, `dc_cpc_exchange`, `dc_cpc_reset_transport`, `dc_cpc_reset`, `dc_cpc_state_get` (`drutacore/client_power_controller.h`, bound as `Gpu._cp_*`) | `tests/test_native_client_power_controller.py` |
 | Client-power metadata read | `ClientPowerController._client_group`, `_metadata_once`, `_stable_locked`, `read_metadata` | `dc_cpc_read_metadata` (bound as `Gpu._cp_read_metadata`) | `tests/test_native_client_power_metadata.py` |
 | PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
+| Voltage-rail getters | `GPU._read_volt_rail_blocks`, `_read_volt_rail_deltas`, `read_volt_rail_state`, `read_rail_live_mv` and the four `_volt_rail_*` read caches | `dc_rails_*` (`drutacore/rails.h`, bound by `druta.native_rails`) | `tests/test_native_rails.py` |
 | Clock-BIOS read path | `clock_bios_runtime._control_once`, `_control_shape`, `_info_once`, `_decode`, `read` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_info`, `dc_clock_bios_decode`, `dc_clock_bios_read`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
-`nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs, and
-`dc_set_sleep_hook` replaces the bounded waits inside readback loops. Both are
-set through `druta.native`.
+`nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs,
+`dc_set_sleep_hook` replaces the bounded waits inside readback loops, and
+`dc_set_clock_hook` replaces the monotonic clock behind retry cadences (the
+rail getters' two-second backoff), as Python tests patch `time.monotonic`.
+All three are set through `druta.native`.
 
 The planners refuse two things Python would compute: a NaN voltage that
 Python would have to sort (its order there is an artefact of the sort
@@ -176,6 +179,13 @@ two-attempt, two-sample `read()` with a fresh reader per call, taking the
 handle lock per attempt as Python does and dropping the transport cache
 after the first attempt under that lock. `_shape`'s checks are not repeated
 natively: every one re-validates values the core produced itself.
+The rail getters read each rail with its own singleton mask through
+`VoltRailsCtlGet` (v2, then v1 only after an incompatible-version status) and
+`VoltRailsAbs`, keep the Python caches (the rails each getter has read, the
+retry time of a rail that was not read, the last attempt's diagnostics, the
+version each getter answered at) and never decide presence from a record's
+contents; their diagnostics' `error` is always `None`, as a C getter cannot
+raise.
 
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls

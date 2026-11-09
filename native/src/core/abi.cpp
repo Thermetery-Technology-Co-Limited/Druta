@@ -461,6 +461,7 @@ DC_API dc_status DC_CALL dc_gpu_fan_restore(dc_gpu* handle, const dc_fan_snapsho
 }
 
 DC_API void DC_CALL dc_set_sleep_hook(dc_sleep_fn hook) { druta::set_sleep_hook(hook); }
+DC_API void DC_CALL dc_set_clock_hook(dc_clock_fn hook) { druta::set_clock_hook(hook); }
 
 
 // ---- voltage boost --------------------------------------------------------------------------------

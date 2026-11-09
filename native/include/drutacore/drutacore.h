@@ -347,6 +347,10 @@ DC_API dc_status DC_CALL dc_gpu_fan_restore(dc_gpu* gpu, const dc_fan_snapshot* 
 /* Test seam: replace the bounded wait inside readback loops. NULL restores the real sleep. */
 typedef void(DC_CALL* dc_sleep_fn)(uint32_t milliseconds);
 DC_API void DC_CALL dc_set_sleep_hook(dc_sleep_fn hook);
+/* Test seam: replace the monotonic clock (seconds, Python's time.monotonic()) behind retry
+ * cadences. NULL restores the real clock. */
+typedef double(DC_CALL* dc_clock_fn)(void);
+DC_API void DC_CALL dc_set_clock_hook(dc_clock_fn hook);
 
 /* ---- voltage boost (nvbackend.GPU.read_voltage_boost / set_voltage_boost) -------------------- */
 
@@ -735,6 +739,7 @@ typedef struct dc_rm_transport {
 #include "drutacore/client_power_controller.h" /* dc_cpc_*: the controller on a handle */
 #include "drutacore/perf_diagnostics.h"        /* dc_perf_*: the PERF diagnostics reader */
 #include "drutacore/clock_bios.h"              /* dc_clock_bios_*: the clock-BIOS reader */
+#include "drutacore/rails.h"                   /* dc_rails_*: the voltage-rail getters */
 
 typedef struct dc_rm_observed {  /* _current_limit_observed_transport: {} when seen == 0 */
     uint32_t size;

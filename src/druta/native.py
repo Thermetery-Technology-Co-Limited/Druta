@@ -249,6 +249,7 @@ class VfpLayout:
 # resolve(context, library, name) -> function pointer or NULL (the test seam)
 RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
 SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
+CLOCK_HOOK = ctypes.CFUNCTYPE(ctypes.c_double)  # dc_clock_fn
 # dc_cl_confirm_fn: the read_live_power_request branch of _current_limit_state (DC_CALL is cdecl).
 CL_CONFIRM = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
                               ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
@@ -383,6 +384,7 @@ _SIGNATURES = {
     "dc_gpu_fan_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
     "dc_gpu_fan_restore": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanSnapshot), ctypes.POINTER(_Outcome)]),
     "dc_set_sleep_hook": (None, [SLEEP_HOOK]),
+    "dc_set_clock_hook": (None, [CLOCK_HOOK]),
     "dc_gpu_voltage_boost_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
     "dc_gpu_voltage_boost_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
     "dc_gpu_vf_lock_status": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
@@ -804,6 +806,22 @@ def set_sleep_hook(hook):
         return
     _sleep_keepalive = SLEEP_HOOK(hook)
     library.dc_set_sleep_hook(_sleep_keepalive)
+
+
+_clock_keepalive = None
+
+
+def set_clock_hook(hook):
+    """Replace the core's monotonic clock behind retry cadences (tests; Python patches
+    time.monotonic). hook() returns the seconds; None restores the real clock."""
+    global _clock_keepalive
+    library = load()
+    if hook is None:
+        library.dc_set_clock_hook(CLOCK_HOOK(0))
+        _clock_keepalive = None
+        return
+    _clock_keepalive = CLOCK_HOOK(hook)
+    library.dc_set_clock_hook(_clock_keepalive)
 
 
 def _text(field):

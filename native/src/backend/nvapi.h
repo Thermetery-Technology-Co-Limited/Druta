@@ -43,6 +43,7 @@ inline constexpr std::uint32_t GetDriverAndBranchVersion = 0x2926AAAD;
 // The getters the RM escape captures hook (DESIGN-TRANSPORT.md 2.4).
 inline constexpr std::uint32_t PowerPolInfo = 0x34206D86;
 inline constexpr std::uint32_t VoltRailsCtlGet = 0xA3070DB0;
+inline constexpr std::uint32_t VoltRailsAbs = 0x5D0634EE;
 }  // namespace nvapi_id
 
 class Nvapi {

@@ -12,9 +12,11 @@
 namespace druta {
 namespace {
 SleepFn hook = nullptr;
+ClockFn clock_hook = nullptr;
 }
 
 void set_sleep_hook(SleepFn fn) { hook = fn; }
+void set_clock_hook(ClockFn fn) { clock_hook = fn; }
 
 void sleep_ms(std::uint32_t milliseconds) {
     if (hook) {
@@ -32,6 +34,7 @@ void sleep_ms(std::uint32_t milliseconds) {
 }
 
 double monotonic_seconds() {
+    if (clock_hook) return clock_hook();
 #if defined(_WIN32)
     LARGE_INTEGER frequency, counter;
     if (!::QueryPerformanceFrequency(&frequency) || frequency.QuadPart == 0 || !::QueryPerformanceCounter(&counter))

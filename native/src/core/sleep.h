@@ -17,7 +17,10 @@ void sleep_ms(std::uint32_t milliseconds);
 void set_sleep_hook(SleepFn hook);  // nullptr restores the real sleep
 
 // A monotonic clock in seconds (Python's time.monotonic()): QueryPerformanceCounter on
-// Windows (kernel32, XP and up), CLOCK_MONOTONIC elsewhere.
+// Windows (kernel32, XP and up), CLOCK_MONOTONIC elsewhere. Tests replace it so a retry
+// cadence can be stepped instead of waited for (Python patches time.monotonic).
+using ClockFn = double(DRUTA_CDECL*)();
 double monotonic_seconds();
+void set_clock_hook(ClockFn hook);  // nullptr restores the real clock
 
 }  // namespace druta
