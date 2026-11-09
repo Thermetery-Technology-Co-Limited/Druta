@@ -950,7 +950,8 @@ class Gpu:
 
     # ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) ---------- #
 
-    _ERROR_KINDS = {1: "transient", 2: "invalid", 3: "unsupported", 4: "identity", 5: "malformed"}
+    _ERROR_KINDS = {1: "transient", 2: "invalid", 3: "unsupported", 4: "identity", 5: "malformed",
+                    6: "unstable"}
 
     def _target_bind(self, client_power):
         target, error = _Target(), _Error()
@@ -2385,7 +2386,7 @@ class Gpu:
 
 def _error_record(error):
     """A dc_error as a dict with the Python exception's kind and text."""
-    return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed")[error.kind],
+    return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed", "unstable")[error.kind],
             "fixed": bool(error.fixed),
             "ntstatus": error.ntstatus if error.has_ntstatus else None, "rm_status": error.rm_status,
             "message": _text(error.message)}
