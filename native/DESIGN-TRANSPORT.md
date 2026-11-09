@@ -671,7 +671,10 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `_arbitration`, `_read_locked`, `read`) as `ClientPowerController::read`, `dc_cpc_read`,
    `tests/test_native_client_power_read.py`; the voltage-rail getters and their
    read caches as `backend/rails`, `dc_rails_*`, `tests/test_native_rails.py`, with the monotonic clock behind
-   their backoff replaceable through `dc_set_clock_hook`; the legacy P0 hold and the core support for the
+   their backoff replaceable through `dc_set_clock_hook`; the rail reference capture and the readers over it
+   (`read_volt_rail_limits`, `_volt_rail_profile`, `volt_rail_diagnostics`, `volt_rail_limits_supported`,
+   `volt_rail_limit_fields`, `stock_limit_mv`, `volt_rail_limits_mv`) as the same `backend/rails` and `dc_rails_*`,
+   `tests/test_native_rail_reference.py`; the legacy P0 hold and the core support for the
    verification holds (`legacy_p0_supported`, `hold_legacy_p0`, `release_legacy_p0`, the request half of
    `verification_legacy_p0`, the recovery record and lock-table entry accessors, `read_vcore_mv`) as
    `backend/legacy_p0`, `dc_legacy_p0_*`, `dc_gpu_vf_lock_recovery_get` / `_set`, `dc_gpu_vf_lock_entry_get`,

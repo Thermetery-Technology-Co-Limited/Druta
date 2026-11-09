@@ -70,7 +70,7 @@ core, then compares results, driver call sequences and messages.
 | Client-power metadata read | `ClientPowerController._client_group`, `_metadata_once`, `_stable_locked`, `read_metadata` | `dc_cpc_read_metadata` (bound as `Gpu._cp_read_metadata`) | `tests/test_native_client_power_metadata.py` |
 | Client-power full read | `ClientPowerController._once`, `_arbitration`, `_read_locked`, `read` (the STATUS packet decoded by the native power-arbitration decoder) | `dc_cpc_read` (bound as `Gpu._cp_read`) | `tests/test_native_client_power_read.py` |
 | PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
-| Voltage-rail getters | `GPU._read_volt_rail_blocks`, `_read_volt_rail_deltas`, `read_volt_rail_state`, `read_rail_live_mv` and the four `_volt_rail_*` read caches | `dc_rails_*` (`drutacore/rails.h`, bound by `druta.native_rails`) | `tests/test_native_rails.py` |
+| Voltage-rail getters, reference and queries | `GPU._read_volt_rail_blocks`, `_read_volt_rail_deltas`, `read_volt_rail_state`, `read_rail_live_mv` and the four `_volt_rail_*` read caches; `read_volt_rail_limits` (the reference capture `_volt_rail_reference` and the first-read record `_volt_rail_initial_uv`), `_volt_rail_profile`, `volt_rail_diagnostics`, `volt_rail_limits_supported`, `volt_rail_limit_fields`, `stock_limit_mv`, `volt_rail_limits_mv` | `dc_rails_*` (`drutacore/rails.h`, bound by `druta.native_rails`) | `tests/test_native_rails.py`, `tests/test_native_rail_reference.py` |
 | Legacy P0 hold and verification holds | `GPU.legacy_p0_supported`, `legacy_p0_owned`, `hold_legacy_p0`, `release_legacy_p0`, the request half of `verification_legacy_p0`, the `_vf_lock_recovery` record and the lock-table entry read (`_vf_lock_read_raw` / `_vf_lock_entries`) that `verification_p0` needs, `read_vcore_mv`; the two context managers are composed in the binding | `dc_legacy_p0_*` (`drutacore/legacy_p0.h`), `dc_gpu_vf_lock_recovery_get` / `dc_gpu_vf_lock_recovery_set`, `dc_gpu_vf_lock_entry_get`, `dc_gpu_read_vcore_mv` (bound by `druta.native_legacy_p0` and `Gpu.read_vcore_mv`) | `tests/test_native_legacy_p0.py` |
 | Clock-BIOS read path | `clock_bios_runtime._control_once`, `_control_shape`, `_info_once`, `_decode`, `read` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_info`, `dc_clock_bios_decode`, `dc_clock_bios_read`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
@@ -204,6 +204,18 @@ is this session's own request, kept on the handle and never persisted. Python's
 `except Exception` branches ("P0 request failed: ...", "P0 verification failed:
 ...", "P0 release failed: ...") have no native counterpart: the telemetry read
 does not throw and a faulting export is not guarded.
+
+The rail reference (`read_volt_rail_limits`) is captured once, from the first
+paired sample whose live rail state is valid and whose architecture is
+recognized, as an estimate for this adapter at the operating point it was read:
+each rail's base is its absolute reading minus its control delta (minus the
+boost on rail 0), and the first-read record keeps each rail's four control
+deltas as they were first seen. `volt_rail_diagnostics` names the interface
+that answered the architecture (`_arch_source`, recorded by the core's
+architecture read) and the reason no reference exists. Nothing in it is a
+factory default or a generation constant. `refresh_capabilities` clears the
+four read caches and keeps the reference and the first-read record, as
+`_refresh_volt_rail_capabilities` does.
 
 Not yet ported: power limit (its NVML half is simple, its live-power half
 needs the transport), the rest of the RM escape transport and the controls

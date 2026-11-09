@@ -31,6 +31,34 @@ a Windows structured exception raised inside the getter into OSError. The native
 other NVAPI call it makes, has no such guard, so a faulting export is not survived; here a
 diagnostic's ``"error"`` is always None and its ``"status"`` always an int. Dict keys come out in
 sorted order; Python's insertion order is not tracked (the contents are equal).
+
+Increment R3, the reference capture and the readers over it, on the same handle:
+``read_volt_rail_limits(gpu)``, ``volt_rail_profile(gpu)`` (``GPU._volt_rail_profile``),
+``volt_rail_diagnostics(gpu)``, ``volt_rail_limits_supported(gpu, rail=None)``,
+``volt_rail_limit_fields(gpu, rail)``, ``stock_limit_mv(gpu, rail, key)`` and
+``volt_rail_limits_mv(gpu)``. The core keeps ``_volt_rail_reference`` and ``_volt_rail_initial_uv``
+per handle (``refresh`` keeps them, as ``_refresh_volt_rail_capabilities`` does) and reads the
+architecture where Python calls ``self.arch()``. The dicts are rebuilt in Python's key order and
+value types: a limits row is ``type`` (int), the four fields (float), ``_base_mv`` (the reference's
+bases or ``{}``), ``_headroom_mv`` (None), ``_absolute_ok`` (bool), ``_boost_mv`` (float),
+``_effective_mv`` (float or None) and ``_reference_kind``; the profile is ``bases``, ``headroom_mv``,
+``poweron`` (tuples of ints), ``fields`` (``VOLT_LIMIT_FIELDS``), ``control_version``,
+``settle_vmin``, ``min_mv`` and ``max_mv``, its rail-keyed dicts in the reference's insertion order.
+
+Divergences of R3:
+
+- A rail argument is looked up as Python's dict and set lookups do (1.0 and True find rail 1;
+  anything else finds nothing). An unhashable rail raises TypeError before any read; Python raises
+  it after its reads, and ``volt_rail_limits_supported`` / ``stock_limit_mv`` return False / None
+  without raising when the profile is None.
+- ``stock_limit_mv`` raises KeyError for a key outside ``VOLT_LIMIT_FIELDS`` (TypeError for an
+  unhashable key) at the point Python does: after the reads and the profile and first-read checks.
+- ``volt_rail_diagnostics``: ``"getters"`` is a rebuilt copy of the getter diagnostics cache (Python
+  returns the cache dict itself); ``"adapter"`` comes from ``gpu.static``; ``"last_write_error"``,
+  ``"observed_packets"`` and ``"write_protocol"`` are None, [] and None, because the rail writer
+  that owns them is not ported yet.
+- ``_headroom_mv`` and the profile's ``headroom_mv`` are always None: the reference holds only
+  ``"bases"`` until the hold-headroom writer is ported.
 """
 from __future__ import annotations
 
@@ -46,6 +74,7 @@ _NAMES = {v: k for k, v in FUNCTIONS.items()}
 RAILS = 2
 BLOCK_SIZE = 8192
 VOLT_LIMIT_FIELDS = ("reliability", "alt_reliability", "overvoltage", "vmin")
+REFERENCE_KIND = "first-read estimate (driver status is quantized)"
 LIVE_RAIL_FIELDS = ("type", "live", "reliability", "alt_reliability", "overvoltage", "effective", "vmin")
 
 
@@ -77,6 +106,41 @@ class _Diagnostic(ctypes.Structure):  # dc_rails_diagnostic
                 ("valid", ctypes.c_int32), ("attempts", ctypes.c_int32)]
 
 
+class _LimitRow(ctypes.Structure):  # dc_rails_limit_row
+    _fields_ = [("type", ctypes.c_int32), ("has_base", ctypes.c_int32), ("fields", ctypes.c_double * 4),
+                ("base", ctypes.c_double * 4), ("absolute_ok", ctypes.c_int32), ("has_effective", ctypes.c_int32),
+                ("boost_mv", ctypes.c_double), ("effective_mv", ctypes.c_double)]
+
+
+class _LimitSet(ctypes.Structure):  # dc_rails_limit_set
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint32), ("rails", _LimitRow * RAILS)]
+
+
+class _Profile(ctypes.Structure):  # dc_rails_profile_set
+    _fields_ = [("size", ctypes.c_uint32), ("has_profile", ctypes.c_int32),
+                ("has_reference", ctypes.c_int32 * RAILS), ("bases", (ctypes.c_double * 4) * RAILS),
+                ("has_initial", ctypes.c_int32 * RAILS), ("initial", (ctypes.c_int32 * 4) * RAILS),
+                ("order_count", ctypes.c_uint32), ("order", ctypes.c_uint32 * RAILS),
+                ("control_version", ctypes.c_uint32), ("settle_vmin", ctypes.c_int32),
+                ("min_mv", ctypes.c_double), ("max_mv", ctypes.c_double)]
+
+
+class _DiagnosticRail(ctypes.Structure):  # dc_rails_diagnostic_rail
+    _fields_ = [("present", ctypes.c_int32), ("available", ctypes.c_int32), ("reason_code", ctypes.c_int32),
+                ("reason", ctypes.c_char * 128)]
+
+
+class _Diagnosis(ctypes.Structure):  # dc_rails_diagnosis
+    _fields_ = [("size", ctypes.c_uint32), ("has_architecture", ctypes.c_int32), ("architecture", ctypes.c_uint32),
+                ("rails", _DiagnosticRail * RAILS), ("available", ctypes.c_int32), ("reason_code", ctypes.c_int32),
+                ("reason", ctypes.c_char * 128), ("has_architecture_source", ctypes.c_int32),
+                ("architecture_source", ctypes.c_char * 32)]
+
+
+class _LimitsMv(ctypes.Structure):  # dc_rails_limits_mv_set
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint32), ("mv", (ctypes.c_double * 4) * RAILS)]
+
+
 class _Caches(ctypes.Structure):  # dc_rails_caches
     _fields_ = [("size", ctypes.c_uint32), ("has_known", ctypes.c_int32 * 2), ("known", ctypes.c_uint32 * 2),
                 ("has_retry", (ctypes.c_int32 * RAILS) * 2), ("retry_after", (ctypes.c_double * RAILS) * 2),
@@ -93,6 +157,15 @@ _SIGNATURES = {
                                           _P(ctypes.c_double)]),
     "dc_rails_caches_get": (ctypes.c_int32, [ctypes.c_void_p, _P(_Caches)]),
     "dc_rails_refresh": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_rails_limits": (ctypes.c_int32, [ctypes.c_void_p, _P(_LimitSet)]),
+    "dc_rails_profile": (ctypes.c_int32, [ctypes.c_void_p, _P(_Profile)]),
+    "dc_rails_diagnostics": (ctypes.c_int32, [ctypes.c_void_p, _P(_Diagnosis)]),
+    "dc_rails_limits_supported": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32,
+                                                   _P(ctypes.c_int32)]),
+    "dc_rails_limit_fields": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(ctypes.c_uint32)]),
+    "dc_rails_stock_limit_mv": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32,
+                                                 _P(ctypes.c_int32), _P(ctypes.c_double)]),
+    "dc_rails_limits_mv": (ctypes.c_int32, [ctypes.c_void_p, _P(_LimitsMv)]),
 }
 
 _lock = threading.Lock()
@@ -214,3 +287,111 @@ def caches(gpu):
 def refresh(gpu):
     """The four-cache reset of GPU._refresh_volt_rail_capabilities."""
     _check(load().dc_rails_refresh(gpu._handle))
+
+
+# ---- increment R3: the reference capture and the readers over it ----------------------------- #
+
+def _rail(rail):
+    """The ABI's rail for a Python rail key: 0 or 1 when the key equals one (dict lookup), else -1.
+    An unhashable key raises TypeError here, before any read (Python raises it after its reads)."""
+    return {0: 0, 1: 1}.get(rail, -1)
+
+
+def read_volt_rail_limits(gpu):
+    """GPU.read_volt_rail_limits(): {rail: row} or None."""
+    out = _new(_LimitSet)
+    _check(load().dc_rails_limits(gpu._handle, ctypes.byref(out)))
+    rows = {}
+    for rail in range(RAILS):
+        if not out.present >> rail & 1:
+            continue
+        e = out.rails[rail]
+        row = {"type": e.type}
+        row.update(zip(VOLT_LIMIT_FIELDS, e.fields))
+        row["_base_mv"] = dict(zip(VOLT_LIMIT_FIELDS, e.base)) if e.has_base else {}
+        row["_headroom_mv"] = None
+        row["_absolute_ok"] = bool(e.absolute_ok)
+        row["_boost_mv"] = e.boost_mv
+        row["_effective_mv"] = e.effective_mv if e.has_effective else None
+        row["_reference_kind"] = REFERENCE_KIND
+        rows[rail] = row
+    return rows or None
+
+
+def volt_rail_profile(gpu):
+    """GPU._volt_rail_profile(): the per-adapter reference and first-read record, or None."""
+    p = _new(_Profile)
+    _check(load().dc_rails_profile(gpu._handle, ctypes.byref(p)))
+    if not p.has_profile:
+        return None
+    order = [p.order[i] for i in range(min(p.order_count, RAILS))]
+    refs = [r for r in order if p.has_reference[r]]
+    initial = [r for r in order if p.has_initial[r]]
+    initial += [r for r in range(RAILS) if p.has_initial[r] and r not in initial]
+    return {"bases": {r: dict(zip(VOLT_LIMIT_FIELDS, p.bases[r])) for r in refs},
+            "headroom_mv": {r: None for r in refs},
+            "poweron": {r: tuple(p.initial[r]) for r in initial},
+            "fields": {r: VOLT_LIMIT_FIELDS for r in refs},
+            "control_version": p.control_version,
+            "settle_vmin": bool(p.settle_vmin),
+            "min_mv": p.min_mv, "max_mv": p.max_mv}
+
+
+def volt_rail_diagnostics(gpu):
+    """GPU.volt_rail_diagnostics(); the writer's keys are None, [] and None (not ported yet)."""
+    d = _new(_Diagnosis)
+    _check(load().dc_rails_diagnostics(gpu._handle, ctypes.byref(d)))
+    rails = {}
+    for rail in range(RAILS):
+        e = d.rails[rail]
+        if e.present:
+            rails[rail] = {"available": bool(e.available), "reason": e.reason.decode()}
+    identity = getattr(gpu, "static", {})
+    return {"available": bool(d.available),
+            "reason": d.reason.decode(),
+            "architecture": d.architecture if d.has_architecture else None,
+            "rails": rails,
+            "architecture_source": d.architecture_source.decode() if d.has_architecture_source else None,
+            "adapter": {"slot": identity.get("slot"),
+                        **{key: identity.get(key) for key in ("name", "driver", "vbios")}},
+            "getters": caches(gpu)["_volt_rail_getter_diagnostics"],
+            "last_write_error": None,
+            "observed_packets": [],
+            "write_protocol": None}
+
+
+def volt_rail_limits_supported(gpu, rail=None):
+    """GPU.volt_rail_limits_supported(rail)."""
+    has_rail = rail is not None
+    index = _rail(rail) if has_rail else 0
+    out = ctypes.c_int32()
+    _check(load().dc_rails_limits_supported(gpu._handle, 1 if has_rail else 0, index, ctypes.byref(out)))
+    return bool(out.value)
+
+
+def volt_rail_limit_fields(gpu, rail):
+    """GPU.volt_rail_limit_fields(rail): VOLT_LIMIT_FIELDS or ()."""
+    index = _rail(rail)
+    count = ctypes.c_uint32()
+    _check(load().dc_rails_limit_fields(gpu._handle, index, ctypes.byref(count)))
+    return VOLT_LIMIT_FIELDS if count.value == len(VOLT_LIMIT_FIELDS) else ()
+
+
+def stock_limit_mv(gpu, rail, key):
+    """GPU.stock_limit_mv(rail, key): the estimated first-read value in mV, or None."""
+    index = _rail(rail)
+    field = VOLT_LIMIT_FIELDS.index(key) if key in VOLT_LIMIT_FIELDS else -1
+    has, mv = ctypes.c_int32(), ctypes.c_double()
+    _check(load().dc_rails_stock_limit_mv(gpu._handle, index, field, ctypes.byref(has), ctypes.byref(mv)))
+    if has.value == 2:
+        {}[key]  # profile["bases"][rail][key]: KeyError, or TypeError for an unhashable key
+    return mv.value if has.value == 1 else None
+
+
+def volt_rail_limits_mv(gpu):
+    """GPU.volt_rail_limits_mv(): {rail: {field: absolute mV}} (NaN without a reference) or None."""
+    out = _new(_LimitsMv)
+    _check(load().dc_rails_limits_mv(gpu._handle, ctypes.byref(out)))
+    if not out.present:
+        return None
+    return {rail: dict(zip(VOLT_LIMIT_FIELDS, out.mv[rail])) for rail in range(RAILS) if out.present >> rail & 1}

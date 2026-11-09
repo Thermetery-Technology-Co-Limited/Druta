@@ -67,9 +67,13 @@ class Fake:
              ("echo", word, value) answers and then overwrites that u32 word
     boost:   the live block's header word 2 (microvolts): one word for every rail, or {rail: word}
     control_type: {rail: the control record's first (signed) word}; 0 for a rail not listed
+    empty_absent: the control getter answers 0 without writing a record for a rail missing from
+             control (the R470 V1 behaviour of tests/test_volt_rails_legacy.py)
+    hook:    hook(fake, kind) runs as each call arrives, before it is answered (state changes
+             between the samples of one read)
     """
 
-    def __init__(self, *, control=None, live=None, accept=None, boost=0, control_type=None):
+    def __init__(self, *, control=None, live=None, accept=None, boost=0, control_type=None, empty_absent=False):
         self.control = copy.deepcopy({0: [0, 0, 0, 0]} if control is None else control)
         self.control_type = dict(control_type or {})
         self.live = copy.deepcopy({0: list(STOCK)} if live is None else live)
@@ -77,11 +81,15 @@ class Fake:
         self.accept.update(copy.deepcopy(accept or {}))
         self.script = {"control": [], "live": []}
         self.boost = boost
+        self.empty_absent = empty_absent
+        self.hook = None
         self.calls = []
 
     def answer(self, kind, handle, pointer):
         words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
         self.calls.append((kind, handle, words[0], words[1], Block(ctypes.string_at(pointer, SIZE))))
+        if self.hook is not None:
+            self.hook(self, kind)
         entry = self.script[kind].pop(0) if self.script[kind] else None
         if isinstance(entry, int):
             return entry
@@ -92,7 +100,7 @@ class Fake:
         rail = 0 if words[1] == 1 else 1
         records = self.control if kind == "control" else self.live
         if rail not in records:
-            return -8
+            return 0 if kind == "control" and self.empty_absent else -8
         values = [self.control_type.get(rail, 0)] + records[rail] if kind == "control" else records[rail]
         signed = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_int32))
         base = (0x48 + rail * 0x54) // 4
@@ -112,12 +120,15 @@ class Fake:
 class Rig:
     """A Card serving both getters from self.fake, the native handle and its Python twin."""
 
-    def __init__(self, *, with_control=True, with_live=True, nvapi_init=0, tick=0.0, **fake):
+    python_side = native_side = None  # the Side classes run() uses; PythonSide and NativeSide when None
+    card_class = None                 # the Card class; Card when None
+
+    def __init__(self, *, with_control=True, with_live=True, nvapi_init=0, tick=0.0, card=None, **fake):
         self.config = fake
         self.tick = tick  # seconds the clock advances after each sample, on both sides
         self.samples = 0  # clock samples taken by the side that ran last
         self.fake = Fake(**fake)
-        self.card = Card(nvapi_init=nvapi_init)
+        self.card = (self.card_class or Card)(nvapi_init=nvapi_init, **(card or {}))
         self.clock = [100.0]
 
         @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
@@ -163,10 +174,17 @@ class Rig:
         native.set_export_resolver(None)
 
     def run(self, scenario):
-        """(python trace, native trace) of scenario(side, fake, clock), each from a fresh fake."""
+        """(python trace, native trace) of scenario(side, fake, clock), each from a fresh fake.
+
+        The Fake and the clock are rebuilt for each side, but the Card (its NVML and NVAPI exports,
+        and the architecture answers they give) is ONE object shared by the two sides: the Python
+        side runs first and the native side sees whatever card state it left. A scenario that
+        changes card state (side.rig.card) must therefore set that state itself at its start, so
+        that both sides begin from the same card."""
         traces = []
         self.sample_counts = []
-        for side in (PythonSide(self.twin, self), NativeSide(self.native, self)):
+        for side in ((self.python_side or PythonSide)(self.twin, self),
+                     (self.native_side or NativeSide)(self.native, self)):
             self.bind()
             self.fake = Fake(**self.config)
             self.clock[0] = 100.0
