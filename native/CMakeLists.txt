@@ -103,6 +103,7 @@ add_library(drutacore_impl STATIC
   src/core/rail_transport.cpp
   src/core/sleep.cpp
   src/core/slot.cpp
+  src/core/sha256.cpp
   src/core/vf_plan.cpp
 )
 if(NOT WIN32)
@@ -153,4 +154,8 @@ if(DRUTA_FUZZ)
   target_link_libraries(rail_transport_fuzz PRIVATE drutacore_impl)
   target_compile_options(rail_transport_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(rail_transport_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  add_executable(perf_decode_fuzz fuzz/perf_decode_fuzz.cpp)
+  target_link_libraries(perf_decode_fuzz PRIVATE drutacore_impl)
+  target_compile_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  target_link_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
