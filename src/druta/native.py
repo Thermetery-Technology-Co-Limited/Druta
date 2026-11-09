@@ -1151,12 +1151,27 @@ class Gpu:
     _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended"}
 
     def _cp_read_metadata(self):
-        """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError."""
+        """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.
+
+        Python's read_metadata holds `self.gpu._lock` around _stable_locked. This port does not take
+        self._lock, as no native Gpu method does, the ports of nvbackend's _synchronized methods
+        included: the core holds the handle's own mutex across the whole bounded read, which is what
+        that lock covers within one call. self._lock is there for callers that serialize their own
+        multi-call sequences on it; a caller that needs this read ordered against such a sequence
+        takes self._lock around the call itself (it is re-entrant).
+
+        DC_E_BUFFER (a captured payload larger than dc_cpc_metadata's arrays, which every understood
+        size group fits) is raised as a malformed ClientPowerError naming the buffer, so a caller that
+        handles ClientPowerError still sees the read fail."""
+        from .client_power_runtime import ClientPowerError
         m, error = self._CpcMetadata(), _Error()
         m.size, error.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(_Error)
         status = load().dc_cpc_read_metadata(self._handle, ctypes.addressof(m), ctypes.byref(error))
         if status == DC_E_FAILED:
             self._cp_raise(error)
+        if status == DC_E_BUFFER:
+            raise ClientPowerError("malformed", "Client-power metadata does not fit the native read's buffers "
+                                                "(dc_cpc_read_metadata returned DC_E_BUFFER)")
         if status != DC_OK:
             _raise(status)
         binding = {

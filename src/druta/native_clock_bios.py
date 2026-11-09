@@ -12,9 +12,10 @@ target binding; ``reset(gpu)`` is a fresh reader. This is a parallel implementat
 tests; the Python module stays the one the backend uses.
 
 C2: ``info_once(gpu)`` is ``_info_once(gpu, reader)`` on that same handle reader, returning
-``(identity, info bytes)``; ``decode(raw)`` is the pure ``_decode``; ``read(gpu)`` is ``read(gpu)``
-with its own fresh reader per call, returning ``(observation, None)`` or ``(None, message)`` with
-the observation dict rebuilt in Python's key order and value types.
+``(identity, info bytes)``; ``decode(raw)`` is the pure ``_decode`` for objects without the buffer
+protocol and for one-dimensional unsigned-byte buffers (other buffers are refused, see ``decode``);
+``read(gpu)`` is ``read(gpu)`` with its own fresh reader per call, returning ``(observation, None)``
+or ``(None, message)`` with the observation dict rebuilt in Python's key order and value types.
 
 The C ABI takes typed arguments, so Python's own type rules stay here:
 - ``identity`` is never converted. The core reports the identity it bound (a ``dc_target``) to a
@@ -208,16 +209,30 @@ def _rows(rows):
 def decode(raw):
     """clock_bios_runtime._decode(raw): {str(index): row} for every masked INFO row.
 
-    Python's own type rules first: ``len(raw)`` raises for an object without a length, and a
-    12336-element object that is not bytes-like raises the ``TypeError`` ``struct.unpack_from``
-    raises, after the geometry check as in ``_decode``.
+    Python's own type rules first: ``len(raw)`` raises for an object without a length and the
+    geometry check follows, as in ``_decode``. A 12336-element object without the buffer protocol
+    then raises the ``TypeError`` ``struct.unpack_from`` raises, and a strided 1-D view the
+    ``BufferError`` it raises. Any C-contiguous one-dimensional buffer of unsigned single-byte items
+    (bytes, bytearray, ``array('B')``, a byte memoryview, a ctypes ``c_uint8`` array) is decoded from
+    its bytes, which is what ``_decode`` reads from it. Every other buffer is refused with a
+    ``TypeError``: ``_decode`` indexes it by element (signed values for format 'b', bytes objects
+    for 'c', and byte offsets mixed with element slices for multi-byte or multi-dimensional items),
+    which no native decode mirrors.
     """
     if len(raw) != INFO_SIZE:
         from .clock_bios_runtime import ClockBiosError
         raise ClockBiosError("Clock INFO geometry is not understood")
-    if not isinstance(raw, (bytes, bytearray, memoryview)):
-        raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
-    data = bytes(raw)
+    try:
+        view = memoryview(raw)
+    except TypeError:
+        raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'") from None
+    with view:
+        if view.ndim != 1 or view.itemsize != 1 or view.format.lstrip("@=<>!") != "B":
+            raise TypeError("native_clock_bios.decode mirrors _decode for single-byte unsigned buffers only, "
+                            f"not format {view.format!r} with {view.ndim} dimension(s)")
+        if not view.c_contiguous:
+            raise BufferError("memoryview: underlying buffer is not C-contiguous")
+        data = view.tobytes()
     out, error = _Rows(), _new_error()
     out.size = ctypes.sizeof(_Rows)
     status = load().dc_clock_bios_decode(data, len(data), ctypes.byref(out), ctypes.byref(error))

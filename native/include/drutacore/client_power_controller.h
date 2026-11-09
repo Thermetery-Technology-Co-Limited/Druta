@@ -105,7 +105,11 @@ typedef struct dc_cpc_metadata {
     uint32_t size;          /* sizeof(dc_cpc_metadata), set by the caller */
     int32_t schema;         /* 1 */
     int32_t stable_reads;   /* 2 */
-    char slot[24];          /* identity */
+    char slot[24];          /* identity: Target::slot, never truncated. A successful read binds only a
+                             * slot that parses with PCI domain 0 and equals the NVAPI adapter's
+                             * address, and Gpu::slot() then returns an adapter-derived format_slot
+                             * text ("0000:bb:dd.f", 12 characters; the requested text is reached
+                             * only when no adapter slot exists, which the binding refuses). */
     uint32_t architecture;
     uint32_t device_id;
     uint32_t subsystem_id;
@@ -134,7 +138,12 @@ typedef struct dc_cpc_metadata {
  * second transient failure). DC_OK with *out, or DC_E_FAILED with *error: the ClientPowerError of
  * the failing step, DC_ERR_UNSTABLE when the two captures differ. The controller state keeps every
  * group the captures selected. DC_E_ARGUMENT for a NULL handle or out, a wrong out->size, or a
- * dc_error whose size is wrong. */
+ * dc_error whose size is wrong; *error and *out are then left untouched.
+ *
+ * DC_E_BUFFER (neither *error nor *out written; the controller state keeps the groups selected)
+ * when a stable capture holds a payload larger than DC_CPC_INFO_MAX, DC_CPC_ROLE_INFO_MAX or
+ * DC_CPC_NATIVE_INFO_MAX. Unreachable while those are SIZES' packets, the largest of every
+ * DC_CP_*_SIZES group; a group with a larger packet must raise them with it. */
 DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* gpu, dc_cpc_metadata* out, dc_error* error);
 
 #ifdef __cplusplus

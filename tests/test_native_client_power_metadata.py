@@ -14,8 +14,9 @@ packet's length and calls fake._legacy_clk_escape(view, fields) with the escape'
 fake's transport header and fields are stored as the fixture transport on both sides (the adapter
 the rig enumerates at the card's slot carries the fake's hAdapter), so both sides send the fake the
 exact packets it expects. Each side gets a fresh fake (its counts and scripted faults start over).
-Every case compares the metadata dict or the exception (kind, message, rm_status), the gdi call log
-(the escape fields and packet bytes), the controller state and the transport cache.
+Every case compares the metadata dict (key order included, nested dicts too) or the exception (kind,
+message, rm_status), the gdi call log (the escape fields and packet bytes), the controller state, the
+transport cache and the fake's own command log.
 
 The models: FakeGpu (modern, tests/test_client_power_runtime.py), ModernCoupledGpu (modern buffers
 with a v30 definition, tests/test_client_power_driver_compat.py), LegacyGpu
@@ -32,12 +33,15 @@ code buffer, as tests/test_native_rm_transport.py does). Without it the capture 
 either side, which is the transient "no recognized power GET captured".
 
 Not reachable natively or through these fakes, and so covered only by the Python tests:
-  - the identity changing during a capture ("Client-power target changed during metadata capture")
-    and the sticky binding refusal (the fake identity cannot change while one core call runs);
+  - the target identity changing during a capture ("Client-power target changed during metadata
+    capture") and the sticky binding refusal (the fake identity cannot change while one core call
+    runs). The transport key changing on the retry's fresh capture is reachable, and covered;
   - "Power-role INFO carries no usable policy definition": the role size comes from a fixed
     table, and every table's role size leaves a stride of at least 20 that is a multiple of 4;
   - an IndexError from a client row past the end of INFO (every table's rows lie inside it);
   - "No understood client-power group was accepted" (the last fallback always returns or raises).
+Not reachable at all: dc_cpc_read_metadata's DC_E_BUFFER (every size group's payloads fit
+dc_cpc_metadata); AbiTests checks the binding's answer to it with a stubbed export.
 """
 import ctypes
 from types import SimpleNamespace
@@ -316,7 +320,18 @@ class MetadataCase(unittest.TestCase):
                 opened.close()
             self.assertEqual(rig.errors, [], f"the {kind} run raised inside the fake driver")
         self.assertEqual(runs[0], runs[1], "Python and native runs differ")
+        # dict equality ignores insertion order; the metadata dict promises Python's, nested keys included
+        self.assertEqual(ordered(runs[0][0]), ordered(runs[1][0]), "Python and native key orders differ")
         return runs[0]
+
+
+def ordered(value):
+    """value with every dict turned into its (key, value) list, so == also compares key order."""
+    if isinstance(value, dict):
+        return [(key, ordered(item)) for key, item in value.items()]
+    if isinstance(value, (list, tuple)):
+        return type(value)(ordered(item) for item in value)
+    return value
 
 
 def store(side, rig, choice=True):
@@ -499,6 +514,85 @@ class ClientGroupTests(MetadataCase):
         self.assertEqual(final, state(transport_key=A612_KEY))
         self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924)])
 
+    def test_only_pascal_turing_and_ampere_fall_back(self):
+        # every generation the binding accepts (4 through 10): Volta (5) is the gap inside the list
+        for arch in range(4, 11):
+            with self.subTest(arch=arch):
+                rig = MetaRig(lambda arch=arch: LegacyGpu(architecture=arch), accepted=legacy_accepted())
+                result, _, final, _, fake_calls = self.both(rig)
+                if arch in (4, 6, 7):
+                    self.assertEqual(result[0], "ok")
+                    self.assertEqual(result[1]["binding"]["layout"], "legacy32")
+                    self.assertEqual(final, state(sizes="LEGACY_SIZES", legacy=True, transport_key=A612_KEY))
+                else:
+                    self.assertEqual(result, rm_error(cp.INFO, 0x1F))
+                    self.assertEqual(final, state(transport_key=A612_KEY))
+                    self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924)])
+
+    def test_a_0x3a_refusal_at_the_legacy_probe_moves_on_to_compact(self):
+        def configure(fake):
+            fake.faults[(cp.INFO, 1160, 1)] = {"rm": 0x3A}
+        rig = MetaRig(CompactGpu, configure=configure)
+        result, _, final, _, fake_calls = self.both(rig)
+        self.assertEqual(result[0], "ok")
+        self.assertEqual(final, state(sizes="A612_COMPACT_SIZES", rm26_records=True, rm26_extended=True,
+                                      transport_key=A612_KEY))
+        self.assertEqual(commands(fake_calls)[:3], [(cp.INFO, 0x924), (cp.INFO, 1160), (cp.INFO, 900)])
+
+    def test_a_transient_at_the_compact_probe_restores_the_previous_sizes(self):
+        def configure(fake):
+            fake.faults[(cp.INFO, 900, 1)] = {"rm": 0x99}
+        rig = MetaRig(CompactGpu, configure=configure)
+        result, _, final, cache, fake_calls = self.both(rig)
+        self.assertEqual(result, ("ClientPowerError", "transient",
+                                  "unsupported current-policy transport: no recognized power GET captured", None))
+        self.assertEqual(final, state(transport_key=A612_KEY))  # no group half-selected
+        self.assertEqual(cache, (None, False))
+        self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924), (cp.INFO, 1160), (cp.INFO, 900)])
+
+    def test_the_retry_after_a_transient_fallback_probe_starts_again_from_the_modern_group(self):
+        def compact(fake):
+            fake.faults[(cp.INFO, 900, 1)] = {"rm": 0x99}
+
+        def legacy(fake):
+            fake.faults[(cp.INFO, 2)] = {"rm": 0x99}
+        cases = ((CompactGpu, compact, None, (cp.INFO, 900), [(cp.INFO, 0x924), (cp.INFO, 1160), (cp.INFO, 900)]),
+                 (LegacyGpu, legacy, legacy_accepted(), (cp.INFO, 1160), [(cp.INFO, 0x924), (cp.INFO, 1160)]))
+        for factory, configure, accepted, chosen, probes in cases:
+            with self.subTest(factory.__name__):
+                rig = MetaRig(factory, configure=configure, accepted=accepted, recapture=True)
+                result, _, _, cache, fake_calls = self.both(rig)
+                self.assertEqual(result[0], "ok")
+                self.assertEqual(cache, ((rig.header, rig.fields), False))
+                # the failed probe, then the whole probe order again, then the chosen group only
+                self.assertEqual(commands(fake_calls)[:2 * len(probes)], probes * 2)
+                self.assertEqual(commands(fake_calls)[2 * len(probes) + 2], chosen)
+
+    def test_rm26_records_are_never_probed_again(self):
+        def rm26(fake):
+            fake.faults[(0x20802630, 1)] = {"rm": 0x1F}  # the 26xx INFO, on a generation of the legacy list
+        rig = MetaRig(Rm26Gpu, configure=rm26)
+        result, _, final, _, fake_calls = self.both(rig)
+        self.assertEqual(result, rm_error(0x20802630, 0x1F))  # the wire command
+        self.assertEqual(final, state(sizes="RM26_SIZES", rm26=True, rm26_records=True,
+                                      transport_key=(0x20802612, 2524, 2456)))
+        self.assertEqual(commands(fake_calls), [(0x20802630, 644)])
+
+        def compact(fake):
+            fake.faults[(cp.INFO, 900, 3)] = {"rm": 0x1F}  # the compact INFO of the next read
+        rig = MetaRig(CompactGpu, configure=compact)
+
+        def action(side):
+            store(side, rig)
+            return outcome(side.read), outcome(side.read)
+        (first, second), calls, final, _, fake_calls = self.both(rig, action)
+        self.assertEqual(first[0], "ok")
+        self.assertEqual(second, rm_error(cp.INFO, 0x1F))
+        self.assertEqual(final, state(sizes="A612_COMPACT_SIZES", rm26_records=True, rm26_extended=True,
+                                      transport_key=A612_KEY))
+        self.assertEqual(commands(fake_calls)[-1], (cp.INFO, 900))
+        self.assertEqual(len(fake_calls), 9)
+
     def test_a_transient_modern_refusal_does_not_fall_back(self):
         def configure(fake):
             fake.faults[(cp.INFO, 1)] = {"rm": 0x99}
@@ -584,6 +678,64 @@ class RetryTests(MetadataCase):
                                       transport_key=TURING_KEY))
         self.assertEqual(commands(fake_calls)[-2:], [(cp.NATIVE_INFO, 8632), (cp.NATIVE_INFO, 8620)])
 
+    def test_only_a_0x1f_native_refusal_tries_turing(self):
+        for rm in (0x3A, 0x99):
+            with self.subTest(rm=hex(rm)):
+                def configure(fake, rm=rm):
+                    fake.faults[(cp.NATIVE_INFO, 8632, 1)] = {"rm": rm}
+                rig = MetaRig(TuringGpu, configure=configure)
+                result, _, final, _, fake_calls = self.both(rig)
+                if rm == 0x3A:
+                    self.assertEqual(result, rm_error(cp.NATIVE_INFO, 0x3A))
+                else:  # transient: the retry finds no transport to capture
+                    self.assertEqual(result, ("ClientPowerError", "transient", "unsupported current-policy "
+                                              "transport: no recognized power GET captured", None))
+                self.assertEqual(final, state(sizes="LEGACY_SIZES", legacy=True, transport_key=TURING_KEY))
+                self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924), (cp.INFO, 1160), (cp.ROLE_INFO, 232),
+                                                        (cp.NATIVE_INFO, 8632)])
+
+    def test_a_selected_retry_group_is_not_retried_on_a_later_read(self):
+        # The third GET of the retried size is the first capture of the second read.
+        cases = ((lambda: TuringGpu(record=216), (cp.ROLE_INFO, 220),
+                  state(sizes="INFO216_SIZES", legacy=True, role_info216=True, transport_key=TURING_KEY)),
+                 (TuringGpu, (cp.NATIVE_INFO, 8620),
+                  state(sizes="TURING_SIZES", legacy=True, native_policy124=True, transport_key=TURING_KEY)))
+        for factory, (command, size), expected in cases:
+            with self.subTest(command=hex(command)):
+                def configure(fake, command=command, size=size):
+                    fake.faults[(command, size, 3)] = {"rm": 0x1F}
+                rig = MetaRig(factory, configure=configure)
+
+                def action(side, rig=rig):
+                    store(side, rig)
+                    return outcome(side.read), outcome(side.read)
+                (first, second), _, final, _, fake_calls = self.both(rig, action)
+                self.assertEqual(first[0], "ok")
+                self.assertEqual(second, rm_error(command, 0x1F))
+                self.assertEqual(final, expected)
+                self.assertEqual(commands(fake_calls)[-1], (command, size))
+                self.assertEqual(commands(fake_calls).count((command, size)), 3)
+
+    def test_a_transient_on_the_retried_get_keeps_the_group_for_the_stable_retry(self):
+        cases = ((lambda: TuringGpu(record=216), (cp.ROLE_INFO, 220),
+                  [(cp.INFO, 1160), (cp.ROLE_INFO, 220), (cp.NATIVE_INFO, 8236)],
+                  state(sizes="INFO216_SIZES", legacy=True, role_info216=True, transport_key=TURING_KEY)),
+                 (TuringGpu, (cp.NATIVE_INFO, 8620),
+                  [(cp.INFO, 1160), (cp.ROLE_INFO, 232), (cp.NATIVE_INFO, 8620)],
+                  state(sizes="TURING_SIZES", legacy=True, native_policy124=True, transport_key=TURING_KEY)))
+        for factory, (command, size), capture, expected in cases:
+            with self.subTest(command=hex(command)):
+                def configure(fake, command=command, size=size):
+                    fake.faults[(command, size, 1)] = {"rm": 0x99}
+                rig = MetaRig(factory, configure=configure, recapture=True)
+                result, _, final, _, fake_calls = self.both(rig)
+                self.assertEqual(result[0], "ok")
+                self.assertEqual(final, expected)
+                # the retry goes straight to the selected group: no 232 role or 8632 native probe again
+                sent = commands(fake_calls)
+                failed = sent.index((command, size))
+                self.assertEqual(sent[failed + 1:], capture * 2)
+
     def test_the_modern_group_does_not_retry_native_info(self):
         def configure(fake):
             fake.faults[(cp.NATIVE_INFO, 1)] = {"rm": 0x1F}
@@ -638,6 +790,18 @@ def native_limits(fake):
     put(fake.native_info, NATIVE_ROW + 16, 550001)
 
 
+def native_word(offset, value):
+    def configure(fake):
+        put(fake.native_info, NATIVE_ROW + offset, value)
+    return configure
+
+
+def selector(index, value):
+    def configure(fake):
+        fake.faults[(cp.ROLE_INFO, 1)] = {"payload": lambda raw: raw.__setitem__(index, value)}
+    return configure
+
+
 MALFORMED, UNSUPPORTED = "malformed", "unsupported"
 METADATA_REFUSALS = [
     ("mask beyond the row capacity", mutate_info(4 + 8, 1), MALFORMED,
@@ -651,7 +815,12 @@ METADATA_REFUSALS = [
     ("discriminants", mutate_info(ROW + 1, 84), MALFORMED, "Selected client INFO type discriminants disagree"),
     ("units", mutate_info(ROW + 3, 1), UNSUPPORTED, "Selected client-power policy does not report milliwatts"),
     ("limits", inconsistent_limits, MALFORMED, "Client-power ordinary limits are inconsistent"),
+    ("limits, rated above the maximum", lambda fake: put(fake.info, ROW + 8, 600000), MALFORMED,
+     "Client-power ordinary limits are inconsistent"),
     ("selector", changed_selector, MALFORMED, "Power-role INFO changed its semantic selector"),
+    ("selector byte 1", selector(1, 1), MALFORMED, "Power-role INFO changed its semantic selector"),
+    ("selector byte 2", selector(2, 0x80), MALFORMED, "Power-role INFO changed its semantic selector"),
+    ("selector byte 3", selector(3, 1), MALFORMED, "Power-role INFO changed its semantic selector"),
     ("no native match", unbound_definition, MALFORMED, "Role1 INFO does not uniquely bind a current native policy"),
     ("two native matches", duplicate_native, MALFORMED, "Role1 INFO does not uniquely bind a current native policy"),
     ("native policy not in the mask", lambda fake: put(fake.native_info, 4, 1 << 2), MALFORMED,
@@ -659,6 +828,10 @@ METADATA_REFUSALS = [
     ("table version", mutate_native(0, 0x41), MALFORMED, "Client INFO differs from the bound native policy definition"),
     ("native units", mutate_native(6, 1), MALFORMED, "Client INFO differs from the bound native policy definition"),
     ("native limits", native_limits, MALFORMED, "Client INFO differs from the bound native policy definition"),
+    ("native minimum", native_word(8, 199999), MALFORMED,
+     "Client INFO differs from the bound native policy definition"),
+    ("native rated", native_word(12, 321001), MALFORMED,
+     "Client INFO differs from the bound native policy definition"),
 ]
 
 
@@ -693,11 +866,36 @@ class MetadataRefusalTests(MetadataCase):
         self.assertEqual(result, ("ClientPowerError", MALFORMED,
                                   "Client INFO differs from the bound native policy definition", None))
 
-    def test_rm26_mask_capacity(self):
-        def configure(fake):
-            put(fake.info, 0, 1 << 11)  # 32 rows: every bit of the u32 mask is addressable
-        result, *_ = self.both(MetaRig(Rm26Gpu, configure=configure))
-        self.assertEqual(result[0], "ok")
+    def test_the_v30_only_groups_refuse_a_v40_definition(self):
+        # TURING and INFO216 carry _legacy; A612_COMPACT carries _rm26_records on the A612 family
+        cases = ((CompactGpu, 60 + 21 * 128,
+                  state(sizes="A612_COMPACT_SIZES", rm26_records=True, rm26_extended=True, transport_key=A612_KEY)),
+                 (TuringGpu, 88 + 17 * 228,
+                  state(sizes="TURING_SIZES", legacy=True, native_policy124=True, transport_key=TURING_KEY)),
+                 (lambda: TuringGpu(record=216), 88 + 17 * 216,
+                  state(sizes="INFO216_SIZES", legacy=True, role_info216=True, transport_key=TURING_KEY)))
+        for factory, at, expected in cases:
+            with self.subTest(expected["sizes"]):
+                def configure(fake, at=at):
+                    fake.native_info[at] = 0x40
+                result, _, final, *_ = self.both(MetaRig(factory, configure=configure))
+                self.assertEqual(result, ("ClientPowerError", MALFORMED,
+                                          "Client INFO differs from the bound native policy definition", None))
+                self.assertEqual(final, expected)
+
+    def test_the_last_row_of_a_u32_mask_is_addressable(self):
+        # 32 rows: the role1 row (and, where the model allows it, the native policy) at index 31, the
+        # row ending exactly at the end of INFO
+        cases = (("rm26", lambda: Rm26Gpu(client=31, native=31), None, 31),
+                 ("legacy", lambda: LegacyGpu(client_index=31, native_index=31), legacy_accepted(), 31),
+                 ("turing", lambda: TuringGpu(client_index=31, native_index=31), None, 31),
+                 ("compact", lambda: CompactGpu(client=31, native=31), None, 31))
+        for name, factory, accepted, native_index in cases:
+            with self.subTest(name):
+                result, *_ = self.both(MetaRig(factory, accepted=accepted))
+                self.assertEqual(result[0], "ok", result)
+                self.assertEqual((result[1]["binding"]["client_index"], result[1]["binding"]["native_index"]),
+                                 (31, native_index))
 
 
 # ---- _stable_locked ------------------------------------------------------------------------------
@@ -712,6 +910,40 @@ class StableReadTests(MetadataCase):
                                   "Client-power definitions or requests changed between fresh reads", None))
         self.assertEqual(len(fake_calls), 6)
         self.assertEqual(cache, ((rig.header, rig.fields), True))
+
+    def test_a_difference_in_info_alone_is_unstable(self):
+        # the last INFO byte lies in row 63, which is not the bound row: only info_hex differs
+        def configure(fake):
+            fake.faults[(cp.INFO, 2)] = {"payload": lambda raw: raw.__setitem__(len(raw) - 1, raw[-1] ^ 0xFF)}
+        rig = MetaRig(FakeGpu, configure=configure, accepted=MODERN)
+        result, _, _, cache, fake_calls = self.both(rig)
+        self.assertEqual(result, ("ClientPowerError", "unstable",
+                                  "Client-power definitions or requests changed between fresh reads", None))
+        self.assertEqual(len(fake_calls), 6)
+        self.assertEqual(cache, ((rig.header, rig.fields), True))
+
+    def test_a_changed_transport_on_the_retry_is_an_identity_failure(self):
+        def configure(fake):
+            fake.faults[(cp.INFO, 1)] = {"rm": 0x99}
+        rig = MetaRig(FakeGpu, configure=configure, accepted=MODERN, recapture=True)
+        stored = list(rig.header)
+
+        def action(side):
+            store(side, rig)
+            rig.header[2], rig.header[15] = 11748, 11680  # the driver's power GET now has another size
+            try:
+                return outcome(side.read)
+            finally:
+                rig.header[:] = stored
+        result, _, final, cache, fake_calls = self.both(rig, action)
+        self.assertEqual(result, ("ClientPowerError", "identity",
+                                  "Client-power transport changed; create a fresh controller", None))
+        self.assertEqual(final, state(transport_key=A612_KEY))
+        changed = list(stored)
+        changed[2], changed[15] = 11748, 11680
+        # captured again once and kept: an identity failure is neither retried nor followed by a reset
+        self.assertEqual(cache, ((changed, rig.fields), False))
+        self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924)])
 
     def test_a_changed_binding_between_captures_is_unstable(self):
         def configure(fake):
@@ -816,6 +1048,10 @@ class StableReadTests(MetadataCase):
 
 # ---- the C ABI ----------------------------------------------------------------------------------
 
+def _text_bytes(field):
+    return bytes(field).split(b"\0", 1)[0]
+
+
 class AbiTests(unittest.TestCase):
     def tearDown(self):
         native.set_export_resolver(None)
@@ -828,29 +1064,79 @@ class AbiTests(unittest.TestCase):
         gpu = native.Gpu()
         rig.calls = []
         try:
+            before = gpu._cp_state()
             m, error = native.Gpu._CpcMetadata(), native._Error()
-            m.size, error.size = ctypes.sizeof(m), ctypes.sizeof(error)
+            ctypes.memset(ctypes.addressof(m), 0xA5, ctypes.sizeof(m))
+            m.size, error.size, error.kind = ctypes.sizeof(m), ctypes.sizeof(error), 99
+            sentinel = bytes(m)[4:]
+
+            def untouched(kind=99):
+                self.assertEqual(error.kind, kind)
+                self.assertEqual(bytes(m)[4:], sentinel)
             self.assertEqual(lib.dc_cpc_read_metadata(None, ctypes.addressof(m), ctypes.byref(error)),
                              native.DC_E_ARGUMENT)
+            untouched()
             self.assertEqual(lib.dc_cpc_read_metadata(gpu._handle, None, ctypes.byref(error)), native.DC_E_ARGUMENT)
+            untouched()
             m.size = ctypes.sizeof(m) - 1
             self.assertEqual(lib.dc_cpc_read_metadata(gpu._handle, ctypes.addressof(m), ctypes.byref(error)),
                              native.DC_E_ARGUMENT)
+            untouched()
             m.size, error.size = ctypes.sizeof(m), 0
             self.assertEqual(lib.dc_cpc_read_metadata(gpu._handle, ctypes.addressof(m), ctypes.byref(error)),
                              native.DC_E_ARGUMENT)
+            untouched()
             self.assertEqual(rig.calls, [])
-            # A NULL error is allowed: the failure (no transport) is still DC_E_FAILED.
+            self.assertEqual(gpu._cp_state(), before)
+            self.assertEqual(gpu._current_limit_transport, None)
+            # A NULL error is allowed: the failure (no transport) is still DC_E_FAILED, *out untouched.
             self.assertEqual(lib.dc_cpc_read_metadata(gpu._handle, ctypes.addressof(m), None), native.DC_E_FAILED)
-            # The success path fills the struct, presence flags and lengths included.
+            self.assertEqual(bytes(m)[4:], sentinel)
+            # The success path fills the whole struct over the 0xA5 fill (absent keys and padding zeroed)
+            # and clears *error.
             gpu._current_limit_transport = (list(rig.header), dict(rig.fields))
-            error.size = ctypes.sizeof(error)
+            error.size, error.kind = ctypes.sizeof(error), 99
             self.assertEqual(lib.dc_cpc_read_metadata(gpu._handle, ctypes.addressof(m), ctypes.byref(error)),
                              native.DC_OK)
-            self.assertEqual((m.schema, m.stable_reads, m.units, m.layout, m.native_layout, m.has_native_info_stride),
-                             (1, 2, b"mW", 0, 0, 0))
+            self.assertEqual((m.schema, m.stable_reads, m.slot, m.units, m.layout, m.native_layout,
+                              m.has_native_info_stride, m.native_info_stride),
+                             (1, 2, b"0000:01:00.0", b"mW", 0, 0, 0, 0))
             self.assertEqual((m.info_size, m.role_info_size, m.native_info_size), (0x924, 0x108, 20512))
+            raw, fields = bytes(m), native.Gpu._CpcMetadata
+            self.assertEqual(raw[fields.slot.offset:fields.slot.offset + 24], b"0000:01:00.0".ljust(24, b"\0"))
+            self.assertEqual(raw[fields.units.offset:fields.units.offset + 4], b"mW\0\0")
             self.assertEqual(error.kind, 0)
+            self.assertEqual(_text_bytes(error.message), b"")
+        finally:
+            gpu.close()
+
+    def test_a_buffer_refusal_is_a_client_power_error(self):
+        # Unreachable in the core (every group fits dc_cpc_metadata); the binding's answer to it.
+        gpu = native.Gpu.__new__(native.Gpu)
+        gpu._handle = None
+        stub = SimpleNamespace(dc_cpc_read_metadata=Mock(return_value=native.DC_E_BUFFER))
+        with patch.object(native, "load", return_value=stub):
+            with self.assertRaises(cp.ClientPowerError) as caught:
+                gpu._cp_read_metadata()
+        self.assertEqual(caught.exception.kind, "malformed")
+        self.assertIn("DC_E_BUFFER", str(caught.exception))
+        self.assertIsNone(caught.exception.rm_status)
+
+    def test_the_identity_slot_is_the_adapter_s_canonical_slot(self):
+        # The handle opened with a requested slot that does not fit dc_cpc_metadata.slot (surrounding
+        # whitespace, the 8-digit NVML domain): the identity is still the adapter's own 12-character
+        # format_slot text, which is what Python's GPU.slot() returns too.
+        rig = MetaRig(FakeGpu, accepted=MODERN)
+        rig.fresh()
+        install(rig.card.nvml, rig.card.nvapi, rig.gdi())
+        requested = "    00000000:01:00.0        "
+        self.assertGreaterEqual(len(requested), 24)
+        gpu = native.Gpu(requested)
+        try:
+            gpu._current_limit_transport = (list(rig.header), dict(rig.fields))
+            metadata = gpu._cp_read_metadata()
+            self.assertEqual(metadata["identity"]["slot"], "0000:01:00.0")
+            self.assertEqual(metadata["identity"]["slot"], gpu.slot())
         finally:
             gpu.close()
 

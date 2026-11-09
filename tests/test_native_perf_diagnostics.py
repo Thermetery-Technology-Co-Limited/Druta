@@ -29,22 +29,33 @@ that is not a (header, fields) pair, header words that are not 32-bit ints and a
 other than the five fields (the core's types hold these by construction). The transport ARGUMENT
 of _get is marshalled with Python's own semantics (TransportArgumentTests).
 
-Increment P2 (Sha256Tests, DecodeTests, ReadTests): the embedded SHA-256 against hashlib,
-decode_group over every decode case of tests/test_perf_diagnostics.py plus seeded random mutations
-(the whole dict, key order and value types included, compared through repr; captured_at is only
-checked to be a fresh float), and PerfDiagnosticsReader.read against perf.Reader on the P1 PerfRig
-with a scripted driver that serves tests/test_perf_diagnostics.packets payloads.
+Increment P2 (Sha256Tests, DecodeTests, ReadTests, AbiArgumentTests, RecaptureTests): the
+embedded SHA-256 against hashlib, decode_group over every decode case of
+tests/test_perf_diagnostics.py plus fixed boundary cases and seeded random mutations (the whole
+dict, key order and value types included, compared through repr; captured_at is checked to be a
+fresh float, and in ReadTests for its order against the GETs), PerfDiagnosticsReader.read against
+perf.Reader on the P1 PerfRig with a scripted driver that serves tests/test_perf_diagnostics.packets
+payloads, and the C ABI's argument refusals. An unknown group name's ValueError is Python's own
+text at any length (the core's message field holds 1023 bytes, so the binding formats it).
 
 Python-only, and so covered only by tests/test_perf_diagnostics.py: the mid-call target change
 (the core reads the identity once when the handle opens), the process-exit signal that read()
-must not suppress, and the `except Exception` branch (a non-PerfDiagnosticError from the capture
-or the escape: the core reports every failure as a kinded error). The "PERF INFO mask exceeds
-group capacity" check cannot fire for any layout (mask_bytes * 8 == capacity everywhere) on either
-side."""
+must not suppress, and the `except Exception` branch (a non-PerfDiagnosticError from the binding,
+the capture or the escape, reported as transient "PERF read failed (Type): msg" with the transport
+dropped: the core reports every failure as a kinded error, and its own counterpart in read_group
+is reachable only through _get outcomes the layout-derived arguments cannot produce). The "PERF
+INFO mask exceeds group capacity" check cannot fire for any layout (mask_bytes * 8 == capacity
+everywhere) on either side.
+
+Not exercised here: the ABI's exception guard (a C++ exception, such as an allocation failure, is
+DC_E_FAILED with a transient "PERF reader failed: ..." error; nothing in the fake driver can make
+the core throw), and the release of the GPU lock between attempts (only that it is held during
+each escape is observed: a waiting thread is not guaranteed to win the lock in between)."""
 import ctypes
 import hashlib
 import random
 import struct
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -117,18 +128,20 @@ def gdi_round(command, size, mask=None, base=None):
 
 class PerfRig(TransportRig):
     """TransportRig whose escape logs the whole packet and then lets `respond(words)` answer.
-    NVML's architecture answers `self.arch` (restored to `arch` by reset()) and counts its reads."""
+    NVML's architecture answers `self.arch` (restored to `arch` by reset()) and counts its reads;
+    its first `arch_failures` reads after each reset() fail with NVML status 3."""
 
-    def __init__(self, *, respond=echo, arch=7, **kw):
+    def __init__(self, *, respond=echo, arch=7, arch_failures=0, **kw):
         self.respond, self.errors = respond, []
         self.initial_arch, self.arch, self.arch_reads = arch, arch, 0
+        self.arch_failures = arch_failures
         super().__init__(**kw)
 
         @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
         def architecture(device, pointer):
             self.arch_reads += 1
             write_u32(pointer, self.arch)
-            return 0
+            return 3 if self.arch_reads <= self.arch_failures else 0
         self._architecture = architecture
         self.nvml.exports["nvmlDeviceGetArchitecture"] = architecture
 
@@ -855,6 +868,13 @@ def decode_cases():
         ("limits 29-character label", "limits", mutated(limits_info, *((label_at + k, 0x42) for k in range(29))),
          limits_control, {}),
         ("limits DEL in label", "limits", mutated(limits_info, (label_at + 3, 0x7F)), limits_control, {}),
+        # the inclusive printable bounds of `b < 32 or b > 126`, before the NUL
+        ("limits control byte in label", "limits", mutated(limits_info, (label_at + 3, 0x1F)), limits_control, {}),
+        ("limits control byte first", "limits", mutated(limits_info, (label_at, 0x01)), limits_control, {}),
+        ("limits space in label", "limits", mutated(limits_info, (label_at + 3, 0x20)), limits_control, {}),
+        ("limits space-only label", "limits", mutated(limits_info, (label_at, 0x20), (label_at + 1, 0)),
+         limits_control, {}),
+        ("limits tilde in label", "limits", mutated(limits_info, (label_at + 3, 0x7E)), limits_control, {}),
         ("limits control byte past the NUL", "limits", mutated(limits_info, (label_at + 20, 0x01)), limits_control,
          {}),
         ("limits 0x4c not Boolean", "limits", limits_info, mutated(limits_control, (0x4C, 7)), {}),
@@ -863,6 +883,7 @@ def decode_cases():
         ("limits unknown subclass", "limits", mutated(limits_info, (0x44, 12)), mutated(limits_control, (0x44, 12)),
          {}),
         ("limits subclass only in INFO", "limits", limits_info, mutated(limits_control, (0x44, 12)), {}),
+        ("limits subclass only in CONTROL", "limits", mutated(limits_info, (0x44, 12)), limits_control, {}),
         ("limits non-label type", "limits", *packets("limits", [4], types={4: 3}), {}),
     ]
     ctl_info, ctl_control = packets("cf_controller")
@@ -942,6 +963,15 @@ class DecodeTests(unittest.TestCase):
         # _layout comes before the INFO conversion
         self.assertEqual(self.assert_same("nope", 1.5, None)[0], "ValueError")
         self.assertEqual(self.assert_same("limits", 1.5, None)[0], "TypeError")
+
+    def test_long_unknown_names_keep_the_whole_message(self):
+        # The core's dc_error message holds 1023 bytes; Python's text has no limit.
+        info, control = packets("limits")
+        for name in ("x" * 1000, "\x01" * 300, "'\"" * 400, "a" * 5000):
+            with self.subTest(length=len(name), first=name[0]):
+                kind, text = self.assert_same(name, info, control)
+                self.assertEqual((kind, text), ("ValueError", f"Unknown PERF diagnostic group {name!r}"))
+                self.assertGreater(len(text.encode()), 1023)
 
     def test_seeded_random_mutations(self):
         generator = random.Random(0xDEC0DE)
@@ -1137,6 +1167,107 @@ class ReadTests(PerfCase):
         self.assertEqual(sum(1 for c in calls if c[0] == "Escape"), 1)
         self.assertEqual(stored, (None, False))
 
+    def test_an_escape_ntstatus_is_the_group_error(self):
+        # attempts=1: the failed escape's own PerfDiagnosticError is what the loop reports.
+        command = LAYOUTS["cf_controller"].info_command
+        rig = ReadRig()
+        rig.driver.script[command] = [(NTSTATUS_INVALID_PARAMETER, 0)]
+        report, calls, stored, (_, errors) = self.report(rig, ["cf_controller"], attempts=1)
+        group = report["groups"]["cf_controller"]
+        text = f"PERF GET transport failed (NTSTATUS {NTSTATUS_INVALID_PARAMETER})"
+        self.assertEqual((group["status"], group["attempts"], group["error"]), ("transient", 1, text))
+        self.assertEqual(errors, {"cf_controller": ("transient", text, NTSTATUS_INVALID_PARAMETER)})
+        self.assertEqual(sum(1 for c in calls if c[0] == "Escape"), 1)
+        self.assertEqual(stored, (None, False))  # the transport and the layout choice are dropped
+
+    def test_an_escape_that_cannot_be_issued_is_the_group_error(self):
+        text = "PERF GET transport failed (NTSTATUS None)"
+        for rig in (ReadRig(adapters=[(7, 2, 0, 0)]), ReadRig(missing={ESCAPE})):
+            with self.subTest(adapters=rig.adapters, missing=sorted(rig.missing)):
+                report, calls, stored, (_, errors) = self.report(rig, ["cf_policy"], attempts=1)
+                group = report["groups"]["cf_policy"]
+                self.assertEqual((group["status"], group["attempts"], group["error"]), ("transient", 1, text))
+                self.assertEqual(errors, {"cf_policy": ("transient", text, None)})
+                self.assertNotIn("Escape", [c[0] for c in calls])
+                self.assertEqual(stored, (None, False))
+
+    def test_transient_binding_failures_retry(self):
+        unread = "GPU architecture could not be read"
+        for attempts, failures in ((1, 1), (2, 1), (2, 2), (3, 2)):
+            with self.subTest(attempts=attempts, failures=failures):
+                rig = ReadRig(arch_failures=failures)
+                report, calls, _, (_, errors) = self.report(rig, ["cf_policy"], attempts=attempts)
+                group = report["groups"]["cf_policy"]
+                if failures < attempts:  # a later attempt reads the architecture and recovers
+                    self.assertEqual((group["status"], group["attempts"]), ("ready", failures + 1))
+                    self.assertEqual((report["slot"], report["architecture"]), ("0000:01:00.0", 7))
+                else:
+                    self.assertEqual((group["status"], group["attempts"], group["error"]),
+                                     ("transient", attempts, unread))
+                    self.assertEqual((report["slot"], report["architecture"], calls), ("", None, []))
+                    self.assertEqual(errors, {"cf_policy": ("transient", unread, None)})
+
+    def test_default_attempts_is_two(self):
+        command = LAYOUTS["limits"].info_command
+        for failures, expected in ((1, ("ready", 2)), (2, ("transient", 2))):
+            with self.subTest(failures=failures):
+                rig = ReadRig()
+                rig.driver.script[command] = [(0, 0x40)] * failures
+                report, _, _, _ = self.report(rig, ["limits"], construct=lambda make, gpu: make(gpu))
+                group = report["groups"]["limits"]
+                self.assertEqual((group["status"], group["attempts"]), expected)
+
+    def test_the_gpu_lock_is_held_during_each_escape(self):
+        # Another thread that takes the handle's lock (gpu._lock; the core's lock through
+        # dc_perf_reset, a fresh binding of the same identity) must still be waiting during the escape.
+        rig = ReadRig()
+        threads = []
+
+        def construct(make, gpu):
+            if isinstance(gpu, NV.GPU):
+                def take():
+                    with gpu._lock:
+                        pass
+            else:
+                def take():
+                    perf.load().dc_perf_reset(gpu._handle)
+
+            def probe(words):
+                thread = threading.Thread(target=take)
+                thread.start()
+                thread.join(0.2)
+                threads.append(thread)
+                held.append(thread.is_alive())
+            rig.driver.after = probe
+            return make(gpu, attempts=2)
+        held = []
+
+        def action(reader):
+            del held[:], threads[:]
+            report = reader.read(["cf_policy"])
+            for thread in threads:
+                thread.join(5)
+            return report["groups"]["cf_policy"]["status"], list(held), [t.is_alive() for t in threads]
+        result, _, _, _ = self.run_both(rig, action, construct=construct)
+        self.assertEqual(eval(result[1]), ("ready", [True, True], [False, False]))
+
+    def test_captured_at_order(self):
+        # The report's captured_at precedes every GET; each snapshot's follows its own group's GETs.
+        rig = ReadRig()
+        stamps = []
+        rig.driver.after = lambda words: stamps.append((words[14], time.time()))
+
+        def action(reader):
+            del stamps[:]
+            report = reader.read()
+            checks = {"report": report["captured_at"] <= min(t for _, t in stamps)}
+            for name, layout in LAYOUTS.items():
+                last = max(t for command, t in stamps if command in (layout.info_command, layout.control_command))
+                checks[name] = report["groups"][name]["snapshot"]["captured_at"] >= last
+            return checks
+        result, _, _, _ = self.run_both(rig, action)
+        self.assertEqual(eval(result[1]), {"report": True, **dict.fromkeys(LAYOUTS, True)})
+
     def test_malformed_echo_stops(self):
         rig = ReadRig()
         rig.driver.after = lambda words: words.__setitem__(14, 0xDEADBEEF)
@@ -1163,6 +1294,37 @@ class ReadTests(PerfCase):
                                                           for c in calls if c[0] == "Escape"])
         self.assertEqual(report["groups"]["cf_policy"]["status"], "ready")
         self.assertEqual(report["slot"], "0000:01:00.0")
+
+    def test_missing_info_export_and_the_check_order(self):
+        unsupported = ("unsupported", "PERF getter exports are unavailable", 1)
+        for label, rig, assign, expected in (
+                ("INFO export", ReadRig(), MODERN, unsupported),
+                ("before the transport", ReadRig(), None, unsupported),  # nothing captured: still the exports
+                ("after the binding", ReadRig(nvml_devid=0x1B02), MODERN, None)):
+            with self.subTest(label):
+                del rig.nvapi.interfaces[LAYOUTS["limits"].info_id]
+                report, calls, _, _ = self.report(rig, ["limits"], assign=assign)
+                limits = report["groups"]["limits"]
+                self.assertEqual(calls, [])
+                if expected is None:
+                    self.assertEqual((limits["status"], limits["attempts"]), ("identity", 1))
+                else:
+                    self.assertEqual((limits["status"], limits["error"], limits["attempts"]), expected)
+
+    def test_stored_history_is_a_copy_of_the_fresh_snapshot(self):
+        command = LAYOUTS["limits"].info_command
+        rig = ReadRig()
+        rig.driver.script[command] = [(0, 0), (0, 0x40), (0, 0x40)]
+
+        def action(reader):
+            first = reader.read(["limits"])
+            first["groups"]["limits"]["snapshot"]["entries"].clear()  # the caller edits the fresh result
+            first["groups"]["limits"]["snapshot"]["flags"]["limits_control_0x4c"]["raw"] = 99
+            kept = len(reader.last_valid["limits"]["entries"])
+            failed = reader.read(["limits"])["groups"]["limits"]["last_valid"]
+            return kept, len(failed["entries"]), failed["flags"]["limits_control_0x4c"]["raw"]
+        result, _, _, _ = self.run_both(rig, action)
+        self.assertEqual(eval(result[1]), (2, 2, 0))
 
     def test_history_is_kept_and_never_returned_as_fresh(self):
         command = LAYOUTS["limits"].info_command
@@ -1193,6 +1355,8 @@ class ReadTests(PerfCase):
                                  (["limits", "nope"], ("ValueError", "Unknown PERF diagnostic group 'nope'")),
                                  (["limits", 5], ("ValueError", "Unknown PERF diagnostic group 5")),
                                  (["é"], ("ValueError", "Unknown PERF diagnostic group 'é'")),
+                                 (["x" * 1000], ("ValueError", f"Unknown PERF diagnostic group {'x' * 1000!r}")),
+                                 (["\x01" * 300], ("ValueError", f"Unknown PERF diagnostic group {chr(1) * 300!r}")),
                                  ([["limits"]], ("TypeError", "unhashable type: 'list'")),
                                  ("limits", ("ValueError", "PERF groups must not be duplicated")),  # 'i' twice
                                  ("cf", ("ValueError", "Unknown PERF diagnostic group 'c'"))):
@@ -1219,6 +1383,112 @@ class ReadTests(PerfCase):
                                                         ctypes.byref(error))
                 self.assertEqual((status, error.kind, perf._text(error.message)), (native.DC_E_FAILED, 2, text))
             self.assertEqual(rig.calls, [])
+        finally:
+            gpu.close()
+
+
+def raw_entry(name, *argtypes):
+    """A core entry point with pointer arguments as c_void_p, so NULL and arbitrary buffers can be passed."""
+    return ctypes.CFUNCTYPE(ctypes.c_int32, *argtypes)(ctypes.cast(getattr(perf.load(), name), ctypes.c_void_p).value)
+
+
+V, SIZE = ctypes.c_void_p, ctypes.c_size_t
+
+
+class AbiArgumentTests(unittest.TestCase):
+    """The C ABI's DC_E_ARGUMENT refusals, before anything is decoded, hashed or read."""
+
+    def tearDown(self):
+        native.set_export_resolver(None)
+
+    def decode(self, name, info, info_size, control, control_size, has_control, out, error):
+        entry = raw_entry("dc_perf_decode_group", V, V, SIZE, V, SIZE, ctypes.c_int32, V, V)
+        return entry(name, info, info_size, control, control_size, has_control, out, error)
+
+    def test_decode_group_refusals(self):
+        info, _ = packets("cf_policy", [])
+        name = ctypes.create_string_buffer(b"cf_policy")
+        data = ctypes.create_string_buffer(info, len(info))
+
+        def run(**changes):
+            out, error = perf._new_snapshot(), perf._new_error()
+            error.kind = 77  # untouched by a refusal
+            args = {"name": ctypes.addressof(name), "info": ctypes.addressof(data), "info_size": len(info),
+                    "control": None, "control_size": 0, "has_control": 0, "out": ctypes.addressof(out),
+                    "error": ctypes.addressof(error)}
+            for key, value in changes.items():
+                if callable(value):
+                    value(out, error)
+                else:
+                    args[key] = value
+            return self.decode(**args), error.kind, perf._text(error.message)
+        refused = (native.DC_E_ARGUMENT, 77, "")
+        for label, changes in (("NULL name", {"name": None}),
+                               ("NULL info with a size", {"info": None}),
+                               ("NULL control with a size", {"has_control": 1, "control_size": 4}),
+                               ("control without has_control", {"control": ctypes.addressof(data)}),
+                               ("NULL out", {"out": None}),
+                               ("out size", {"fix": lambda out, error: setattr(out, "size", out.size - 1)}),
+                               ("error size", {"fix": lambda out, error: setattr(error, "size", error.size + 1)})):
+            with self.subTest(label):
+                self.assertEqual(run(**changes), refused)
+        # A NULL buffer of size 0 is an empty one (Python's b""), decoded as such.
+        self.assertEqual(run(info=None, info_size=0),
+                         (native.DC_E_FAILED, 5, "Unexpected PERF INFO parameter geometry"))
+        with self.assertRaises(PerfDiagnosticError) as raised:
+            py_perf.decode_group("cf_policy", info, b"")
+        self.assertEqual(run(has_control=1, control=None, control_size=0),
+                         (native.DC_E_FAILED, 5, str(raised.exception)))
+
+    def test_sha256_refusals(self):
+        entry = raw_entry("dc_sha256_hex", V, SIZE, V)
+        out = ctypes.create_string_buffer(65)
+        self.assertEqual(entry(None, 1, out), native.DC_E_ARGUMENT)
+        self.assertEqual(entry(ctypes.addressof(out), 1, None), native.DC_E_ARGUMENT)
+        self.assertEqual(entry(None, 0, out), native.DC_OK)
+        self.assertEqual(out.value.decode(), hashlib.sha256(b"").hexdigest())
+
+    def test_read_group_refusals(self):
+        entry = raw_entry("dc_perf_read_group", V, V, ctypes.c_uint32, V, V)
+        rig = ReadRig()
+        gpu = rig.native_gpu()
+        name = ctypes.create_string_buffer(b"limits")
+        try:
+            for label, fix in (("NULL handle", "handle"), ("NULL name", "name"), ("NULL out", "out"),
+                               ("out size", "out.size"), ("snapshot size", "snapshot.size"),
+                               ("error size", "error.size")):
+                with self.subTest(label):
+                    rig.reset()
+                    out, error = perf._GroupResult(), perf._new_error()
+                    out.size, out.snapshot.size = ctypes.sizeof(out), ctypes.sizeof(perf._Snapshot)
+                    error.kind = 77
+                    args = [gpu._handle, ctypes.addressof(name), 2, ctypes.addressof(out), ctypes.addressof(error)]
+                    if fix in ("handle", "name", "out"):
+                        args[{"handle": 0, "name": 1, "out": 3}[fix]] = None
+                    elif fix == "out.size":
+                        out.size += 1
+                    elif fix == "snapshot.size":
+                        out.snapshot.size -= 1
+                    else:
+                        error.size -= 1
+                    self.assertEqual((entry(*args), error.kind, rig.calls, rig.arch_reads),
+                                     (native.DC_E_ARGUMENT, 77, [], 0))
+        finally:
+            gpu.close()
+
+    def test_a_long_unknown_name_is_truncated_for_c_callers(self):
+        # The C text is the core's ASCII repr cut at dc_error.message's 1023 bytes; the binding
+        # formats its own (DecodeTests.test_long_unknown_names_keep_the_whole_message).
+        rig = ReadRig()
+        gpu = rig.native_gpu()
+        try:
+            out, error = perf._GroupResult(), perf._new_error()
+            out.size, out.snapshot.size = ctypes.sizeof(out), ctypes.sizeof(perf._Snapshot)
+            status = perf.load().dc_perf_read_group(gpu._handle, b"x" * 2000, 2, ctypes.byref(out),
+                                                    ctypes.byref(error))
+            text = perf._text(error.message)
+            self.assertEqual((status, error.kind, len(text)), (native.DC_E_FAILED, 2, 1023))
+            self.assertEqual(text, f"Unknown PERF diagnostic group {'x' * 2000!r}"[:1023])
         finally:
             gpu.close()
 
@@ -1303,12 +1573,13 @@ class RecaptureTests(HookCase):
                 make = perf.Reader
             try:
                 ran = rig.run(lambda g: decoded(lambda: make(g).read(groups)))(gpu)
+                stored = cache(gpu)  # the recaptured transport and layout choice, before the handle closes
             finally:
                 if side == "native":
                     gpu.close()
-            runs.append((ran, list(rig.calls), cache(gpu) if side == "python" else None))
+            runs.append((ran, list(rig.calls), stored))
         self.assertEqual(rig.errors, [])
-        self.assertEqual(runs[0][:2], runs[1][:2], "Python and native runs differ")
+        self.assertEqual(runs[0], runs[1], "Python and native runs differ")
         self.assertEqual(runs[0][0][0], "ok")
         return runs[0]
 
@@ -1316,12 +1587,13 @@ class RecaptureTests(HookCase):
         rounds = [[ARCH_STEP, owner(power_packet())], [ARCH_STEP, owner(power_packet())]]
         rig = HookReadRig(rounds=rounds)
         rig.driver.script[LAYOUTS["cf_policy"].info_command] = [(NTSTATUS_INVALID_PARAMETER, 0)]
-        (_, (kind, text)), calls, _ = self.read_both(rig, ["cf_policy"])
+        (_, (kind, text)), calls, stored = self.read_both(rig, ["cf_policy"])
         self.assertEqual(kind, "ok")
         group = eval(text)["groups"]["cf_policy"]
         self.assertEqual((group["status"], group["attempts"], group["error"]), ("ready", 2, None))
         self.assertEqual(rig.getter_calls, 2)  # captured afresh after the dropped transport
         self.assertEqual([c[0] for c in calls].count("PERF"), 3)  # INFO (failed), INFO, CONTROL
+        self.assertIsNotNone(stored[0])  # the fresh capture is kept (and equal) on both sides
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@
 //
 // The C ABI of drutacore/perf_diagnostics.h.
 #include <cstring>
+#include <exception>
+#include <string>
 
 #include "backend/perf_diagnostics.h"
 #include "core/abi_internal.h"
@@ -30,6 +32,36 @@ void put_error(const druta::backend::RmError& why, dc_error* out) {
 }
 
 bool error_ok(const dc_error* error) { return !error || error->size == sizeof(dc_error); }
+
+void put_message(int32_t kind, const std::string& message, dc_error* out) {
+    if (!out) return;
+    dc_error e{};
+    e.size = sizeof(dc_error);
+    e.kind = kind;
+    DC_COPY(e.message, message);
+    *out = e;
+}
+
+// No exception crosses the C boundary (as abi_clock_bios.cpp's guarded): an allocation failure in
+// the decoder, the packets or the copies is DC_E_FAILED, reported as transient when there is an
+// error out. A handle lock taken inside body is released by its guard while unwinding.
+template <typename F>
+dc_status guarded(dc_error* error, F&& body) {
+    try {
+        return body();
+    } catch (const std::exception& e) {
+        try {
+            put_message(DC_ERR_TRANSIENT, std::string("PERF reader failed: ") + e.what(), error);
+        } catch (...) {
+        }
+    } catch (...) {
+        try {
+            put_message(DC_ERR_TRANSIENT, "PERF reader failed", error);
+        } catch (...) {
+        }
+    }
+    return DC_E_FAILED;
+}
 
 void put_transport(const CapturedTransport& t, dc_rm_transport* out) {
     dc_rm_transport r{};
@@ -123,60 +155,74 @@ DC_API dc_status DC_CALL dc_perf_layouts(dc_perf_layout* out, uint32_t capacity,
     const auto& table = druta::backend::perf_layouts();
     for (uint32_t i = 0; i < capacity && i < table.size(); ++i)
         if (out[i].size != sizeof(dc_perf_layout)) return DC_E_ARGUMENT;
-    for (uint32_t i = 0; i < capacity && i < table.size(); ++i) {
-        const druta::backend::PerfGroupLayout& g = table[i];
-        dc_perf_layout row{};
-        row.size = sizeof(dc_perf_layout);
-        DC_COPY(row.name, std::string(g.name));
-        row.info_id = g.info_id;
-        row.control_id = g.control_id;
-        row.info_command = g.info_command;
-        row.control_command = g.control_command;
-        row.info_size = g.info_size;
-        row.control_size = g.control_size;
-        row.capacity = g.capacity;
-        row.mask_bytes = g.mask_bytes;
-        row.info_offset = g.info_offset;
-        row.info_stride = g.info_stride;
-        row.control_offset = g.control_offset;
-        row.control_stride = g.control_stride;
-        out[i] = row;
-    }
-    *count = static_cast<uint32_t>(table.size());
-    return DC_OK;
+    return guarded(nullptr, [&]() -> dc_status {
+        for (uint32_t i = 0; i < capacity && i < table.size(); ++i) {
+            const druta::backend::PerfGroupLayout& g = table[i];
+            dc_perf_layout row{};
+            row.size = sizeof(dc_perf_layout);
+            DC_COPY(row.name, std::string(g.name));
+            row.info_id = g.info_id;
+            row.control_id = g.control_id;
+            row.info_command = g.info_command;
+            row.control_command = g.control_command;
+            row.info_size = g.info_size;
+            row.control_size = g.control_size;
+            row.capacity = g.capacity;
+            row.mask_bytes = g.mask_bytes;
+            row.info_offset = g.info_offset;
+            row.info_stride = g.info_stride;
+            row.control_offset = g.control_offset;
+            row.control_stride = g.control_stride;
+            out[i] = row;
+        }
+        *count = static_cast<uint32_t>(table.size());
+        return DC_OK;
+    });
 }
 
 DC_API int32_t DC_CALL dc_perf_probe_architecture(uint32_t architecture) {
-    return druta::backend::probe_architecture(architecture) ? 1 : 0;
+    try {  // allocates nothing; guarded like every entry point
+        return druta::backend::probe_architecture(architecture) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 DC_API int32_t DC_CALL dc_perf_get_allowed(uint32_t command, uint32_t size) {
-    return druta::backend::perf_get_allowed(command, size) ? 1 : 0;
+    try {  // allocates nothing; guarded like every entry point
+        return druta::backend::perf_get_allowed(command, size) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 DC_API dc_status DC_CALL dc_perf_transport(dc_gpu* handle, dc_rm_transport* out, dc_error* error) {
     if (!handle || !out || out->size != sizeof(dc_rm_transport) || !error_ok(error)) return DC_E_ARGUMENT;
-    druta::LockGuard guard(handle->gpu.lock());
-    druta::backend::PerfTransportResult r = handle->perf.transport();
-    if (!r.transport) {
-        put_error(r.error, error);
-        return DC_E_FAILED;
-    }
-    put_transport(*r.transport, out);
-    put_error(druta::backend::RmError{}, error);
-    return DC_OK;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::backend::PerfTransportResult r = handle->perf.transport();
+        if (!r.transport) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        put_transport(*r.transport, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
 }
 
 DC_API dc_status DC_CALL dc_perf_bind(dc_gpu* handle, dc_error* error) {
     if (!handle || !error_ok(error)) return DC_E_ARGUMENT;
-    druta::LockGuard guard(handle->gpu.lock());
-    druta::backend::TargetResult r = handle->perf.bind();
-    if (!r.target) {
-        put_error(r.error, error);
-        return DC_E_FAILED;
-    }
-    put_error(druta::backend::RmError{}, error);
-    return DC_OK;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::backend::TargetResult r = handle->perf.bind();
+        if (!r.target) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
 }
 
 DC_API dc_status DC_CALL dc_perf_get(dc_gpu* handle, uint32_t command, uint32_t size, const uint32_t* header,
@@ -190,35 +236,39 @@ DC_API dc_status DC_CALL dc_perf_get(dc_gpu* handle, uint32_t command, uint32_t 
     const PerfMask kind = has_mask == DC_PERF_MASK_BYTES ? PerfMask::bytes
                           : has_mask == DC_PERF_MASK_OTHER ? PerfMask::other
                                                            : PerfMask::none;
-    druta::LockGuard guard(handle->gpu.lock());
-    // The core takes the output buffer up front, so an allowed size it cannot hold is refused
-    // before the driver is touched.
-    if (druta::backend::perf_get_allowed(command, size) && capacity < size) return DC_E_BUFFER;
-    std::optional<PerfRequest> given;
-    if (fields) {
-        given.emplace();
-        given->header = header;
-        given->header_count = header_count;
-        given->fields = druta::backend::EscapeFields{fields->hAdapter, fields->hDevice, fields->Type, fields->Flags,
-                                                     fields->hContext};
-    }
-    druta::backend::PerfGetResult r =
-        handle->perf.get(command, size, given ? &*given : nullptr, kind, mask, mask_size);
-    if (r.bad_transport) return DC_E_ARGUMENT;  // Python's TypeError (None) or IndexError (too long)
-    if (!r.payload) {
-        put_error(r.error, error);
-        return DC_E_FAILED;
-    }
-    if (!r.payload->empty()) std::memcpy(out, r.payload->data(), r.payload->size());
-    put_error(druta::backend::RmError{}, error);
-    return DC_OK;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        // The core takes the output buffer up front, so an allowed size it cannot hold is refused
+        // before the driver is touched.
+        if (druta::backend::perf_get_allowed(command, size) && capacity < size) return DC_E_BUFFER;
+        std::optional<PerfRequest> given;
+        if (fields) {
+            given.emplace();
+            given->header = header;
+            given->header_count = header_count;
+            given->fields = druta::backend::EscapeFields{fields->hAdapter, fields->hDevice, fields->Type,
+                                                         fields->Flags, fields->hContext};
+        }
+        druta::backend::PerfGetResult r =
+            handle->perf.get(command, size, given ? &*given : nullptr, kind, mask, mask_size);
+        if (r.bad_transport) return DC_E_ARGUMENT;  // Python's TypeError (None) or IndexError (too long)
+        if (!r.payload) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        if (!r.payload->empty()) std::memcpy(out, r.payload->data(), r.payload->size());
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
 }
 
 DC_API dc_status DC_CALL dc_perf_reset(dc_gpu* handle) {
     if (!handle) return DC_E_ARGUMENT;
-    druta::LockGuard guard(handle->gpu.lock());
-    handle->perf.reset();
-    return DC_OK;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        handle->perf.reset();
+        return DC_OK;
+    });
 }
 
 DC_API dc_status DC_CALL dc_perf_decode_group(const char* name, const uint8_t* info, size_t info_size,
@@ -227,16 +277,18 @@ DC_API dc_status DC_CALL dc_perf_decode_group(const char* name, const uint8_t* i
     if (!name || (!info && info_size) || (has_control && !control && control_size) || (!has_control && control) ||
         !out || out->size != sizeof(dc_perf_snapshot) || !error_ok(error))
         return DC_E_ARGUMENT;
-    static const uint8_t empty = 0;  // a zero-length buffer passed as NULL
-    druta::backend::PerfDecodeResult r = druta::backend::perf_decode_group(
-        name, info ? info : &empty, info_size, has_control ? (control ? control : &empty) : nullptr, control_size);
-    if (!r.snapshot) {
-        put_error(r.error, error);
-        return DC_E_FAILED;
-    }
-    put_snapshot(*r.snapshot, out);
-    put_error(druta::backend::RmError{}, error);
-    return DC_OK;
+    return guarded(error, [&]() -> dc_status {
+        static const uint8_t empty = 0;  // a zero-length buffer passed as NULL
+        druta::backend::PerfDecodeResult r = druta::backend::perf_decode_group(
+            name, info ? info : &empty, info_size, has_control ? (control ? control : &empty) : nullptr, control_size);
+        if (!r.snapshot) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        put_snapshot(*r.snapshot, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
 }
 
 DC_API dc_status DC_CALL dc_perf_read_group(dc_gpu* handle, const char* name, uint32_t attempts,
@@ -244,44 +296,50 @@ DC_API dc_status DC_CALL dc_perf_read_group(dc_gpu* handle, const char* name, ui
     if (!handle || !name || !out || out->size != sizeof(dc_perf_group_result) ||
         out->snapshot.size != sizeof(dc_perf_snapshot) || !error_ok(error))
         return DC_E_ARGUMENT;
-    const druta::backend::PerfGroupLayout* layout = druta::backend::perf_layout_named(name);
-    if (!layout) {
-        put_error(invalid(druta::backend::perf_unknown_group_message(name)), error);
-        return DC_E_FAILED;
-    }
-    if (attempts < 1 || attempts > 3) {
-        put_error(invalid("PERF read attempts must be between 1 and 3"), error);
-        return DC_E_FAILED;
-    }
-    // The reader takes the handle lock per attempt (Python's `with gpu._lock` inside the loop).
-    druta::backend::PerfDiagnostics::GroupRead r = handle->perf.read_group(*layout, attempts);
-    const uint32_t snapshot_size = out->snapshot.size;
-    out->attempts = r.attempts;
-    out->has_target = r.target ? 1 : 0;
-    std::memset(out->slot, 0, sizeof out->slot);
-    out->architecture = 0;
-    if (r.target) {
-        DC_COPY(out->slot, r.target->slot);
-        out->architecture = r.target->architecture;
-    }
-    if (r.snapshot) {
-        out->snapshot.size = snapshot_size;
-        put_snapshot(*r.snapshot, &out->snapshot);
-        out->status = r.snapshot->entries.empty() ? DC_PERF_STATUS_EMPTY : DC_PERF_STATUS_READY;
-        put_error(druta::backend::RmError{}, error);
-    } else {
-        out->status = DC_PERF_STATUS_FAILED;
-        put_error(r.error, error);
-    }
-    return DC_OK;
+    return guarded(error, [&]() -> dc_status {
+        const druta::backend::PerfGroupLayout* layout = druta::backend::perf_layout_named(name);
+        if (!layout) {
+            // The core's ASCII repr of the name, cut at the 1023 bytes dc_error.message holds: a long
+            // name's text is truncated here, so the Python binding formats its own (unbounded) message.
+            put_error(invalid(druta::backend::perf_unknown_group_message(name)), error);
+            return DC_E_FAILED;
+        }
+        if (attempts < 1 || attempts > 3) {
+            put_error(invalid("PERF read attempts must be between 1 and 3"), error);
+            return DC_E_FAILED;
+        }
+        // The reader takes the handle lock per attempt (Python's `with gpu._lock` inside the loop).
+        druta::backend::PerfDiagnostics::GroupRead r = handle->perf.read_group(*layout, attempts);
+        const uint32_t snapshot_size = out->snapshot.size;
+        out->attempts = r.attempts;
+        out->has_target = r.target ? 1 : 0;
+        std::memset(out->slot, 0, sizeof out->slot);
+        out->architecture = 0;
+        if (r.target) {
+            DC_COPY(out->slot, r.target->slot);
+            out->architecture = r.target->architecture;
+        }
+        if (r.snapshot) {
+            out->snapshot.size = snapshot_size;
+            put_snapshot(*r.snapshot, &out->snapshot);
+            out->status = r.snapshot->entries.empty() ? DC_PERF_STATUS_EMPTY : DC_PERF_STATUS_READY;
+            put_error(druta::backend::RmError{}, error);
+        } else {
+            out->status = DC_PERF_STATUS_FAILED;
+            put_error(r.error, error);
+        }
+        return DC_OK;
+    });
 }
 
 DC_API dc_status DC_CALL dc_sha256_hex(const uint8_t* data, size_t size, char out[65]) {
     if ((!data && size) || !out) return DC_E_ARGUMENT;
-    static const uint8_t empty = 0;
-    const std::string hex = druta::sha256_hex(data ? data : &empty, size);
-    std::memcpy(out, hex.c_str(), 65);
-    return DC_OK;
+    return guarded(nullptr, [&]() -> dc_status {
+        static const uint8_t empty = 0;
+        const std::string hex = druta::sha256_hex(data ? data : &empty, size);
+        std::memcpy(out, hex.c_str(), 65);
+        return DC_OK;
+    });
 }
 
 }  // extern "C"

@@ -36,8 +36,15 @@ Python's ``except Exception`` branch of read() (a non-PerfDiagnosticError from t
 capture or the escape, reported as transient "PERF read failed (Type): msg") has no native path: the
 core reports every failure as a kinded error.
 
-A group name that is not an ASCII str without NUL never reaches the core: its ``_layout``
-ValueError is formatted here with Python's own repr (the core's repr covers ASCII only).
+The core only decides whether a name is a known group: every unknown name's ``_layout`` ValueError
+is formatted here with Python's own repr (``f"Unknown PERF diagnostic group {name!r}"``, unbounded),
+because the core's text is an ASCII repr cut at the 1023 bytes its dc_error message holds. A name
+that is not an ASCII str without NUL is not sent to the core at all.
+
+No C++ exception crosses the ABI: one inside a call (an allocation failure) is DC_E_FAILED with a
+transient "PERF reader failed: ..." error, raised here as that PerfDiagnosticError. In read() it
+propagates out of the call, where Python's read() would report the group transient; only a core
+that cannot allocate reaches it.
 
 Documented divergence: the escape fields are marshalled with the packet, as
 nvbackend.GPU._legacy_clk_escape builds its _Escape (``dict(fields, hAdapter=...)``, ctypes
@@ -321,15 +328,22 @@ def _core_name(name):
     return None
 
 
+def _unknown(name):
+    """_layout's ValueError, with Python's own repr of the name (no length limit)."""
+    return ValueError(f"Unknown PERF diagnostic group {name!r}")
+
+
 def _decode(name, info, control):
     """dc_perf_decode_group: (snapshot struct, None) or (None, the exception to raise)."""
     encoded = _core_name(name)
     if encoded is None:
-        return None, ValueError(f"Unknown PERF diagnostic group {name!r}")
+        return None, _unknown(name)
     out, error = _new_snapshot(), _new_error()
     status = load().dc_perf_decode_group(encoded, info, len(info), control, len(control or b""),
                                          0 if control is None else 1, ctypes.byref(out), ctypes.byref(error))
     if status == DC_E_FAILED:
+        if error.kind == _INVALID:  # the core's unknown-name refusal: its text may be truncated
+            return None, _unknown(name)
         try:
             _raise_failure(error)
         except (ValueError, RuntimeError) as exc:

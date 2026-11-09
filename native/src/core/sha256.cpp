@@ -22,12 +22,9 @@ constexpr std::uint32_t kRound[64] = {
 
 inline std::uint32_t rotr(std::uint32_t x, unsigned n) { return (x >> n) | (x << (32u - n)); }
 
-}  // namespace
+using State = std::array<std::uint32_t, 8>;
 
-Sha256::Sha256()
-    : state_{0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19} {}
-
-void Sha256::block(const std::uint8_t* chunk) {
+void block(State& state, const std::uint8_t* chunk) {
     std::uint32_t w[64];
     for (unsigned i = 0; i < 16; ++i)
         w[i] = (std::uint32_t{chunk[4 * i]} << 24) | (std::uint32_t{chunk[4 * i + 1]} << 16) |
@@ -37,8 +34,8 @@ void Sha256::block(const std::uint8_t* chunk) {
         const std::uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
         w[i] = w[i - 16] + s0 + w[i - 7] + s1;
     }
-    std::uint32_t a = state_[0], b = state_[1], c = state_[2], d = state_[3];
-    std::uint32_t e = state_[4], f = state_[5], g = state_[6], h = state_[7];
+    std::uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+    std::uint32_t e = state[4], f = state[5], g = state[6], h = state[7];
     for (unsigned i = 0; i < 64; ++i) {
         const std::uint32_t s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
         const std::uint32_t ch = (e & f) ^ (~e & g);
@@ -55,58 +52,36 @@ void Sha256::block(const std::uint8_t* chunk) {
         b = a;
         a = t1 + t2;
     }
-    state_[0] += a;
-    state_[1] += b;
-    state_[2] += c;
-    state_[3] += d;
-    state_[4] += e;
-    state_[5] += f;
-    state_[6] += g;
-    state_[7] += h;
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+    state[5] += f;
+    state[6] += g;
+    state[7] += h;
 }
 
-void Sha256::update(const std::uint8_t* data, std::size_t size) {
-    if (!size) return;
-    length_ += size;
-    if (buffered_) {
-        const std::size_t take = size < 64 - buffered_ ? size : 64 - buffered_;
-        std::memcpy(buffer_.data() + buffered_, data, take);
-        buffered_ += take;
-        data += take;
-        size -= take;
-        if (buffered_ < 64) return;
-        block(buffer_.data());
-        buffered_ = 0;
-    }
-    for (; size >= 64; data += 64, size -= 64) block(data);
-    if (size) {
-        std::memcpy(buffer_.data(), data, size);
-        buffered_ = size;
-    }
-}
-
-std::array<std::uint8_t, 32> Sha256::finish() {
-    const std::uint64_t bits = length_ * 8u;
-    buffer_[buffered_++] = 0x80;
-    if (buffered_ > 56) {
-        std::memset(buffer_.data() + buffered_, 0, 64 - buffered_);
-        block(buffer_.data());
-        buffered_ = 0;
-    }
-    std::memset(buffer_.data() + buffered_, 0, 56 - buffered_);
-    for (unsigned i = 0; i < 8; ++i) buffer_[56 + i] = static_cast<std::uint8_t>(bits >> (56 - 8 * i));
-    block(buffer_.data());
-    buffered_ = 0;
-    std::array<std::uint8_t, 32> out{};
-    for (unsigned i = 0; i < 8; ++i)
-        for (unsigned k = 0; k < 4; ++k) out[4 * i + k] = static_cast<std::uint8_t>(state_[i] >> (24 - 8 * k));
-    return out;
-}
+}  // namespace
 
 std::array<std::uint8_t, 32> sha256(const std::uint8_t* data, std::size_t size) {
-    Sha256 h;
-    h.update(data, size);
-    return h.finish();
+    State state{0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    const std::uint64_t bits = std::uint64_t{size} * 8u;
+    std::size_t done = 0;
+    for (; size - done >= 64; done += 64) block(state, data + done);
+    // The tail, the 0x80 marker and the 64-bit length: one final block, or two when the tail leaves
+    // fewer than 8 bytes for the length.
+    std::uint8_t last[128] = {};
+    const std::size_t tail = size - done;
+    if (tail) std::memcpy(last, data + done, tail);
+    last[tail] = 0x80;
+    const std::size_t blocks = tail < 56 ? 1 : 2;
+    for (unsigned i = 0; i < 8; ++i) last[64 * blocks - 8 + i] = static_cast<std::uint8_t>(bits >> (56 - 8 * i));
+    for (std::size_t k = 0; k < blocks; ++k) block(state, last + 64 * k);
+    std::array<std::uint8_t, 32> out{};
+    for (unsigned i = 0; i < 8; ++i)
+        for (unsigned k = 0; k < 4; ++k) out[4 * i + k] = static_cast<std::uint8_t>(state[i] >> (24 - 8 * k));
+    return out;
 }
 
 std::string sha256_hex(const std::uint8_t* data, std::size_t size) {

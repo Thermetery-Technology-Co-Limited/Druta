@@ -57,7 +57,17 @@ from _info_once (Python's `except Exception` branch of read(): only _identity's 
 raise one, and binding() never yields a value it refuses) and every check of _shape(observation) in
 read(), each of which re-validates values the core produced itself (the constant layout and
 stable_reads, the identity binding() validated, the exact SIZE info bytes and their canonical hex,
-the CONTROL dict _control_once already shaped, and rows decoded from the same bytes)."""
+the CONTROL dict _control_once already shaped, and rows decoded from the same bytes).
+
+Not mirrored by ncb.decode, which refuses them with a TypeError of its own
+(DecodeTests.test_buffers_python_indexes_by_element_are_refused): a 12336-element buffer whose items
+are not unsigned single bytes or that has more than one dimension. _decode indexes such a buffer by
+element while struct.unpack_from reads it by byte offset: a memoryview cast to 'I' passes the length
+check and is then read partly by byte offsets and sliced by element, format 'b' gives signed row
+types and 'c' gives bytes objects. Objects without the buffer protocol, a strided view (the
+BufferError struct.unpack_from raises) and every one-dimensional unsigned-byte buffer (bytes,
+bytearray, array('B'), a byte memoryview, a ctypes c_uint8 array) are compared with _decode."""
+import array
 import ctypes
 import random
 import struct
@@ -823,6 +833,49 @@ class DecodeTests(unittest.TestCase):
                 self.assertEqual(self.same(bytes(size)), refused)
         self.assertEqual(self.same(bytearray(cbr.SIZE))[0], "ok")
 
+    def test_every_unsigned_byte_buffer_decodes_as_its_bytes(self):
+        raw = bytearray(rp.info_payload())
+        at = cbr.HEADER + 30 * cbr.STRIDE
+        raw[at:at + 2] = b"\xff\x80"  # row 30's type bytes above 0x7F (signed for format 'b')
+        expected = self.same(bytes(raw))
+        self.assertEqual(expected[0], "ok")
+        self.assertEqual((expected[1]["30"]["type"], expected[1]["30"]["base_type"]), (0xFF, 0x80))
+        for candidate in (bytearray(raw), array.array("B", raw), memoryview(bytes(raw)), memoryview(bytearray(raw)),
+                          (ctypes.c_uint8 * cbr.SIZE).from_buffer_copy(raw)):
+            with self.subTest(type=type(candidate).__name__):
+                self.assertEqual(self.same(candidate), expected)
+
+    def test_type_rules_before_and_after_the_geometry(self):
+        for candidate in (None, 5, 1.5, object()):  # no length: len() raises first
+            with self.subTest(candidate=type(candidate).__name__):
+                self.assertEqual(self.same(candidate)[:2], ("TypeError", None))
+        geometry = ("ClockBiosError", None, None, "Clock INFO geometry is not understood")
+        for candidate in ([0] * 4, "x" * 4, (), {}, array.array("I", [0] * 4)):  # the length is checked next
+            with self.subTest(candidate=repr(candidate)[:30]):
+                self.assertEqual(self.same(candidate), geometry)
+        for candidate in ([0] * cbr.SIZE, "x" * cbr.SIZE, tuple(range(256)) * (cbr.SIZE // 256 + 1)):
+            if len(candidate) != cbr.SIZE:
+                candidate = candidate[:cbr.SIZE]
+            with self.subTest(candidate=type(candidate).__name__):  # no buffer protocol: struct's own TypeError
+                self.assertEqual(self.same(candidate), ("TypeError", None, None,
+                                                        f"a bytes-like object is required, not "
+                                                        f"'{type(candidate).__name__}'"))
+        strided = memoryview(rp.info_payload() * 2)[::2]  # struct.unpack_from refuses a strided view
+        self.assertEqual(self.same(strided), ("BufferError", None, None,
+                                              "memoryview: underlying buffer is not C-contiguous"))
+
+    def test_buffers_python_indexes_by_element_are_refused(self):
+        """Unmirrored: _decode reads these by byte offset and indexes them by element."""
+        raw = rp.info_payload()
+        for candidate in (memoryview(bytes(cbr.SIZE * 4)).cast("I"), array.array("I", bytes(cbr.SIZE * 4)),
+                          memoryview(raw).cast("b"), array.array("b", raw), memoryview(raw).cast("c"),
+                          memoryview(bytes(cbr.SIZE * 2)).cast("B", (cbr.SIZE, 2))):
+            with self.subTest(format=memoryview(candidate).format, ndim=memoryview(candidate).ndim):
+                self.assertEqual(len(candidate), cbr.SIZE)
+                kind, _, _, message = outcome(lambda: ncb.decode(candidate))
+                self.assertEqual(kind, "TypeError")
+                self.assertIn("mirrors _decode for single-byte unsigned buffers only", message)
+
 
 class InfoOnceTests(InfoCase):
     def test_the_guarded_get_returns_the_identity_and_the_info_bytes(self):
@@ -890,6 +943,38 @@ class InfoOnceTests(InfoCase):
                 result, calls, _ = self.both(InfoRig(info_script=[action]), lambda side: side.info_once())
                 self.assertEqual(result[0] if expected == "ok" else result, expected)
                 self.assertEqual(calls, info_round())
+
+    def test_every_echoed_header_word(self):
+        """Words 0-15 must come back as sent, except 5 (0 or 1) and 11 (the completion)."""
+        geometry = ("PerfDiagnosticError", "malformed", None, "Clock INFO changed its envelope or geometry")
+        for index in range(16):
+            if index in (5, 11):
+                continue
+            for flip in (1, 0x80000000):
+                with self.subTest(word=index, flip=hex(flip)):
+                    action = lambda r, p, w, i=index, f=flip: w.__setitem__(i, w[i] ^ f)
+                    result, calls, _ = self.both(InfoRig(info_script=[action]), lambda side: side.info_once())
+                    self.assertEqual((result, calls), (geometry, info_round()))
+
+    def test_the_transport_is_validated_before_its_envelope(self):
+        """A transport refused by the current-limit check or by reader._transport() wins over a wrong
+        envelope word: Python checks the envelope only on the transport reader._transport() returns."""
+        for index in cbr._ENVELOPE:
+            geometry = clock_header()
+            geometry[index] ^= 1
+            geometry[15] = 1000  # refused by the current-limit transport check, which drops the cache
+            rm26 = perf_header(3548, 3480, command=0x20802612)  # refused by reader._transport()
+            for k, word in cbr._ENVELOPE.items():
+                rm26[k] = word
+            rm26[index] ^= 1
+            for words, expected, stored_after in (
+                    (geometry, "unvalidated current-policy transport geometry", None),
+                    (rm26, "PERF diagnostics need the validated modern RM transport", (rm26, dict(FIELDS)))):
+                with self.subTest(word=index, expected=expected):
+                    result, calls, stored = self.both(InfoRig(recapture=False), lambda side: side.info_once(),
+                                                      assign=(words, dict(FIELDS)))
+                    self.assertEqual((result, calls), (("PerfDiagnosticError", "unsupported", None, expected), []))
+                    self.assertEqual(stored[0], stored_after)
 
     def test_the_escape_status_and_an_escape_that_was_not_issued(self):
         failed = ("PerfDiagnosticError", "transient", None, f"Clock INFO transport failed: {NTSTATUS_INVALID_PARAMETER}")
@@ -987,6 +1072,42 @@ class ReadTests(InfoCase):
         result, calls, _ = self.both(rig)
         self.assertEqual(result, ("ok", (None, "Clock INFO RM status 31")))
         self.assertEqual(calls, stable_read_calls() + RECAPTURE + info_round())
+
+    def test_the_second_partial_observation_replaces_the_first(self):
+        for script, message in (([-5, 0, 0, -7], "User-clock CONTROL GET failed: -7"),
+                                ([0, -7, -5, 0], "User-clock requests were not stable")):
+            with self.subTest(message):
+                rig = InfoRig(control_script=script)
+                (kind, (observation, error)), calls, stored = self.both(rig)
+                self.assertEqual((kind, error), ("ok", None))
+                self.assertEqual(observation, observation_of(rig, control=False, error=message))
+                self.assertEqual(calls, stable_read_calls() + RECAPTURE + stable_read_calls(discovery=False))
+                self.assertEqual(stored[0], KEPT[0])
+
+    def test_an_info_failure_on_the_second_sample(self):
+        first_sample = info_round() + DISCOVERY + control_calls(MASK)
+        rig = InfoRig(info_script=[None, status_action(-5)])  # transient: retried with the cache dropped
+        (kind, (observation, error)), calls, stored = self.both(rig)
+        self.assertEqual((kind, error, observation), ("ok", None, observation_of(rig)))
+        self.assertEqual(calls, first_sample + info_round() + RECAPTURE + stable_read_calls(discovery=False))
+        self.assertEqual(stored[0], KEPT[0])
+        rig = InfoRig(info_script=[None, word_action(w16=0x1F)])  # unsupported: stops, the cache kept
+        result, calls, stored = self.both(rig)
+        self.assertEqual(result, ("ok", (None, "Clock INFO RM status 31")))
+        self.assertEqual((calls, stored), (first_sample + info_round(), KEPT))
+        rig = InfoRig(info_script=[None, overrun_action(0)])  # a guard overrun on the second sample stops too
+        result, calls, stored = self.both(rig)
+        self.assertEqual(result, ("ok", (None, "Clock GET exceeded the guarded allocation")))
+        self.assertEqual((calls, stored), (first_sample + info_round(), KEPT))
+
+    def test_a_partial_second_attempt_replaces_a_transient_first(self):
+        rig = InfoRig(info_script=[status_action(-5)], control_script=[0, -7])
+        (kind, (observation, error)), calls, stored = self.both(rig)
+        self.assertEqual((kind, error), ("ok", None))
+        self.assertEqual(observation,
+                         observation_of(rig, control=False, error="User-clock CONTROL GET failed: -7"))
+        self.assertEqual(calls, info_round() + RECAPTURE + stable_read_calls())
+        self.assertEqual(stored[0], KEPT[0])
 
     def test_no_retry_on_unsupported_or_a_corrupt_envelope(self):
         for action, message in ((word_action(w14=0x2080D01C), "Clock INFO changed its envelope or geometry"),

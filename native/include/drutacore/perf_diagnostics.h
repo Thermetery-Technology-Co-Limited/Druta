@@ -26,7 +26,14 @@
  * use (fields == NULL, Python's None, or more header words than the packet holds) once the checks
  * Python runs before building the packet (the rules and the first binding) have passed: Python
  * raises TypeError (unpacking None) or IndexError (ctypes' invalid index) there. DC_E_BUFFER for an
- * allowed size larger than capacity, before the driver is touched. */
+ * allowed size larger than capacity, before the driver is touched.
+ * No C++ exception crosses this ABI: an exception inside any dc_perf_* or dc_sha256_hex call (an
+ * allocation failure, for example) is DC_E_FAILED, with kind DC_ERR_TRANSIENT and the message
+ * "PERF reader failed: <what>" ("PERF reader failed" for a non-standard exception) when a dc_error
+ * is given. Any handle lock it held is released; *out is then unspecified. dc_perf_read_group then
+ * reports no group result, so this is not one of the loop's per-group failures.
+ * Messages longer than dc_error.message (1023 bytes and a NUL) are truncated: only the
+ * unknown-group text of a long name reaches that limit. */
 #ifndef DRUTACORE_PERF_DIAGNOSTICS_H
 #define DRUTACORE_PERF_DIAGNOSTICS_H
 
@@ -167,8 +174,9 @@ typedef struct dc_perf_snapshot {
 
 /* decode_group(name, info, control): pure, no driver call. control == NULL with has_control == 0 is
  * Python's None. DC_OK fills *out; DC_E_FAILED fills *error with _layout's ValueError (kind
- * DC_ERR_INVALID, "Unknown PERF diagnostic group " + an ASCII repr of the name) or the
- * PerfDiagnosticError (kind DC_ERR_MALFORMED) with Python's message. */
+ * DC_ERR_INVALID, "Unknown PERF diagnostic group " + an ASCII repr of the name, truncated at
+ * 1023 bytes for a long name) or the PerfDiagnosticError (kind DC_ERR_MALFORMED) with Python's
+ * message. */
 DC_API dc_status DC_CALL dc_perf_decode_group(const char* name, const uint8_t* info, size_t info_size,
                                               const uint8_t* control, size_t control_size, int32_t has_control,
                                               dc_perf_snapshot* out, dc_error* error);
