@@ -26,15 +26,22 @@
 // adapter's own (Telemetry::arch(), Python's self.arch()). Every reference and first-read value is an
 // estimate for this adapter at the operating point it was read, never a factory default or a
 // generation constant.
+//
+// Increment R4 adds the write sequence (_write_rail_records, the preconditions of
+// _write_rail_records_locked, and _verify_rail_records) over the already-ported locked write
+// (rail_write_locked in hook.h). The whole sequence holds the process-wide rail hook mutex after the
+// caller's handle lock; the settle re-send is decided by the profile's settle_vmin only.
 #pragma once
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "backend/gpu.h"
+#include "backend/hook.h"
 
 namespace druta::backend {
 
@@ -151,6 +158,48 @@ struct RailStockLimit {
 // volt_rail_limits_mv(): per rail, abs_limit_mv of each field (NaN where the base is absent).
 using RailLimitsMv = std::array<std::optional<RailFields>, kRailCount>;
 
+// Increment R4: _write_rail_records, the preconditions of _write_rail_records_locked, and
+// _verify_rail_records. A record is one entry of Python's `records` dict as the binding describes it.
+// The kind of a record's key: a plain int, another int (a bool: `1 << key` works but
+// rail_transport._is_plain_int refuses it), or a key for which `1 << key` raises TypeError (a float,
+// Decimal or Fraction equal to the rail).
+enum class RailKey : int { plain = 0, other_int = 1, no_shift = 2 };
+
+struct RailRecord {
+    std::int32_t rail = 0;                  // the rail the key equals (0 or 1; keys naming no rail are `foreign`)
+    RailKey key = RailKey::plain;
+    std::uint32_t count = 0;                // len(values)
+    bool is_list = true;                    // the values are a list (else a tuple): verify compares and prints it
+    bool exact = false;                     // count 4 and every value a plain int in the int32 range
+    std::array<std::int64_t, 4> values{};   // the first min(count, 4) values; one equal to no integer is INT64_MIN
+};
+struct RailRecords {
+    std::array<RailRecord, kRailCount> records{};
+    std::size_t count = 0;                  // records in the dict's order
+    bool foreign = false;                   // the dict also holds a key that names no rail
+};
+
+// _write_rail_records' (ok, status) and what it left in the writer's three attributes.
+struct RailWriteOutcome {
+    bool ok = false;
+    std::optional<std::uint32_t> status;
+    // false: no locked write got past its preconditions, so _volt_rail_write_error stays as the
+    // sequence cleared it (None) and the protocol and observed packets are untouched. true: `result`
+    // is the last locked write that ran, and it set all three.
+    bool attributes = false;
+    std::uint32_t writes = 0;               // locked writes that ran past their preconditions
+    // Python's TypeError at `rail_mask = sum(1 << rail ...)`: a no_shift key reached it. The sequence
+    // stops there (ok false, status nullopt, attributes untouched); the binding raises.
+    bool type_error = false;
+    RailWriteResult result;
+};
+
+// _verify_rail_records' (back, error): back is set exactly when error is empty.
+struct RailVerifyOutcome {
+    std::optional<RailLimits> back;
+    std::string error;
+};
+
 class Rails {
 public:
     explicit Rails(Gpu& gpu, Telemetry& telemetry) : gpu_(gpu), telemetry_(telemetry) {}
@@ -180,6 +229,14 @@ public:
     // volt_rail_limits_mv(): nullopt when read_volt_rail_limits() is None.
     std::optional<RailLimitsMv> limits_mv();
 
+    // _write_rail_records(records): under the process-wide rail hook mutex (taken after the caller's
+    // handle lock), a pre-write limits() snapshot, the profile, the settle decision (the profile's
+    // settle_vmin only), the locked write and, when it settled with status 0, a verified identity
+    // re-send.
+    RailWriteOutcome write_records(const RailRecords& records);
+    // _verify_rail_records(records, boost): boost nullopt is Python's None.
+    RailVerifyOutcome verify_records(const RailRecords& records, std::optional<std::int32_t> boost);
+
     // The four caches _refresh_volt_rail_capabilities resets (its _volt_rail_write_error is the
     // writer's, not part of these getters). The reference and the first-read record stay: refresh
     // retries discovery without redefining the session's restore target.
@@ -188,6 +245,9 @@ public:
 
 private:
     bool has_reference() const { return !order_.empty(); }
+    // _write_rail_records_locked: false when a precondition refused or the rail mask raised (nothing
+    // ran, attributes untouched; out.type_error tells the two apart).
+    bool write_records_locked(const RailRecords& records, RailWriteOutcome& out);
 
     Gpu& gpu_;
     Telemetry& telemetry_;

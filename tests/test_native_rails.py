@@ -122,12 +122,13 @@ class Rig:
 
     python_side = native_side = None  # the Side classes run() uses; PythonSide and NativeSide when None
     card_class = None                 # the Card class; Card when None
+    fake_class = None                 # the Fake class; Fake when None
 
     def __init__(self, *, with_control=True, with_live=True, nvapi_init=0, tick=0.0, card=None, **fake):
         self.config = fake
         self.tick = tick  # seconds the clock advances after each sample, on both sides
         self.samples = 0  # clock samples taken by the side that ran last
-        self.fake = Fake(**fake)
+        self.fake = (self.fake_class or Fake)(**fake)
         self.card = (self.card_class or Card)(nvapi_init=nvapi_init, **(card or {}))
         self.clock = [100.0]
 
@@ -186,7 +187,7 @@ class Rig:
         for side in ((self.python_side or PythonSide)(self.twin, self),
                      (self.native_side or NativeSide)(self.native, self)):
             self.bind()
-            self.fake = Fake(**self.config)
+            self.fake = (self.fake_class or Fake)(**self.config)
             self.clock[0] = 100.0
             self.samples = 0
             side.fake = self.fake

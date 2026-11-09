@@ -480,6 +480,8 @@ RailWriteResult rail_write_locked(Gpu& gpu, std::uint32_t control_version, std::
     return out;
 }
 
+Mutex& rail_hook_mutex() { return hook_mutex(); }
+
 HookState hook_state() {
     HookState state;
     state.installed = g_session.active.load();

@@ -1,7 +1,7 @@
 # Druta - a monitor and tuner for NVIDIA GPUs.
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The voltage-rail getters of the native core (drutacore/rails.h), increment R2.
+"""The voltage-rail getters of the native core (drutacore/rails.h), increments R2 to R4.
 
 On a ``druta.native.Gpu``: ``read_volt_rail_blocks(gpu, function, version)`` is
 ``GPU._read_volt_rail_blocks`` (``{rail: bytes}`` of the 8192-byte buffer the getter filled, where
@@ -59,7 +59,34 @@ Divergences of R3:
   that owns them is not ported yet.
 - ``_headroom_mv`` and the profile's ``headroom_mv`` are always None: the reference holds only
   ``"bases"`` until the hold-headroom writer is ported.
+
+Increment R4, the rail write sequence: ``write_rail_records(gpu, records)`` is
+``GPU._write_rail_records`` (the native.Gpu method ``_write_rail_records`` delegates to it) and
+``verify_rail_records(gpu, records, boost)`` is ``GPU._verify_rail_records``. The core runs the whole
+sequence under the process-wide rail hook mutex; the binding clears ``_volt_rail_write_error`` first
+and sets the three writer attributes only when a locked write got past its preconditions.
+
+Divergences of R4:
+
+- A record value that is not a plain int in the int32 range, or a bool rail key (True for rail 1),
+  is refused with prepare_write's text before any escape. Python issues the GET first and refuses
+  inside the hook, so its ``_volt_rail_observed_packets`` holds that GET's summary where the core's
+  is empty. A key equal to a rail for which ``1 << key`` raises (1.0, a Decimal or Fraction) is not
+  one of these: it raises Python's own TypeError at the same point Python does (the rail mask), with
+  the same reads before it and the attributes untouched.
+- A key that names no rail is never inspected natively, so its value's ``len()`` is not taken:
+  where Python's settle check raises TypeError for an unsized value under such a key (settle_vmin
+  set and no earlier record settling), the core returns (False, None).
+- ``len(values)`` is taken before any read, so an unsized value raises TypeError before the reads
+  Python does first.
+- A values sequence other than a list or tuple is compared as Python does (never equal to the
+  read-back list) but would be printed as a tuple; ``verify_rail_records`` itself raises TypeError
+  for anything other than a list or tuple of at most four plain ints, a rail key that is not a plain
+  int (Python prints "rail True" / "rail 1.0"), or a boost other than None or an int32 (Python would
+  compare and print any value). The write path only verifies records it could
+  write, which are always exact.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -148,6 +175,32 @@ class _Caches(ctypes.Structure):  # dc_rails_caches
                 ("version", ctypes.c_uint32 * 2)]
 
 
+KEY_PLAIN, KEY_INT, KEY_NO_SHIFT = 0, 1, 2  # DC_RAILS_KEY_*
+
+
+class _Record(ctypes.Structure):  # dc_rails_record
+    _fields_ = [("rail", ctypes.c_int32), ("key_kind", ctypes.c_int32), ("count", ctypes.c_uint32),
+                ("kind", ctypes.c_int32), ("exact", ctypes.c_int32), ("reserved", ctypes.c_int32),
+                ("values", ctypes.c_int64 * 4)]
+
+
+class _Records(ctypes.Structure):  # dc_rails_records
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("foreign", ctypes.c_int32),
+                ("reserved", ctypes.c_int32), ("records", _Record * RAILS)]
+
+
+class _WriteOutcome(ctypes.Structure):  # dc_rails_write_outcome
+    _fields_ = [("size", ctypes.c_uint32), ("ok", ctypes.c_int32), ("has_status", ctypes.c_int32),
+                ("status", ctypes.c_uint32), ("attributes", ctypes.c_int32), ("writes", ctypes.c_uint32),
+                ("type_error", ctypes.c_int32), ("reserved", ctypes.c_int32),
+                ("result", native._RailWriteResult)]
+
+
+class _VerifyResult(ctypes.Structure):  # dc_rails_verify_result
+    _fields_ = [("size", ctypes.c_uint32), ("has_back", ctypes.c_int32), ("error", ctypes.c_char * 256),
+                ("back", _LimitSet)]
+
+
 _P = ctypes.POINTER
 _SIGNATURES = {
     "dc_rails_blocks": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_uint32, _P(_BlockSet)]),
@@ -166,6 +219,9 @@ _SIGNATURES = {
     "dc_rails_stock_limit_mv": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32,
                                                  _P(ctypes.c_int32), _P(ctypes.c_double)]),
     "dc_rails_limits_mv": (ctypes.c_int32, [ctypes.c_void_p, _P(_LimitsMv)]),
+    "dc_rails_write_records": (ctypes.c_int32, [ctypes.c_void_p, _P(_Records), _P(_WriteOutcome)]),
+    "dc_rails_verify_records": (ctypes.c_int32, [ctypes.c_void_p, _P(_Records), ctypes.c_int32, ctypes.c_int32,
+                                                 _P(_VerifyResult)]),
 }
 
 _lock = threading.Lock()
@@ -301,6 +357,11 @@ def read_volt_rail_limits(gpu):
     """GPU.read_volt_rail_limits(): {rail: row} or None."""
     out = _new(_LimitSet)
     _check(load().dc_rails_limits(gpu._handle, ctypes.byref(out)))
+    return _limit_rows(out)
+
+
+def _limit_rows(out):
+    """read_volt_rail_limits' dict from a dc_rails_limit_set (None when no rail is present)."""
     rows = {}
     for rail in range(RAILS):
         if not out.present >> rail & 1:
@@ -395,3 +456,105 @@ def volt_rail_limits_mv(gpu):
     if not out.present:
         return None
     return {rail: dict(zip(VOLT_LIMIT_FIELDS, out.mv[rail])) for rail in range(RAILS) if out.present >> rail & 1}
+
+
+# ---- increment R4: the rail write sequence and its verification ------------------------------- #
+
+_INT32 = (-(1 << 31), (1 << 31) - 1)
+_INT64 = (-(1 << 63), (1 << 63) - 1)
+
+
+def _plain_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _comparable(value):
+    """A value as the int64 the core compares: its integer when it equals one (clamped to int64,
+    which keeps anything outside int32 outside it), else INT64_MIN, which equals no int32."""
+    try:
+        number = int(value)
+        equal = number == value
+    except (TypeError, ValueError, OverflowError):
+        return _INT64[0]
+    if not equal:
+        return _INT64[0]
+    return min(max(number, _INT64[0]), _INT64[1])
+
+
+def _key_kind(key):
+    """(DC_RAILS_KEY_*, the TypeError `1 << key` raises or None) for a key equal to a rail."""
+    if _plain_int(key):
+        return KEY_PLAIN, None
+    try:
+        1 << key
+    except TypeError as exc:
+        return KEY_NO_SHIFT, exc
+    return KEY_INT, None
+
+
+def _records(records, *, verify=False):
+    """(dc_rails_records, the TypeError Python's rail_mask would raise first, or None)."""
+    out = _new(_Records)
+    shift_error = None
+    for key, values in records.items():
+        rail = {0: 0, 1: 1}.get(key, -1)
+        if rail < 0:
+            out.foreign = 1  # the core never inspects a foreign key's value
+            continue
+        kind, error = _key_kind(key)
+        if verify and kind != KEY_PLAIN:
+            # Python prints the key itself ("rail True", "rail 1.0"); the core prints the rail number.
+            raise TypeError("native rail verification needs plain int rail keys")
+        if error is not None and shift_error is None:
+            shift_error = error
+        count = len(values)  # TypeError for an unsized value, as Python's len() raises it
+        is_list = isinstance(values, list)  # any other sequence never equals verify's list
+        if verify:
+            # The core prints `wanted` itself: lists and tuples of up to four plain ints only.
+            if (not isinstance(values, (list, tuple)) or count > 4
+                    or any(not _plain_int(v) or not _INT64[0] <= v <= _INT64[1] for v in values)):
+                raise TypeError("native rail verification needs a list or tuple of at most four integers")
+        values = list(values)
+        record = out.records[out.count]
+        record.rail = rail
+        record.key_kind = kind
+        record.count = count
+        record.kind = 0 if is_list else 1
+        record.exact = 1 if count == 4 and all(
+            _plain_int(v) and _INT32[0] <= v <= _INT32[1] for v in values) else 0
+        for k, value in enumerate(values[:4]):
+            record.values[k] = _comparable(value)
+        out.count += 1
+    return out, shift_error
+
+
+def write_rail_records(gpu, records):
+    """GPU._write_rail_records(records): (ok, status) and the writer's three attributes on gpu.
+
+    _volt_rail_write_error is cleared to None first; when no locked write got past its
+    preconditions the protocol and observed packets are left as they were, otherwise all three come
+    from the last locked write that ran (gpu._take_rail_write_result). A key equal to a rail for
+    which `1 << key` raises (1.0, a Decimal) raises that TypeError where Python's rail_mask does:
+    after the preconditions and the boost read, with nothing written."""
+    gpu._volt_rail_write_error = None
+    request, shift_error = _records(records)
+    out = _new(_WriteOutcome)
+    _check(load().dc_rails_write_records(gpu._handle, ctypes.byref(request), ctypes.byref(out)))
+    if out.type_error:
+        raise TypeError(str(shift_error))
+    if out.attributes:
+        gpu._take_rail_write_result(out.result)
+    return bool(out.ok), (out.status if out.has_status else None)
+
+
+def verify_rail_records(gpu, records, boost):
+    """GPU._verify_rail_records(records, boost): (back, None) or (None, error)."""
+    request, _ = _records(records, verify=True)
+    if boost is not None and (not _plain_int(boost) or not _INT32[0] <= boost <= _INT32[1]):
+        raise TypeError("native rail verification needs an int32 boost or None")
+    out = _new(_VerifyResult)
+    _check(load().dc_rails_verify_records(gpu._handle, ctypes.byref(request), 0 if boost is None else 1,
+                                          0 if boost is None else boost, ctypes.byref(out)))
+    if not out.has_back:
+        return None, out.error.decode()
+    return _limit_rows(out.back), None

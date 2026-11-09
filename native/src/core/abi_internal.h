@@ -128,6 +128,27 @@ inline druta::backend::PowerLayout get_power_layout(const dc_power_layout& in) {
     return l;
 }
 
+// A dc_rail_write_result from the rail splice's result (dc_rail_write_locked's fields; the R4
+// dc_rails_write_outcome embeds one). Sets size; at most 8 observed summaries, each truncated.
+inline void put_rail_write_result(dc_rail_write_result* out, const druta::backend::RailWriteResult& r) {
+    std::memset(out, 0, sizeof *out);
+    out->size = sizeof(dc_rail_write_result);
+    out->done = r.done ? 1 : 0;
+    out->has_status = r.status ? 1 : 0;
+    out->status = r.status.value_or(0u);
+    copy_field(out->error, sizeof(out->error), r.error);
+    if (r.protocol) {
+        out->has_protocol = 1;
+        out->get_command = r.protocol->get_command;
+        out->set_command = r.protocol->set_command;
+        out->packet_size = r.protocol->packet_size;
+        out->getter_version = r.protocol->getter_version;
+    }
+    out->observed_count = static_cast<uint32_t>(r.observed.size() < 8 ? r.observed.size() : 8);
+    for (uint32_t i = 0; i < out->observed_count; ++i)
+        copy_field(out->observed[i], sizeof(out->observed[i]), r.observed[i]);
+}
+
 }  // namespace druta::abi
 
 // Copies a std::string into a fixed char array, truncating.

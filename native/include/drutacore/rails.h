@@ -257,6 +257,96 @@ typedef struct dc_rails_limits_mv_set {
 
 DC_API dc_status DC_CALL dc_rails_limits_mv(dc_gpu* handle, dc_rails_limits_mv_set* out);
 
+/* ---- Increment R4: the rail write sequence and its verification ---------------------------------
+ *
+ * nvbackend.GPU._write_rail_records, the preconditions of _write_rail_records_locked, and
+ * _verify_rail_records. The locked write itself is dc_rail_write_locked's (drutacore.h, which includes
+ * this header after it), and the outcome below embeds its dc_rail_write_result. The settle decision
+ * comes from the profile's settle_vmin only; no driver, board or VBIOS identity is consulted. */
+
+#define DC_RAILS_VALUES_LIST 0  /* the record's values are a list */
+#define DC_RAILS_VALUES_TUPLE 1 /* a tuple: never equal to the read-back list; printed as one */
+
+/* The kind of a record's dict key (which equals rail 0 or 1). */
+#define DC_RAILS_KEY_PLAIN 0    /* a plain int */
+#define DC_RAILS_KEY_INT 1      /* an int that is not plain (a bool): `1 << key` works, prepare_write refuses it */
+#define DC_RAILS_KEY_NO_SHIFT 2 /* `1 << key` raises TypeError (a float, Decimal or Fraction equal to the rail) */
+
+/* One entry of Python's `records` dict whose key equals rail 0 or 1. */
+typedef struct dc_rails_record {
+    int32_t rail;       /* 0 or 1 */
+    int32_t key_kind;   /* DC_RAILS_KEY_PLAIN, DC_RAILS_KEY_INT or DC_RAILS_KEY_NO_SHIFT */
+    uint32_t count;     /* len(values); dc_rails_verify_records refuses a count above 4 */
+    int32_t kind;       /* DC_RAILS_VALUES_LIST or DC_RAILS_VALUES_TUPLE */
+    int32_t exact;      /* count is 4 and every value is a plain int in the int32 range */
+    int32_t reserved;
+    int64_t values[4];  /* the first min(count, 4) values; a value equal to no integer is INT64_MIN,
+                           an integer outside int64 is clamped (both are outside int32, as the
+                           comparisons need) */
+} dc_rails_record;
+
+/* Python's `records`: the rail entries in the dict's order, and whether it also holds a key that
+ * names no rail (such a key fails every membership test: the profile's fields, the read-back). */
+typedef struct dc_rails_records {
+    uint32_t size;    /* sizeof(dc_rails_records), set by the caller */
+    uint32_t count;   /* 0 .. 2, rails distinct */
+    int32_t foreign;
+    int32_t reserved;
+    dc_rails_record records[2];
+} dc_rails_records;
+
+/* _write_rail_records(records): (ok, status) and the writer's three attributes. */
+typedef struct dc_rails_write_outcome {
+    uint32_t size;       /* sizeof(dc_rails_write_outcome), set by the caller */
+    int32_t ok;
+    int32_t has_status;  /* 0: Python's None */
+    uint32_t status;
+    /* 0: no locked write got past its preconditions; _volt_rail_write_error is None (cleared by the
+     * sequence) and _volt_rail_write_protocol / _volt_rail_observed_packets are untouched.
+     * 1: the fields below are those of the last locked write that ran, and set all three. */
+    int32_t attributes;
+    uint32_t writes;     /* locked writes that ran past their preconditions: 0, 1 or 2 */
+    /* 1: Python raises TypeError at `rail_mask = sum(1 << rail ...)` because a DC_RAILS_KEY_NO_SHIFT
+     * key reached it (after the boost read; nothing written, attributes 0, ok and status 0). */
+    int32_t type_error;
+    int32_t reserved;
+    dc_rail_write_result result; /* when attributes is 1: the last locked write's (its size set by the core) */
+} dc_rails_write_outcome;
+
+/* Under the handle lock, then the process-wide rail hook mutex (GPU._RAIL_HOOK_LOCK) for the whole
+ * sequence: read_volt_rail_limits (the pre-write snapshot), _volt_rail_profile; when settle_vmin,
+ * settle is any record of 4 values whose rail is in the snapshot with round(vmin * 1000) differing
+ * from values[3], and then the boost is read. The locked write: volt_rail_limits_supported(None),
+ * the profile, every rail referenced, volt_rail_limits_supported(rail) per rail in order, 4 values
+ * each, the boost read; any refusal is (False, None) with attributes 0. A DC_RAILS_KEY_NO_SHIFT key
+ * then stops the sequence with type_error 1. A DC_RAILS_KEY_INT key, or a record that is not exact,
+ * is refused with prepare_write's text and no escape (Python refuses it inside the hook, after the
+ * GET). Otherwise dc_rail_write_locked's write. When
+ * settle and that gave (True, 0): the verification of dc_rails_verify_records with the boost read
+ * before the write; a failure is (False, 0) with the first write's attributes; else the locked
+ * write runs again and its result is returned. DC_E_ARGUMENT for a NULL argument, a size mismatch,
+ * count > 2, a rail other than 0 or 1, a repeated rail, or a value kind or key kind outside its
+ * defines. */
+DC_API dc_status DC_CALL dc_rails_write_records(dc_gpu* handle, const dc_rails_records* records,
+                                                dc_rails_write_outcome* out);
+
+/* _verify_rail_records(records, boost): has_back 1 with back (read_volt_rail_limits) and an empty
+ * error, or has_back 0 and error "write issued but the rail read-back is incomplete", "rail R
+ * read-back disagrees: wanted W, got G" (W as Python prints the list or tuple, G the list of
+ * int(round(field * 1000))) or "rail write changed the voltage boost setting". has_boost 0 is a
+ * boost of None. Handle lock only (Python takes no hook lock here). DC_E_ARGUMENT as for
+ * dc_rails_write_records, and also for a record count above 4 (`wanted` is printed from the four
+ * values carried). */
+typedef struct dc_rails_verify_result {
+    uint32_t size;    /* sizeof(dc_rails_verify_result), set by the caller */
+    int32_t has_back;
+    char error[256];
+    dc_rails_limit_set back; /* its size is set by the core */
+} dc_rails_verify_result;
+
+DC_API dc_status DC_CALL dc_rails_verify_records(dc_gpu* handle, const dc_rails_records* records, int32_t has_boost,
+                                                 int32_t boost, dc_rails_verify_result* out);
+
 #ifdef __cplusplus
 }
 #endif

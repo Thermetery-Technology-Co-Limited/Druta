@@ -1892,6 +1892,12 @@ class Gpu:
         status = load().dc_rail_write_locked(self._handle, ctypes.byref(request), ctypes.byref(result))
         if status != DC_OK:
             _raise(status)
+        self._take_rail_write_result(result)
+        return bool(result.done), (result.status if result.has_status else None)
+
+    def _take_rail_write_result(self, result):
+        """Set _volt_rail_observed_packets, _volt_rail_write_error and _volt_rail_write_protocol from
+        a dc_rail_write_result (a locked write that ran sets all three, as the Python does)."""
         self._volt_rail_observed_packets = [result.observed[i].value.decode(errors="replace")
                                             for i in range(min(result.observed_count, 8))]
         self._volt_rail_write_error = _text(result.error) or None
@@ -1901,7 +1907,18 @@ class Gpu:
                                               "set_command": f"0x{result.set_command:08X}",
                                               "packet_size": result.packet_size,
                                               "getter_version": f"0x{result.getter_version:08X}"}
-        return bool(result.done), (result.status if result.has_status else None)
+
+    def _write_rail_records(self, records):
+        """nvbackend.GPU._write_rail_records: the preconditions, the settle decision, the locked
+        write and the verified identity re-send, under the process-wide rail hook mutex
+        (druta.native_rails.write_rail_records)."""
+        from . import native_rails
+        return native_rails.write_rail_records(self, records)
+
+    def _verify_rail_records(self, records, boost):
+        """nvbackend.GPU._verify_rail_records (druta.native_rails.verify_rail_records)."""
+        from . import native_rails
+        return native_rails.verify_rail_records(self, records, boost)
 
     # ---- current-policy operations on the transport (nvbackend.GPU._current_limit_*) --------- #
 

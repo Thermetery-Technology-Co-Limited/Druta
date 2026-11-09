@@ -73,6 +73,7 @@ core, then compares results, driver call sequences and messages.
 | Live power request and its bookkeeping | `GPU._get_live_power_controller`, `read_live_power_request` (`_live_power_last`, `_live_power_error`, `_live_power_error_kind`, `_board_policy`, the static `pl_*` back-fill), the live-power part of `refresh_capabilities`; the derived-clamp confirmation of `_current_limit_state` now runs through it | `dc_cpc_live_read`, `dc_cpc_live_state_get`, `dc_cpc_board_policy_set` (bound as `Gpu.read_live_power_request` and the four attributes) | `tests/test_native_live_power.py`, `tests/test_native_current_limit_state.py` |
 | PERF diagnostics layouts, transport, GET, decoder and read loop | `perf_diagnostics.LAYOUTS`, `_GET_COMMANDS`, `decode_group`, `PerfDiagnosticsReader._transport`, `_get`, `read` (one group per call; `last_valid` / `last_errors` stay in the binding's `Reader`); `hashlib.sha256` | `dc_perf_layouts`, `dc_perf_transport`, `dc_perf_bind`, `dc_perf_get`, `dc_perf_decode_group`, `dc_perf_read_group`, `dc_perf_reset`, `dc_sha256_hex` (`drutacore/perf_diagnostics.h`, bound by `druta.native_perf_diagnostics`) | `tests/test_native_perf_diagnostics.py`, `native/fuzz/` |
 | Voltage-rail getters, reference and queries | `GPU._read_volt_rail_blocks`, `_read_volt_rail_deltas`, `read_volt_rail_state`, `read_rail_live_mv` and the four `_volt_rail_*` read caches; `read_volt_rail_limits` (the reference capture `_volt_rail_reference` and the first-read record `_volt_rail_initial_uv`), `_volt_rail_profile`, `volt_rail_diagnostics`, `volt_rail_limits_supported`, `volt_rail_limit_fields`, `stock_limit_mv`, `volt_rail_limits_mv` | `dc_rails_*` (`drutacore/rails.h`, bound by `druta.native_rails`) | `tests/test_native_rails.py`, `tests/test_native_rail_reference.py` |
+| Rail write sequence and verification | `GPU._write_rail_records` (the preconditions of `_write_rail_records_locked`, the settle re-send decided by the profile's `settle_vmin` only, under the handle lock then the process-wide rail hook mutex) and `_verify_rail_records` | `dc_rails_write_records`, `dc_rails_verify_records` (`drutacore/rails.h`, bound by `druta.native_rails` and as `Gpu._write_rail_records` / `_verify_rail_records`) | `tests/test_native_rail_write.py` |
 | Legacy P0 hold and verification holds | `GPU.legacy_p0_supported`, `legacy_p0_owned`, `hold_legacy_p0`, `release_legacy_p0`, the request half of `verification_legacy_p0`, the `_vf_lock_recovery` record and the lock-table entry read (`_vf_lock_read_raw` / `_vf_lock_entries`) that `verification_p0` needs, `read_vcore_mv`; the two context managers are composed in the binding | `dc_legacy_p0_*` (`drutacore/legacy_p0.h`), `dc_gpu_vf_lock_recovery_get` / `dc_gpu_vf_lock_recovery_set`, `dc_gpu_vf_lock_entry_get`, `dc_gpu_read_vcore_mv` (bound by `druta.native_legacy_p0` and `Gpu.read_vcore_mv`) | `tests/test_native_legacy_p0.py` |
 | Clock-BIOS read path | `clock_bios_runtime._control_once`, `_control_shape`, `_info_once`, `_decode`, `read` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_info`, `dc_clock_bios_decode`, `dc_clock_bios_read`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 
@@ -223,9 +224,9 @@ needs the transport), the rest of the RM escape transport and the controls
 built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
 adapter openers for older gdi32 builds; the full policy table of
 `_power_policy_rows` and the pin re-application after board-limit writes;
-the client-power request SET with its rollback; and the Python consumers of
-the transport such as `_write_rail_records` with its profile checks and
-`_verify_rail_records`), the GPU restart, and the front end.
+the client-power request SET with its rollback; and the remaining Python
+consumers of the transport, the verified rail setters and the hold-headroom
+runtime over the ported write sequence), the GPU restart, and the front end.
 
 Text formatting follows Python's `:g` / `:+.2f` through the C runtime's
 `printf`; the rounding of an exact half by an old msvcrt has not been checked

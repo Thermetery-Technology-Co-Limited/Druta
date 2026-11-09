@@ -241,22 +241,7 @@ DC_API dc_status DC_CALL dc_rail_write_locked(dc_gpu* handle, const dc_rail_writ
     druta::LockGuard guard(handle->gpu.lock());
     druta::backend::RailWriteResult r = druta::backend::rail_write_locked(
         handle->gpu, request->control_version, request->rail_mask, records, request->record_count, request->boost);
-    dc_rail_write_result out{};
-    out.size = sizeof(dc_rail_write_result);
-    out.done = r.done ? 1 : 0;
-    out.has_status = r.status ? 1 : 0;
-    out.status = r.status.value_or(0u);
-    DC_COPY(out.error, r.error);
-    if (r.protocol) {
-        out.has_protocol = 1;
-        out.get_command = r.protocol->get_command;
-        out.set_command = r.protocol->set_command;
-        out.packet_size = r.protocol->packet_size;
-        out.getter_version = r.protocol->getter_version;
-    }
-    out.observed_count = static_cast<uint32_t>(r.observed.size() < 8 ? r.observed.size() : 8);
-    for (uint32_t i = 0; i < out.observed_count; ++i) DC_COPY(out.observed[i], r.observed[i]);
-    *result = out;
+    druta::abi::put_rail_write_result(result, r);  // shared with dc_rails_write_records' embedded result
     return DC_OK;
 }
 

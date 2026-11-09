@@ -31,6 +31,9 @@ static_assert(DC_RAILS_REASON_NO_ARCHITECTURE == static_cast<int>(RailReason::no
 static_assert(DC_RAILS_REASON_UNKNOWN_ARCHITECTURE == static_cast<int>(RailReason::unknown_architecture), "reasons");
 static_assert(DC_RAILS_REASON_NO_CONTROL == static_cast<int>(RailReason::no_control), "reasons");
 static_assert(DC_RAILS_REASON_INVALID_STATE == static_cast<int>(RailReason::invalid_state), "reasons");
+static_assert(DC_RAILS_KEY_PLAIN == static_cast<int>(druta::backend::RailKey::plain), "keys");
+static_assert(DC_RAILS_KEY_INT == static_cast<int>(druta::backend::RailKey::other_int), "keys");
+static_assert(DC_RAILS_KEY_NO_SHIFT == static_cast<int>(druta::backend::RailKey::no_shift), "keys");
 static_assert(DC_RAILS_REASON_NO_REFERENCE == static_cast<int>(RailReason::no_reference), "reasons");
 
 // No exception crosses the C boundary; only allocation can throw here.
@@ -62,6 +65,53 @@ template <typename T>
 void clear(T* out) {
     std::memset(out, 0, sizeof *out);
     out->size = sizeof(T);
+}
+
+// A dc_rails_limit_set from read_volt_rail_limits' rows (present 0 for None).
+void put_limits(dc_rails_limit_set* out, const std::optional<druta::backend::RailLimits>& rows) {
+    clear(out);
+    if (!rows) return;
+    for (std::size_t r = 0; r < DC_RAILS_COUNT; ++r) {
+        const auto& row = (*rows)[r];
+        if (!row) continue;
+        out->present |= 1u << r;
+        dc_rails_limit_row& e = out->rails[r];
+        e.type = row->deltas.type;
+        put_fields(e.fields, std::array<double, 4>{row->deltas.reliability, row->deltas.alt_reliability,
+                                                    row->deltas.overvoltage, row->deltas.vmin});
+        e.has_base = row->base ? 1 : 0;
+        if (row->base) put_fields(e.base, *row->base);
+        e.absolute_ok = row->absolute_ok ? 1 : 0;
+        e.boost_mv = row->boost_mv;
+        e.has_effective = row->effective_mv ? 1 : 0;
+        e.effective_mv = row->effective_mv.value_or(0.0);
+    }
+}
+
+// The caller's records, or false for DC_E_ARGUMENT.
+// verify: also refuse a record carrying more than the four values `wanted` is printed from.
+bool get_records(const dc_rails_records* in, druta::backend::RailRecords& out, bool verify) {
+    if (in->size != sizeof(dc_rails_records) || in->count > DC_RAILS_COUNT) return false;
+    out.count = in->count;
+    out.foreign = in->foreign != 0;
+    unsigned seen = 0;
+    for (std::size_t i = 0; i < in->count; ++i) {
+        const dc_rails_record& r = in->records[i];
+        if ((r.rail != 0 && r.rail != 1) || (seen >> r.rail & 1u)) return false;
+        if (r.kind != DC_RAILS_VALUES_LIST && r.kind != DC_RAILS_VALUES_TUPLE) return false;
+        if (r.key_kind != DC_RAILS_KEY_PLAIN && r.key_kind != DC_RAILS_KEY_INT && r.key_kind != DC_RAILS_KEY_NO_SHIFT)
+            return false;
+        if (verify && r.count > 4) return false;
+        seen |= 1u << r.rail;
+        druta::backend::RailRecord& e = out.records[i];
+        e.rail = r.rail;
+        e.key = static_cast<druta::backend::RailKey>(r.key_kind);
+        e.count = r.count;
+        e.is_list = r.kind == DC_RAILS_VALUES_LIST;
+        e.exact = r.exact != 0;
+        for (std::size_t k = 0; k < 4; ++k) e.values[k] = k < r.count ? r.values[k] : 0;
+    }
+    return true;
 }
 
 }  // namespace
@@ -181,24 +231,7 @@ DC_API dc_status DC_CALL dc_rails_limits(dc_gpu* handle, dc_rails_limit_set* out
     if (!handle || !out || out->size != sizeof(dc_rails_limit_set)) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        auto rows = handle->rails.limits();
-        clear(out);
-        if (!rows) return DC_OK;
-        for (std::size_t r = 0; r < DC_RAILS_COUNT; ++r) {
-            const auto& row = (*rows)[r];
-            if (!row) continue;
-            out->present |= 1u << r;
-            dc_rails_limit_row& e = out->rails[r];
-            e.type = row->deltas.type;
-            put_fields(e.fields, std::array<double, 4>{row->deltas.reliability, row->deltas.alt_reliability,
-                                                        row->deltas.overvoltage, row->deltas.vmin});
-            e.has_base = row->base ? 1 : 0;
-            if (row->base) put_fields(e.base, *row->base);
-            e.absolute_ok = row->absolute_ok ? 1 : 0;
-            e.boost_mv = row->boost_mv;
-            e.has_effective = row->effective_mv ? 1 : 0;
-            e.effective_mv = row->effective_mv.value_or(0.0);
-        }
+        put_limits(out, handle->rails.limits());
         return DC_OK;
     });
 }
@@ -298,6 +331,46 @@ DC_API dc_status DC_CALL dc_rails_limits_mv(dc_gpu* handle, dc_rails_limits_mv_s
             out->present |= 1u << r;
             put_fields(out->mv[r], *(*rows)[r]);
         }
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_write_records(dc_gpu* handle, const dc_rails_records* records,
+                                                dc_rails_write_outcome* out) {
+    if (!handle || !records || !out || out->size != sizeof(dc_rails_write_outcome)) return DC_E_ARGUMENT;
+    druta::backend::RailRecords in;
+    if (!get_records(records, in, false)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        // Lock order (DESIGN-TRANSPORT 3.8): the handle lock here, the hook mutex in write_records.
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::RailWriteOutcome r = handle->rails.write_records(in);
+        clear(out);
+        out->ok = r.ok ? 1 : 0;
+        out->has_status = r.status ? 1 : 0;
+        out->status = r.status.value_or(0u);
+        out->attributes = r.attributes ? 1 : 0;
+        out->writes = r.writes;
+        out->type_error = r.type_error ? 1 : 0;
+        out->result.size = sizeof(dc_rail_write_result);
+        if (r.attributes) druta::abi::put_rail_write_result(&out->result, r.result);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_verify_records(dc_gpu* handle, const dc_rails_records* records, int32_t has_boost,
+                                                 int32_t boost, dc_rails_verify_result* out) {
+    if (!handle || !records || !out || out->size != sizeof(dc_rails_verify_result)) return DC_E_ARGUMENT;
+    druta::backend::RailRecords in;
+    if (!get_records(records, in, true)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        std::optional<std::int32_t> wanted;
+        if (has_boost) wanted = boost;
+        const druta::backend::RailVerifyOutcome r = handle->rails.verify_records(in, wanted);
+        clear(out);
+        out->has_back = r.back ? 1 : 0;
+        put_text(out->error, r.error.c_str());
+        put_limits(&out->back, r.back);
         return DC_OK;
     });
 }

@@ -679,7 +679,11 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    their backoff replaceable through `dc_set_clock_hook`; the rail reference capture and the readers over it
    (`read_volt_rail_limits`, `_volt_rail_profile`, `volt_rail_diagnostics`, `volt_rail_limits_supported`,
    `volt_rail_limit_fields`, `stock_limit_mv`, `volt_rail_limits_mv`) as the same `backend/rails` and `dc_rails_*`,
-   `tests/test_native_rail_reference.py`; the legacy P0 hold and the core support for the
+   `tests/test_native_rail_reference.py`; the rail write sequence (`_write_rail_records`, the preconditions of
+   `_write_rail_records_locked` and `_verify_rail_records`, under the handle lock then the process-wide rail hook
+   mutex, the settle re-send decided by the profile's `settle_vmin` only) as `Rails::write_records` /
+   `verify_records`, `dc_rails_write_records`, `dc_rails_verify_records`, `tests/test_native_rail_write.py`; the
+   legacy P0 hold and the core support for the
    verification holds (`legacy_p0_supported`, `hold_legacy_p0`, `release_legacy_p0`, the request half of
    `verification_legacy_p0`, the recovery record and lock-table entry accessors, `read_vcore_mv`) as
    `backend/legacy_p0`, `dc_legacy_p0_*`, `dc_gpu_vf_lock_recovery_get` / `_set`, `dc_gpu_vf_lock_entry_get`,

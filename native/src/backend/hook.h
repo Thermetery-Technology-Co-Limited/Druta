@@ -31,6 +31,10 @@
 #include "core/calling.h"
 #include "core/rail_transport.h"
 
+namespace druta {
+class Mutex;
+}
+
 namespace druta::backend {
 
 // Thunk size: 14 on x64 (jmp qword ptr [rip+0]; imm64), 5 on x86 (jmp rel32).
@@ -96,6 +100,11 @@ struct RailWriteResult {
 };
 RailWriteResult rail_write_locked(Gpu& gpu, std::uint32_t control_version, std::uint32_t rail_mask,
                                   const rail::Record* records, std::size_t record_count, std::uint32_t boost);
+
+// GPU._RAIL_HOOK_LOCK: the process-wide recursive mutex every capture and rail_write_locked take.
+// Exposed so a caller can hold it across a sequence of locked writes and reads (Rails::write_records);
+// lock order: the GPU handle lock first, then this one.
+Mutex& rail_hook_mutex();
 
 // The thunk body: what the patched D3DKMTEscape jumps to. Public for the test seam.
 long DRUTA_STDCALL hook_entry(void* escape);

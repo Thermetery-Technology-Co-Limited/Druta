@@ -5,11 +5,13 @@
 
 #include <cmath>
 #include <cstring>
+#include <string>
 
 #include "backend/nvapi.h"
 #include "backend/rail_limits.h"
 #include "backend/telemetry.h"
 #include "core/calling.h"
+#include "core/mutex.h"
 #include "core/sleep.h"
 
 namespace druta::backend {
@@ -70,6 +72,24 @@ bool same_deltas(const RailDeltas& a, const RailDeltas& b) { return a.type == b.
 // any(absolute.get(k) != after.get(k) for k in (*VOLT_LIMIT_FIELDS, "_boost_mv", "type")), negated.
 bool same_state(const RailState& a, const RailState& b) {
     return fields_of(a) == fields_of(b) && a.boost_mv == b.boost_mv && a.type == b.type;
+}
+
+// round(x * 1000) of a millivolt figure that is an int32 / 1000.0: back into the int32 range.
+std::int64_t microvolts(double mv) { return static_cast<std::int64_t>(std::nearbyint(mv * 1000)); }
+
+const char* const kPreserve = "Could not preserve the current native rail record: ";
+
+// str(values) of a list or tuple of ints (verify's `wanted`).
+std::string values_text(const RailRecord& record) {
+    const std::size_t n = record.count < 4 ? record.count : 4;
+    std::string text = record.is_list ? "[" : "(";
+    for (std::size_t k = 0; k < n; ++k) {
+        if (k) text += ", ";
+        text += std::to_string(record.values[k]);
+    }
+    if (!record.is_list && n == 1) text += ",";
+    text += record.is_list ? "]" : ")";
+    return text;
 }
 
 }  // namespace
@@ -387,6 +407,142 @@ std::optional<double> Rails::live_mv(std::int32_t rail) {
     const auto& row = (*s)[static_cast<std::size_t>(rail)];
     if (!row) return std::nullopt;
     return row->live;
+}
+
+bool Rails::write_records_locked(const RailRecords& records, RailWriteOutcome& out) {
+    // _write_rail_records_locked: recognize the observed RM packet independently of the NVAPI getter
+    // version; the preconditions below return (False, None) without touching the attributes.
+    if (!limits_supported(std::nullopt)) return false;
+    const std::optional<RailProfile> p = profile();
+    // Python dereferences the profile here; supported() has just found it, and the architecture it
+    // depends on is cached once recognized, so a None here is not reached through the driver.
+    if (!p) return false;
+    const std::uint32_t control_version = p->control_version;
+    // `not records or not set(records).issubset(profile["fields"])`: "fields" holds the referenced rails
+    if (records.count == 0 || records.foreign) return false;
+    for (std::size_t i = 0; i < records.count; ++i) {
+        if (!p->bases[static_cast<std::size_t>(records.records[i].rail)]) return false;
+    }
+    // any(not self.volt_rail_limits_supported(r) for r in records): in order, stopping at the first
+    for (std::size_t i = 0; i < records.count; ++i) {
+        if (!limits_supported(records.records[i].rail)) return false;
+    }
+    for (std::size_t i = 0; i < records.count; ++i) {
+        if (records.records[i].count != rail::kFieldCount) return false;
+    }
+    const std::optional<std::int32_t> boost = telemetry_.read_voltage_boost();
+    if (!boost) return false;
+    // rail_mask = sum(1 << rail for rail in records): TypeError for a key without an int shift
+    for (std::size_t i = 0; i < records.count; ++i) {
+        if (records.records[i].key == RailKey::no_shift) {
+            out.type_error = true;
+            return false;
+        }
+    }
+    std::uint32_t rail_mask = 0;
+    for (std::size_t i = 0; i < records.count; ++i) rail_mask += 1u << records.records[i].rail;
+    out.attributes = true;
+    ++out.writes;
+    out.result = RailWriteResult{};
+    // rail_transport._validated_records, which Python's prepare_write runs inside the hook after the
+    // GET: the ABI records carry int32 values, so the same refusal is given here, before any escape.
+    for (std::size_t i = 0; i < records.count; ++i) {
+        if (records.records[i].key != RailKey::plain) {
+            out.result.error = std::string(kPreserve) + "requested_mask must exactly match the record rails";
+            return true;
+        }
+    }
+    for (std::size_t i = 0; i < records.count; ++i) {
+        if (!records.records[i].exact) {
+            out.result.error = std::string(kPreserve) + "rail " + std::to_string(records.records[i].rail) +
+                               " record values must be signed int32 integers";
+            return true;
+        }
+    }
+    ::druta::rail::Record raw[kRailCount] = {};
+    for (std::size_t i = 0; i < records.count; ++i) {
+        raw[i].rail = static_cast<std::uint32_t>(records.records[i].rail);
+        for (std::size_t k = 0; k < ::druta::rail::kRecordValueCount; ++k)
+            raw[i].values[k] = static_cast<std::int32_t>(records.records[i].values[k]);
+    }
+    out.result = rail_write_locked(gpu_, control_version, rail_mask, raw, records.count,
+                                   static_cast<std::uint32_t>(*boost));
+    return true;
+}
+
+RailWriteOutcome Rails::write_records(const RailRecords& records) {
+    RailWriteOutcome out;
+    // The code patch is process-wide even when GPU objects have different per-card locks. Only one
+    // installer may own it at a time, for the whole sequence.
+    LockGuard guard(rail_hook_mutex());
+    // A fresh pre-write snapshot for the vmin settle decision; no driver string is consulted.
+    const std::optional<RailLimits> previous = limits();
+    const std::optional<RailProfile> p = profile();
+    bool settle = false;
+    std::optional<std::int32_t> boost;
+    if (p && p->settle_vmin) {
+        for (std::size_t i = 0; i < records.count && !settle; ++i) {
+            const RailRecord& r = records.records[i];
+            const auto& row = previous ? (*previous)[static_cast<std::size_t>(r.rail)] : std::optional<RailLimitRow>{};
+            settle = r.count == rail::kFieldCount && row && microvolts(row->deltas.vmin) != r.values[3];
+        }
+        if (settle) boost = telemetry_.read_voltage_boost();
+    }
+    bool ran = write_records_locked(records, out);
+    if (out.type_error) return out;  // Python raised: nothing after it runs
+    out.ok = ran && out.result.done;
+    out.status = ran ? out.result.status : std::nullopt;
+    if (settle && out.ok && out.status && *out.status == 0) {
+        // GP102/R470 recomputes an idle floor using the preceding stored value. A verified identity
+        // re-send makes its live voltage catch up, including when restoring the stock floor. No extra
+        // delta is added and every requested field is equal.
+        const RailVerifyOutcome verified = verify_records(records, boost);
+        if (!verified.error.empty()) {
+            out.ok = false;
+            return out;
+        }
+        ran = write_records_locked(records, out);
+        out.ok = ran && out.result.done;
+        out.status = ran ? out.result.status : std::nullopt;
+    }
+    return out;
+}
+
+RailVerifyOutcome Rails::verify_records(const RailRecords& records, std::optional<std::int32_t> boost) {
+    // Check every preserved rail/field and the independent boost setting.
+    RailVerifyOutcome out;
+    const std::optional<RailLimits> back = limits();
+    bool complete = back.has_value() && !records.foreign;
+    for (std::size_t i = 0; complete && i < records.count; ++i)
+        complete = (*back)[static_cast<std::size_t>(records.records[i].rail)].has_value();
+    if (!complete) {
+        out.error = "write issued but the rail read-back is incomplete";
+        return out;
+    }
+    for (std::size_t i = 0; i < records.count; ++i) {
+        const RailRecord& wanted = records.records[i];
+        const RailFields fields = fields_of((*back)[static_cast<std::size_t>(wanted.rail)]->deltas);
+        std::array<std::int64_t, 4> got{};
+        for (std::size_t k = 0; k < got.size(); ++k) got[k] = microvolts(fields[k]);
+        // `got != wanted`: a list never equals a tuple
+        const bool equal = wanted.is_list && wanted.count == got.size() && got == wanted.values;
+        if (!equal) {
+            std::string text = "rail " + std::to_string(wanted.rail) + " read-back disagrees: wanted " +
+                               values_text(wanted) + ", got [";
+            for (std::size_t k = 0; k < got.size(); ++k) {
+                if (k) text += ", ";
+                text += std::to_string(got[k]);
+            }
+            out.error = text + "]";
+            return out;
+        }
+    }
+    if (telemetry_.read_voltage_boost() != boost) {
+        out.error = "rail write changed the voltage boost setting";
+        return out;
+    }
+    out.back = back;
+    return out;
 }
 
 }  // namespace druta::backend

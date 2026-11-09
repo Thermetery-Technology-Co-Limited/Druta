@@ -783,7 +783,6 @@ typedef struct dc_rm_transport {
 #include "drutacore/client_power_controller.h" /* dc_cpc_*: the controller on a handle */
 #include "drutacore/perf_diagnostics.h"        /* dc_perf_*: the PERF diagnostics reader */
 #include "drutacore/clock_bios.h"              /* dc_clock_bios_*: the clock-BIOS reader */
-#include "drutacore/rails.h"                   /* dc_rails_*: the voltage-rail getters */
 #include "drutacore/legacy_p0.h"               /* dc_legacy_p0_*: the legacy P0 hold */
 
 typedef struct dc_rm_observed {  /* _current_limit_observed_transport: {} when seen == 0 */
@@ -844,6 +843,8 @@ typedef struct dc_rail_write_result {
 } dc_rail_write_result;
 DC_API dc_status DC_CALL dc_rail_write_locked(dc_gpu* gpu, const dc_rail_write_request* request,
                                               dc_rail_write_result* result);
+/* Included here, not with the other headers above: rails.h's R4 outcome embeds dc_rail_write_result. */
+#include "drutacore/rails.h"                   /* dc_rails_*: the voltage-rail getters */
 
 /* ---- current-policy operations on the transport (increment 6a) ------------------------------- */
 /* nvbackend.GPU._current_limit_capacity, _current_limit_abi, _current_limit_probe_info,
