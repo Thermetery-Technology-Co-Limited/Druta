@@ -13,6 +13,7 @@
 #include <cstring>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "backend/clkdom.h"
 #include "backend/clock_bios.h"
@@ -50,6 +51,7 @@ struct dc_gpu {
     druta::backend::PowerLimit pl;             // the board power limit (read / bounds / set_power_limit_mw)
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
     std::optional<druta::backend::VfCurve> vfcurve;             // carries the layout cache, as GPU._vfp_layout_cache
+    std::vector<std::string> reset_messages;  // the last dc_gpu_reset_all's full step messages (G3)
     explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm), clock_bios(gpu, telemetry, rm, clkdom), rails(gpu, telemetry), legacy_p0(gpu, telemetry),
           pl(gpu, telemetry, cp, cl, [this]() -> druta::backend::StaticCapabilities& { capabilities(); return *statics; }) {
         // The sweep's pl_requested_mw is read_power_limit_mw, live fallback included (nvbackend

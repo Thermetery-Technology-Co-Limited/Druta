@@ -1072,4 +1072,5 @@ DC_API dc_status DC_CALL dc_hook_thunk(uint64_t address, uint64_t target, uint32
 #include "drutacore/clkdom.h"         /* private clock-domain rows and names */
 #include "drutacore/power_limit.h"    /* dc_pl_*: the board power limit (needs dc_cl_statics) */
 #include "drutacore/vfplan.h"  /* the pure V/F planners */
+#include "drutacore/reset.h"      /* dc_gpu_reset_all (needs dc_cl_statics, dc_rails_setter_writes) */
 #endif /* DRUTACORE_H */

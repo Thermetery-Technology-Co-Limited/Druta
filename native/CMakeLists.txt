@@ -98,6 +98,7 @@ add_library(drutacore_impl STATIC
   src/backend/nvml.cpp
   src/backend/power_layouts.cpp
   src/backend/power_limit.cpp
+  src/backend/reset_all.cpp
   src/backend/rm_transport.cpp
   src/backend/telemetry.cpp
   src/backend/vfcurve.cpp
@@ -132,6 +133,7 @@ add_library(drutacore SHARED
   src/core/abi_target.cpp
   src/core/abi_power_layouts.cpp
   src/core/abi_power_limit.cpp
+  src/core/abi_reset.cpp
   src/core/abi_transport.cpp
   src/core/abi_vfplan.cpp
 )

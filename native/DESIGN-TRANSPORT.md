@@ -786,8 +786,11 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    board, device, subsystem or VBIOS identity. The normal range's fallbacks for a missing `pl_min_mw` /
    `pl_max_mw` (50000 / 400000 mW) are Python's values kept for parity, not device facts. The caller's
    `pl_*` statics go in as `dc_cl_statics` and come back in place where a live read inside the call
-   back-filled a key the caller passed without a value, so the binding sets its dict at the point Python
-   does. The set message carries the re-application note and the live SET's rollback text, so it is
+   back-filled a key the caller passed without a value, and the binding sets its dict from them after the
+   call. That is not Python's point: Python back-fills `self.static` inside `read_live_power_request`,
+   before `set_power_limit_mw` writes anything, so a `static` mapping whose item assignment raises stops
+   Python before the write and the binding after it (the binding's own dict never raises; recorded with
+   reset all, increment G3). The set message carries the re-application note and the live SET's rollback text, so it is
    returned in a caller-sized buffer and kept in full per handle for `dc_pl_message_get`; the binding holds
    `Gpu._lock` around the call and the fetch. The telemetry sweep's `pl_requested_mw` is now
    `read_power_limit_mw`, live fallback included, as nvbackend's `_read_power` (through
@@ -795,6 +798,33 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `dc_telemetry.pl_from_live` is 1 and the binding re-syncs its `static` dict's None or absent `pl_*` keys
    from the handle's capabilities, as Python's sweep back-fills `GPU.static`; on any other tick it leaves
    them alone. `read_power_policies`' inputs callback calls the native `read_power_limit_mw`. Everything is session-only: nothing is stored for, or re-applied after, a
+   GPU driver restart.
+
+   Reset all (increment G3): `GPU.reset_all` as `backend/reset_all` (`reset_all`, `ResetParts`,
+   `ResetHooks`), `dc_gpu_reset_all` / `dc_gpu_reset_message_get` (`drutacore/reset.h`),
+   `tests/test_native_reset_all.py`. It composes the ported knobs and re-implements none, under the handle
+   lock for the whole call, in Python's order: the session's policy pins are dropped first (so a later
+   failure never keeps them), then the steps `drutacore/reset.h` lists. The caller's array must hold
+   `DC_RESET_STEPS_MAX` (140) steps, checked before anything is read or changed (`DC_E_BUFFER`, pins
+   kept); a message longer than the step's 4096 bytes is truncated there with its full length in
+   `message_length` and kept in full per handle for `dc_gpu_reset_message_get`. The caller's `pl_*`
+   statics travel through a callback (`dc_reset_statics_fn`), which reads them where Python reads
+   `self.static["pl_def_mw"]`, so a static whose read raises stops the reset exactly where Python's does
+   (`DC_E_CALLER`, the binding re-raises the caller's own exception). The back-fill does not keep
+   Python's order: Python back-fills `self.static` inside `read_live_power_request`, before
+   `set_power_limit_mw` writes anything, while the core runs `PowerLimit::set` to completion (its NVML or
+   live SET included) and only then calls the back-fill, so a back-fill that raises stops the native
+   reset after the power-limit write where Python's stops before it. Only a `static` mapping whose item
+   assignment raises can tell the two apart (the binding's own dict never does), and the order is the
+   power-limit layer's; it is a recorded divergence. The IndexError Python lets escape the power-limit
+   and policy callees is `DC_E_RANGE`. Python's `_power_policy_mask is not None` is
+   `CurrentLimits::power_policy_mask_read`, set wherever the policy table assigns the mask (a mask of 0
+   included) and never cleared within a session, as Python never clears the attribute; a nonzero mask
+   set through `dc_cl_policy_mask_set` also counts, as Python's attribute assignment does. The
+   voltage-boost and vf-curve steps check NVAPI interface presence (VoltCtrlGet / VoltCtrlSet,
+   BoostTableSet) and the curve's Kepler exclusion is the NVML architecture: capability and generation
+   checks, never a driver version or a device, subsystem or VBIOS identity. The rail limits go back to this
+   session's first-read values, never a claimed factory default. Nothing is persisted or re-applied after a
    GPU driver restart.
 
 ### 3.10 Corrections to the design-panel output

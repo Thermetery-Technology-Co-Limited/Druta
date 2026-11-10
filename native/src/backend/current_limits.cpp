@@ -378,6 +378,7 @@ PolicyTableResult CurrentLimits::policy_table() {
     table.info = std::move(*info.words);
     if (!mask) {
         power_policy_mask = 0;
+        power_policy_mask_read = true;
         last_policy_table = table;
         out.table = std::move(table);
         return out;
@@ -405,6 +406,7 @@ PolicyTableResult CurrentLimits::policy_table() {
     }
     // the mask a policy SET may select from (see rm)
     power_policy_mask = mask;
+    power_policy_mask_read = true;
     table.control = std::move(*control.words);
     table.dynamic = std::move(*dynamic.words);
     last_policy_table = table;

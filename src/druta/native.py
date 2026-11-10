@@ -3457,6 +3457,115 @@ class Gpu:
         return _clock_domain_rows(out), None
 
 
+# ---- reset all (nvbackend.GPU.reset_all; increment G3) ------------------------------------------ #
+#
+# One core call composes every knob in Python's order under the handle lock (drutacore/reset.h).
+# Session-only: the policy pins are dropped first, the driver's values and this session's first-read
+# rail limits are restored, nothing is persisted or re-applied after a GPU driver restart.
+
+RESET_STEPS_MAX = 140    # DC_RESET_STEPS_MAX
+RESET_MESSAGE_MAX = 4096  # DC_RESET_MESSAGE_MAX: a longer message is fetched with dc_gpu_reset_message_get
+
+
+class _ResetStep(ctypes.Structure):  # dc_reset_step
+    _fields_ = [("size", ctypes.c_uint32), ("name", ctypes.c_char * 64), ("ok", ctypes.c_int32),
+                ("message_length", ctypes.c_uint32), ("message", ctypes.c_char * RESET_MESSAGE_MAX)]
+
+
+# dc_reset_statics_fn: (context, const dc_cl_statics* before, dc_cl_statics* statics) -> 0, or 1 raised
+RESET_STATICS = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(_ClStatics),
+                                 ctypes.POINTER(_ClStatics))
+
+_SIGNATURES.update({
+    # rail_writes is a druta.native_rails._SetterWrites (dc_rails_setter_writes), passed by address
+    "dc_gpu_reset_all": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
+                                          ctypes.c_void_p, RESET_STATICS, ctypes.c_void_p, ctypes.c_int32,
+                                          ctypes.POINTER(_ResetStep), ctypes.c_uint32,
+                                          ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_gpu_reset_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_char_p,
+                                                  ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+})
+
+Gpu.LOCK_STEP = "clock lock"           # nvbackend.GPU.LOCK_STEP: the front ends drop a lock banner
+Gpu.VF_LOCK_STEP = "v/f point lock"    # only when the step of that name succeeded
+Gpu.P0_LOCK_STEP = "legacy P0 hold"
+
+
+def _reset_statics(gpu, failure):
+    """The dc_reset_statics_fn: with before NULL, GPU.static's pl_* keys as _pl_statics reads them;
+    with before set, set_power_limit_mw's live back-fill applied to the dict (_pl_backfill). An
+    exception Python lets escape (a `static` without .get, a KeyboardInterrupt) is kept in
+    `failure` and reported as 1: the core stops there (DC_E_CALLER) and reset_all raises it."""
+    def statics(_context, before, out):
+        try:
+            if not before:
+                ctypes.memmove(out, ctypes.byref(gpu._pl_statics()), ctypes.sizeof(_ClStatics))
+            else:
+                gpu._pl_backfill(before.contents, out.contents)
+        except BaseException as exc:                                    # noqa: BLE001 - raised by the caller
+            failure.append(exc)
+            return 1
+        return 0
+    return RESET_STATICS(statics)
+
+
+def _reset_all(self):
+    """[ResetStep(name, (ok, message))] as nvbackend.GPU.reset_all, in its order, with its texts.
+
+    Raises where Python's reset_all raises out of a callee the core reaches through the caller: the
+    static keys or read_power_limit_mw's caller-side reading (the callback's own exception), the
+    IndexError set_power_limit_mw, read_power_policies and _write_policy_limit let escape, and
+    MemoryError for the core's allocation guard. The steps so far are then lost, as in Python,
+    while everything already written stays written. Recorded divergences: DESIGN-TRANSPORT.md
+    (reset_all)."""
+    from . import native_rails
+    from .nvbackend import ResetStep
+    library = load()
+    failure = []
+    confirm = self._confirm_derived_clamp()
+    inputs = self._policy_inputs(failure)
+    statics = _reset_statics(self, failure)
+    steps = (_ResetStep * RESET_STEPS_MAX)()
+    for step in steps:
+        step.size = ctypes.sizeof(_ResetStep)
+    count, error = ctypes.c_uint32(), _Error()
+    error.size = ctypes.sizeof(_Error)
+    writes = native_rails._new(native_rails._SetterWrites)
+    xoc = 1 if getattr(self, "voltage_xoc_enabled", False) else 0
+    out = []
+    with self._lock:
+        status = library.dc_gpu_reset_all(self._handle, confirm, None, inputs, None, statics, None, xoc, steps,
+                                          len(steps), ctypes.byref(count), ctypes.byref(writes),
+                                          ctypes.byref(error))
+        # the rail writer's attributes first, whatever the status: Python set them inside
+        # _write_rail_records before any later raise
+        native_rails._take_writes(self, writes)
+        if failure:  # DC_E_CALLER: the core stopped where the callback raised
+            raise failure[0]
+        if status == DC_E_RANGE:
+            raise IndexError("list index out of range")
+        if status == DC_E_FAILED:  # the core's guard: only allocation throws there
+            raise MemoryError(_text(error.message))
+        if status != DC_OK:
+            _raise(status)
+        for index in range(min(count.value, len(steps))):
+            step, length = steps[index], steps[index].message_length
+            if length < RESET_MESSAGE_MAX:  # exactly message_length bytes (a NUL inside is kept)
+                message = ctypes.string_at(ctypes.addressof(step) + _ResetStep.message.offset, length)
+            else:  # longer than the buffer: the text kept on the handle, never a second reset
+                needed = ctypes.c_size_t()
+                buffer = ctypes.create_string_buffer(length + 1)
+                st = library.dc_gpu_reset_message_get(self._handle, index, buffer, len(buffer), ctypes.byref(needed))
+                if st != DC_OK:
+                    _raise(st)
+                message = buffer.raw[:length]
+            out.append(ResetStep(_text(step.name), (bool(step.ok), message.decode(errors="replace"))))
+    return out
+
+
+Gpu.reset_all = _reset_all
+
+
 def _error_record(error):
     """A dc_error as a dict with the Python exception's kind and text."""
     return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed", "unstable",

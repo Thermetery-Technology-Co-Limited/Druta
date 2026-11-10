@@ -231,6 +231,9 @@ public:
     PolicyTableResult policy_table();
 
     std::uint32_t power_policy_mask = 0;           // _power_policy_mask
+    // _power_policy_mask is not None: set wherever the table assigns the mask (a mask of 0 included) and never
+    // cleared within a session, as Python never clears the attribute
+    bool power_policy_mask_read = false;
     std::optional<PolicyTable> last_policy_table;  // _last_policy_table
     std::vector<UnavailablePolicy> unavailable;    // _current_limit_unavailable
     std::vector<CurrentRow> last_rows;             // _current_limit_last_rows
