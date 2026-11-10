@@ -478,16 +478,30 @@ def _read(gpu):
 # ---------------------------------------------------------------------------- #
 if __name__ == "__main__":
     import sys
+    from . import gpu_backend
+    from .gpu_backend import BackendRefused, consume_argv, open_gpu
+    try:
+        consume_argv(sys.argv)
+        gpu_backend.request()
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        raise SystemExit(2)
     ok, why = available()
     print("nvcuda :", "ok" if ok else why)
     if not ok:
         raise SystemExit(1)
     try:
-        from .nvbackend import GPU, slot_from_argv
-        g = GPU(slot_from_argv())
+        from .nvbackend import slot_from_argv
+        g = open_gpu(slot_from_argv())
+    except BackendRefused as e:
+        print(f"GPU backend refused: {e}", file=sys.stderr)
+        raise SystemExit(1)
     except Exception as e:
         print("no GPU backend:", e)
         raise SystemExit(1)
+    pinned = gpu_backend.choice()
+    if pinned is not None and pinned.source == "--backend" and pinned.kind == "python" and pinned.reason:
+        print(gpu_backend.describe(), file=sys.stderr)   # --backend auto fell back to Python
     print("states :", g.static.get("mem_clocks"))
     print("idle   :", _read(g))
     seen = []

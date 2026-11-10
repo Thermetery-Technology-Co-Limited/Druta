@@ -34,6 +34,7 @@ from tkinter import ttk, messagebox
 
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS,
                         VF_STEP_KHZ, below_cap, slot_from_argv)
+from .gpu_backend import BackendRefused, consume_argv, open_gpu, request as backend_request
 
 # ---- HiDPI --------------------------------------------------------------- #
 # tkinter is DPI-unaware by default: on a scaled display Windows renders the app
@@ -1796,6 +1797,18 @@ def main():
     # a known-good baseline) so a drag/perf regression can be A/B'd instantly.
     import sys as _sys
     global NO_POLL, USE_COMPOSITED
+    # --backend X / --backend=X: stripped here, before any argv test, and applied as DRUTA_BACKEND.
+    # An unknown value (on the command line or already in DRUTA_BACKEND) is reported on stderr and
+    # in the error dialog, since a pythonw or frozen launch has no console, and exits with code 2.
+    try:
+        consume_argv(_sys.argv)
+        backend_request()
+    except ValueError as exc:
+        print(f"Druta: {exc}", file=_sys.stderr)
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Thermetery Druta", "GPU backend not chosen.\n" + str(exc))
+        raise SystemExit(2)
     NO_POLL = "--no-poll" in _sys.argv
     # WS_EX_COMPOSITED double-buffering deadlocks Tk's repaint on this stack -
     # update() never returns - so it is strictly opt-in for experiments.
@@ -1808,7 +1821,13 @@ def main():
     # Legacy Tk build: no card picker on screen, but it must still be aimable
     # on a multi-card host rather than silently taking whichever card sorts
     # first. `--gpu SLOT`, same spelling as druta.py and nvtune.
-    gpu = GPU(slot_from_argv())
+    try:
+        gpu = open_gpu(slot_from_argv())
+    except BackendRefused as exc:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Thermetery Druta", "GPU backend refused.\n" + str(exc))
+        return
     if not gpu.available():
         root = tk.Tk()
         root.withdraw()

@@ -551,6 +551,29 @@ def test_the_shipped_default_is_python(env):
     assert gpu_backend._DEFAULT == "python"
 
 
+# ---- request ------------------------------------------------------------------------------------
+
+def test_request_follows_the_precedence_and_pins_nothing(env, monkeypatch):
+    state = env()
+    assert gpu_backend.request() == ("python", "default")
+    monkeypatch.setattr(sys, "argv", ["druta", "--startup-profile"])
+    assert gpu_backend.request() == ("python", "--startup-profile")
+    monkeypatch.setenv(gpu_backend.ENV, " Native ")
+    assert gpu_backend.request() == ("native", gpu_backend.ENV)
+    gpu_backend.consume_argv(["--backend", "auto"])
+    assert gpu_backend.request() == ("auto", "--backend")
+    assert gpu_backend.choice() is None
+    assert state.native_imports == 0 and state.python.calls == []
+
+
+def test_request_raises_for_an_unknown_environment_value(env, monkeypatch):
+    env()
+    monkeypatch.setenv(gpu_backend.ENV, "bogus")
+    with pytest.raises(ValueError, match="^DRUTA_BACKEND must be auto, native or python$"):
+        gpu_backend.request()
+    assert gpu_backend.choice() is None
+
+
 # ---- consume_argv -------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("argv, rest, value", [

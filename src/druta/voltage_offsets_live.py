@@ -20,7 +20,7 @@ from . import vbios_fields as vb
 from . import vfe_equation_runtime as equations
 from . import voltage_ceiling_runtime as ceiling
 from . import voltage_offset_scaffold as scaffold
-from .nvbackend import GPU
+from .gpu_backend import open_gpu
 
 _POLICY = {"REL": "reliability", "ALT": "alt_reliability", "OV": "overvoltage", "VMIN": "vmin"}
 _VAR_SIZE = 0xC364
@@ -91,7 +91,7 @@ def _save(slot, value):
 
 
 def _recognize(slot, profile):
-    gpu = GPU(slot)
+    gpu = open_gpu(slot)
     target = ro.bind_target(gpu)
     if asdict(target) != profile["target"]:
         raise VoltageOffsetsError("Offset scaffold belongs to another adapter")
@@ -111,7 +111,7 @@ def enable(slot, requested=None):
     """Install zero heads for selected present rail policies, then verify them."""
     if _path(slot).exists():
         raise VoltageOffsetsError("A scaffold profile already exists for this adapter")
-    gpu = GPU(slot)
+    gpu = open_gpu(slot)
     target = ro.bind_target(gpu)
     registry = ro.WindowsRegistry(target)
     before_registry = registry.snapshot()
@@ -160,7 +160,7 @@ def enable(slot, requested=None):
         result = devicereset.restart_target(reset_target)
         if not result.ok:
             raise VoltageOffsetsError(result.message)
-    fresh = GPU(slot)
+    fresh = open_gpu(slot)
     if ro.bind_target(fresh) != target:
         raise VoltageOffsetsError("Adapter changed after scaffold activation")
     loaded_image = ro.read_vbios(fresh)

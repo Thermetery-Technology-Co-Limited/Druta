@@ -17,7 +17,7 @@ def _no_launch(monkeypatch):
     monkeypatch.setattr(druta, "Druta", app_factory)
     monkeypatch.setattr(druta.startup, "Startup", startup_factory)
     monkeypatch.setattr(druta, "_tell", tell)
-    monkeypatch.setattr(druta, "GPU", gpu_factory)
+    monkeypatch.setattr(druta, "open_gpu", gpu_factory)
     return app_factory, startup_factory, tell, gpu_factory
 
 
@@ -37,7 +37,7 @@ def _launch_stubs(monkeypatch):
     monkeypatch.setattr(druta, "Druta", app_factory)
     monkeypatch.setattr(druta.startup, "Startup", startup_factory)
     monkeypatch.setattr(druta, "_tell", Mock())
-    monkeypatch.setattr(druta, "GPU", Mock(side_effect=AssertionError("test must not construct a GPU")))
+    monkeypatch.setattr(druta, "open_gpu", Mock(side_effect=AssertionError("test must not construct a GPU")))
     return app, manager, app_factory, startup_factory
 
 

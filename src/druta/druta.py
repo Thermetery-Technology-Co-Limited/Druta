@@ -95,11 +95,16 @@ from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite
                timingprofiles, devicerecovery, nct3933_board, i2c_cache, policynames,
                vfheadroom, realclock)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
-                        VFP_POINTS, below_cap, enumerate_gpus, is_admin,
+                        VFP_POINTS, below_cap, is_admin,
                         same_slot,
                         PRIV_A_STRIDE, PRIV_CONFIRMED, PRIV_DOMAIN_ID, PRIV_FREQ,
                         PRIV_LIKELY, PRIV_N_DOMAINS, PRIV_PCIE_GEN, PRIV_SLOT,
                         PRIV_UNNAMED, PRIV_UNPOPULATED)
+# Every backend object comes from the factory (native/DESIGN-FRONTEND.md (a)). GPU above stays
+# imported only as the namespace for class constants and static helpers.
+from .gpu_backend import (BackendRefused, consume_argv, describe as describe_backend,
+                          enumerate_gpus, open_gpu)
+from . import gpu_backend
 
 __version__ = "1.9.1"
 
@@ -239,7 +244,7 @@ class Druta:
         # Every GPU object remains bound to one PCI slot. swap_gpu constructs
         # a replacement and rebuilds the controls, curve and per-card caches
         # only after that replacement has initialized successfully.
-        self.gpu = GPU(slot)
+        self.gpu = open_gpu(slot)
         self.gpu_list = enumerate_gpus()
         # Shunt-mod correction. Held as (rails, folded correction) so the 4 Hz
         # tile update multiplies by a number rather than re-folding the rail
@@ -12257,6 +12262,7 @@ deliberately does not put behind a button."""
                         width=self.s(620), height=self.s(430),
                         pos=[self.s(180), self.s(160)]):
             dpg.add_text(f"Thermetery Druta {__version__}", color=ACCENT)
+            dpg.add_text(describe_backend(), color=DIM, wrap=self.s(580))
             dpg.add_text("Copyright (C) 2026 Thermetery Technology Co Limited")
             dpg.add_text(
                 "This program comes with ABSOLUTELY NO WARRANTY. It is free "
@@ -13309,7 +13315,7 @@ deliberately does not put behind a button."""
         # Opening a missing/reset card may fail or raise. Keep the current
         # curve, edits, and worker generation intact until it is usable.
         try:
-            fresh = GPU(slot)
+            fresh = open_gpu(slot)
             if not fresh.available():
                 self.log(f"cannot switch: {fresh.status_line()}", False)
                 return False
@@ -14903,6 +14909,8 @@ deliberately does not put behind a button."""
                          name="Druta-poll").start()
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
         self.log(f"backend: {self.gpu.status_line()}")
+        chosen = gpu_backend.choice()
+        self.log(describe_backend(), False if chosen is not None and chosen.reason else None)
         if getattr(self, "_recovery_result", None):
             result = self._recovery_result
             self.log("Device recovery: " + result["message"],
@@ -15131,6 +15139,17 @@ def main(argv=None):
     The slot spelling is nvtune's and NVML's, so the three tools can be pointed
     at one card with one copied string."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    # --backend X / --backend=X is stripped before the sub-command dispatch and the option loop,
+    # so it may appear anywhere; it reaches the factory (and child processes) as DRUTA_BACKEND.
+    # A bad value on the command line is refused here. A bad DRUTA_BACKEND already in the
+    # environment is refused only where a backend is built or enumerated (--list-gpus, the app),
+    # so --help, --version and the sub-commands that need no backend (registry recovery,
+    # --restart-gpu) keep working.
+    try:
+        consume_argv(argv)
+    except ValueError as exc:
+        _tell(f"{exc} (try --help)")
+        return 2
     if argv and argv[0] == "--voltage-offsets":
         from . import voltage_offsets_cli
         return voltage_offsets_cli.cli(argv[1:], _tell)
@@ -15166,7 +15185,16 @@ def main(argv=None):
             _tell(f"Druta {__version__}")
             return 0
         if a in ("--list-gpus", "-l"):
-            found = enumerate_gpus()
+            try:
+                gpu_backend.request()
+            except ValueError as exc:
+                _tell(str(exc))
+                return 2
+            try:
+                found = enumerate_gpus()
+            except BackendRefused as exc:
+                _tell(f"GPU backend refused: {exc}")
+                return 1
             if not found:
                 _tell("no NVIDIA GPU enumerated")
                 return 1
@@ -15239,6 +15267,8 @@ def main(argv=None):
                   "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
                   "  --list-gpus  print the slot and name of every card\n\n"
                   "  --version    print the Druta version\n\n"
+                  "  --backend auto|native|python  which GPU backend to use (default python;\n"
+                  "                      same as the DRUTA_BACKEND environment variable)\n\n"
                   "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
                   "                      requires admin; never reboots the computer\n\n"
                   "  --voltage-offsets --gpu SLOT enable|read|set|capture|replay\n"
@@ -15307,6 +15337,11 @@ def main(argv=None):
     if ui_capture_dir and not os.path.isdir(os.path.dirname(ui_capture_dir)):
         _tell("--ui-capture requires an existing parent directory")
         return 2
+    try:
+        gpu_backend.request()   # an unknown DRUTA_BACKEND is refused before the app starts
+    except ValueError as exc:
+        _tell(str(exc))
+        return 2
     manager = startup.Startup()
     # A recovery relaunch must never reapply the profile that may have caused
     # the failure, including if both flags are supplied by a caller.
@@ -15323,7 +15358,11 @@ def main(argv=None):
                 request = None
             else:
                 slot = request["profile"]["device"].get("slot")
-        app = Druta(slot)
+        try:
+            app = Druta(slot)
+        except BackendRefused as exc:
+            _tell(f"GPU backend refused: {exc}")
+            return 1
         if ui_capture_dir:
             app._ui_capture_dir = ui_capture_dir
             app._ui_capture_live_vmin = ui_capture_live_vmin

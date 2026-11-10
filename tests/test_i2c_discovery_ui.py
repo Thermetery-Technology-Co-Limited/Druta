@@ -41,10 +41,12 @@ class I2cDiscoveryUiTests(FakeUiTest):
 
     def test_launch_constructor_does_not_scan_i2c(self):
         gpu = SimpleNamespace()
-        with patch.object(druta, "GPU", return_value=gpu), \
+        with patch.object(druta, "open_gpu", return_value=gpu) as constructor, \
                 patch.object(druta, "enumerate_gpus", return_value=[]), \
                 patch.object(druta.railctl, "discover") as discover:
             app = Druta()
+        constructor.assert_called_once_with(None)
+        self.assertIs(app.gpu, gpu)
         discover.assert_not_called()
         self.assertIsNone(app.rail)
         self.assertFalse(app._i2c_discovery_complete)

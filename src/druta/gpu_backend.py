@@ -201,6 +201,15 @@ def _request(kind):
     return _DEFAULT, "default"
 
 
+def request():
+    """``(requested, source)`` for a call with no ``kind=``, by the precedence in the module docstring.
+
+    For callers that must validate the request without constructing or enumerating anything. Raises
+    the same ``ValueError`` as :func:`open_gpu` for an unknown ``DRUTA_BACKEND`` value. Pins nothing.
+    """
+    return _request(None)
+
+
 def _gate_reason(missing):
     names = [str(name) for name in missing]
     shown = ", ".join(names[:_GATE_LIST_LIMIT])

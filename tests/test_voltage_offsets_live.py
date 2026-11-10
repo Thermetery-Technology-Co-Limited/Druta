@@ -190,7 +190,7 @@ def test_enable_stages_composed_image_and_checks_fresh_activation(monkeypatch, t
         return SimpleNamespace(ok=True)
 
     monkeypatch.setattr(live.startup, 'state_dir', lambda: tmp_path)
-    monkeypatch.setattr(live, 'GPU', lambda slot: object())
+    monkeypatch.setattr(live, 'open_gpu', lambda slot: object())
     monkeypatch.setattr(live.ro, 'bind_target', lambda gpu: target)
     monkeypatch.setattr(live.ro, 'WindowsRegistry', Registry)
     monkeypatch.setattr(live.ro, 'active_receipt', lambda target: None)

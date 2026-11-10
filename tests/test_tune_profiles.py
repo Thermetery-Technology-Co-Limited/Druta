@@ -270,7 +270,7 @@ class ProfileFlow(unittest.TestCase):
 
     def test_switch_refused_during_profile_verification(self):
         self.app._profile_pending = ("test", self.state, True)
-        with patch("druta.druta.GPU") as constructor:
+        with patch("druta.druta.open_gpu") as constructor:
             self.assertFalse(self.app.swap_gpu("0000:02:00.0"))
         constructor.assert_not_called()
 

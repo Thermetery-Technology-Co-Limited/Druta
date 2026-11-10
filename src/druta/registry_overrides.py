@@ -164,7 +164,7 @@ def read_vbios(gpu):
 
 def snapshot_cli(argv):
     """Private child command: load the driver once, save observations, exit."""
-    from .nvbackend import GPU
+    from .gpu_backend import open_gpu
 
     parser = argparse.ArgumentParser(prog="Druta --registry-snapshot")
     parser.add_argument("slot")
@@ -173,7 +173,7 @@ def snapshot_cli(argv):
     path = Path(args.output).resolve()
     if path.parent != state_directory().resolve() or not re.fullmatch(r"probe-[0-9a-f]{32}\.json", path.name):
         raise OverrideError("Invalid observation output path")
-    gpu = GPU(args.slot)
+    gpu = open_gpu(args.slot)
     target = bind_target(gpu)
     try:
         image, image_error = read_vbios(gpu), None
@@ -1365,9 +1365,9 @@ def _execute(
                 return gpu["power_weight"]
             if gpu.get("target") != target:
                 raise OverrideError("Fresh power weight observation has no validated selected target")
-            from .nvbackend import GPU
+            from .gpu_backend import open_gpu
 
-            gpu = GPU(target.slot)
+            gpu = open_gpu(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before power weight readback")
         observation, error = power_weight_runtime.read(gpu)
@@ -1385,9 +1385,9 @@ def _execute(
                 return gpu["lpwr"]
             if gpu.get("target") != target:
                 raise OverrideError("Fresh LPWR observation has no validated selected target")
-            from .nvbackend import GPU
+            from .gpu_backend import open_gpu
 
-            gpu = GPU(target.slot)
+            gpu = open_gpu(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before LPWR readback")
         observation, error = lpwr_runtime.read(gpu, **({"features": True} if lpwr_contracts.get("schema") == 2 else {}))
@@ -1404,9 +1404,9 @@ def _execute(
                 return gpu["grpg"]
             if gpu.get("target") != target:
                 raise OverrideError("Fresh GRPG observation has no validated selected target")
-            from .nvbackend import GPU
+            from .gpu_backend import open_gpu
 
-            gpu = GPU(target.slot)
+            gpu = open_gpu(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before GRPG readback")
         if grpg_contracts["schema"] in (5, 6, 7, 8, 9, 10):
@@ -1431,9 +1431,9 @@ def _execute(
                 return gpu["ms"]
             if gpu.get("target") != target:
                 raise OverrideError("Fresh MS observation has no validated selected target")
-            from .nvbackend import GPU
+            from .gpu_backend import open_gpu
 
-            gpu = GPU(target.slot)
+            gpu = open_gpu(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before MS readback")
         observation, error = ms_runtime.read(gpu, **({"mapping": True} if ms_contracts.get("schema") == 4 else {}))
@@ -1449,9 +1449,9 @@ def _execute(
                 return gpu["nvdec"]
             if gpu.get("target") != target:
                 raise OverrideError("Fresh NVDEC observation has no validated selected target")
-            from .nvbackend import GPU
+            from .gpu_backend import open_gpu
 
-            gpu = GPU(target.slot)
+            gpu = open_gpu(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before NVDEC readback")
         observation, error = nvdec_runtime.read(gpu)
@@ -1467,9 +1467,9 @@ def _execute(
                 return gpu["media"]
             if gpu.get("target") != target:
                 raise OverrideError("Fresh Media LPWR observation has no validated selected target")
-            from .nvbackend import GPU
+            from .gpu_backend import open_gpu
 
-            gpu = GPU(target.slot)
+            gpu = open_gpu(target.slot)
             if bind_target(gpu) != target:
                 raise OverrideError("Selected GPU or its driver mapping changed before Media LPWR readback")
         observation, error = media_lpwr_runtime.read(gpu)
