@@ -195,7 +195,8 @@ typedef struct dc_perf_group_result {
 } dc_perf_group_result;
 
 /* The attempts loop of read() for group `name`, attempts in 1..3: per attempt, under the handle
- * lock (taken per attempt, as Python takes gpu._lock per attempt; it is released between attempts):
+ * lock (taken per attempt, as Python takes gpu._lock per attempt; the entry gives its level back
+ * between attempts, so the mutex is free there unless the caller holds a level of its own):
  * the binding, the presence of both NvAPI getter exports (DC_ERR_UNSUPPORTED "PERF getter exports
  * are unavailable"), _transport, the INFO GET, its mask, the CONTROL GET only when a mask byte is
  * set, and decode_group. A DC_ERR_TRANSIENT failure retries; any other kind stops. DC_OK always

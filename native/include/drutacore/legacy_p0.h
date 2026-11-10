@@ -50,8 +50,11 @@ DC_API dc_status DC_CALL dc_legacy_p0_owned(dc_gpu* gpu, int32_t* out);
  * nonzero P0 memory maximum and a memory clock of at least 97 % of it. On failure an already-owned
  * hold is retained; a hold this call requested is released.
  * Locking: the handle lock is taken around the request, around each sample and around the release,
- * and is NOT held across the waits, so a concurrent telemetry read is not blocked for the up to two
- * seconds the verification takes. Python's hold_legacy_p0 takes no lock at all. */
+ * and the entry gives its level back across the waits, so a concurrent telemetry read is not
+ * blocked for the up to two seconds the verification takes. A caller that holds a level of its own
+ * (dc_gpu_lock) keeps the mutex across the waits too: that is allowed, and it is what Python does
+ * (nvbackend's hold_legacy_p0 holds GPU._lock for the whole call; the difference is recorded in
+ * native/README.md). */
 DC_API dc_status DC_CALL dc_legacy_p0_hold(dc_gpu* gpu, dc_outcome* out);
 
 /* release_legacy_p0: ForcePstate(16, 2) when owned; ownership is cleared only on status 0. Takes the

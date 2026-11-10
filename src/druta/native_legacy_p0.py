@@ -15,8 +15,12 @@ when a verification hold owns it), or None; ``set_vf_lock_recovery(gpu, record)`
 one the backend uses.
 
 ``verification_p0`` reads the loaded voltage with ``gpu.read_vcore_mv()`` (dc_gpu_read_vcore_mv)
-when ``voltage_mv`` is None. Both context managers serialize their request and restoration on ``gpu._lock``, as Python does on ``GPU._lock``;
-each core entry also takes the handle's own lock.
+when ``voltage_mv`` is None. Both context managers serialize their request and restoration on ``gpu._lock``, as Python does on ``GPU._lock``.
+On a ``native.Gpu`` that lock is the handle mutex every core entry takes (one lock per card), so each entry
+inside a ``with gpu._lock`` block only adds a level of the same recursive mutex. ``hold_legacy_p0(gpu)`` takes
+no ``gpu._lock`` of its own: the core takes the handle mutex around the request, each sample and the release
+and drops it across the 100 ms waits, where nvbackend's ``_synchronized`` hold keeps its lock throughout; a
+caller that needs Python's behaviour wraps the call in ``with gpu._lock`` (native/README.md).
 
 Not reachable natively: Python's ``except Exception`` branches of ``hold_legacy_p0`` /
 ``release_legacy_p0`` (a ctypes OSError from ForcePstate, an exception from ``read()``). The core's

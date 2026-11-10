@@ -84,6 +84,7 @@ core, then compares results, driver call sequences and messages.
 | Legacy P0 hold and verification holds | `GPU.legacy_p0_supported`, `legacy_p0_owned`, `hold_legacy_p0`, `release_legacy_p0`, the request half of `verification_legacy_p0`, the `_vf_lock_recovery` record and the lock-table entry read (`_vf_lock_read_raw` / `_vf_lock_entries`) that `verification_p0` needs, `read_vcore_mv`; the two context managers are composed in the binding | `dc_legacy_p0_*` (`drutacore/legacy_p0.h`), `dc_gpu_vf_lock_recovery_get` / `dc_gpu_vf_lock_recovery_set`, `dc_gpu_vf_lock_entry_get`, `dc_gpu_read_vcore_mv` (bound by `druta.native_legacy_p0` and `Gpu.read_vcore_mv`) | `tests/test_native_legacy_p0.py` |
 | Clock-BIOS read path | `clock_bios_runtime._control_once`, `_control_shape`, `_info_once`, `_decode`, `read` | `dc_clock_bios_control`, `dc_clock_bios_control_shape`, `dc_clock_bios_info`, `dc_clock_bios_decode`, `dc_clock_bios_read`, `dc_clock_bios_reset` (`drutacore/clock_bios.h`, bound by `druta.native_clock_bios`) | `tests/test_native_clock_bios.py` |
 | Reset all | `GPU.reset_all` and `ResetStep`'s names, with `LOCK_STEP`, `VF_LOCK_STEP` and `P0_LOCK_STEP` (the session's policy pins dropped first, then the ported knobs reset in Python's order under the handle lock: clock offsets, clock-domain and core-rail offsets, MSVDD requests, this session's first-read rail limits, current limits, the board power limit from the caller's `pl_def_mw`, the uncoupled power policies, the NVML clock lock, the owned legacy P0 hold, the V/F point lock, fan, voltage boost and the vf curve; the NVAPI checks are interface-presence probes; session-only, nothing persisted or reapplied) | `dc_gpu_reset_all`, `dc_gpu_reset_message_get` (`drutacore/reset.h`, bound as `Gpu.reset_all`, which holds `self._lock` around the call and a long message's fetch) | `tests/test_native_reset_all.py` |
+| One lock per card (G4c) | `GPU._lock` (the re-entrant lock the front end, the runtimes and the profiles hold around their own sequences, and that nvbackend's `_synchronized` methods take) | `dc_gpu_lock`, `dc_gpu_trylock`, `dc_gpu_unlock`, `dc_gpu_lock_held` (the handle mutex every entry takes, recursive per OS thread and held between calls; the levels a caller takes are counted apart from the entries' own, and an unlock by a thread holding none of the caller's levels, inside a core callback included, is `DC_E_STATE`, never undefined behaviour; ABI 2), bound as `native.Gpu._lock` (`_HandleLock`, which keeps no owner or depth of its own: `with`, `acquire(blocking=True)` with the GIL released, `acquire(blocking=False)` as the trylock, `release`, `_is_owned` as `dc_gpu_lock_held`; a release with no level to give back raises `RuntimeError` as `threading.RLock`'s does). The handle lives in a `_HandleBox` freed at its last reference: `Gpu.close()` refuses inside `with gpu._lock` or a core callback, otherwise waits out the holder and invalidates the handle (later entries raise `NativeClosed`, a `ValueError`), so no thread that is inside a method, holds the lock or waits for it ever sees the handle freed | `tests/test_native_lock.py` |
 
 Test seams: `dc_set_export_resolver` serves driver exports (libraries
 `nvapi`, `nvml` and `gdi32`) from the test process instead of the DLLs,
@@ -173,8 +174,10 @@ is a validated power transport the PERF GETs are not understood to share.
 (a long header spills into the payload), and the binding binds the reader
 before re-raising a marshalling error, as Python binds before it builds the
 packet. `dc_perf_read_group` runs one group of `read` and takes the handle
-lock per attempt, as Python takes `gpu._lock` inside its attempts loop, so a
-caller must not hold the lock around it; the decoded snapshot is a fixed-size
+lock per attempt, as Python takes `gpu._lock` inside its attempts loop. A
+caller may hold the lock around it (since G4c the lock is the handle mutex):
+the mutex then stays held across the per-attempt waits too, and other threads
+wait for the whole read instead of running between attempts; the decoded snapshot is a fixed-size
 struct (512 entries of the largest rows, about 870 KB) the caller allocates,
 and the binding adds `captured_at`, the registry name and the per-group
 `last_valid` / `last_errors` bookkeeping that Python keeps on the reader. The
@@ -213,7 +216,15 @@ confirms a hold only from telemetry; `GPU.LEGACY_P0_PROFILES` and
 (AGENTS.md forbids such tables). `LegacyP0::hold` takes the handle lock around
 the request, each telemetry sample and the release, and drops it across the
 100 ms waits, so a concurrent telemetry tick is not blocked for the two seconds
-the verification may take; Python's `hold_legacy_p0` takes no lock. Ownership
+the verification may take. Python's `hold_legacy_p0` is in nvbackend's
+`_synchronized` list and holds `GPU._lock` across its `time.sleep(0.1)` waits,
+so this is a recorded behaviour difference: under the core, the poll's `read()`
+can run between the P0 request and its verification (it returns a valid sample
+and leaves ownership alone, `tests/test_native_lock.py`), where Python blocks
+it. Since `native.Gpu._lock` is the handle mutex itself (one lock per card), a
+caller that needs Python's exact behaviour wraps the call in
+`with gpu._lock:`; the core's drops then leave the caller's own level held, and
+the read waits for the whole hold. Ownership
 is this session's own request, kept on the handle and never persisted. Python's
 `except Exception` branches ("P0 request failed: ...", "P0 verification failed:
 ...", "P0 release failed: ...") have no native counterpart: the telemetry read

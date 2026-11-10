@@ -286,10 +286,13 @@ DC_API dc_status DC_CALL dc_gpu_nvml_device(const dc_gpu* gpu, void** out);     
 ```c
 DC_API dc_status DC_CALL dc_gpu_lock(dc_gpu* gpu);                         /* blocks; recursive per OS thread */
 DC_API dc_status DC_CALL dc_gpu_trylock(dc_gpu* gpu, int32_t* acquired);
-DC_API dc_status DC_CALL dc_gpu_unlock(dc_gpu* gpu);                       /* DC_E_STATE if the caller is not the owner */
+DC_API dc_status DC_CALL dc_gpu_unlock(dc_gpu* gpu);                       /* DC_E_STATE unless the caller holds a level it took here */
+DC_API dc_status DC_CALL dc_gpu_lock_held(const dc_gpu* gpu, int32_t* held); /* 1 when the calling thread holds any level */
 ```
 
-- `druta::Mutex` (native/src/core/mutex.h) gains owner-thread and depth tracking (graft from the risk design): `GetCurrentThreadId` or `std::this_thread::get_id`. An unlock by a non-owner then returns `DC_E_STATE` at the C ABI instead of reaching `LeaveCriticalSection` undefined behaviour, which also protects a future native UI.
+- `druta::Mutex` (native/src/core/mutex.h) gains owner-thread tracking (graft from the risk design) and counts two kinds of level separately: the ones the core's own guards take, and the ones a caller takes through `dc_gpu_lock` / `dc_gpu_trylock`. `dc_gpu_unlock` returns `DC_E_STATE`, changing nothing, unless the calling thread owns the mutex and holds at least one level of the second kind. It therefore never reaches `LeaveCriticalSection` undefined behaviour and can never give back the level of the entry whose callback it runs in, which also protects a future native UI. (As built after review: the first version counted one depth, and a stray unlock inside a callback released the running entry's level.)
+- The owner is recorded with the identity the platform primitive itself uses: `GetCurrentThreadId` on Windows, the kernel thread id on Linux, `std::thread::id` elsewhere. A thread must not exit while it holds a level.
+- `dc_gpu_lock_held` is the one record of ownership for every caller: true at any level, a running entry's own included.
 - `TryEnterCriticalSection` exists on XP.
 - `dc_gpu_open` gains a try/catch returning `DC_E_FAILED`.
 - `DC_ABI_VERSION` and `native.ABI_VERSION` go to 2 in the same change.
@@ -297,7 +300,7 @@ DC_API dc_status DC_CALL dc_gpu_unlock(dc_gpu* gpu);                       /* DC
 **Binding:**
 - `native.Gpu._lock` becomes a `_HandleLock` with `__enter__`, `__exit__`, `acquire(blocking=True, timeout=-1)`, `release()` and `_is_owned()`.
 - `blocking=False` maps to trylock. A timeout other than -1 raises `ValueError`; no caller uses one.
-- Owner and depth are also tracked in Python, so a non-owner `release()` raises `RuntimeError` exactly like `RLock`.
+- The lock object keeps no owner or depth of its own (as built after review): `release()` is `dc_gpu_unlock`, with `DC_E_STATE` raised as `RuntimeError` exactly like `RLock`, and `_is_owned()` is `dc_gpu_lock_held`. So `close()` is refused inside a core callback as well as inside `with`, and Python can never believe the lock free while the core holds it.
 - The library stays a `ctypes.CDLL`, so the GIL is released while `dc_gpu_lock` blocks. Never bind these exports through `PyDLL`; a test asserts the loader type.
 
 ### Evaluation against the alternatives
@@ -361,7 +364,7 @@ The facade's handle box is chosen over the interface design's direct close, whic
   3. marks the box closed and detaches the companions;
   4. releases.
 - The handle is freed only when the last reference goes. A thread inside a method, or holding or waiting on the lock, keeps the box alive, so the mutex is never deleted while held and no entry uses a freed handle. This changes `close()` from "free now" to "invalidate now, free at last reference" (Q9).
-- **Residual risk, documented:** a `KeyboardInterrupt` between `dc_gpu_lock` returning and `__enter__` completing leaks one depth level. This affects console Ctrl+C only. Also, the blocking acquire cannot be interrupted by Ctrl+C.
+- **Residual risk, documented:** a `KeyboardInterrupt` between `dc_gpu_lock` returning and `__enter__` completing, or at the entry of `__exit__` / `release()` before `dc_gpu_unlock` runs, leaves that thread holding one level the `with` statement never gives back. Ownership is the core's, so that thread's own `release()` still frees it. This affects console Ctrl+C only. Also, the blocking acquire cannot be interrupted by Ctrl+C.
 
 ### What the binding's existing `with self._lock` uses become
 
@@ -441,6 +444,7 @@ The facade's handle box is chosen over the interface design's direct close, whic
    - recursion across separate ABI calls;
    - a confirm or `before_write` callback that takes `gpu._lock`;
    - a non-owner `release` raises `RuntimeError`, and `dc_gpu_unlock` by a non-owner returns `DC_E_STATE`;
+   - a stray `dc_gpu_unlock` inside a callback returns `DC_E_STATE` and the entry stays serialized; `close()` inside a callback raises;
    - trylock;
    - `close()` inside `with` raises;
    - `close()` while another thread holds the lock defers the free (weakref on the box);
@@ -507,8 +511,8 @@ Increments that touch those files are serialized on their owner. All delegated e
 **G4c: one lock**
 - **Goal:** export the handle mutex, add owner and depth tracking in the core, and make `Gpu._lock` a `_HandleLock` over a `_HandleBox`.
 - **Files** (O-native):
-  - `drutacore.h`: `dc_gpu_lock/trylock/unlock`, ABI 2
-  - `core/mutex.h`: owner and depth
+  - `drutacore.h`: `dc_gpu_lock/trylock/unlock/lock_held`, ABI 2
+  - `core/mutex.h`: owner, guard levels and caller levels
   - `core/abi.cpp`: entries, `dc_gpu_open` try/catch
   - `native.py`: `ABI_VERSION`, `_HandleBox`, `_HandleLock`, `_handle` property, `NativeClosed`, `close()`, the `_Static` weakref, rewritten comments
   - new `tests/test_native_lock.py`

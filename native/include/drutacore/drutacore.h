@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-#define DC_ABI_VERSION 1u
+#define DC_ABI_VERSION 2u  /* 2: dc_gpu_lock / trylock / unlock / lock_held and DC_E_STATE */
 
 typedef int32_t dc_status;
 enum {
@@ -47,8 +47,11 @@ enum {
     DC_E_RANGE = -7,         /* a value is outside its allowed range */
     DC_E_UNAVAILABLE = -8,     /* the adapter does not provide this value (Python's None) */
     DC_E_FAILED = -9,          /* the operation failed; the dc_error passed says how */
-    DC_E_CALLER = -10          /* a caller-supplied callback reported a failure; the operation was
+    DC_E_CALLER = -10,         /* a caller-supplied callback reported a failure; the operation was
                                   abandoned before any write */
+    DC_E_STATE = -11           /* the call does not fit the object's current state: an unlock by a
+                                  thread that holds no level taken through dc_gpu_lock or
+                                  dc_gpu_trylock; nothing was changed */
 };
 
 /* The ABI version this library implements (DC_ABI_VERSION of its header). */
@@ -133,9 +136,52 @@ DC_API dc_status DC_CALL dc_enumerate_gpus(dc_gpu_entry* entries, size_t capacit
 typedef struct dc_gpu dc_gpu;
 
 /* Open the card at slot ("" or NULL: the lowest slot). Never fails for a missing driver: the
- * handle then reports both halves unavailable. DC_E_ARGUMENT only for a NULL out pointer. */
+ * handle then reports both halves unavailable. Statuses: DC_OK; DC_E_ARGUMENT for a NULL out
+ * pointer; DC_E_BUFFER when the handle could not be allocated; DC_E_FAILED when building it threw
+ * (no dc_error record is involved: the status is the whole report). *gpu is NULL on every failure
+ * but DC_E_ARGUMENT, which does not touch it. */
 DC_API dc_status DC_CALL dc_gpu_open(const char* slot, dc_gpu** gpu);
+/* Free the handle. The caller guarantees that no thread is using it, holds its lock or waits for
+ * it: freeing a handle another thread holds or waits on is undefined behaviour (the binding keeps
+ * the handle alive until its last reference, so it never does). */
 DC_API void DC_CALL dc_gpu_close(dc_gpu* gpu);
+
+/* The handle's own mutex, the one every entry that takes "the handle lock" takes. It is recursive
+ * per OS thread and stays held between calls, so a caller can hold it across a sequence of entries
+ * (a call and its message fetch, a multi-call write) and each entry inside only adds a level. A
+ * callback the core makes while it holds the mutex runs on the holding thread, so taking the lock
+ * there is recursion, not a wait. Three entries give their own level back between their steps:
+ * dc_legacy_p0_hold across each 100 ms wait, dc_perf_read_group between attempts and
+ * dc_clock_bios_read between its two attempts; other threads get the mutex there only when the
+ * caller holds no level of its own. Every other entry keeps its level for the whole call, waits
+ * included (dc_gpu_fan_restore polls its read-back under it for up to about two seconds).
+ * The core counts the levels a caller takes here apart from the levels its entries take: an unlock
+ * gives back only a level taken through dc_gpu_lock / dc_gpu_trylock, so an unlock inside a core
+ * callback can never release the running entry's own level. Each level a caller takes must be
+ * released by the same thread, and a thread must not exit while it holds one: the mutex then stays
+ * held for good, and a later thread that the operating system gives the same thread id (Windows
+ * reuses ids readily; Linux reuses kernel thread ids once its counter wraps) is taken for its owner
+ * by the operating system's mutex and by the core alike.
+ *   dc_gpu_lock:      blocks until the calling thread holds it. DC_E_ARGUMENT for a NULL handle;
+ *                     DC_E_FAILED if the platform mutex refused (nothing taken).
+ *   dc_gpu_trylock:   never waits: *acquired 1 when the calling thread now holds it (one more level
+ *                     when it already did), 0 when another thread holds it. DC_E_ARGUMENT for a NULL
+ *                     argument.
+ *   dc_gpu_unlock:    releases one level the calling thread took through dc_gpu_lock or
+ *                     dc_gpu_trylock. DC_E_STATE, with nothing changed, when it holds none (another
+ *                     thread holds the mutex, none does, or inside a core callback the thread holds
+ *                     only the entry's level). DC_E_ARGUMENT for NULL. A caller that unlocks once too
+ *                     often inside a callback while it still held a level of its own gives up that
+ *                     level early: this is the caller's error, not undefined behaviour; the running
+ *                     entry keeps its own level, so nothing in it runs unserialized and nothing is
+ *                     left held, and the caller's later unlock of that level returns DC_E_STATE.
+ *   dc_gpu_lock_held: read-only: *held 1 when the calling thread holds the mutex at any level (its
+ *                     own, or a core entry's while a callback runs), else 0. DC_E_ARGUMENT for a
+ *                     NULL argument. */
+DC_API dc_status DC_CALL dc_gpu_lock(dc_gpu* gpu);
+DC_API dc_status DC_CALL dc_gpu_trylock(dc_gpu* gpu, int32_t* acquired);
+DC_API dc_status DC_CALL dc_gpu_unlock(dc_gpu* gpu);
+DC_API dc_status DC_CALL dc_gpu_lock_held(const dc_gpu* gpu, int32_t* held);
 
 typedef struct dc_gpu_identity {
     uint32_t size;             /* sizeof(dc_gpu_identity), set by the caller */
@@ -1052,7 +1098,8 @@ DC_API dc_status DC_CALL dc_cl_reapply_pins(dc_gpu* gpu, int32_t has_board_mw, i
                                             char* message, size_t capacity, size_t* needed);
 /* The last message of the three calls above, in full, as dc_cl_error_get's text. The message is
  * kept per handle, not per thread: a caller that writes from several threads serializes each
- * call with its fetch (the Python binding holds its own lock around the pair). */
+ * call with its fetch by holding dc_gpu_lock across both (the Python binding's `with self._lock`
+ * is that mutex). */
 DC_API dc_status DC_CALL dc_cl_policy_message_get(dc_gpu* gpu, char* out, size_t capacity, size_t* needed);
 
 /* Test seams. While a resolver is installed the hook uses a buffer patcher (a served D3DKMTEscape is a

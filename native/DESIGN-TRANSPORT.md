@@ -634,6 +634,18 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    they are being rewritten can crash. Only suspending threads would remove it, so keep hooked windows to one
    getter call.
 7. `dc_gpu_close` discards the cache. No RM handle is freed, because none is owned.
+8. Since ABI 2 (G4c) `Gpu::lock()` is exported as `dc_gpu_lock` / `dc_gpu_trylock` / `dc_gpu_unlock`, and
+   `native.Gpu._lock` is that mutex: there is one lock per card, so a caller's `with gpu._lock` sequence is
+   serialized against every entry from every thread, and the old two-lock rule (the binding's lock first, then
+   the handle mutex; a callback must never wait for the binding's lock) is gone. The mutex is recursive per OS
+   thread and records its owner (the platform primitive's own thread id) and counts the levels a caller takes
+   through `dc_gpu_lock` / `dc_gpu_trylock` apart from the levels its entries take: `dc_gpu_unlock` gives back
+   only a caller's level, so an unlock by another thread, or inside a callback by a thread holding only the
+   running entry's level, is `DC_E_STATE` rather than undefined behaviour. `dc_gpu_lock_held` reports whether the
+   calling thread holds the mutex at any level (`_HandleLock._is_owned`, which keeps no state of its own). A callback the core makes under the mutex runs on the holding thread, so taking `gpu._lock`
+   there is recursion. Rule 1 is unchanged: the binding never takes `g_hook_mutex`, and the core takes it only
+   after the handle mutex. `dc_gpu_close` must not run while any thread holds, waits for or uses the handle;
+   the binding guarantees this by freeing the handle only at its box's last reference.
 
 ### 3.9 Increments (each with its parity module, section 4)
 
@@ -670,9 +682,11 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    policy found on the way is stored through the live request's storage (`dc_cpc_board_policy_set`'s) at the
    point Python assigns it. The messages travel as `dc_cl_set_current_limit_ma`'s do, and because a
    re-application's FAILED note joins one writer text per policy, the last message is kept in full for
-   `dc_cl_policy_message_get` instead of being bounded by a fixed buffer. The handle mutex covers each call,
-   not the call and the fetch together, so the binding holds its re-entrant `Gpu._lock` (the UI's tuning
-   writes hold it too) around both and repeats the fetch while the kept text outgrows the buffer;
+   `dc_cl_policy_message_get` instead of being bounded by a fixed buffer. Each entry takes the handle mutex
+   for itself only, not for the call and the fetch together, so the binding holds `Gpu._lock` (the UI's tuning
+   writes hold it too) around both and repeats the fetch while the kept text outgrows the buffer. Since G4c
+   `Gpu._lock` is the handle mutex itself (rule 8 of 3.8), so the pair is closed against every caller of the
+   core, not only the callers of this binding;
    nvbackend has no such window, its message being the return value. The inputs callback returns nonzero
    when the caller's reading raised what Python lets escape `read_power_policies` (a `KeyboardInterrupt`
    from `read_power_limit_mw`, an `AttributeError` from a `static` without `.get`): the core then stops
@@ -710,10 +724,10 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    runs under the handle lock, a SET that was not dispatched returns its error unchanged with no rollback, a
    dispatched one that failed or did not read back exactly forgets the transport cache and replays the captured
    CONTROL once, and coupled peer requests are rewritten through `CurrentLimits::write_policy_limit` directly
-   (no Python callback, so no `Gpu._lock` under the handle mutex) before a second read-back decides
+   (no Python callback; since G4c a callback taking `Gpu._lock` would only recurse) before a second read-back decides
    `verified`. The rollback travels in `dc_cpc_set_result` with its full text length, and a text longer than
    `DC_CPC_ROLLBACK_ERROR_MAX` is fetched with `dc_cpc_rollback_error_get` (kept per handle, so the binding
-   holds `self._lock` around the request and the fetch). Python's `readback` error kind is `DC_ERR_READBACK`
+   holds `self._lock`, the handle mutex itself since G4c, around the request and the fetch). Python's `readback` error kind is `DC_ERR_READBACK`
    (`RmErrorKind::readback`, 7). The target lookup before each peer write is reached in the tests through the
    seam `dc_hook_test_cpc_binding` (`TargetBinding::arm_test_lookup`, inert unless armed).
    Nothing is persisted or reapplied: a driver restart leaves whatever the driver has; `rephase_deltas`
@@ -792,7 +806,7 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    Python before the write and the binding after it (the binding's own dict never raises; recorded with
    reset all, increment G3). The set message carries the re-application note and the live SET's rollback text, so it is
    returned in a caller-sized buffer and kept in full per handle for `dc_pl_message_get`; the binding holds
-   `Gpu._lock` around the call and the fetch. The telemetry sweep's `pl_requested_mw` is now
+   `Gpu._lock` (the handle mutex itself since G4c) around the call and the fetch. The telemetry sweep's `pl_requested_mw` is now
    `read_power_limit_mw`, live fallback included, as nvbackend's `_read_power` (through
    `Telemetry::power_limit_reader`, set by the handle). When that sweep's live read succeeded,
    `dc_telemetry.pl_from_live` is 1 and the binding re-syncs its `static` dict's None or absent `pl_*` keys

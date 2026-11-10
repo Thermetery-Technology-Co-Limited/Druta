@@ -46,6 +46,7 @@ DC_API const char* DC_CALL dc_status_text(dc_status status) {
         case DC_E_UNAVAILABLE: return "not provided by this adapter";
         case DC_E_FAILED: return "the operation failed; see the error record";
         case DC_E_CALLER: return "a caller-supplied callback reported a failure; nothing was written";
+        case DC_E_STATE: return "not allowed in the current state: the calling thread holds no level of the lock taken through dc_gpu_lock";
         default: return "unknown status";
     }
 }
@@ -187,11 +188,48 @@ DC_API dc_status DC_CALL dc_enumerate_gpus(dc_gpu_entry* entries, size_t capacit
 
 DC_API dc_status DC_CALL dc_gpu_open(const char* slot, dc_gpu** gpu) {
     if (!gpu) return DC_E_ARGUMENT;
-    *gpu = new (std::nothrow) dc_gpu(slot ? slot : "");
+    // new (std::nothrow) covers only the allocation: the constructors (the slot string, the
+    // enumeration, the readers' members) can still throw, and no exception crosses the C boundary.
+    try {
+        *gpu = new (std::nothrow) dc_gpu(slot ? slot : "");
+    } catch (...) {
+        *gpu = nullptr;
+        return DC_E_FAILED;
+    }
     return *gpu ? DC_OK : DC_E_BUFFER;
 }
 
 DC_API void DC_CALL dc_gpu_close(dc_gpu* gpu) { delete gpu; }
+
+DC_API dc_status DC_CALL dc_gpu_lock(dc_gpu* handle) {
+    if (!handle) return DC_E_ARGUMENT;
+    try {
+        handle->gpu.lock().lock_exported();
+        return DC_OK;
+    } catch (...) {  // std::recursive_mutex::lock's std::system_error: nothing was taken
+    }
+    return DC_E_FAILED;
+}
+
+DC_API dc_status DC_CALL dc_gpu_trylock(dc_gpu* handle, int32_t* acquired) {
+    if (!handle || !acquired) return DC_E_ARGUMENT;
+    *acquired = handle->gpu.lock().try_lock_exported() ? 1 : 0;
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_unlock(dc_gpu* handle) {
+    if (!handle) return DC_E_ARGUMENT;
+    // Only a level taken through dc_gpu_lock / dc_gpu_trylock: never the level of the entry whose
+    // callback this may be running in.
+    return handle->gpu.lock().unlock_exported() ? DC_OK : DC_E_STATE;
+}
+
+DC_API dc_status DC_CALL dc_gpu_lock_held(const dc_gpu* handle, int32_t* held) {
+    if (!handle || !held) return DC_E_ARGUMENT;
+    // Read-only: Gpu::lock() has no const overload, and owned_by_caller() changes nothing.
+    *held = const_cast<dc_gpu*>(handle)->gpu.lock().owned_by_caller() ? 1 : 0;
+    return DC_OK;
+}
 
 DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* handle, dc_gpu_identity* out) {
     if (!handle || !out || out->size != sizeof(dc_gpu_identity)) return DC_E_ARGUMENT;

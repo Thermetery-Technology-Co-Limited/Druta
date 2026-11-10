@@ -22,10 +22,11 @@ import os
 from pathlib import Path
 import sys
 import threading
+import weakref
 
 from . import rail_transport as _py_rail
 
-ABI_VERSION = 1
+ABI_VERSION = 2  # 2: dc_gpu_lock / dc_gpu_trylock / dc_gpu_unlock / dc_gpu_lock_held and DC_E_STATE
 
 DC_OK = 0
 DC_E_ARGUMENT = -1
@@ -38,8 +39,19 @@ DC_E_RANGE = -7
 DC_E_UNAVAILABLE = -8
 DC_E_FAILED = -9
 DC_E_CALLER = -10  # a caller-supplied callback reported a failure; abandoned before any write
+DC_E_STATE = -11  # not allowed in the current state: an unlock by a thread holding no level it took
 
 DC_ERR_NONE, DC_ERR_TRANSIENT, DC_ERR_INVALID, DC_ERR_UNSUPPORTED = 0, 1, 2, 3
+
+
+class NativeClosed(ValueError):
+    """A native.Gpu used after close(): its handle is invalidated (it is freed at the last reference).
+
+    Its text stays the one a closed Gpu gave before G4c, when it passed a NULL handle and the core
+    answered DC_E_ARGUMENT ("invalid argument"): callers and tests match it."""
+
+    def __init__(self, text="invalid argument"):
+        super().__init__(text)
 
 
 class NativeUnavailable(ImportError):
@@ -401,6 +413,11 @@ _SIGNATURES = {
                                            ctypes.POINTER(ctypes.c_size_t)]),
     "dc_gpu_open": (ctypes.c_int32, [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]),
     "dc_gpu_close": (None, [ctypes.c_void_p]),
+    # the handle mutex (G4c): bound on the CDLL only, so ctypes releases the GIL while dc_gpu_lock blocks
+    "dc_gpu_lock": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_trylock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_unlock": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_lock_held": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
     "dc_gpu_identity_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_GpuIdentity)]),
     "dc_gpu_status_line": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
                                             ctypes.POINTER(ctypes.c_size_t)]),
@@ -702,8 +719,9 @@ def candidate_paths(environ=None):
     return [path for path in out if path.is_absolute()]
 
 
-def _bind(library):
-    for name, (restype, argtypes) in _SIGNATURES.items():
+def _bind(library, names=None):
+    for name in _SIGNATURES if names is None else names:
+        restype, argtypes = _SIGNATURES[name]
         function = getattr(library, name)
         function.restype = restype
         function.argtypes = argtypes
@@ -728,14 +746,22 @@ def load():
             if not present:
                 failures.append(f"{path}: not present")
                 continue
+            # The version first, on its own: a library of another ABI is refused as such, not by
+            # the first export of this ABI that it lacks. Only then is every export bound, so a
+            # library of this ABI with an export missing is refused with that export's name.
             try:
-                library = _bind(ctypes.CDLL(str(path)))
+                library = _bind(ctypes.CDLL(str(path)), ("dc_abi_version",))
             except (OSError, AttributeError) as exc:
                 failures.append(f"{path}: {exc}")
                 continue
             version = library.dc_abi_version()
             if version != ABI_VERSION:
                 failures.append(f"{path}: ABI {version}, this build needs {ABI_VERSION}")
+                continue
+            try:
+                _bind(library)
+            except AttributeError as exc:
+                failures.append(f"{path}: {exc}")
                 continue
             _library = library
             library.path = str(path)
@@ -969,12 +995,17 @@ class _Static(dict):
 
     def __init__(self, gpu, identity):
         super().__init__(identity)
-        self._gpu, self._merged = gpu, False
+        # A weak reference: the Gpu owns this dict, and a strong one back would be a cycle that keeps
+        # a dropped Gpu (and its handle) alive until the cycle collector runs.
+        self._gpu, self._merged = weakref.ref(gpu), False
 
     def _merge(self, key):
         if not self._merged and key not in dict.keys(self):
+            gpu = self._gpu()
+            if gpu is None:
+                raise NativeClosed()  # the Gpu was dropped: as an entry on its closed handle
             self._merged = True
-            for name, value in self._gpu.capabilities().items():
+            for name, value in gpu.capabilities().items():
                 dict.setdefault(self, name, value)
 
     def __getitem__(self, key):
@@ -997,6 +1028,108 @@ class _Half:
         self.ok, self.err_detail, self.selected = ok, err_detail, selected
 
 
+class _HandleBox:
+    """Owns one dc_gpu*: dc_gpu_close runs in this object's finalizer, at its last reference.
+
+    The Gpu, its _HandleLock (and the companions, G4d) each hold the box, never each other, so a
+    thread that is inside a Gpu method, holds the lock or waits for it keeps the handle allocated:
+    the handle mutex is never destroyed while held or waited on, and no entry runs on a freed
+    handle. Gpu.close() only marks the box closed ("invalidate now, free at the last reference")."""
+
+    __slots__ = ("library", "handle", "closed", "__weakref__")
+
+    def __init__(self, library, handle):
+        self.library, self.handle, self.closed = library, handle, False
+
+    def __del__(self):
+        handle = getattr(self, "handle", None)
+        self.handle = None
+        if handle is not None and handle.value:
+            try:
+                self.library.dc_gpu_close(handle)
+            except Exception:  # noqa: BLE001 - a finalizer never raises (interpreter shutdown)
+                pass
+
+
+class _HandleLock:
+    """Gpu._lock: the handle's own mutex (dc_gpu_lock / dc_gpu_trylock / dc_gpu_unlock /
+    dc_gpu_lock_held), with the threading.RLock surface the front ends use (with, acquire, release,
+    _is_owned).
+
+    It is the mutex every core entry takes, so there is one lock per card: `with gpu._lock` in a
+    front end or a runtime is serialized against every core call from every thread, and the
+    binding's call-and-fetch pairs hold it across both calls. It is recursive per OS thread (a
+    Python thread is one OS thread): the with statement takes one level, each core entry inside it
+    takes and returns another. Core callbacks run on the thread that holds the mutex, so a callback
+    that takes this lock recurses instead of waiting.
+
+    acquire(blocking=True) blocks in dc_gpu_lock with the GIL released (the library is a ctypes.CDLL,
+    never a PyDLL), so a holder that runs Python is never stopped by a waiter. blocking=False is
+    dc_gpu_trylock. A timeout other than -1 raises ValueError: the core has no timed wait, and no
+    caller uses one. The object keeps no owner or depth of its own: the core is the one record of
+    ownership. release() is dc_gpu_unlock, which gives back only a level taken through this lock (or
+    a raw dc_gpu_lock) on the calling thread; when there is none (another thread holds the mutex,
+    none does, or inside a core callback the thread holds only the running entry's level) the core
+    changes nothing and release() raises RuntimeError, as threading.RLock's does. _is_owned() is
+    dc_gpu_lock_held: true at any level, the core entry's own included, so it is true inside a core
+    callback.
+
+    The lock refers to the box, not to the Gpu, so it keeps the handle allocated while held, and stays
+    usable after Gpu.close() (the handle is then invalid for entries, not freed).
+    Residual risk (DESIGN-FRONTEND.md (d)): only a console Ctrl+C on the holding thread can cause it.
+    A KeyboardInterrupt raised after dc_gpu_lock has returned and before __enter__ returns, or at the
+    entry of __exit__ or release() before dc_gpu_unlock runs, leaves that thread holding one level the
+    with statement never gives back; since ownership is the core's, that thread's own release() (or
+    dc_gpu_unlock) still frees it. A blocking acquire cannot be interrupted at all: the wait is in the
+    core, with the GIL released."""
+
+    __slots__ = ("_box",)
+
+    def __init__(self, box):
+        self._box = box
+
+    def acquire(self, blocking=True, timeout=-1):
+        if timeout != -1:
+            raise ValueError("native.Gpu._lock has no timed acquire (timeout must be -1)")
+        box = self._box
+        if blocking:
+            status = box.library.dc_gpu_lock(box.handle)
+            if status != DC_OK:
+                _raise(status)
+            return True
+        acquired = ctypes.c_int32()
+        status = box.library.dc_gpu_trylock(box.handle, ctypes.byref(acquired))
+        if status != DC_OK:
+            _raise(status)
+        return bool(acquired.value)
+
+    def release(self):
+        box = self._box
+        status = box.library.dc_gpu_unlock(box.handle)
+        if status == DC_E_STATE:
+            raise RuntimeError("cannot release un-acquired lock")
+        if status != DC_OK:
+            _raise(status)
+
+    def _is_owned(self):
+        box = self._box
+        held = ctypes.c_int32()
+        status = box.library.dc_gpu_lock_held(box.handle, ctypes.byref(held))
+        if status != DC_OK:
+            _raise(status)
+        return bool(held.value)
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, *_):
+        self.release()
+
+    def __repr__(self):
+        state = "held by this thread" if self._is_owned() else "not held by this thread"
+        return f"<{type(self).__module__}.{type(self).__qualname__} {state}>"
+
+
 class Gpu:
     """One card through the native core: nvbackend.GPU's identity surface."""
 
@@ -1006,7 +1139,17 @@ class Gpu:
         status = library.dc_gpu_open((slot or "").encode(), ctypes.byref(handle))
         if status != DC_OK:
             _raise(status)
-        self._handle = handle
+        box = self._box = _HandleBox(library, handle)  # frees the handle at its last reference
+        # nvbackend.GPU._lock, which the front end, the runtimes and the profiles hold around their
+        # own sequences: here the handle's own mutex (_HandleLock), the one every core entry takes,
+        # so there is one lock per card. The binding's `with self._lock` blocks (_policy_outcome,
+        # _cp_set_request, set_power_limit_mw, reset_all, the stock / max-all text fetches) hold it
+        # across a call and its message fetch, so no other thread's call lands in between. Core
+        # callbacks (the derived-clamp confirm, the policy inputs, before_write, the test seams) run
+        # on the thread that holds it, so taking it inside one is recursion, not a wait. Rules: never
+        # hold one card's lock while calling another card's object; a callback never waits on another
+        # thread; the rail hook mutex is taken only by the core, after this one.
+        self._lock = _HandleLock(box)
         identity = _GpuIdentity()
         identity.size = ctypes.sizeof(_GpuIdentity)
         status = library.dc_gpu_identity_get(handle, ctypes.byref(identity))
@@ -1034,24 +1177,57 @@ class Gpu:
         self.static = _Static(self, {"name": _text(identity.name), "driver": _text(identity.driver),
                                      "vbios": _text(identity.vbios), "admin": bool(identity.admin),
                                      "slot": _text(identity.slot), "uuid": _text(identity.uuid)})
-        # nvbackend.GPU._lock: the front end and the profiles serialize their own sequences on it.
-        # The core keeps its own re-entrant mutex per handle; this one exists for those callers and
-        # for the policy writes, which hold it around a call and its message fetch (_policy_outcome).
-        # Lock order: this lock first, then the handle mutex. Code the core calls back while it holds
-        # the handle mutex (the confirm, inputs and before_write callbacks) must therefore never wait
-        # for this lock: nvbackend has only the one lock, the native side has two.
-        self._lock = threading.RLock()
+
+    @property
+    def _handle(self):
+        """The dc_gpu* for the core entries; NativeClosed (a ValueError) once close() has run."""
+        box = self.__dict__.get("_box")
+        if box is None:  # built without __init__ (tests): whatever handle was assigned
+            try:
+                return self.__dict__["_bare_handle"]
+            except KeyError:
+                raise AttributeError(f"{type(self).__name__!r} object has no attribute '_handle'") from None
+        if box.closed:
+            raise NativeClosed()
+        return box.handle
+
+    @_handle.setter
+    def _handle(self, value):
+        if "_box" in self.__dict__:
+            raise AttributeError("the handle of an opened native.Gpu belongs to its box; use close()")
+        self.__dict__["_bare_handle"] = value
 
     def close(self):
-        handle, self._handle = self._handle, None
-        if handle:
-            load().dc_gpu_close(handle)
+        """Invalidate the handle now; it is freed at its last reference.
+
+        Raises RuntimeError when the calling thread holds the handle mutex at any level, inside
+        `with self._lock` or inside a core callback (the handle would be invalidated under that
+        thread's own sequence or the running entry). Otherwise takes the lock, waiting out the holder,
+        marks the box closed and releases: every later entry through this object raises NativeClosed.
+        A thread still inside a method or holding the lock keeps the box, so the handle (and its
+        mutex) is freed only after the last of them lets go. Closing twice is a no-op."""
+        box = self.__dict__.get("_box")
+        if box is None:  # built without __init__ (tests): the handle it was given, freed now
+            handle, self._handle = self.__dict__.get("_bare_handle"), None
+            if handle:
+                load().dc_gpu_close(handle)
+            return
+        if box.closed:
+            return
+        lock = self._lock
+        if lock._is_owned():
+            raise RuntimeError("native.Gpu.close() while this thread holds the card's lock (inside "
+                               "`with gpu._lock` or a core callback); close it after that returns")
+        with lock:
+            box.closed = True
 
     def __del__(self):
-        try:
-            self.close()
-        except Exception:
-            pass
+        # Nothing can reach this object any more: mark the box closed for whatever still holds it (the
+        # lock) without taking the lock, which a collector running on any thread must never wait for.
+        # The box frees the handle at its own last reference.
+        box = self.__dict__.get("_box")
+        if box is not None:
+            box.closed = True
 
     def __enter__(self):
         return self
@@ -1276,12 +1452,12 @@ class Gpu:
     def _cp_read_metadata(self):
         """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.
 
-        Python's read_metadata holds `self.gpu._lock` around _stable_locked. This port does not take
-        self._lock, as no native Gpu read does, the ports of nvbackend's _synchronized methods
-        included: the core holds the handle's own mutex across the whole bounded read, which is what
-        that lock covers within one call. self._lock is there for callers that serialize their own
-        multi-call sequences on it; a caller that needs this read ordered against such a sequence
-        takes self._lock around the call itself (it is re-entrant).
+        Python's read_metadata holds `self.gpu._lock` around _stable_locked. The core entry holds the
+        handle mutex across the whole bounded read, and that mutex is self._lock (_HandleLock), so
+        the read is that lock's critical section without a `with` here, as for every native Gpu read
+        (the ports of nvbackend's _synchronized methods included). A caller that needs this read
+        ordered inside its own multi-call sequence holds self._lock around the sequence; the entry
+        inside then only adds a level (recursive per thread).
 
         DC_E_BUFFER (a captured payload larger than dc_cpc_metadata's arrays, which every understood
         size group fits) is raised as a malformed ClientPowerError naming the buffer, so a caller that
@@ -1415,9 +1591,10 @@ class Gpu:
 
     def _cp_rollback_error(self, rollback):
         """The rollback's full error text: the struct's, or dc_cpc_rollback_error_get's when it was cut.
-        The caller holds self._lock since its dc_cpc_set_request (the core keeps the text per handle,
-        and the next set_request clears or replaces it); the fetch repeats while the kept text
-        outgrows the buffer, and never repeats the request."""
+        The caller holds self._lock (the handle mutex) since its dc_cpc_set_request (the core keeps the
+        text per handle, and the next set_request clears or replaces it), so no other thread's call
+        lands between the request and this fetch; the fetch repeats while the kept text outgrows the
+        buffer, and never repeats the request."""
         if rollback.error_length < self._CP_ROLLBACK_INLINE:
             return _text(rollback.error)
         library, needed = load(), ctypes.c_size_t(rollback.error_length + 1)
@@ -1446,8 +1623,8 @@ class Gpu:
         lock: anything but an int (a bool included) or a value outside 0 < mw < MISSING. The core
         then runs the whole sequence under the handle's mutex (the GPU lock of Python's `with
         self.gpu._lock`), the policy writer's peer restorations included, and calls no Python code. The core
-        keeps a long rollback text per handle for a second call, so self._lock (re-entrant; Gpu._lock
-        first, then the handle mutex) is held around the request and that fetch, as _policy_outcome
+        keeps a long rollback text per handle for a second call, so self._lock, which is that same
+        mutex (recursive per thread), is held around the request and that fetch, as _policy_outcome
         does: another thread's set_request cannot clear or replace the text in between.
 
         Python's BaseException branch (a KeyboardInterrupt during the SET or the read-back, given the
@@ -2801,7 +2978,7 @@ class Gpu:
         def inputs(_context, has_board_mw, board_mw, statics):
             try:
                 try:
-                    value = self.read_power_limit_mw()  # the native reader (A8): no self._lock
+                    value = self.read_power_limit_mw()  # the native reader (A8), on the holding thread
                 except Exception:                                       # noqa: BLE001 - Python's None
                     value = None
                 has_board_mw[0], board_mw[0] = (0, 0) if value is None else self._policy_word(value)
@@ -2863,8 +3040,9 @@ class Gpu:
     #   .get) stops the core before any write, pin or board store (DC_E_CALLER) and is raised here.
     # - nvbackend's message is its return value; here a text longer than the first buffer is
     #   fetched from the handle with a second call (dc_cl_policy_message_get). Both calls run under
-    #   self._lock, so no other thread's B3 call through this binding can replace the kept message
-    #   in between, and the fetch repeats while the text outgrows the buffer.
+    #   self._lock, the handle mutex itself, so no other thread's call (through this binding or any
+    #   other caller of the core) can replace the kept message in between, and the fetch repeats
+    #   while the text outgrows the buffer.
     # - an allocation failure inside the core (the ABI guard) is a MemoryError with the core's text.
 
     _POLICY_MESSAGE = 4096  # the first buffer; a longer text is fetched with dc_cl_policy_message_get
@@ -2874,11 +3052,12 @@ class Gpu:
         exception the inputs callback appended to `failure` (DC_E_CALLER) is raised as Python raises it.
 
         A text longer than the first buffer is the handle's kept message, read by a second call
-        (never by repeating a write). The handle mutex covers each call, not the pair, so another
-        thread's B3 call could replace the kept text in between; nvbackend has no such window (its
-        message is the return value). self._lock (re-entrant; the UI's write_tuning_action holds it
-        too) is held around the call and the fetch, which closes the window for every caller of this
-        binding, and the fetch repeats while the kept text outgrows the buffer."""
+        (never by repeating a write). Each entry takes the handle mutex for itself only, so another
+        thread's B3 call could replace the kept text between the two; nvbackend has no such window
+        (its message is the return value). self._lock is that mutex (recursive per thread; the UI's
+        write_tuning_action holds it too) and is held around the call and the fetch, which closes the
+        window for every caller of the core, and the fetch repeats while the kept text outgrows the
+        buffer. The inputs callback runs on this thread under the same mutex."""
         library = load()
         ok, needed = ctypes.c_int32(), ctypes.c_size_t()
         message = ctypes.create_string_buffer(self._POLICY_MESSAGE)
@@ -2989,8 +3168,8 @@ class Gpu:
     #   (A6): where the store already held an NVML value and the dict held None, that value is used,
     #   where Python takes the live binding's.
     # - set_power_limit_mw's text can exceed the first buffer (the pin note, the live SET's rollback
-    #   detail): it is then fetched with dc_pl_message_get, both calls under self._lock as
-    #   _policy_outcome's. The core's set runs wholly under the handle mutex (Python's callees lock
+    #   detail): it is then fetched with dc_pl_message_get, both calls under self._lock (the handle
+    #   mutex itself) as _policy_outcome's. The core's set runs wholly under that mutex (Python's callees lock
     #   one at a time), so a concurrent telemetry sweep sees the live bookkeeping before or after it.
     # - _set_power_limit_nvml takes an int within int64 (TypeError / ValueError otherwise; Python's
     #   u32(mw) packs any int modulo 2**32 and raises TypeError for a float), and a missing setter
@@ -3082,7 +3261,8 @@ class Gpu:
 
     def read_power_limit_mw(self):
         """Configured power request in mW (NVML, else the live request while NVAPI is live), or None.
-        Takes no self._lock: read_power_policies' inputs callback calls it under the handle mutex."""
+        No `with self._lock` here: the entry takes the handle mutex, which is self._lock, and
+        read_power_policies' inputs callback calls it on the thread that already holds it."""
         has, mw, error = ctypes.c_int32(), ctypes.c_uint32(), _Error()
         error.size = ctypes.sizeof(_Error)
         status = self._pl_call(load().dc_pl_read, ctypes.byref(has), ctypes.byref(mw), ctypes.byref(error))
@@ -3154,7 +3334,8 @@ class Gpu:
     # - power_limit_bounds_mw inside max_all_power_policies can only fail natively by allocation,
     #   which is caught as Python's `except Exception` (the nominal top stays).
     # - stock and max-all run wholly under the handle mutex (Python's callees lock one at a time);
-    #   self._lock is held around each call and its text fetches, as set_power_limit_mw's.
+    #   self._lock (the handle mutex) is held around each call and its text fetches, as
+    #   set_power_limit_mw's.
     # - texts longer than the first buffers are fetched from the handle (dc_pl_message_get,
     #   dc_pl_step_text_get), never by repeating a call.
     # Every text goes both ways as UTF-8 with surrogatepass and comes back by its reported length, not

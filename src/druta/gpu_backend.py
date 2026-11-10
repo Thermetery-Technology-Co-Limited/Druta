@@ -43,6 +43,11 @@ construction and availability results. They never use a driver version, a device
 ID or a VBIOS string. Nothing is written to disk: the choice is process configuration, not
 tuning state, and child processes inherit it through the environment.
 
+Lock rules for either kind (native/DESIGN-FRONTEND.md, section (d)): ``gpu._lock`` is the card's one
+lock (for ``native.Gpu``, the handle mutex every core entry takes). Never hold one card's lock while
+calling another card's object; a callback never waits on another thread (it runs on the thread that
+holds the lock); front ends take the lock only as ``with gpu._lock``.
+
 The surface gate
 ----------------
 :data:`surface_gate` is a module-level callable, ``surface_gate(native_module) -> sequence of

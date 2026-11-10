@@ -178,7 +178,8 @@ public:
     // PerfDiagnosticError, or _identity's ClockBiosError).
     std::optional<ClockIdentity> binding(ClockBiosFailure& failure) { return binding(handle_reader(), failure); }
     // read(gpu): a fresh reader for this call (the handle's reader is untouched), two attempts, each
-    // under Gpu::lock() taken and released here. The caller must NOT hold Gpu::lock().
+    // under Gpu::lock() taken and released here. A caller that holds Gpu::lock() itself keeps it
+    // across both attempts (the lock is recursive; read() gives back only its own level).
     ClockReadResult read();
     // A fresh reader: forget the sticky identity.
     void reset() {

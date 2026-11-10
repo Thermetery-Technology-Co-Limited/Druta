@@ -26,8 +26,9 @@
 // C ABI entries take it). hold() takes Gpu::lock() itself around each step that touches the driver
 // or the ownership flag (the request, each telemetry sample, the release) and releases it across
 // each 100 ms wait, so a concurrent telemetry tick is not blocked for the two seconds the
-// verification may take; a caller must not hold the lock around hold() for the same reason (the
-// lock is recursive, so it would still work, only without that benefit).
+// verification may take. A caller that holds the lock around hold() (dc_gpu_lock, or the binding's
+// `with gpu._lock`) keeps it across the waits: the lock is recursive and hold() gives back only its
+// own level. That is allowed, and it is how a caller gets Python's behaviour (native/README.md).
 #pragma once
 
 #include <cstdint>

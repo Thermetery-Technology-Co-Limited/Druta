@@ -72,8 +72,8 @@ DC_API dc_status DC_CALL dc_pl_set(dc_gpu* gpu, dc_cl_statics* statics, int64_t 
                                    char* message, size_t capacity, size_t* needed);
 /* The last dc_pl_set, dc_pl_stock_power_policy or dc_pl_native_power_limit text in full (including
  * the dc_pl_set step inside dc_pl_max_all; a successful native read keeps ""). Kept per handle, not
- * per thread: a caller that sets from several threads serializes each call with its fetch (the
- * Python binding holds its own lock). */
+ * per thread: a caller that sets from several threads serializes each call with its fetch by
+ * holding dc_gpu_lock across both (the Python binding's `with self._lock` is that mutex). */
 DC_API dc_status DC_CALL dc_pl_message_get(dc_gpu* gpu, char* out, size_t capacity, size_t* needed);
 /* _set_power_limit_nvml(mw): the NVML write of u32(mw) (ctypes' packing: mw modulo 2**32), then
  * read_power_limit_mw (live fallback included) compared with mw. *has_got 0 is got None. The message

@@ -35,10 +35,14 @@ def _native_rail_transport(monkeypatch):
 
 def test_abi_version_and_status_text():
     library = native.load()
-    assert library.dc_abi_version() == native.ABI_VERSION
+    assert library.dc_abi_version() == native.ABI_VERSION == 2  # 2: the exported handle mutex (G4c)
     assert library.dc_status_text(native.DC_E_MASK) == b"requested_mask must select rail 0, rail 1, or both"
     assert library.dc_status_text(native.DC_E_CALLER) == (
         b"a caller-supplied callback reported a failure; nothing was written")
+    assert native.DC_E_STATE == -11
+    assert library.dc_status_text(native.DC_E_STATE) == (
+        b"not allowed in the current state: the calling thread holds no level of the lock taken through "
+        b"dc_gpu_lock")
     assert library.dc_status_text(12345) == b"unknown status"
 
 
