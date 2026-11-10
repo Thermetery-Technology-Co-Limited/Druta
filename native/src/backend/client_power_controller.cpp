@@ -7,6 +7,9 @@
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <new>
+#include <string>
+#include <vector>
 
 #include "backend/gdi.h"
 
@@ -808,6 +811,266 @@ void ClientPowerController::refresh_live() {
     live_.last.reset();
     live_.error.reset();
     live_.error_kind.reset();
+}
+
+// ---- increment A7: set_request and _rollback -------------------------------------------------- //
+
+namespace {
+
+// A Python exception as _rollback's `f"{type(exc).__name__}: {exc}"` and set_request's
+// `getattr(exc, "kind", "transient")` see it: its type name, its kind (a ClientPowerError's own;
+// RmErrorKind::invalid for every other type, which has no .kind), its text and rm_status.
+struct Raised {
+    std::string type;
+    RmError error;
+};
+
+// A ClientPowerError, or the bare ValueError the core reports as kind invalid.
+Raised raised(const RmError& e) {
+    return Raised{e.kind == RmErrorKind::invalid ? "ValueError" : "ClientPowerError", e};
+}
+
+Raised raised(std::string type, std::string message) {
+    return Raised{std::move(type), failure(RmErrorKind::invalid, std::move(message))};
+}
+
+// The exception the A2 helpers raise on a malformed input (unreachable here: every value comes from
+// a reading this controller checked). str(KeyError(k)) is repr(k).
+Raised raised(const CpError& e) {
+    switch (e.kind) {
+    case CpErrorKind::struct_error: return raised("error", e.message);  // struct.error.__name__
+    case CpErrorKind::index_error: return raised("IndexError", e.message);
+    case CpErrorKind::overflow: return raised("OverflowError", e.message);
+    case CpErrorKind::key_error: return raised("KeyError", "'" + e.message + "'");
+    case CpErrorKind::binding: return raised("AttributeError", e.message);
+    default: return raised("ValueError", e.message);
+    }
+}
+
+// Python's `except BaseException` around a C++ exception: only allocation can throw here, which
+// Python reports as a MemoryError (whose text is empty).
+Raised raised_exception() {
+    try {
+        throw;
+    } catch (const std::bad_alloc&) {
+        return raised("MemoryError", "");
+    } catch (const std::exception& e) {
+        return raised("RuntimeError", std::string("Client-power controller failed: ") + e.what());
+    } catch (...) {
+        return raised("RuntimeError", "Client-power controller failed: unknown exception");
+    }
+}
+
+std::string entry(const Raised& r) { return r.type + ": " + r.error.message; }
+
+// The binding dict's equality: every key _metadata_once writes.
+bool same_binding(const CpMetadata& a, const CpMetadata& b) {
+    return a.client_index == b.client_index && a.native_index == b.native_index && a.minimum_mw == b.minimum_mw &&
+           a.rated_mw == b.rated_mw && a.maximum_mw == b.maximum_mw && a.layout == b.layout &&
+           a.native_layout == b.native_layout && a.native_info_stride == b.native_info_stride;
+}
+
+// _matches(expected, observed): expected is a _STATE_KEYS dict (_state(before) or _project's), so
+// it has no extra keys; observed is a reading, whose _state() the helper compares.
+std::optional<bool> observation_matches(const CpObservation& expected, const CpObservation& observed, CpError& error) {
+    const CpMetadata& e = expected.metadata;
+    const CpMetadata& o = observed.metadata;
+    CpMatchInput in;
+    in.binding = cp_binding(e);
+    const auto compare = [](bool equal) { return equal ? CpCompare::equal : CpCompare::different; };
+    in.compare[kCpKeySchema] = CpCompare::equal;       // 1 in every reading
+    in.compare[kCpKeyStableReads] = CpCompare::equal;  // 2 in every reading
+    in.compare[kCpKeyIdentity] = compare(same_identity(e.identity, o.identity));
+    in.compare[kCpKeyBinding] = compare(same_binding(e, o));
+    in.compare[kCpKeyRequestedMw] = compare(expected.requested_mw == observed.requested_mw);
+    for (std::size_t key = kCpFirstPayloadKey; key < kCpStateKeyCount; ++key) in.compare[key] = CpCompare::bytes;
+    const std::vector<std::uint8_t>* payloads[2][kCpPayloadCount] = {
+        {&e.info, &expected.control, &e.role_info, &e.native_info, &expected.native_control},
+        {&o.info, &observed.control, &o.role_info, &o.native_info, &observed.native_control}};
+    for (std::size_t i = 0; i < kCpPayloadCount; ++i) {
+        in.expected[i] = *payloads[0][i];
+        in.observed[i] = *payloads[1][i];
+    }
+    return matches(in, error);
+}
+
+// Python's `raw[at:at + 4]` of a bytes object: clipped to the payload.
+std::vector<std::uint8_t> slice4(const std::vector<std::uint8_t>& raw, std::int64_t at) {
+    const std::int64_t n = static_cast<std::int64_t>(raw.size());
+    const std::int64_t begin = std::clamp<std::int64_t>(at, 0, n), end = std::clamp<std::int64_t>(at + 4, 0, n);
+    using Diff = std::vector<std::uint8_t>::difference_type;  // clamped to raw.size(): fits on every target
+    return std::vector<std::uint8_t>(raw.begin() + static_cast<Diff>(begin),
+                                     raw.begin() + static_cast<Diff>(std::max(begin, end)));
+}
+
+constexpr const char* kRestoredVerified = "Original request restored and verified";
+constexpr const char* kRestorationUnverified = "Original request restoration was not verified";
+
+}  // namespace
+
+CpRollback ClientPowerController::rollback(const CpReading& before, const CpPeerWriter& peer) {
+    CpRollback result;
+    std::vector<std::string> errors;
+    const CpObservation& b = before.observation;
+    bool dispatched = false;
+    try {
+        CpExchangeResult r =
+            exchange(kCpSet, b.control.data(), b.control.size(), true, b.control.size(), CpCaller{}, dispatched);
+        if (r.too_small)  // unreachable: the room is the payload's size, which the geometry check matched
+            errors.push_back(entry(raised(failure(RmErrorKind::malformed,
+                                                  "Client-power command or packet geometry is not understood"))));
+        else if (!r.response)
+            errors.push_back(entry(raised(r.error)));
+    } catch (...) {
+        errors.push_back(entry(raised_exception()));
+    }
+    result.attempted = dispatched;
+    if (dispatched) {
+        // Python's try: the first failure ends it as one entry; a readback assigned before it stays.
+        std::optional<Raised> failed;
+        try {
+            [&] {
+                CpRead<CpReading> first = read_locked();
+                if (!first.value) return void(failed = raised(first.error));
+                result.readback = std::move(*first.value);
+                CpError helper;
+                const bool coupled = coupled_requests(b.metadata.role_info, helper);
+                if (helper) return void(failed = raised(helper));
+                if (coupled) {
+                    const std::optional<bool> same = observation_matches(b, result.readback->observation, helper);
+                    if (!same) return void(failed = raised(helper));
+                    if (*same) {
+                        // Returning the board request can recalculate peer requests. Restore only
+                        // peers that differ from the captured baseline.
+                        const std::vector<std::uint8_t>& original = b.native_control;
+                        const std::vector<std::uint8_t> current = result.readback->observation.native_control;
+                        // _u32(native_info, 4): _matches above read the same word, so it is there.
+                        const std::uint32_t mask = u32_at(b.metadata.native_info, 4);
+                        const std::uint32_t selected = b.metadata.native_index;
+                        for (std::uint32_t index = 0; index < 32; ++index) {
+                            const CpGeometry g = native_geometry(cp_binding(b.metadata));
+                            const std::int64_t at =
+                                g.control_base + static_cast<std::int64_t>(index) * g.control_stride + 4;
+                            if (index == selected || !(mask >> index & 1u) || slice4(original, at) == slice4(current, at))
+                                continue;
+                            // The identity is checked before EACH peer write, so a target change
+                            // between two writes stops the second.
+                            TargetResult identity = binding();
+                            if (!identity.target) return void(failed = raised(identity.error));
+                            if (!same_identity(*identity.target, b.metadata.identity))
+                                return void(failed = raised(
+                                                failure(RmErrorKind::identity, "GPU binding changed before peer restoration")));
+                            // Two differing slices of equal-length payloads lie inside both, so the
+                            // u32 Python unpacks is there.
+                            const std::uint32_t value = u32_at(original, static_cast<std::size_t>(at));
+                            if (!peer.write) return void(failed = raised("AttributeError", "no policy writer"));
+                            const CpPeerWrite w = peer.write(peer.context, index, value);
+                            if (!w.in_bounds) return void(failed = raised("IndexError", "list index out of range"));
+                            if (!w.ok)
+                                return void(failed = raised(failure(RmErrorKind::readback,
+                                                                    "Policy " + std::to_string(index) +
+                                                                        " restoration failed: " + w.message)));
+                        }
+                        CpRead<CpReading> again = read_locked();
+                        if (!again.value) return void(failed = raised(again.error));
+                        result.readback = std::move(*again.value);
+                    }
+                }
+                if (result.readback->observation != b)
+                    return void(failed = raised(failure(RmErrorKind::readback,
+                                                        "Original client-power definitions and requests were not restored")));
+            }();
+        } catch (...) {
+            failed = raised_exception();
+        }
+        if (failed)
+            errors.push_back(entry(*failed));
+        else
+            result.verified = errors.empty();
+    }
+    if (!errors.empty()) {
+        std::string text;
+        for (std::size_t i = 0; i < errors.size(); ++i) text += (i ? "; " : "") + errors[i];
+        result.error = std::move(text);
+    }
+    return result;
+}
+
+CpSetResult ClientPowerController::set_request(std::int64_t mw, const CpPeerWriter& peer) {
+    CpSetResult out;
+    last_rollback_error_.clear();
+    // `type(mw) is not int or not 0 < mw < MISSING`, before the lock (the caller's) and any read.
+    if (!(0 < mw && mw < std::int64_t{kCpMissing})) {
+        out.error = failure(RmErrorKind::invalid, kCpInvalidRequest);
+        return out;
+    }
+    CpRead<CpReading> before = read_locked();
+    if (!before.value) {  // raised as it is: no SET was dispatched
+        out.error = std::move(before.error);
+        return out;
+    }
+    const CpObservation& b = before.value->observation;
+    // expected = _project(before, mw): the state with requested_mw and both request words replaced.
+    CpError helper;
+    std::optional<CpProjection> projected =
+        project(cp_binding(b.metadata), CpMwKind::integer, mw, b.control, b.native_control, helper);
+    if (!projected) {
+        // Unreachable (the reading's binding and payloads were checked by _once). Python raises the
+        // helper's exception unchanged; it is no ClientPowerError, so kind invalid here.
+        out.error = raised(helper).error;
+        return out;
+    }
+    CpObservation expected = b;
+    expected.requested_mw = static_cast<std::uint32_t>(mw);  // 0 < mw < 2**32 - 1
+    expected.control = std::move(projected->control);
+    expected.native_control = std::move(projected->native_control);
+
+    bool dispatched = false;  // write.dispatched
+    std::optional<Raised> failed;
+    try {
+        CpExchangeResult r = exchange(kCpSet, expected.control.data(), expected.control.size(), true,
+                                      expected.control.size(), CpCaller{}, dispatched);
+        if (r.too_small) {  // unreachable, as in rollback
+            failed = raised(failure(RmErrorKind::malformed, "Client-power command or packet geometry is not understood"));
+        } else if (!r.response) {
+            failed = raised(r.error);
+        } else {
+            CpRead<CpReading> after = read_locked();
+            if (!after.value) {
+                failed = raised(after.error);
+            } else {
+                const std::optional<bool> same = observation_matches(expected, after.value->observation, helper);
+                if (!same) {
+                    failed = raised(helper);
+                } else if (!*same) {
+                    failed = raised(failure(RmErrorKind::readback,
+                                            "Client-power request or preserved definitions did not read back exactly"));
+                } else {
+                    out.before = std::move(*before.value);
+                    out.after = std::move(*after.value);
+                    return out;
+                }
+            }
+        }
+    } catch (...) {
+        if (!dispatched) throw;  // Python's `if not write.dispatched: raise`
+        failed = raised_exception();
+    }
+    if (!dispatched) {  // `raise`: the exception unchanged, its rm_status included, no rollback
+        out.error = std::move(failed->error);
+        return out;
+    }
+    // The transport cache is forgotten before the compensation; its own exchange captures it again.
+    reset_transport();
+    CpRollback rollback_result = rollback(*before.value, peer);
+    // getattr(exc, "kind", "transient"): only a ClientPowerError has a kind. ClientPowerError(kind,
+    // message, rollback) passes no rm_status, whatever the inner exception carried.
+    const RmErrorKind kind = failed->type == "ClientPowerError" ? failed->error.kind : RmErrorKind::transient;
+    out.error = failure(kind, failed->error.message + ". " +
+                                  (rollback_result.verified ? kRestoredVerified : kRestorationUnverified));
+    if (rollback_result.error) last_rollback_error_ = *rollback_result.error;
+    out.rollback = std::move(rollback_result);
+    return out;
 }
 
 }  // namespace druta::backend

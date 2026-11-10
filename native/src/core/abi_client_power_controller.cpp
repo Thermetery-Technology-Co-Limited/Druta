@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // The C ABI of drutacore/client_power_controller.h.
+#include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <string>
@@ -136,7 +138,60 @@ void put_reading(const druta::backend::CpReading& reading, dc_cpc_observation* o
     }
 }
 
+// ---- increment A7 ------------------------------------------------------------------------------ //
+
+static_assert(static_cast<int32_t>(druta::backend::RmErrorKind::readback) == DC_ERR_READBACK,
+              "ClientPowerError \"readback\" is DC_ERR_READBACK of drutacore.h");
+static_assert(same_text(druta::backend::kCpInvalidRequest, DC_CPC_INVALID_REQUEST),
+              "the invalid-request message of drutacore/client_power_controller.h");
+
+bool rollback_sized(const dc_cpc_rollback* r) { return r->size == sizeof(dc_cpc_rollback) && observation_sized(&r->readback); }
+
+bool set_result_sized(const dc_cpc_set_result* out) {
+    return out && out->size == sizeof(dc_cpc_set_result) && observation_sized(&out->before) &&
+           observation_sized(&out->after) && rollback_sized(&out->rollback);
+}
+
+// A zeroed observation with its caller-set sizes (put_reading's state before a value).
+void clear_observation(dc_cpc_observation* o) {
+    std::memset(o, 0, sizeof(dc_cpc_observation));
+    o->size = sizeof(dc_cpc_observation);
+    o->metadata.size = sizeof(dc_cpc_metadata);
+    o->arbitration.size = sizeof(dc_arbitration_report);
+}
+
+// dc_cpc_set_result with nothing in it (every size kept, has_rollback 0, error_length 0, the texts
+// empty), so no outcome of a call can present what a previous call left in the caller's struct.
+void clear_set_result(dc_cpc_set_result* out) {
+    clear_observation(&out->before);
+    clear_observation(&out->after);
+    dc_cpc_rollback* rb = &out->rollback;
+    clear_observation(&rb->readback);
+    rb->attempted = rb->verified = rb->has_error = rb->has_readback = 0;
+    rb->error_length = 0;
+    std::memset(rb->error, 0, sizeof(rb->error));
+    out->has_rollback = 0;
+}
+
 }  // namespace
+
+namespace druta::abi {
+
+// GPU._write_policy_limit on this handle: the controller holds no CurrentLimits. It runs under the
+// handle lock dc_cpc_set_request holds; CurrentLimits takes no lock of its own (and druta::Mutex is
+// re-entrant on the holding thread, so a nested LockGuard there would not deadlock either). Its
+// caller_failed cannot be set (write_policy_limit takes no callback); its message is not kept as
+// dc_cl_policy_message_get's, as Python's _rollback keeps only its own text.
+druta::backend::CpPeerWrite write_peer(void* context, std::uint32_t policy, std::uint32_t value) {
+    const druta::backend::PolicyWriteResult r = static_cast<dc_gpu*>(context)->cl.write_policy_limit(policy, value);
+    druta::backend::CpPeerWrite w;
+    w.in_bounds = r.in_bounds;
+    w.ok = r.ok;
+    w.message = r.message;
+    return w;
+}
+
+}  // namespace druta::abi
 
 extern "C" {
 
@@ -287,6 +342,71 @@ DC_API dc_status DC_CALL dc_cpc_board_policy_set(dc_gpu* handle, int32_t policy)
                                                  : std::optional<std::uint32_t>(static_cast<std::uint32_t>(policy)));
         return DC_OK;
     });
+}
+
+DC_API dc_status DC_CALL dc_cpc_set_request(dc_gpu* handle, int64_t mw, dc_cpc_set_result* out, dc_error* error) {
+    if (!handle || !set_result_sized(out) || (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
+    // Cleared before anything runs (the struct is about 256 KB, filled in place): a refusal, a
+    // DC_E_BUFFER or an allocation failure the guard reports (DC_E_FAILED, transient) never shows a
+    // previous call's readings or rollback.
+    clear_set_result(out);
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // set_request: `with self.gpu._lock`, the peer writes included
+        const druta::backend::CpPeerWriter peer{druta::abi::write_peer, handle};
+        druta::backend::CpSetResult r = handle->cp.set_request(mw, peer);
+        const bool success = r.before && r.after;
+        if (success ? !reading_fits(*r.before) || !reading_fits(*r.after)
+                    : r.rollback && r.rollback->readback && !reading_fits(*r.rollback->readback))
+            return DC_E_BUFFER;  // unreachable, as dc_cpc_read's
+        dc_cpc_rollback* rb = &out->rollback;
+        if (success) {
+            put_reading(*r.before, &out->before);
+            put_reading(*r.after, &out->after);
+            put_error(druta::backend::RmError{}, error);
+            return DC_OK;
+        }
+        if (r.rollback) {
+            out->has_rollback = 1;
+            rb->attempted = r.rollback->attempted ? 1 : 0;
+            rb->verified = r.rollback->verified ? 1 : 0;
+            if (r.rollback->error) {
+                rb->has_error = 1;
+                rb->error_length = static_cast<uint32_t>(std::min<std::size_t>(r.rollback->error->size(), UINT32_MAX));
+                DC_COPY(rb->error, *r.rollback->error);
+            }
+            if (r.rollback->readback) {
+                rb->has_readback = 1;
+                put_reading(*r.rollback->readback, &rb->readback);
+            }
+        }
+        put_error(r.error, error);
+        return DC_E_FAILED;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_rollback_error_get(dc_gpu* handle, char* out, size_t capacity, size_t* needed) {
+    if (!handle || !needed || (!out && capacity)) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const std::string& text = handle->cp.last_rollback_error();
+        *needed = text.size() + 1;
+        if (capacity < text.size() + 1) return DC_E_BUFFER;
+        if (!text.empty()) std::memcpy(out, text.data(), text.size());
+        out[text.size()] = '\0';
+        return DC_OK;
+    });
+}
+
+// The test seam (TargetBinding::arm_test_lookup); nothing but the parity tests calls it.
+DC_API dc_status DC_CALL dc_hook_test_cpc_binding(dc_gpu* handle, uint32_t nth, int32_t mode) {
+    using Lookup = druta::backend::TargetBinding::TestLookup;
+    if (!handle || mode < DC_CPC_TEST_LOOKUP_NONE || mode > DC_CPC_TEST_LOOKUP_CHANGED) return DC_E_ARGUMENT;
+    const Lookup lookup = mode == DC_CPC_TEST_LOOKUP_FAIL      ? Lookup::fail
+                          : mode == DC_CPC_TEST_LOOKUP_CHANGED ? Lookup::changed
+                                                               : Lookup::none;
+    druta::LockGuard guard(handle->gpu.lock());
+    handle->cp.arm_test_lookup(nth, lookup);
+    return DC_OK;
 }
 
 DC_API dc_status DC_CALL dc_cpc_reset_transport(dc_gpu* handle) {

@@ -619,6 +619,12 @@ _SIGNATURES = {
     "dc_cpc_live_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
     "dc_cpc_live_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
     "dc_cpc_board_policy_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32]),
+    # the request SET with its compensating restoration (increment A7); dc_cpc_set_result is
+    # Gpu._cp_set_result_type(), by address
+    "dc_cpc_set_request": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_cpc_rollback_error_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                                   ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_hook_test_cpc_binding": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32]),
 }
 
 _lock = threading.Lock()
@@ -1043,7 +1049,7 @@ class Gpu:
     # ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) ---------- #
 
     _ERROR_KINDS = {1: "transient", 2: "invalid", 3: "unsupported", 4: "identity", 5: "malformed",
-                    6: "unstable"}
+                    6: "unstable", 7: "readback"}
 
     def _target_bind(self, client_power):
         target, error = _Target(), _Error()
@@ -1087,7 +1093,7 @@ class Gpu:
     # ---- client-power controller (increment A3) ------------------------------------------------- #
     # ClientPowerController._transport / _exchange / _reset_transport on this handle's one sticky
     # controller (dc_cpc_*); _cp_reset() stands for constructing a fresh controller. Increment A4 adds
-    # read_metadata (_cp_read_metadata), A5 the full read (_cp_read).
+    # read_metadata (_cp_read_metadata), A5 the full read (_cp_read), A7 set_request (_cp_set_request).
 
     class _CpcState(ctypes.Structure):  # dc_cpc_state
         _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
@@ -1330,6 +1336,107 @@ class Gpu:
             "arbitration": arbitration,
             "arbitration_error": _text(o.arbitration_error) if o.has_arbitration_error else None,
         }
+
+    # ---- the request SET with its compensating restoration (set_request, _rollback; increment A7) - #
+
+    _CPC_ROLLBACK_ERROR_MAX = 4096
+    _CP_ROLLBACK_INLINE = _CPC_ROLLBACK_ERROR_MAX  # the struct's room; a test lowers it to reach the fetch
+    _CP_TEST_LOOKUPS = {None: 0, "fail": 1, "changed": 2}  # DC_CPC_TEST_LOOKUP_*
+    _CP_INVALID_REQUEST = "Power request must be positive whole uint32 milliwatts below the missing-client sentinel"
+    _cp_set_result = None
+
+    @classmethod
+    def _cp_set_result_type(cls):
+        """dc_cpc_set_result (and its dc_cpc_rollback), built on first use around dc_cpc_observation."""
+        if cls._cp_set_result is None:
+            observation = cls._cp_observation_type()
+
+            class _CpcRollback(ctypes.Structure):  # dc_cpc_rollback
+                _fields_ = [("size", ctypes.c_uint32), ("attempted", ctypes.c_int32), ("verified", ctypes.c_int32),
+                            ("has_error", ctypes.c_int32), ("error_length", ctypes.c_uint32),
+                            ("error", ctypes.c_char * cls._CPC_ROLLBACK_ERROR_MAX), ("has_readback", ctypes.c_int32),
+                            ("readback", observation)]
+
+            class _CpcSetResult(ctypes.Structure):  # dc_cpc_set_result
+                _fields_ = [("size", ctypes.c_uint32), ("before", observation), ("after", observation),
+                            ("has_rollback", ctypes.c_int32), ("rollback", _CpcRollback)]
+            cls._cp_set_result = _CpcSetResult
+        return cls._cp_set_result
+
+    def _cp_sized(self, o):
+        """Set a dc_cpc_observation's caller-set sizes."""
+        o.size, o.metadata.size, o.arbitration.size = (ctypes.sizeof(o), ctypes.sizeof(self._CpcMetadata),
+                                                       ctypes.sizeof(o.arbitration))
+
+    def _cp_rollback_error(self, rollback):
+        """The rollback's full error text: the struct's, or dc_cpc_rollback_error_get's when it was cut.
+        The caller holds self._lock since its dc_cpc_set_request (the core keeps the text per handle,
+        and the next set_request clears or replaces it); the fetch repeats while the kept text
+        outgrows the buffer, and never repeats the request."""
+        if rollback.error_length < self._CP_ROLLBACK_INLINE:
+            return _text(rollback.error)
+        library, needed = load(), ctypes.c_size_t(rollback.error_length + 1)
+        while True:
+            buffer = ctypes.create_string_buffer(needed.value)
+            status = library.dc_cpc_rollback_error_get(self._handle, buffer, len(buffer), ctypes.byref(needed))
+            if status == DC_OK and needed.value <= len(buffer):
+                return _text(buffer.value)
+            if needed.value <= len(buffer):  # a refusal the size does not explain
+                _raise(status)
+
+    def _cp_test_lookup(self, nth, mode):
+        """TEST SEAM (dc_hook_test_cpc_binding): make the nth client-power target lookup from now fail
+        ("fail") or return a changed identity ("changed"); None disarms. Parity tests only."""
+        status = load().dc_hook_test_cpc_binding(self._handle, nth, self._CP_TEST_LOOKUPS[mode])
+        if status != DC_OK:
+            _raise(status)
+
+    def _cp_set_request(self, mw):
+        """ClientPowerController.set_request: {"before", "after"} (two read() dicts), or the exception
+        Python raises: ClientPowerError(kind, message, rollback) with rollback None when no SET was
+        dispatched (a bare ValueError stays one), else the dict {"attempted", "verified", "error",
+        "readback"} with readback None or a read() dict, and rm_status None.
+
+        The request is refused with Python's text before the call, as Python refuses it before the
+        lock: anything but an int (a bool included) or a value outside 0 < mw < MISSING. The core
+        then runs the whole sequence under the handle's mutex (the GPU lock of Python's `with
+        self.gpu._lock`), the policy writer's peer restorations included, and calls no Python code. The core
+        keeps a long rollback text per handle for a second call, so self._lock (re-entrant; Gpu._lock
+        first, then the handle mutex) is held around the request and that fetch, as _policy_outcome
+        does: another thread's set_request cannot clear or replace the text in between.
+
+        Python's BaseException branch (a KeyboardInterrupt during the SET or the read-back, given the
+        detail as a note and the rollback as an attribute) is not reachable: nothing interrupts the
+        core call. DC_E_BUFFER (a reading larger than dc_cpc_observation, which every size group fits)
+        is raised as a malformed ClientPowerError naming it; the request may then have been written."""
+        from .client_power_runtime import MISSING, ClientPowerError
+        if type(mw) is not int or not 0 < mw < MISSING:
+            raise ClientPowerError("invalid", self._CP_INVALID_REQUEST)
+        r, error = self._cp_set_result_type()(), _Error()
+        r.size, error.size = ctypes.sizeof(r), ctypes.sizeof(_Error)
+        for o in (r.before, r.after, r.rollback.readback):
+            self._cp_sized(o)
+        r.rollback.size = ctypes.sizeof(r.rollback)
+        with self._lock:
+            status = load().dc_cpc_set_request(self._handle, mw, ctypes.addressof(r), ctypes.byref(error))
+            rb = r.rollback
+            text = self._cp_rollback_error(rb) if status == DC_E_FAILED and r.has_rollback and rb.has_error else None
+        if status == DC_OK:
+            return {"before": self._cp_reading_dict(r.before), "after": self._cp_reading_dict(r.after)}
+        if status == DC_E_FAILED:
+            message = _text(error.message)
+            if r.has_rollback:
+                rollback = {"attempted": bool(rb.attempted), "verified": bool(rb.verified), "error": text,
+                            "readback": self._cp_reading_dict(rb.readback) if rb.has_readback else None}
+                kind = self._ERROR_KINDS.get(error.kind, "transient")
+                raise ClientPowerError(kind, message, rollback)
+            if error.kind == DC_ERR_INVALID and message == self._CP_INVALID_REQUEST:
+                raise ClientPowerError("invalid", message)  # the core's own range check (refused above)
+            self._cp_raise(error)
+        if status == DC_E_BUFFER:
+            raise ClientPowerError("malformed", "Client-power set_request does not fit the native buffers "
+                                                "(dc_cpc_set_request returned DC_E_BUFFER)")
+        _raise(status)
 
     def arch_name(self):
         from .nvbackend import GPU
@@ -3158,7 +3265,8 @@ class Gpu:
 
 def _error_record(error):
     """A dc_error as a dict with the Python exception's kind and text."""
-    return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed", "unstable")[error.kind],
+    return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed", "unstable",
+                     "readback")[error.kind],
             "fixed": bool(error.fixed),
             "ntstatus": error.ntstatus if error.has_ntstatus else None, "rm_status": error.rm_status,
             "message": _text(error.message)}

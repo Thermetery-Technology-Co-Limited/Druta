@@ -54,6 +54,16 @@ public:
     // A fresh reader: forget the sticky identity.
     void reset() { identity_.reset(); }
 
+    // TEST SEAM (dc_hook_test_cpc_binding), inert unless armed: the nth bind() from now (1 = the
+    // next) either fails with the sticky reader's own identity refusal (fail) or returns a target
+    // whose subsystem id differs in its lowest bit (changed; the kept identity is not touched).
+    // It fires once and disarms itself; nth 0 or mode none disarms. No production path arms it.
+    enum class TestLookup : std::uint8_t { none, fail, changed };
+    void arm_test_lookup(std::uint32_t nth, TestLookup mode) {
+        test_nth_ = mode == TestLookup::none ? 0 : nth;
+        test_mode_ = test_nth_ ? mode : TestLookup::none;
+    }
+
 private:
     struct Identity {
         const void* api;
@@ -67,6 +77,8 @@ private:
         }
     };
     std::optional<Identity> identity_;
+    std::uint32_t test_nth_ = 0;                    // the test seam's countdown (0: disarmed)
+    TestLookup test_mode_ = TestLookup::none;
     Gpu& gpu_;
     Telemetry& telemetry_;
 };

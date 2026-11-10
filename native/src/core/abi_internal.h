@@ -67,6 +67,11 @@ struct dc_gpu {
 
 namespace druta::abi {
 
+// GPU._write_policy_limit on this handle as the client-power controller's peer writer (defined in
+// abi_client_power_controller.cpp; the context is the dc_gpu). Shared by dc_cpc_set_request and
+// dc_pl_set, which both run it under the handle lock they hold.
+druta::backend::CpPeerWrite write_peer(void* context, std::uint32_t policy, std::uint32_t value);
+
 inline void copy_field(char* field, std::size_t size, const std::string& text) {
     std::size_t n = text.size() < size - 1 ? text.size() : size - 1;
     std::memcpy(field, text.data(), n);

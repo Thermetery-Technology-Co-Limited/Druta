@@ -703,7 +703,19 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `tests/test_native_client_power_read.py`, and the live power request with its bookkeeping
    (`read_live_power_request`, `_live_power_*`, `_board_policy`, the static `pl_*` back-fill and the live-power
    part of `refresh_capabilities`) as `ClientPowerController::live_read` / `refresh_live`, `dc_cpc_live_read`,
-   `dc_cpc_live_state_get`, `dc_cpc_board_policy_set`, `tests/test_native_live_power.py`; `rephase_deltas`
+   `dc_cpc_live_state_get`, `dc_cpc_board_policy_set`, `tests/test_native_live_power.py`; the request SET with
+   its rollback (`set_request`, `_rollback`) as `ClientPowerController::set_request` / `rollback`,
+   `dc_cpc_set_request`, `dc_cpc_rollback_error_get`, `tests/test_native_client_power_set.py`: the whole call
+   runs under the handle lock, a SET that was not dispatched returns its error unchanged with no rollback, a
+   dispatched one that failed or did not read back exactly forgets the transport cache and replays the captured
+   CONTROL once, and coupled peer requests are rewritten through `CurrentLimits::write_policy_limit` directly
+   (no Python callback, so no `Gpu._lock` under the handle mutex) before a second read-back decides
+   `verified`. The rollback travels in `dc_cpc_set_result` with its full text length, and a text longer than
+   `DC_CPC_ROLLBACK_ERROR_MAX` is fetched with `dc_cpc_rollback_error_get` (kept per handle, so the binding
+   holds `self._lock` around the request and the fetch). Python's `readback` error kind is `DC_ERR_READBACK`
+   (`RmErrorKind::readback`, 7). The target lookup before each peer write is reached in the tests through the
+   seam `dc_hook_test_cpc_binding` (`TargetBinding::arm_test_lookup`, inert unless armed).
+   Nothing is persisted or reapplied: a driver restart leaves whatever the driver has; `rephase_deltas`
    composed on the ported V/F curve as `VfCurve::rephase_deltas`, `dc_gpu_rephase_deltas`,
    `tests/test_native_rephase.py`; the voltage-rail getters and their
    read caches as `backend/rails`, `dc_rails_*`, `tests/test_native_rails.py`, with the monotonic clock behind

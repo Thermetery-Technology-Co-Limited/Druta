@@ -9,7 +9,8 @@
  * (_exchange), _reset_transport, a fresh controller, and the controller state. Increment A4: the
  * metadata read (read_metadata: _stable_locked over _metadata_once and _client_group). Increment
  * A5: the full read (read: _stable_locked over _once, then the optional _arbitration). Increment
- * A6: the live power request (read_live_power_request) and its bookkeeping. One sticky
+ * A6: the live power request (read_live_power_request) and its bookkeeping. Increment A7: the
+ * request SET with its compensating restoration (set_request, _rollback). One sticky
  * controller per handle, with its own target binding. A ClientPowerError is DC_E_FAILED with a
  * dc_error: kind DC_ERR_IDENTITY / TRANSIENT / UNSUPPORTED / MALFORMED, Python's message, and
  * rm_status (nonzero only for an RM rejection); DC_ERR_UNSTABLE for two differing fresh reads. DC_ERR_INVALID is the one bare ValueError Python
@@ -246,6 +247,100 @@ DC_API dc_status DC_CALL dc_cpc_live_state_get(dc_gpu* gpu, dc_cpc_live_state* o
 /* _board_policy = policy: a native policy index, or -1 for None (DC_E_ARGUMENT below -1). Written
  * by GPU._power_policy_rows and set_power_limit_mw as well as by a successful live read. */
 DC_API dc_status DC_CALL dc_cpc_board_policy_set(dc_gpu* gpu, int32_t policy);
+
+/* ---- increment A7: the request SET with its compensating restoration (set_request, _rollback) ---- */
+
+/* set_request's refusal of mw outside 0 < mw < 0xFFFFFFFF (Python's text). */
+#define DC_CPC_INVALID_REQUEST \
+    "Power request must be positive whole uint32 milliwatts below the missing-client sentinel"
+
+/* The room for _rollback's error text. It is at most two "TypeName: message" entries joined by
+ * "; ": the restoring SET's own failure, then the first failure of the read-back and restoration.
+ * The SET, read and identity messages are those of dc_cpc_exchange / dc_cpc_read (under 1024 bytes,
+ * as dc_error.message carries them), but "Policy N restoration failed: {message}" embeds the policy
+ * writer's message (dc_cl_write_policy_limit's), which carries driver-table error texts with no fixed
+ * bound. error_length is therefore the full text's length, and dc_cpc_rollback_error_get returns the
+ * whole of it when error_length >= DC_CPC_ROLLBACK_ERROR_MAX. */
+#define DC_CPC_ROLLBACK_ERROR_MAX 4096
+
+/* _rollback's dict: {"attempted", "verified", "error", "readback"}. error holds the "; "-joined
+ * entries, each "TypeName: message" with Python's type name: ClientPowerError, ValueError (the bare
+ * ValueError of DC_ERR_INVALID), IndexError ("list index out of range", the policy writer's
+ * DC_E_RANGE), MemoryError (an allocation failure in the core). */
+typedef struct dc_cpc_rollback {
+    uint32_t size;          /* sizeof(dc_cpc_rollback), set by the caller */
+    int32_t attempted;      /* the restoring SET was dispatched */
+    int32_t verified;       /* the exact original state was read back, and nothing failed */
+    int32_t has_error;      /* error is not None */
+    uint32_t error_length;  /* strlen of the full text; error holds at most MAX - 1 bytes of it */
+    char error[DC_CPC_ROLLBACK_ERROR_MAX];
+    int32_t has_readback;   /* readback is not None: the last read-back assigned before any failure */
+    dc_cpc_observation readback; /* readback.size, .metadata.size and .arbitration.size set by the caller */
+} dc_cpc_rollback;
+
+/* set_request's result. Every nested size field (before, after, rollback, rollback.readback, and
+ * each observation's metadata and arbitration) is set by the caller. */
+typedef struct dc_cpc_set_result {
+    uint32_t size;               /* sizeof(dc_cpc_set_result), set by the caller */
+    dc_cpc_observation before;   /* the full read before the SET */
+    dc_cpc_observation after;    /* the full read after it */
+    int32_t has_rollback;        /* the SET was dispatched and then failed */
+    dc_cpc_rollback rollback;
+} dc_cpc_set_result;
+
+/* set_request(mw): under the GPU lock for the whole call (the peer writes included), read the
+ * request (dc_cpc_read), SET the client CONTROL with only the selected client's request word and the
+ * bound native policy's request word replaced by mw, read again and require the exact projection
+ * (v30 policies may move occupied peers' request words, nothing else).
+ *
+ * DC_OK with out->before and out->after (has_rollback 0, the rollback zeroed apart from its sizes).
+ *
+ * DC_E_FAILED with *error (kind, message and rm_status as the Python exception carries them):
+ *   - mw outside 0 < mw < 0xFFFFFFFF: DC_ERR_INVALID with DC_CPC_INVALID_REQUEST, nothing read;
+ *   - a failure before the SET was handed to the escape (the read, or the SET's own binding,
+ *     transport and geometry checks): that failure unchanged (DC_ERR_INVALID is the bare
+ *     ValueError), has_rollback 0;
+ *   - any failure once the SET was dispatched (the SET's escape, status, echo, the read-back, or
+ *     DC_ERR_READBACK "Client-power request or preserved definitions did not read back exactly"):
+ *     the handle's power transport cache is reset, the captured client CONTROL is SET once more and
+ *     read back; on a v30 policy table whose read-back otherwise matches, every occupied peer whose
+ *     request word differs from the capture is written back through the policy writer
+ *     (dc_cl_write_policy_limit's, on this handle), the target identity checked before each write,
+ *     and the state read once more; the whole captured state must then read back. *error is the
+ *     original failure's kind (DC_ERR_TRANSIENT for a bare ValueError) with "{message}. Original
+ *     request restored and verified" or "{message}. Original request restoration was not
+ *     verified", rm_status 0; has_rollback 1 with out->rollback.
+ * out->before / out->after are zeroed apart from their sizes on DC_E_FAILED.
+ *
+ * DC_E_ARGUMENT for a NULL handle or out, a wrong size anywhere in *out, or a dc_error whose size is
+ * wrong; nothing is read or written. DC_E_BUFFER when a reading does not fit its dc_cpc_observation
+ * (unreachable, as dc_cpc_read's; the request may then have been written). *out is cleared (sizes
+ * kept, has_rollback 0, error_length 0) before anything runs, so no outcome shows a previous call's
+ * readings or rollback. An allocation failure (std::bad_alloc, the only C++ exception the core can
+ * raise here) is DC_E_FAILED with a transient *error naming it and the cleared *out: before the SET
+ * was dispatched nothing was written; after it, the compensation may or may not have run, and only a
+ * fresh read tells the state. Session-only: nothing is stored beyond this handle's memory, and
+ * nothing is re-applied later. */
+DC_API dc_status DC_CALL dc_cpc_set_request(dc_gpu* gpu, int64_t mw, dc_cpc_set_result* out, dc_error* error);
+
+/* The full rollback error text of the handle's last dc_cpc_set_request ("" when it had none):
+ * *needed is its length plus the terminating NUL; DC_E_BUFFER (nothing written) when capacity is
+ * below that. DC_E_ARGUMENT for a NULL handle or needed, or a NULL out with capacity nonzero.
+ * The text is kept per handle, not per thread, and every dc_cpc_set_request clears or replaces it:
+ * a caller that sets requests from several threads serializes each dc_cpc_set_request with its
+ * fetch under one lock of its own (the handle mutex covers each call, not the pair). */
+DC_API dc_status DC_CALL dc_cpc_rollback_error_get(dc_gpu* gpu, char* out, size_t capacity, size_t* needed);
+
+/* TEST SEAM, for the parity tests only (no production caller): make the nth target lookup of this
+ * handle's client-power controller from now (1 = the next; each binding check of the controller is
+ * one lookup) fail with the sticky reader's identity refusal (DC_CPC_TEST_LOOKUP_FAIL: "GPU binding
+ * changed; create a fresh PERF reader") or return a target whose subsystem id differs in its lowest
+ * bit (DC_CPC_TEST_LOOKUP_CHANGED). It fires once, then disarms; DC_CPC_TEST_LOOKUP_NONE or nth 0
+ * disarms. Inert unless armed. DC_E_ARGUMENT for a NULL handle or an unknown mode. */
+#define DC_CPC_TEST_LOOKUP_NONE 0
+#define DC_CPC_TEST_LOOKUP_FAIL 1
+#define DC_CPC_TEST_LOOKUP_CHANGED 2
+DC_API dc_status DC_CALL dc_hook_test_cpc_binding(dc_gpu* gpu, uint32_t nth, int32_t mode);
 
 #ifdef __cplusplus
 }

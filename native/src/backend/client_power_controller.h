@@ -4,9 +4,10 @@
 //
 // The client-power controller (port of client_power_runtime.ClientPowerController): increment A3 adds
 // the paired transport and the guarded exchange; A4 the client group choice, the metadata capture and
-// the bounded stable read; A5 the full read (_once, _arbitration, _read_locked, read); later
-// increments the request SET. One sticky controller per handle, with its own target binding as the
-// Python controller keeps its own PerfDiagnosticsReader.
+// the bounded stable read; A5 the full read (_once, _arbitration, _read_locked, read); A6 the live
+// request bookkeeping; A7 the request SET with its compensating restoration (set_request, _rollback).
+// One sticky controller per handle, with its own target binding as the Python controller keeps its
+// own PerfDiagnosticsReader.
 #pragma once
 
 #include <cstddef>
@@ -175,6 +176,45 @@ struct CpLivePower {
     std::optional<std::uint32_t> board_policy;
 };
 
+// ---- increment A7: set_request and _rollback ------------------------------------------------------ //
+
+// set_request's refusal of a request that is not a positive whole uint32 below the missing-client
+// sentinel: ClientPowerError("invalid", ...) before the lock and any read. Here an RmError of kind
+// invalid with this message (the binding raises it as the ClientPowerError Python raises).
+inline constexpr const char* kCpInvalidRequest =
+    "Power request must be positive whole uint32 milliwatts below the missing-client sentinel";
+
+// GPU._write_policy_limit(policy, value): (ok, message), or the IndexError Python lets escape
+// (in_bounds false). The controller holds no CurrentLimits: set_request / rollback take the writer
+// as a parameter, and the caller binds it to the handle's own CurrentLimits::write_policy_limit.
+struct CpPeerWrite {
+    bool in_bounds = true;
+    bool ok = false;
+    std::string message;
+};
+struct CpPeerWriter {
+    CpPeerWrite (*write)(void* context, std::uint32_t policy, std::uint32_t value) = nullptr;
+    void* context = nullptr;
+};
+
+// _rollback's dict: {"attempted", "verified", "error", "readback"}. error is the "; "-joined
+// "TypeName: message" entries (Python's type names: ClientPowerError, ValueError for the bare
+// ValueError of kind invalid, IndexError for the writer's escaping IndexError), or nullopt.
+struct CpRollback {
+    bool attempted = false, verified = false;
+    std::optional<std::string> error;
+    std::optional<CpReading> readback;
+};
+
+// set_request's {"before", "after"}, or the exception it raised: error (a ClientPowerError, or the
+// bare ValueError of kind invalid) with rollback nullopt when no SET was dispatched, else the
+// ClientPowerError(kind, "{exc}. {detail}", rollback) with rm_status 0 (Python passes none).
+struct CpSetResult {
+    std::optional<CpReading> before, after;
+    RmError error;
+    std::optional<CpRollback> rollback;
+};
+
 // The controller state of ClientPowerController.__init__.
 struct CpControllerState {
     CpSizeGroup sizes = CpSizeGroup::sizes;  // self.sizes: which module table it is
@@ -234,6 +274,33 @@ public:
     const CpLivePower& live() const { return live_; }
     // GPU._board_policy = value (nullopt is None): _power_policy_rows and set_power_limit_mw set it.
     void set_board_policy(std::optional<std::uint32_t> policy) { live_.board_policy = policy; }
+    // GPU._live_power_last = value: set_power_limit_mw stores the reading after a verified request
+    // SET, or the rollback's read-back after a failed one.
+    void set_live_last(std::optional<CpReading> reading) { live_.last = std::move(reading); }
+
+    // set_request(mw) (the caller holds the GPU lock for the whole call, the peer writes included):
+    // write once, verify the exact projection, compensate once on failure. mw is Python's int;
+    // outside 0 < mw < MISSING it is refused (kind invalid, kCpInvalidRequest) before any read.
+    // `peer` is GPU._write_policy_limit for the v30 peer restoration of the rollback. A C++ exception
+    // before the SET was dispatched propagates (the ABI reports it); after, it is the exception the
+    // compensation runs for, as Python's `except BaseException`.
+    CpSetResult set_request(std::int64_t mw, const CpPeerWriter& peer);
+    // _rollback(before) (under the GPU lock): replay the captured client CONTROL once, read it back,
+    // restore v30 peers the board write recalculated, read back again, compare the whole state.
+    // Every failure of its steps (the SET, the read-backs, the peer lookups and writes), a C++
+    // exception inside them included, becomes an entry of the error text. Only allocation can still
+    // throw out of it (std::bad_alloc): recording an entry, joining the entries, or the text itself.
+    // set_request then throws too, and dc_cpc_set_request reports DC_E_FAILED (kind transient, the
+    // exception's text) with its result cleared (has_rollback 0): the restoration may or may not
+    // have run, and a fresh read is the only way to know the state.
+    CpRollback rollback(const CpReading& before, const CpPeerWriter& peer);
+    // The full rollback error text of the last set_request (empty when it had none), for a caller
+    // whose buffer truncated it. Session memory only.
+    const std::string& last_rollback_error() const { return last_rollback_error_; }
+
+    // TEST SEAM (dc_hook_test_cpc_binding): arm this controller's own target lookup; see
+    // TargetBinding::arm_test_lookup. Inert unless a test calls it.
+    void arm_test_lookup(std::uint32_t nth, TargetBinding::TestLookup mode) { binding_.arm_test_lookup(nth, mode); }
 
     const CpControllerState& state() const { return state_; }
     const CpSizes& sizes() const { return *cp_size_group(static_cast<std::uint32_t>(state_.sizes)); }
@@ -251,6 +318,7 @@ private:
     TargetBinding binding_;  // self._reader: the controller's own sticky identity
     CpControllerState state_;
     CpLivePower live_;  // the GPU's bookkeeping: reset() (a fresh controller) leaves it
+    std::string last_rollback_error_;  // not a Python attribute: the ABI's long-text getter reads it
 };
 
 template <typename T, typename Capture>

@@ -21,6 +21,15 @@ bool same_address(const PciSlot& a, const PciSlot& b) {
 
 TargetResult TargetBinding::bind() {
     TargetResult out;
+    TestLookup test = TestLookup::none;  // the test seam (target.h): none unless a test armed it
+    if (test_nth_ && --test_nth_ == 0) {
+        test = test_mode_;
+        test_mode_ = TestLookup::none;
+    }
+    if (test == TestLookup::fail) {
+        out.error = error(RmErrorKind::identity, "GPU binding changed; create a fresh PERF reader");
+        return out;
+    }
     const Nvapi& api = gpu_.nvapi;
     if (!gpu_.pairing_error.empty()) {
         out.error = error(RmErrorKind::identity, gpu_.pairing_error);
@@ -78,6 +87,7 @@ TargetResult TargetBinding::bind() {
     target.device_id = api.selected->devid;
     target.subsystem_id = api.selected->subsys;
     target.handle = handle;
+    if (test == TestLookup::changed) target.subsystem_id ^= 1u;
     out.target = std::move(target);
     return out;
 }

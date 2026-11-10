@@ -706,7 +706,8 @@ enum {
     DC_ERR_UNSUPPORTED = 3, /* CurrentLimitUnsupported: a fixed property of this image */
     DC_ERR_IDENTITY = 4,    /* PerfDiagnosticError / ClientPowerError "identity": the paired target changed */
     DC_ERR_MALFORMED = 5,   /* "malformed": a packet or transport geometry that is not understood */
-    DC_ERR_UNSTABLE = 6     /* ClientPowerError "unstable": two fresh reads disagreed */
+    DC_ERR_UNSTABLE = 6,    /* ClientPowerError "unstable": two fresh reads disagreed */
+    DC_ERR_READBACK = 7     /* ClientPowerError "readback": an exact read-back or restoration disagreed */
 };
 typedef struct dc_error {
     uint32_t size;           /* sizeof(dc_error), set by the caller */
