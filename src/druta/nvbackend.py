@@ -39,6 +39,7 @@ example, and vf_lock_self_test() keeps the middle rung runnable on any machine.
 """
 import ctypes
 from contextlib import contextmanager
+import functools
 import json
 import math
 import ntpath
@@ -1610,11 +1611,10 @@ def _synchronized(fn):
     """Serialize driver access: the UI thread issues writes while a background
     thread polls telemetry, and NVAPI read-modify-write (the VF table) must not
     interleave with a concurrent read."""
+    @functools.wraps(fn)
     def wrapper(self, *a, **kw):
         with self._lock:
             return fn(self, *a, **kw)
-    wrapper.__name__ = fn.__name__
-    wrapper.__doc__ = fn.__doc__
     return wrapper
 
 
