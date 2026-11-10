@@ -15,6 +15,13 @@ project(drutacore LANGUAGES C CXX)
 #   * Only KERNEL32 and the system C runtime are imported. Every other Windows
 #     DLL (gdi32 D3DKMT*, setupapi, shell32, nvapi64, nvml, ...) is loaded with
 #     LoadLibrary/GetProcAddress at run time and each export is a capability.
+#   * MinGW: after every link, tools/check_imports.py limits each Windows
+#     binary's imports to the allowlist in tools/xp-imports.txt (kernel32
+#     functions documented for XP by Microsoft and an export history, msvcrt
+#     functions from two secondary sources) and its PE header versions to XP's.
+#     That is a check of the import tables and headers, not a proof that the
+#     binaries start on XP. GCC's runtime references five Vista functions;
+#     src/win/runtime_imports.c binds those at run time instead.
 #   * No exceptions cross the C ABI; no C++ types in it.
 
 set(CMAKE_CXX_STANDARD 17)
@@ -31,6 +38,7 @@ endif()
 option(DRUTA_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer (Linux/clang/gcc)" OFF)
 option(DRUTA_WERROR "Treat warnings as errors" ON)
 option(DRUTA_FUZZ "Build the libFuzzer targets (clang only)" OFF)
+option(DRUTA_IMPORT_AUDIT "MinGW: fail the build when a Windows binary imports a DLL or function outside tools/xp-imports.txt (documented for XP) or its PE header asks for a newer Windows" ON)
 
 add_library(druta_options INTERFACE)
 if(MSVC)
@@ -49,13 +57,21 @@ else()
 endif()
 
 if(WIN32)
-  # XP as the floor for the headers and the PE subsystem version.
+  # XP as the floor for the headers and the PE operating-system and subsystem
+  # versions: 5.1 for 32-bit (XP), 5.2 for 64-bit (XP x64 is NT 5.2 and there is
+  # no older 64-bit Windows for this machine, so nothing is lost; 5.2 is also
+  # the GNU linker's own default for x86-64 images).
   target_compile_definitions(druta_options INTERFACE _WIN32_WINNT=0x0501 WINVER=0x0501
                              WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
   if(MINGW)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      set(DRUTA_PE_MINOR_VERSION 2)
+    else()
+      set(DRUTA_PE_MINOR_VERSION 1)
+    endif()
     set(DRUTA_WIN_LINK_FLAGS -static -static-libgcc -static-libstdc++
-        -Wl,--major-subsystem-version=5,--minor-subsystem-version=1
-        -Wl,--major-os-version=5,--minor-os-version=1)
+        -Wl,--major-subsystem-version=5,--minor-subsystem-version=${DRUTA_PE_MINOR_VERSION}
+        -Wl,--major-os-version=5,--minor-os-version=${DRUTA_PE_MINOR_VERSION})
     target_link_options(druta_options INTERFACE ${DRUTA_WIN_LINK_FLAGS})
   endif()
 endif()
@@ -72,6 +88,50 @@ if(DRUTA_FUZZ)
   # Coverage and comparison tracing inside the core itself, not just the harness:
   # without this libFuzzer never learns the packet sizes and command words.
   target_compile_options(druta_options INTERFACE -fsanitize=fuzzer-no-link)
+endif()
+
+# ---- XP import shims for the MinGW GCC runtime (see src/win/runtime_imports.c) ---------------
+# An OBJECT library linked straight into each Windows binary: its import-pointer
+# definitions must be on the link line before libgcc.a and libkernel32.a are
+# searched, which a member of the static drutacore_impl archive would not be.
+if(MINGW)
+  add_library(druta_runtime_imports OBJECT src/win/runtime_imports.c)
+  target_link_libraries(druta_runtime_imports PRIVATE druta_options)
+endif()
+
+# Audit a Windows binary's imports and header versions after every link. The
+# audit is a stamp-producing step of the default build, not a POST_BUILD
+# command: a failed POST_BUILD would leave the binary looking up to date, while
+# a missing stamp makes every later build run the audit again until it passes
+# (and a changed allowlist or script reruns it too).
+function(druta_import_audit target)
+  if(MINGW AND DRUTA_IMPORT_AUDIT)
+    set(stamp ${CMAKE_CURRENT_BINARY_DIR}/${target}.imports-ok)
+    add_custom_command(OUTPUT ${stamp}
+      COMMAND ${CMAKE_COMMAND} -E remove -f ${stamp}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_imports.py --quiet
+              $<TARGET_FILE:${target}>
+      COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
+      DEPENDS ${target} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_imports.py
+              ${CMAKE_CURRENT_SOURCE_DIR}/tools/xp-imports.txt
+      COMMENT "Auditing the imports of ${target} against tools/xp-imports.txt"
+      VERBATIM)
+    add_custom_target(${target}-import-audit ALL DEPENDS ${stamp})
+  endif()
+endfunction()
+# A shipped Windows binary: the shims (seam undefined) and the audit.
+function(druta_windows_binary target)
+  if(MINGW)
+    target_link_libraries(${target} PRIVATE druta_runtime_imports)
+    druta_import_audit(${target})
+  endif()
+endfunction()
+if(MINGW AND DRUTA_IMPORT_AUDIT)
+  find_package(Python3 COMPONENTS Interpreter)
+  if(NOT Python3_Interpreter_FOUND)
+    message(FATAL_ERROR "The XP import audit needs Python 3; "
+                        "install it or configure with -DDRUTA_IMPORT_AUDIT=OFF")
+  endif()
 endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
@@ -140,6 +200,7 @@ add_library(drutacore SHARED
 target_compile_definitions(drutacore PRIVATE DRUTACORE_BUILDING=1)
 target_link_libraries(drutacore PRIVATE drutacore_impl)
 set_target_properties(drutacore PROPERTIES PREFIX "" OUTPUT_NAME "drutacore")
+druta_windows_binary(drutacore)
 if(NOT WIN32)
   set_target_properties(drutacore PROPERTIES PREFIX "lib")
 endif()
@@ -148,13 +209,25 @@ endif()
 if(WIN32)
   add_executable(druta-probe src/probe/druta_probe.cpp)
   target_link_libraries(druta-probe PRIVATE drutacore_impl)
+  druta_windows_binary(druta-probe)
 endif()
 
 # ---- tests (Linux and Windows hosts) -----------------------------------------------------------
 enable_testing()
 add_executable(drutacore-selftest src/core/selftest.cpp)
 target_link_libraries(drutacore-selftest PRIVATE drutacore_impl)
+druta_windows_binary(drutacore-selftest)
 add_test(NAME drutacore-selftest COMMAND drutacore-selftest)
+
+# ---- druta-runtime-imports-test (MinGW only: the shims' fallbacks, run under Wine by build.sh) ----
+# runtime_imports.c compiled into this executable alone with its test seam; the
+# shipped binaries above link druta_runtime_imports, where the seam is undefined.
+if(MINGW)
+  add_executable(druta-runtime-imports-test src/win/runtime_imports_test.cpp src/win/runtime_imports.c)
+  target_compile_definitions(druta-runtime-imports-test PRIVATE DRUTA_RUNTIME_IMPORTS_TEST=1)
+  target_link_libraries(druta-runtime-imports-test PRIVATE druta_options)
+  druta_import_audit(druta-runtime-imports-test)
+endif()
 
 # ---- fuzzers (clang + libFuzzer; run native/fuzz/run.sh) --------------------------------------
 if(DRUTA_FUZZ)

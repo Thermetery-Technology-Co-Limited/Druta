@@ -1,0 +1,184 @@
+# What the Windows binaries of the native core may import, and the highest
+# Windows version their PE headers may ask for. native/tools/check_imports.py
+# reads every MinGW-built binary and fails the build (native/build.sh and the
+# CMake build) on any other DLL, any other function, or a higher version; see
+# its docstring for the structural checks. tests/test_native_dll_imports.py
+# runs it too.
+#
+# The basis, precisely. Microsoft publishes requirement tables for kernel32
+# functions but no per-version export list for msvcrt.dll, so:
+#   * kernel32.dll names: Microsoft Learn's "Requirements" table for each
+#     function (learn.microsoft.com/windows/win32/api/..., read 2026-11-10:
+#     minimum client Windows XP or Windows 2000 Professional AND minimum server
+#     Windows Server 2003 or Windows 2000 Server, DLL Kernel32.dll) and, as a
+#     second source, Geoff Chappell's KERNEL32 export history, compiled from
+#     the real binaries of each Windows version
+#     (https://www.geoffchappell.com/studies/windows/win32/kernel32/api/index.htm,
+#     read 2026-11-10), which lists every machine-independent name below as
+#     "3.51 and higher", "4.0 ... and higher" or "5.1 and higher";
+#   * msvcrt.dll names: two secondary sources, neither of them Microsoft's,
+#     which agree on every name below for the machine it is listed for:
+#       - mingw-w64-crt/lib-common/msvcrt.def.in, whose sections are annotated
+#         with the Windows version whose system msvcrt.dll first had each
+#         symbol (https://github.com/mingw-w64/mingw-w64, master at commit
+#         f0a458055c2bc6ea8467b1ebccac6fb53c2b6946, fetched 2026-11-10);
+#       - ReactOS dll/win32/msvcrt/msvcrt.spec, whose -version= tags mark
+#         later additions (ReactOS targets NT 5.2)
+#         (https://github.com/reactos/reactos, master at commit
+#         8fe3cee05606aecd9442674e40038649f048d10d, fetched 2026-11-10);
+#   * all of it is still to be confirmed by loading the binaries on a real
+#     Windows XP SP3 (x86) and XP x64 SP2: druta-probe.exe is the first thing
+#     to run there.
+# Do not add a name because it works on one machine or exists on a newer
+# Windows. A kernel32 function that needs Vista or later belongs in
+# native/src/win/runtime_imports.c (looked up at run time, with a fallback).
+#
+# CreateProcessW, CreateThread, GetExitCodeProcess, TerminateProcess and
+# WaitForSingleObject are imported only by druta-runtime-imports-test.exe (the
+# harness native/build.sh runs under Wine); they are judged like the rest
+# (Requirements: Windows XP / Server 2003; export history: 3.51 and higher).
+#
+# Sections: [DLL] applies to both machines, [DLL i686] / [DLL x86_64] to one.
+
+[header-version-limit]
+# Major/MinorOperatingSystemVersion and Major/MinorSubsystemVersion of the PE
+# header: Windows XP is NT 5.1 and XP x64 is NT 5.2, and a loader refuses an
+# image whose subsystem version is above its own. (CMakeLists.txt links 5.1
+# into the 32-bit binaries and 5.2 into the 64-bit ones.)
+i686 5.1
+x86_64 5.2
+
+[KERNEL32.dll]
+CloseHandle
+CreateProcessW
+CreateThread
+DeleteCriticalSection
+EnterCriticalSection
+FlushInstructionCache
+FreeLibrary
+GetCurrentProcess
+GetCurrentThreadId
+GetEnvironmentVariableW
+GetExitCodeProcess
+GetFileAttributesW
+GetLastError
+GetModuleFileNameW
+GetModuleHandleA
+GetModuleHandleW
+GetNativeSystemInfo         # export history: 5.1 and higher
+GetProcAddress
+GetSystemDirectoryW
+GetSystemTimeAsFileTime
+GetTempPathW
+GetTickCount
+InitializeCriticalSection
+IsDBCSLeadByteEx
+LeaveCriticalSection
+LoadLibraryA
+LoadLibraryExW
+LoadLibraryW
+MultiByteToWideChar
+QueryPerformanceCounter
+QueryPerformanceFrequency
+RaiseException
+ReadProcessMemory
+RtlCaptureContext           # export history: 5.1 and higher
+SetLastError
+SetUnhandledExceptionFilter
+Sleep
+TerminateProcess
+TlsAlloc
+TlsFree
+TlsGetValue
+TlsSetValue
+TryEnterCriticalSection     # export history: 4.0 and higher
+VirtualProtect
+VirtualQuery
+WaitForSingleObject
+WideCharToMultiByte
+
+[KERNEL32.dll x86_64]
+# The x64 exception-dispatch and unwind entry points of the MinGW-w64 SEH
+# runtime. Microsoft Learn documents the three Rtl functions as Kernel32.dll
+# exports but states no minimum version, and has no kernel32 page for
+# __C_specific_handler. The export history above documents all four as
+# "5.2 from Windows Server 2003 SP1, and higher (x64 only)", the code base of
+# XP x64; ReactOS's kernel32.spec (same commit as above) exports all four for
+# x86_64. A strong secondary source, not Microsoft's; to be confirmed on a
+# real XP x64.
+RtlLookupFunctionEntry
+RtlUnwindEx
+RtlVirtualUnwind
+__C_specific_handler
+
+[msvcrt.dll]
+# In msvcrt.def.in all of these are in the section "symbols available in the
+# original Microsoft Visual C++ 4.2 version of msvcrt.dll" (same set as NT 4.0),
+# without an arm-only marker. Three are spelled differently there:
+# __getmainargs on i686 and exit appear as the DLL export name on the right of
+# an "==" alias (mingw-w64 now wraps them), and _onexit appears only as a
+# commented entry in that section ("_onexit replaced by emu, CRT _onexit does
+# not work for DLL builds"); ReactOS exports _onexit as an extern. _onexit is
+# the weakest entry here.
+__getmainargs
+__initenv
+__set_app_type
+__setusermatherr
+_amsg_exit
+_cexit
+_errno
+_initterm
+_lock
+_onexit
+_read
+_unlock
+_wfopen
+abort
+calloc
+exit
+fclose
+fflush
+fprintf
+fputc
+fputs
+free
+fwrite
+getenv
+localeconv
+malloc
+memchr
+memcmp
+memcpy
+memmove
+memset
+realloc
+signal
+strchr
+strcmp
+strerror
+strlen
+strncmp
+strtoul
+vfprintf
+wcslen
+
+[msvcrt.dll i686]
+# Visual C++ 4.2 section; __p__commode and __p__fmode are marked i386 there
+# and in ReactOS.
+__mb_cur_max
+__p__commode
+__p__fmode
+_iob
+atoi
+setlocale
+
+[msvcrt.dll x86_64]
+# _commode, _fmode: Visual C++ 4.2 section. ___lc_codepage_func,
+# ___mb_cur_max_func, __iob_func: the "added in Windows XP" section, x64
+# variants; msvcrt.def.in states that every symbol up to its "Windows Server
+# 2003 SP1 and Windows XP x64" section is in all x64 versions of msvcrt.dll.
+___lc_codepage_func
+___mb_cur_max_func
+__iob_func
+_commode
+_fmode
