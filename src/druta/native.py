@@ -112,7 +112,8 @@ class _Telemetry(ctypes.Structure):
                 ("core_p0max", ctypes.c_uint32), ("mem_p0max", ctypes.c_uint32), ("energy_j", ctypes.c_double),
                 ("vf_locked_count", ctypes.c_uint32), ("vf_locked_domains", ctypes.c_uint32 * 32),
                 ("vf_lock_mv", ctypes.c_double),
-                ("clk_lock_min_mhz", ctypes.c_uint32), ("clk_lock_max_mhz", ctypes.c_uint32)]
+                ("clk_lock_min_mhz", ctypes.c_uint32), ("clk_lock_max_mhz", ctypes.c_uint32),
+                ("pl_from_live", ctypes.c_int32)]
 
 
 _T_BITS = ["core", "mem", "video", "xbar", "core_off", "mem_off", "priv_clocks", "temp_edge", "temp_hotspot",
@@ -575,6 +576,27 @@ _SIGNATURES = {
                                             ctypes.POINTER(ctypes.c_size_t)]),
     "dc_cl_policy_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
                                                   ctypes.POINTER(ctypes.c_size_t)]),
+    # the board power limit (increment A8)
+    "dc_pl_normal_bounds": (ctypes.c_int32, [ctypes.POINTER(_ClStatics), ctypes.POINTER(ctypes.c_int64),
+                                             ctypes.POINTER(ctypes.c_int64)]),
+    "dc_pl_request_bounds": (ctypes.c_int32, [ctypes.POINTER(_ClStatics), ctypes.c_int32, ctypes.c_int64,
+                                              ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ctypes.c_int64),
+                                              ctypes.POINTER(ctypes.c_int64)]),
+    "dc_pl_bounds": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int32,
+                                      ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(ctypes.c_int64),
+                                      ctypes.POINTER(_Error)]),
+    "dc_pl_read_nvml": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                         ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_pl_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_pl_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64, ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                   ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                           ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_set_nvml": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64,
+                                        ctypes.POINTER(_Outcome), ctypes.POINTER(ctypes.c_int32),
+                                        ctypes.POINTER(ctypes.c_uint32)]),
     "dc_hook_test_entry": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_hook_test_state": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32),
                                             ctypes.POINTER(ctypes.c_uint32)]),
@@ -680,7 +702,12 @@ def load():
             raise NativeUnavailable(_error)
         failures = []
         for path in candidate_paths():
-            if not path.is_file():
+            try:
+                present = path.is_file()
+            except OSError as exc:  # a name too long, a directory the account cannot search
+                failures.append(f"{path}: {exc}")
+                continue
+            if not present:
                 failures.append(f"{path}: not present")
                 continue
             try:
@@ -1470,8 +1497,13 @@ class Gpu:
     def read(self):
         """One telemetry tick with nvbackend.GPU.read()'s keys.
 
-        Not yet provided by the core (the Python backend still reads them):
-        the live-power fallback of pl_requested_mw, the Turing legacy
+        pl_requested_mw is read_power_limit_mw, as nvbackend's _read_power: NVML's configured
+        request, else (NVAPI live) the live client-power request, whose read and bookkeeping run
+        inside the tick. When that live read succeeded (t.pl_from_live), self.static re-syncs as
+        after read_live_power_request: a pl_* key that is None (or absent) takes the core's value.
+        Only then: a key left None stays None until a live read succeeds, as in Python.
+
+        Not yet provided by the core (the Python backend still reads them): the Turing legacy
         clock-lock fallback, nvvdd_live_mv.
         """
         t = _Telemetry()
@@ -1479,6 +1511,8 @@ class Gpu:
         status = load().dc_gpu_read_telemetry(self._handle, ctypes.byref(t))
         if status != DC_OK:
             _raise(status)
+        if t.pl_from_live:
+            self._pl_resync()
         present = {key for bit, key in enumerate(_T_BITS) if t.present & (1 << bit)}
         d = {}
         for key in ("core", "mem", "video", "xbar", "core_off", "mem_off", "temp_edge", "pl_requested_mw",
@@ -2343,11 +2377,16 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         observation = self._cp_reading_dict(o)
+        self._pl_resync()
+        return observation, None
+
+    def _pl_resync(self):
+        """After a successful live read in the core: a pl_* key that is None (or absent) in
+        self.static takes the handle store's value (read_live_power_request's back-fill)."""
         capabilities = self.capabilities()
         for key in ("pl_min_mw", "pl_def_mw", "pl_max_mw"):
             if self.static.get(key) is None and capabilities.get(key) is not None:
                 self.static[key] = capabilities[key]
-        return observation, None
 
     def _cp_live(self):
         s = self._cp_live_state_type()()
@@ -2744,7 +2783,7 @@ class Gpu:
         def inputs(_context, has_board_mw, board_mw, statics):
             try:
                 try:
-                    value = self._power_policies_board_mw()
+                    value = self.read_power_limit_mw()  # the native reader (A8): no self._lock
                 except Exception:                                       # noqa: BLE001 - Python's None
                     value = None
                 has_board_mw[0], board_mw[0] = (0, 0) if value is None else self._policy_word(value)
@@ -2754,11 +2793,6 @@ class Gpu:
                 return 1
             return 0
         return CL_POLICY_INPUTS(inputs)
-
-    def _power_policies_board_mw(self):
-        """read_power_limit_mw where the binding has it (increment A8), else None (unreadable)."""
-        reader = getattr(self, "read_power_limit_mw", None)
-        return reader() if reader is not None else None
 
     def read_power_policies(self):
         """(rows, error): every policy in the driver's table, as nvbackend.GPU.read_power_policies.
@@ -2918,6 +2952,166 @@ class Gpu:
         recalculated; (ok, note) as nvbackend's, note "" when nothing moved."""
         has_board, board = (0, 0) if board_mw is None else self._policy_word(board_mw)
         return self._policy_outcome(load().dc_cl_reapply_pins, has_board, board)
+
+    # ---- the board power limit (nvbackend.GPU.POWER_LIMIT_XOC_MAX_MW, _normal_power_bounds_mw, ---- #
+    # ---- _power_request_bounds_mw, power_limit_bounds_mw, _read_power_limit_nvml, ----------------- #
+    # ---- read_power_limit_mw, set_power_limit_mw, _set_power_limit_nvml; increment A8) ---------- #
+    #
+    # The core composes the native NVML request reader, the live read (A6), the live SET with its
+    # compensation (A7) and the pin re-application (B3) under the handle mutex; it calls no Python
+    # code. self.static stays the binding's dict: its pl_* keys go in as dc_cl_statics, read at the
+    # call, and a live read inside the call that fills an absent or None key from the core's
+    # capability store (dc_cpc_live_read's back-fill) comes back the same way, and is set here as
+    # read_live_power_request sets it. Nothing is persisted: the NVML write and the live SET are the
+    # user's request of this session, and a driver restart is never followed by a re-application.
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_limit.py):
+    # - a static pl_* value that is not equal to an int64 (a float with a fraction, a string) is taken
+    #   as None by the core (_cl_statics_fill, B2's rule): Python would compare or return it as given.
+    # - the back-fill comes from the core's capability store, as native.read_live_power_request's
+    #   (A6): where the store already held an NVML value and the dict held None, that value is used,
+    #   where Python takes the live binding's.
+    # - set_power_limit_mw's text can exceed the first buffer (the pin note, the live SET's rollback
+    #   detail): it is then fetched with dc_pl_message_get, both calls under self._lock as
+    #   _policy_outcome's. The core's set runs wholly under the handle mutex (Python's callees lock
+    #   one at a time), so a concurrent telemetry sweep sees the live bookkeeping before or after it.
+    # - _set_power_limit_nvml takes an int within int64 (TypeError / ValueError otherwise; Python's
+    #   u32(mw) packs any int modulo 2**32 and raises TypeError for a float), and a missing setter
+    #   export or a dead NVML is AttributeError, as Python's attribute access raises.
+    # - an exception inside the live SET before its dispatch (only allocation can throw) reaches the
+    #   ABI guard as MemoryError, where Python returns "live power request failed: {exc}".
+
+    POWER_LIMIT_XOC_MAX_MW = 1999000  # Software request envelope, not a physical ceiling.
+    _PL_KEYS = ("pl_min_mw", "pl_def_mw", "pl_max_mw")
+    _PL_MESSAGE = 4096  # the first buffer; a longer text is fetched with dc_pl_message_get
+
+    def _pl_statics(self):
+        """The pl_* keys as dc_cl_statics. Unlike _cl_statics_fill (which compares them with driver
+        words, all >= 0), a negative int is kept: the power-limit bounds use the number itself. A
+        value not equal to an int64 is None (a recorded divergence: Python uses it as given)."""
+        s = _ClStatics()
+        st = getattr(self, "static", None) or {}
+        for name, key in zip(("pl_min", "pl_def", "pl_max"), self._PL_KEYS):
+            value = st.get(key, self._ABSENT)
+            state, word = (0, 0) if value is self._ABSENT else (1, 0) if value is None else (2, None)
+            if word is None:
+                try:
+                    whole = int(value)
+                    if whole == value and -(1 << 63) <= whole < (1 << 63):
+                        word = whole
+                except Exception:                                       # noqa: BLE001 - see above
+                    pass
+                if word is None:
+                    state, word = 1, 0
+            setattr(s, name + "_state", state)
+            setattr(s, name + "_mw", word)
+        s.size = ctypes.sizeof(_ClStatics)
+        return s
+
+    def _pl_backfill(self, before, after):
+        """Set the pl_* keys the core's live read filled (A6's re-sync, at the same point)."""
+        for name, key in zip(("pl_min", "pl_def", "pl_max"), self._PL_KEYS):
+            if getattr(after, name + "_state") == 2 and getattr(before, name + "_state") != 2 \
+                    and self.static.get(key) is None:
+                self.static[key] = getattr(after, name + "_mw")
+
+    def _pl_call(self, function, *args):
+        """function(handle, statics, *args) with the live back-fill applied afterwards."""
+        statics = self._pl_statics()
+        before = _ClStatics.from_buffer_copy(statics)
+        status = function(self._handle, ctypes.byref(statics), *args)
+        self._pl_backfill(before, statics)
+        return status
+
+    @staticmethod
+    def _pl_check(status, error=None):
+        if status == DC_E_FAILED:  # the core's guard: only allocation throws there
+            raise MemoryError(_text(error.message) if error is not None else "native core: allocation failed")
+        if status != DC_OK:
+            _raise(status)
+
+    def _normal_power_bounds_mw(self):
+        low, high = ctypes.c_int64(), ctypes.c_int64()
+        self._pl_check(load().dc_pl_normal_bounds(ctypes.byref(self._pl_statics()), ctypes.byref(low),
+                                                  ctypes.byref(high)))
+        return low.value, high.value
+
+    def _power_request_bounds_mw(self, current, *, xoc, live):
+        """current widens the range only when it is a plain int (Python's `type(current) is int`)
+        with 0 < current < 0xFFFFFFFF; the core applies the range gate."""
+        whole = type(current) is int and -(1 << 63) <= current < (1 << 63)
+        low, high = ctypes.c_int64(), ctypes.c_int64()
+        self._pl_check(load().dc_pl_request_bounds(ctypes.byref(self._pl_statics()), 1 if whole else 0,
+                                                   current if whole else 0, 1 if xoc else 0, 1 if live else 0,
+                                                   ctypes.byref(low), ctypes.byref(high)))
+        return low.value, high.value
+
+    def power_limit_bounds_mw(self, *, xoc=None):
+        """Current request bounds, independent of original-BIOS color provenance."""
+        if xoc is None:
+            xoc = bool(getattr(self, "voltage_xoc_enabled", False))
+        low, high, error = ctypes.c_int64(), ctypes.c_int64(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = self._pl_call(load().dc_pl_bounds, 1 if xoc else 0, ctypes.byref(low), ctypes.byref(high),
+                               ctypes.byref(error))
+        self._pl_check(status, error)
+        return low.value, high.value
+
+    def _read_power_limit_nvml(self):
+        """Configured NVML request only; never substitute enforced telemetry."""
+        has, mw = ctypes.c_int32(), ctypes.c_uint32()
+        self._pl_check(load().dc_pl_read_nvml(self._handle, ctypes.byref(has), ctypes.byref(mw)))
+        return mw.value if has.value else None
+
+    def read_power_limit_mw(self):
+        """Configured power request in mW (NVML, else the live request while NVAPI is live), or None.
+        Takes no self._lock: read_power_policies' inputs callback calls it under the handle mutex."""
+        has, mw, error = ctypes.c_int32(), ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = self._pl_call(load().dc_pl_read, ctypes.byref(has), ctypes.byref(mw), ctypes.byref(error))
+        self._pl_check(status, error)
+        return mw.value if has.value else None
+
+    def set_power_limit_mw(self, mw):
+        """(ok, message) as nvbackend's: the NVML write with exact readback for a normal request, the
+        live client-power SET (with its single compensation) outside the normal range or without a
+        usable NVML request; the user's policy pins re-applied after a board write."""
+        if type(mw) not in (int, float):
+            return False, "power limit must be a finite number in whole milliwatts"
+        try:
+            valid = math.isfinite(mw) and 0 < mw < (1 << 32) and int(mw) == mw
+        except OverflowError:
+            valid = False
+        if not valid:
+            return False, "power limit must be a finite number in whole milliwatts"
+        mw = int(mw)
+        xoc = 1 if getattr(self, "voltage_xoc_enabled", False) else 0
+        library = load()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(self._PL_MESSAGE)
+        with self._lock:
+            status = self._pl_call(library.dc_pl_set, mw, xoc, ctypes.byref(ok), message, len(message),
+                                   ctypes.byref(needed))
+            if status == DC_E_RANGE:  # _reapply_power_policy_pins' IndexError
+                raise IndexError("list index out of range")
+            self._pl_check(status)
+            while needed.value > len(message):  # never repeat a write to fetch its text
+                message = ctypes.create_string_buffer(needed.value)
+                self._pl_check(library.dc_pl_message_get(self._handle, message, len(message), ctypes.byref(needed)))
+        return bool(ok.value), message.value.decode(errors="replace")
+
+    def _set_power_limit_nvml(self, mw):
+        """The NVML write and its read-back alone: (ok, message, configured mW)."""
+        if not isinstance(mw, int):
+            raise TypeError(f"int expected instead of {type(mw).__name__}")
+        if not -(1 << 63) <= mw < (1 << 63):
+            raise ValueError("power limit does not fit a 64-bit integer")
+        out, has, got = _Outcome(), ctypes.c_int32(), ctypes.c_uint32()
+        status = self._pl_call(load().dc_pl_set_nvml, int(mw), ctypes.byref(out), ctypes.byref(has), ctypes.byref(got))
+        if status == DC_E_UNAVAILABLE:
+            raise AttributeError("nvmlDeviceSetPowerManagementLimit")
+        self._pl_check(status)
+        ok, text = self._outcome(out)
+        return ok, text, (got.value if has.value else None)
 
     # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
 

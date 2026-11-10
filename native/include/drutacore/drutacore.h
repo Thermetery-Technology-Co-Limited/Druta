@@ -246,6 +246,11 @@ typedef struct dc_telemetry {
     uint32_t vf_locked_domains[32];
     double vf_lock_mv;
     uint32_t clk_lock_min_mhz, clk_lock_max_mhz;
+    /* 1 when pl_requested_mw came from a live client-power read that succeeded inside this tick
+     * (NVML's request unreadable, NVAPI live): that read back-filled the handle's absent pl_min_mw /
+     * pl_def_mw / pl_max_mw capabilities (dc_gpu_capabilities_get), as Python's sweep back-fills
+     * GPU.static; a caller keeping its own copy re-syncs then. 0 otherwise. */
+    int32_t pl_from_live;
 } dc_telemetry;
 
 /* One telemetry tick: every reader runs; absent values are left out of present. */
@@ -1065,5 +1070,6 @@ DC_API dc_status DC_CALL dc_hook_thunk(uint64_t address, uint64_t target, uint32
 #endif
 
 #include "drutacore/clkdom.h"         /* private clock-domain rows and names */
+#include "drutacore/power_limit.h"    /* dc_pl_*: the board power limit (needs dc_cl_statics) */
 #include "drutacore/vfplan.h"  /* the pure V/F planners */
 #endif /* DRUTACORE_H */

@@ -13,9 +13,12 @@ FRESH card per side, runs the same setup and action, and compares
 - GPU._board_policy afterwards (the storage a unique board candidate is remembered in);
 - GPU._last_policy_table afterwards (the cache read_power_policies relies on).
 
-read_power_limit_mw is the binding's input until increment A8: the twin keeps its own (NVML
-answers from the card) and the core is given the same reading of the card; cases that need
-NVML's limit unreadable, or a different one, replace it on both sides alike.
+The board reading is read_power_limit_mw. Since increment A8 the binding's inputs callback calls
+the native one (dc_pl_read: NVML, else the live request); this card serves no client-power
+commands, so here the twin keeps its own (NVML answers from the card) and the core's is replaced
+by the same reading of the card; cases that need NVML's limit unreadable, or a different one,
+replace it on both sides alike. The real reader on both sides, NVML failing, working or missing,
+runs on the live rig: tests.test_native_power_limit.PowerPoliciesReaderTests.
 
 The derived clamp inside read_power_policies (get_current_limits' read_live_power_request branch)
 runs on the A6 rig of tests.test_native_current_limit_state instead, whose fixture serves the

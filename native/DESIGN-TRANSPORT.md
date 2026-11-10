@@ -655,9 +655,10 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `_policy_amount`, `_power_policy_rows`, `power_policy_unwritable_reason` and `read_power_policies` as
    `CurrentLimits::policy_rows`, `unwritable_reason` and `read_power_policies`, `dc_cl_policy_amount`,
    `dc_cl_policy_unwritable_reason`, `dc_cl_policy_rows`, `dc_cl_power_policies_read`;
-   `tests/test_native_power_policies.py`. `read_power_limit_mw` belongs to the power-limit layer, which is
-   not ported, so `read_power_policies` reads it, with the `pl_*` statics, through a second caller-supplied
-   callback (`dc_cl_policy_inputs_fn`); the binding supplies both until that layer lands. As in Python, the
+   `tests/test_native_power_policies.py`. `read_power_policies` reads `read_power_limit_mw` and the `pl_*`
+   statics through a second caller-supplied callback (`dc_cl_policy_inputs_fn`): the statics are the caller's
+   dict, and since increment A8 the binding's callback calls the native `read_power_limit_mw` (`dc_pl_read`,
+   the power-limit layer below), whose live fallback back-fills the statics before the rows are built. As in Python, the
    derived-clamp confirmation is remembered only after the confirm callback has returned and the request
    has passed its bounds check, so a refused or failed confirmation names no policy. The policy writer and
    the user's values are done: `_write_policy_limit`, `_pin`, `set_power_policy` and
@@ -770,6 +771,31 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    `backend/legacy_p0`, `dc_legacy_p0_*`, `dc_gpu_vf_lock_recovery_get` / `_set`, `dc_gpu_vf_lock_entry_get`,
    `dc_gpu_read_vcore_mv`, `tests/test_native_legacy_p0.py`, with the two context managers composed in
    `druta.native_legacy_p0`.)
+
+   The board power limit (increment A8): `POWER_LIMIT_XOC_MAX_MW`, `_normal_power_bounds_mw`,
+   `_power_request_bounds_mw`, `power_limit_bounds_mw`, `_read_power_limit_nvml`, `read_power_limit_mw`,
+   `set_power_limit_mw` and `_set_power_limit_nvml` as `backend/power_limit` (`PowerLimit`), `dc_pl_*`
+   (`drutacore/power_limit.h`), `tests/test_native_power_limit.py`. It composes the existing pieces and
+   re-implements none: NVML's configured-limit getter (`Telemetry::read_power_limit_nvml`, never the
+   enforced limit), the live read with its bookkeeping (`ClientPowerController::live_read`), the live SET
+   with its single compensation (`set_request`, its peer writer the handle's `druta::abi::write_peer`), and
+   the pin re-application (`CurrentLimits::reapply_power_policy_pins`), all under the handle lock for the
+   whole call. A failed live SET stores its rollback's verified readback as the last observation, as Python
+   assigns `_live_power_last`. The route (NVML or live) is decided only by NVML's setter export, the
+   readability of the configured request, the normal range and the live observation: no driver version,
+   board, device, subsystem or VBIOS identity. The normal range's fallbacks for a missing `pl_min_mw` /
+   `pl_max_mw` (50000 / 400000 mW) are Python's values kept for parity, not device facts. The caller's
+   `pl_*` statics go in as `dc_cl_statics` and come back in place where a live read inside the call
+   back-filled a key the caller passed without a value, so the binding sets its dict at the point Python
+   does. The set message carries the re-application note and the live SET's rollback text, so it is
+   returned in a caller-sized buffer and kept in full per handle for `dc_pl_message_get`; the binding holds
+   `Gpu._lock` around the call and the fetch. The telemetry sweep's `pl_requested_mw` is now
+   `read_power_limit_mw`, live fallback included, as nvbackend's `_read_power` (through
+   `Telemetry::power_limit_reader`, set by the handle). When that sweep's live read succeeded,
+   `dc_telemetry.pl_from_live` is 1 and the binding re-syncs its `static` dict's None or absent `pl_*` keys
+   from the handle's capabilities, as Python's sweep back-fills `GPU.static`; on any other tick it leaves
+   them alone. `read_power_policies`' inputs callback calls the native `read_power_limit_mw`. Everything is session-only: nothing is stored for, or re-applied after, a
+   GPU driver restart.
 
 ### 3.10 Corrections to the design-panel output
 

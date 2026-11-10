@@ -282,6 +282,7 @@ DC_API dc_status DC_CALL dc_gpu_read_telemetry(dc_gpu* handle, dc_telemetry* out
     }
     put(t.temp_delta, d.temp_delta, DC_T_TEMP_DELTA);
     put(t.pl_requested_mw, d.pl_requested_mw, DC_T_PL_REQUESTED);
+    t.pl_from_live = d.pl_from_live ? 1 : 0;
     put(t.power_w, d.power_w, DC_T_POWER_W);
     put(t.pl_now_mw, d.pl_now_mw, DC_T_PL_NOW);
     put(t.pwr_gpu_pct, d.pwr_gpu_pct, DC_T_PWR_GPU_PCT);

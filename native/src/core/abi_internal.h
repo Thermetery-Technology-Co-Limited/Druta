@@ -25,6 +25,7 @@
 #include "backend/gpu.h"
 #include "backend/outcome.h"
 #include "backend/power_layouts.h"
+#include "backend/power_limit.h"
 #include "backend/legacy_p0.h"
 #include "backend/rails.h"
 #include "backend/rm_transport.h"
@@ -46,9 +47,17 @@ struct dc_gpu {
     druta::backend::ClockBios clock_bios;      // the clock-BIOS reader (its own sticky identity)
     druta::backend::Rails rails;               // the voltage-rail getters and their caches (GPU._volt_rail_*)
     druta::backend::LegacyP0 legacy_p0;        // the session's legacy P0 request ownership (GPU._legacy_p0_owned)
+    druta::backend::PowerLimit pl;             // the board power limit (read / bounds / set_power_limit_mw)
     std::optional<druta::backend::StaticCapabilities> statics;  // GPU.static, read once like Python's
     std::optional<druta::backend::VfCurve> vfcurve;             // carries the layout cache, as GPU._vfp_layout_cache
-    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm), clock_bios(gpu, telemetry, rm, clkdom), rails(gpu, telemetry), legacy_p0(gpu, telemetry) {}
+    explicit dc_gpu(const std::string& slot) : gpu(slot), telemetry(gpu), rm(gpu, telemetry), vflock(gpu, telemetry, &rm), clkdom(gpu, telemetry), cl(gpu, telemetry, rm, clkdom), target(gpu, telemetry), cp(gpu, telemetry, rm), perf(gpu, telemetry, rm), clock_bios(gpu, telemetry, rm, clkdom), rails(gpu, telemetry), legacy_p0(gpu, telemetry),
+          pl(gpu, telemetry, cp, cl, [this]() -> druta::backend::StaticCapabilities& { capabilities(); return *statics; }) {
+        // The sweep's pl_requested_mw is read_power_limit_mw, live fallback included (nvbackend
+        // _read_power). The handle owns both, so the reader never outlives what it refers to.
+        telemetry.power_limit_reader = [this](bool& from_live) { return pl.read(nullptr, &from_live); };
+    }
+    dc_gpu(const dc_gpu&) = delete;  // the readers above capture this handle
+    dc_gpu& operator=(const dc_gpu&) = delete;
     const druta::backend::StaticCapabilities& capabilities() {
         if (!statics) statics = telemetry.read_static();
         return *statics;
@@ -81,6 +90,30 @@ inline void copy_field(char* field, std::size_t size, const std::string& text) {
 inline void put_outcome(const druta::backend::Outcome& outcome, dc_outcome* out) {
     out->ok = outcome.ok ? 1 : 0;
     copy_field(out->message, sizeof(out->message), outcome.message);
+}
+
+// dc_cl_statics (the caller's GPU.static pl_* keys, DC_CL_STATIC_*): shared by the current-limit
+// (B2) and power-limit (A8) entries. statics_ok checks the size and each state; get_statics maps
+// them to the backend's tri-state keys (an absent and a None key stay distinct).
+inline bool statics_ok(const dc_cl_statics* st) {
+    auto state_ok = [](int32_t s) { return s == DC_CL_STATIC_ABSENT || s == DC_CL_STATIC_NONE || s == DC_CL_STATIC_VALUE; };
+    return st && st->size == sizeof(dc_cl_statics) && state_ok(st->pl_min_state) && state_ok(st->pl_def_state) &&
+           state_ok(st->pl_max_state);
+}
+
+inline druta::backend::StaticKey static_key(int32_t state, int64_t value) {
+    using druta::backend::StaticKey;
+    StaticKey key;
+    key.kind = state == DC_CL_STATIC_VALUE  ? StaticKey::Kind::value
+               : state == DC_CL_STATIC_NONE ? StaticKey::Kind::none
+                                            : StaticKey::Kind::absent;
+    key.value = value;
+    return key;
+}
+
+inline druta::backend::StaticTriState get_statics(const dc_cl_statics& st) {
+    return {static_key(st.pl_min_state, st.pl_min_mw), static_key(st.pl_def_state, st.pl_def_mw),
+            static_key(st.pl_max_state, st.pl_max_mw)};
 }
 
 // has == 0 is Python's None.

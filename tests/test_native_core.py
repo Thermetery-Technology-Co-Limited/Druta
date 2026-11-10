@@ -87,3 +87,27 @@ def test_candidate_paths_are_absolute_and_honor_override(tmp_path):
     paths = native.candidate_paths({"DRUTA_NATIVE_LIB": str(tmp_path / "x.so")})
     assert paths[0] == tmp_path / "x.so"
     assert all(path.is_absolute() for path in paths)
+
+
+def test_load_reports_an_unusable_candidate_as_native_unavailable(monkeypatch):
+    """A candidate whose is_file() raises (a name too long, a directory the account cannot search;
+    Python 3.13 re-raises those) is one path's failure, not an escaping OSError."""
+    import errno
+    from pathlib import Path
+
+    class Unusable(type(Path())):
+        def is_file(self, *args, **kwargs):
+            raise OSError(errno.ENAMETOOLONG, "File name too long")
+
+    path = Unusable("/unusable/libdrutacore.so")
+    saved = native._library, native._error
+    try:
+        native._library, native._error = None, None
+        monkeypatch.setattr(native, "candidate_paths", lambda environ=None: [path])
+        with pytest.raises(native.NativeUnavailable) as raised:
+            native.load()
+        assert f"{path}: [Errno {errno.ENAMETOOLONG}] File name too long" in str(raised.value)
+        with pytest.raises(native.NativeUnavailable):  # the failure is kept, as for a missing file
+            native.load()
+    finally:
+        native._library, native._error = saved

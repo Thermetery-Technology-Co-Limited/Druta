@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -62,6 +63,9 @@ struct Snapshot {
     std::vector<double> temp_sensors;  // rounded to one decimal, as Python's round(t, 1)
     std::optional<double> temp_delta;
     std::optional<std::uint32_t> pl_requested_mw;
+    // pl_requested_mw came from a live client-power read that succeeded inside this sweep (its
+    // back-fill of the handle's pl_* capabilities ran): the binding re-syncs its static dict then.
+    bool pl_from_live = false;
     std::optional<double> power_w;
     std::optional<std::uint32_t> pl_now_mw;
     std::optional<double> pwr_gpu_pct, pwr_board_pct, pl_target_pct, vcore_mv;
@@ -134,6 +138,11 @@ public:
     // nullopt when NVAPI is down, the interface is absent, the status is nonzero or the value is 0.
     std::optional<double> read_vcore_mv();
     std::optional<std::uint32_t> read_power_limit_nvml();
+    // read_power's pl_requested_mw: GPU.read_power_limit_mw (the NVML request, else the live
+    // request while NVAPI is live; PowerLimit::read, installed by the handle). Unset, the NVML
+    // request alone (a Telemetry without the client-power layer, as the self-test builds). The
+    // argument is set true when the value came from a live read that succeeded.
+    std::function<std::optional<std::uint32_t>(bool& from_live)> power_limit_reader;
     std::vector<std::uint32_t> supported_nvml_clocks(const char* function, std::optional<std::uint32_t> selector);
 
     // The first PCIe error total seen by this GPU object (Python _pcie_baseline).

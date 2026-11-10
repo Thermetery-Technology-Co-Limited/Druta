@@ -430,25 +430,8 @@ using druta::backend::StaticTriState;
 
 constexpr int64_t kExactDouble = int64_t{1} << 53;  // value / 1000 is Python's quotient up to here
 
-bool statics_ok(const dc_cl_statics* st) {
-    auto state_ok = [](int32_t s) { return s == DC_CL_STATIC_ABSENT || s == DC_CL_STATIC_NONE || s == DC_CL_STATIC_VALUE; };
-    return st && st->size == sizeof(dc_cl_statics) && state_ok(st->pl_min_state) && state_ok(st->pl_def_state) &&
-           state_ok(st->pl_max_state);
-}
-
-StaticKey static_key(int32_t state, int64_t value) {
-    StaticKey key;
-    key.kind = state == DC_CL_STATIC_VALUE ? StaticKey::Kind::value
-               : state == DC_CL_STATIC_NONE ? StaticKey::Kind::none
-                                            : StaticKey::Kind::absent;
-    key.value = value;
-    return key;
-}
-
-StaticTriState get_statics(const dc_cl_statics& st) {
-    return {static_key(st.pl_min_state, st.pl_min_mw), static_key(st.pl_def_state, st.pl_def_mw),
-            static_key(st.pl_max_state, st.pl_max_mw)};
-}
+using druta::abi::get_statics;
+using druta::abi::statics_ok;
 
 void put_policy_row(const PolicyRow& row, dc_policy_row* out) {
     std::memset(out, 0, sizeof(*out));

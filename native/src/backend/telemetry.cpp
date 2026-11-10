@@ -325,9 +325,12 @@ std::optional<std::uint32_t> Telemetry::read_power_limit_nvml() {
 void Telemetry::read_power(Snapshot& d) {
     Nvml& nv = gpu_.nvml;
     if (nv.ok) {
-        // read_power_limit_mw: the NVML request; the live-power (RM) fallback
-        // is not part of this slice and stays with the transport layer.
-        d.pl_requested_mw = read_power_limit_nvml();
+        // read_power_limit_mw, as Python's _read_power calls it: the NVML request, else (NVAPI
+        // live) the live client-power request, whose RM escapes then run inside the sweep under
+        // the handle lock, with read_live_power_request's bookkeeping and back-fill.
+        bool from_live = false;
+        d.pl_requested_mw = power_limit_reader ? power_limit_reader(from_live) : read_power_limit_nvml();
+        d.pl_from_live = from_live;
         std::uint32_t v = 0;
         if (auto fn = nv.get<HandleU32Fn>("nvmlDeviceGetPowerUsage"); fn && fn(nv.dev, &v) == 0) d.power_w = v / 1000.0;
         if (auto fn = nv.get<HandleU32Fn>("nvmlDeviceGetEnforcedPowerLimit"); fn && fn(nv.dev, &v) == 0) d.pl_now_mw = v;
