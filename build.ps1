@@ -71,7 +71,7 @@ function Get-SourceSnapshot {
         'Druta.spec', 'build.ps1', 'requirements.txt',
         'pyproject.toml', 'setup.py', 'MANIFEST.in',
         '.github/PULL_REQUEST_TEMPLATE/i2c_profile.md',
-        'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
+        'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md', 'HANDOFF.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
         'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md', 'ADAPTER-MATRIX.md',
         'RELEASE-NOTES-1.3.0.md', 'RELEASE-NOTES-1.5.0a.md', 'RELEASE-NOTES-1.5.1.md',

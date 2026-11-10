@@ -1,5 +1,8 @@
 # Druta
 
+**C++ rewrite (`cpp/core`):** use [HANDOFF.md](HANDOFF.md) for the Windows build,
+real-machine test sequence, expected results and remaining validation work.
+
 **Version 1.9.1** — latest stable release, [release notes](RELEASE-NOTES-1.9.1.md).
 Supersedes 1.8.1 and the 1.9 prereleases. Adds registry/BIOS overrides with
 durable Undo, session-only live voltage and power-saving controls, extended
