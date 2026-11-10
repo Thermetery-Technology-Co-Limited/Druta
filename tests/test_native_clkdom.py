@@ -8,13 +8,11 @@ same result, the same driver call sequence (every SET logs the whole declared
 block it was handed, so a write that disturbs an unknown byte fails), and the
 same fake-driver state afterwards. The fixture values are inputs to the
 control logic, not claims about any board."""
-import copy
 import ctypes
 import math
 import unittest
 
 from druta import native, nvbackend
-from tests.test_native_telemetry import Rig, u32_callback
 from tests.test_native_vflock import ParityCase
 
 if not native.available():
@@ -22,184 +20,28 @@ if not native.available():
 
 CDECL = ctypes.CFUNCTYPE
 NV = nvbackend
-UNKNOWN = object()  # ClkDomRig(arch=UNKNOWN): no architecture export at all
+from tests.fake_driver import CLKDOM_BLACKWELL as BLACKWELL  # noqa: E402, F401
+from tests.fake_driver import CLKDOM_SIZE as SIZE  # noqa: E402, F401
+from tests.fake_driver import CLKDOM_TURING as TURING  # noqa: E402, F401
+from tests.fake_driver import (  # noqa: E402, F401
+    DRIFT_WORD,
+    GET_ID,
+    MEASURE_ID,
+    MEASURE_VERSION,
+    SET_ID,
+    UNKNOWN,
+    VERSION,
+    Block,
+    ClkDomRig,
+    diff_words,
+    filler,
+    word,
+)
 
-GET_ID, SET_ID, MEASURE_ID = 0xF58938F5, 0xD14B69CF, 0x527FC458
-VERSION, SIZE = 0x000261A4, 0x61A4
-MEASURE_VERSION = 0x0001000C
-DRIFT_WORD = 3  # a header word the drifting fake bumps on every GET
-TURING, BLACKWELL = NV.CLKDOM_LAYOUT_TURING, NV.CLKDOM_LAYOUT_BLACKWELL
 NO_GETTER = ("unavailable", "clock-control getter is unavailable; Refresh capabilities retries discovery")
 NO_DOMAIN = ("unavailable", "no clock-control domain answered; Refresh capabilities retries discovery")
 
 
-def word(layout, control, field):
-    """Dword index of `field` (a layout byte offset) in control `control`'s entry."""
-    return (layout.header + control * layout.stride + field) // 4
-
-
-def filler(control, k):
-    return (0xC0DE0000 | (control << 8) | k) & 0xFFFFFFFF
-
-
-class Block(bytes):
-    """The SET's bytes; a short repr keeps a failing parity diff readable."""
-
-    def __repr__(self):
-        return f"Block(len={len(self)}, crc={hash(bytes(self)) & 0xFFFFFFFF:08x})"
-
-
-def diff_words(a, b):
-    wa = (ctypes.c_uint32 * (len(a) // 4)).from_buffer_copy(a)
-    wb = (ctypes.c_uint32 * (len(b) // 4)).from_buffer_copy(b)
-    return [(i, hex(wa[i]), hex(wb[i])) for i in range(len(wa)) if wa[i] != wb[i]]
-
-
-class ClkDomRig(Rig):
-    """Rig plus a stateful clock-control block.
-
-    accepted:     control indices the fake driver accepts (any other mask bit fails the WHOLE GET with -1)
-    get_status:   every GET fails with this status
-    fail_after:   GETs fail with fail_status once this many GETs have succeeded (fail_times times, or forever)
-    echo_version / echo_mask: what a successful GET echoes, from the echo_from'th successful GET on
-    drift:        every GET bumps header word 3, so two reads never match
-    reassert:     the SET returns 0 and changes nothing
-    preload:      {control: {field: value}} over the default entries
-    """
-
-    def __init__(self, *, arch=6, accepted=None, with_get=True, with_set=True, get_status=0, set_status=0,
-                 echo_version=VERSION, echo_mask=True, echo_from=0, drift=False, reassert=False,
-                 fail_after=None, fail_status=-5, fail_times=None, with_measure=False, measure_values=None,
-                 preload=None, **kw):
-        super().__init__(**kw)
-        self.accepted_config = list(range(10)) if accepted is None else list(accepted)
-        self.get_status, self.set_status = get_status, set_status
-        self.echo_version, self.echo_mask, self.echo_from = echo_version, echo_mask, echo_from
-        self.drift, self.reassert = drift, reassert
-        self.fail_after, self.fail_status, self.fail_times = fail_after, fail_status, fail_times
-        self.measure_values = dict(measure_values or {})
-        self.preload = copy.deepcopy(preload or {})
-        # the fake driver's field placement for this generation (Kepler/Maxwell/unknown: the Turing shape)
-        self.layout = BLACKWELL if arch == 10 else TURING
-        e, i, n = self.nvml.exports, self.nvapi.interfaces, self.names
-        if arch is UNKNOWN:
-            e.pop("nvmlDeviceGetArchitecture", None)
-        else:
-            e["nvmlDeviceGetArchitecture"] = u32_callback(arch)
-        self.reset()
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def get(handle, pointer):
-            words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
-            version, mask = words[0], words[2]
-            self.calls.append(("ClkDomCtlGet", mask))
-            self.gets += 1
-            if version != VERSION:
-                return -9
-            if self.get_status:
-                return self.get_status
-            if self.fail_after is not None and self.successes >= self.fail_after and (
-                    self.fail_times is None or self.failures < self.fail_times):
-                self.failures += 1
-                return self.fail_status
-            allowed = 0
-            for d in self.accepted:
-                allowed |= 1 << d
-            if mask == 0 or mask & ~allowed:
-                return -1
-            self.fill(words, mask, bad_echo=self.successes >= self.echo_from)
-            self.successes += 1
-            return 0
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def set_(handle, pointer):
-            data = Block(ctypes.string_at(pointer, SIZE))
-            self.calls.append(("ClkDomCtlSet", data))
-            if self.set_status:
-                return self.set_status
-            if not self.reassert:
-                words = (ctypes.c_int32 * (SIZE // 4)).from_buffer_copy(data)
-                mask = words[2] & 0xFFFFFFFF
-                lay = self.layout
-                for d in range(32):
-                    if mask >> d & 1:
-                        self.entries[d] = {
-                            "mode": words[word(lay, d, lay.mode)], "freq": words[word(lay, d, lay.freq_khz)],
-                            "nvvdd": words[word(lay, d, lay.nvvdd_uv)], "msvdd": words[word(lay, d, lay.msvdd_uv)]}
-            return 0
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def measure(handle, pointer):
-            words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
-            self.calls.append(("ClkMeasureFreq", words[0], words[1]))
-            if words[0] != MEASURE_VERSION:
-                return -9
-            if words[1] not in self.measure_values:
-                return -104
-            words[2] = self.measure_values[words[1]]
-            return 0
-
-        if with_get:
-            n["ClkDomCtlGet"] = i[GET_ID] = get
-        if with_set:
-            n["ClkDomCtlSet"] = i[SET_ID] = set_
-        if with_measure:
-            n["ClkMeasureFreq"] = i[MEASURE_ID] = measure
-
-    def fill(self, words, mask, *, bad_echo=True):
-        lay = self.layout
-        signed = ctypes.cast(words, ctypes.POINTER(ctypes.c_int32))
-        for d in range(32):
-            if not mask >> d & 1:
-                continue
-            base = (lay.header + d * lay.stride) // 4
-            for k in range(lay.stride // 4):
-                words[base + k] = filler(d, k)
-            entry = self.entries[d]
-            signed[word(lay, d, lay.mode)] = entry["mode"]
-            signed[word(lay, d, lay.freq_khz)] = entry["freq"]
-            signed[word(lay, d, lay.nvvdd_uv)] = entry["nvvdd"]
-            signed[word(lay, d, lay.msvdd_uv)] = entry["msvdd"]
-        words[0] = self.echo_version if bad_echo else VERSION
-        words[2] = mask if (self.echo_mask or not bad_echo) else 0
-        if self.drift:
-            words[DRIFT_WORD] = self.gets
-
-    def expected_block(self, mask, changes=()):
-        """The declared block a GET of `mask` produces from the configured state, with `changes` applied."""
-        saved = (self.entries, self.gets)
-        self.entries = self.initial_entries()
-        try:
-            buf = (ctypes.c_uint32 * (SIZE // 4))()
-            buf[0], buf[2] = VERSION, mask
-            self.fill(buf, mask)
-        finally:
-            self.entries, self.gets = saved
-        signed = ctypes.cast(buf, ctypes.POINTER(ctypes.c_int32))
-        for index, value in dict(changes).items():
-            signed[index] = value
-        return bytes(buf)
-
-    def initial_entries(self):
-        entries = {d: {"mode": 8 if d % 2 == 0 else 9, "freq": 0, "nvvdd": 0, "msvdd": 0} for d in range(32)}
-        for d, fields in self.preload.items():
-            entries[d].update(fields)
-        return entries
-
-    def reset(self):
-        self.calls = []
-        self.accepted = list(self.accepted_config)
-        self.entries = self.initial_entries()
-        self.successes = self.failures = self.gets = 0
-
-    def state(self):
-        return copy.deepcopy(self.entries)
-
-    def python_gpu(self):
-        gpu = super().python_gpu()
-        for name in ("ClkDomCtlGet", "ClkDomCtlSet", "ClkMeasureFreq"):
-            setattr(gpu.nvapi, name, self.names.get(name))
-        return gpu
 
 
 def attr(gpu, name, default=None):

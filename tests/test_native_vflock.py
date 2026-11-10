@@ -7,13 +7,10 @@ One mutable fake lock table and voltage-control block serve nvbackend.GPU and
 the native core in turn. Every entry point must produce the same result, the
 same setter buffers (every byte the driver wrote, not just the changed ones)
 and the same state afterwards."""
-import copy
 import ctypes
 import unittest
 
 from druta import native, nvbackend
-from tests.test_native_identity import write_u32
-from tests.test_native_telemetry import Rig, u32_callback
 
 if not native.available():
     raise unittest.SkipTest("native core not built (native/build.sh linux)")
@@ -21,105 +18,7 @@ if not native.available():
 CDECL = ctypes.CFUNCTYPE
 NV = nvbackend
 
-BOOST_LOCK, VF_LOCK_SET = 0xE440B867, 0x39442CFB
-VOLT_CTRL_GET, VOLT_CTRL_SET = 0x9DF23CA1, 0xB9306D9B
-
-
-def entry(domain, mode=0, volt=0):
-    return {"domain": domain, "unk1": 0x11000000 | domain, "lockMode": mode, "unk2": 0x22000000 | domain,
-            "volt_uV": volt, "unk3": 0x33000000 | domain}
-
-
-class LockRig(Rig):
-    """Rig plus a stateful 780-byte lock table and voltage-control block.
-
-    table:   the entries the getter reports (count = len(table) unless count is set)
-    set_status: the setter's return code; reassert: the setter returns 0 but changes nothing
-    fail_get_after_set: the getter stops answering after the first accepted write (until reset)
-    """
-
-    def __init__(self, *, arch=7, with_setter=True, set_status=0, reassert=False, fail_get_after_set=False,
-                 volt_set_status=0, with_volt_set=True, volt_get_status=0, **kw):
-        super().__init__(**kw)
-        self.set_status, self.reassert = set_status, reassert
-        self.fail_get_after_set_once = fail_get_after_set  # re-armed by reset(), consumed by one accepted write
-        self.volt_set_status, self.volt_get_status = volt_set_status, volt_get_status
-        self.reset()
-        e, i, n = self.nvml.exports, self.nvapi.interfaces, self.names
-        e["nvmlDeviceGetArchitecture"] = u32_callback(arch)
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def boost_lock(handle, pointer):
-            self.calls.append(("BoostLock",))
-            if self.get_status:
-                return self.get_status
-            cl = NV._ClockLock.from_address(pointer)
-            if cl.version != NV.NvAPI.ver(NV._ClockLock, 2):
-                return -9
-            cl.flags = self.flags
-            cl.count = self.count if self.count is not None else len(self.table)
-            for k, row in enumerate(self.table):
-                for field, value in row.items():
-                    setattr(cl.locks[k], field, value)
-            return 0
-        n["BoostLock"] = i[BOOST_LOCK] = boost_lock
-
-        if with_setter:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def vf_lock_set(handle, pointer):
-                cl = NV._ClockLock.from_address(pointer)
-                rows = [{f: getattr(cl.locks[k], f) for f, _ in NV._LockEntry._fields_} for k in range(min(cl.count, 32))]
-                self.calls.append(("VfLockSet", cl.version, cl.flags, cl.count, rows))
-                if self.set_status:
-                    return self.set_status
-                if not self.reassert:
-                    self.table = copy.deepcopy(rows)
-                if self.fail_get_after_set:
-                    self.get_status = -1
-                    self.fail_get_after_set = False
-                return 0
-            n["VfLockSet"] = i[VF_LOCK_SET] = vf_lock_set
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def volt_get(handle, pointer):
-            if self.volt_get_status:
-                return self.volt_get_status
-            vc = NV._VoltBoost.from_address(pointer)
-            vc.percent = self.vboost["percent"]
-            for k, word in enumerate(self.vboost["unknown"]):
-                vc.unknown[k] = word
-            return 0
-        n["VoltCtrlGet"] = i[VOLT_CTRL_GET] = volt_get
-
-        if with_volt_set:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def volt_set(handle, pointer):
-                vc = NV._VoltBoost.from_address(pointer)
-                self.calls.append(("VoltCtrlSet", vc.version, vc.percent, tuple(vc.unknown)))
-                if self.volt_set_status:
-                    return self.volt_set_status
-                self.vboost = {"percent": vc.percent, "unknown": list(vc.unknown)}
-                return 0
-            n["VoltCtrlSet"] = i[VOLT_CTRL_SET] = volt_set
-
-    def reset(self):
-        self.calls = []
-        self.get_status = 0
-        self.fail_get_after_set = self.fail_get_after_set_once
-        self.flags = 0xF00D
-        self.count = None
-        self.table = [entry(d) for d in range(7)]
-        self.vboost = {"percent": 25, "unknown": [0x5A000000 | k for k in range(8)]}
-
-    def state(self):
-        return copy.deepcopy((self.table, self.vboost))
-
-    def python_gpu(self):
-        gpu = super().python_gpu()
-        for name in ("VfLockSet", "VoltCtrlSet"):
-            setattr(gpu.nvapi, name, self.names.get(name))
-        gpu.nvapi.VoltRailsCtlGet = None  # the Turing legacy capture has no transport here, on either side
-        return gpu
+from tests.fake_driver import BOOST_LOCK, VF_LOCK_SET, VOLT_CTRL_GET, VOLT_CTRL_SET, LockRig, entry  # noqa: E402, F401
 
 
 class ParityCase(unittest.TestCase):

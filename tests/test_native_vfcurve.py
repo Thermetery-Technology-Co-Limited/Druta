@@ -4,12 +4,10 @@
 Python twin, from one fake V/F table whose width, rows and deltas the test
 chooses. The probing call sequence, every layout field including the notes
 text, the points, the written rows and every refusal must agree."""
-import copy
 import ctypes
 import unittest
 
 from druta import native, nvbackend
-from tests.test_native_telemetry import Rig, u32_callback
 from tests.test_native_vflock import ParityCase
 
 if not native.available():
@@ -17,94 +15,15 @@ if not native.available():
 
 CDECL = ctypes.CFUNCTYPE
 NV = nvbackend
-VFP_CURVE, BOOST_GET, BOOST_SET = 0x21537AD4, 0x23F1B133, 0x0733E009
-
-
-def mask_bits(masks):
-    return sum(bin(m).count("1") for m in masks)
-
-
-def turing_rows(n=128):
-    return [(400000 + 6250 * i, 300000 + 15000 * i) for i in range(n)]
-
-
-def pascal_rows():
-    gpu = [(412500 + 10000 * i, 2 * (139000 + 12657 * i)) for i in range(80)]
-    memory = [(550000, 405000), (550000, 810000), (550000, 5001000), (550000, 7001000)]
-    return gpu + memory
-
-
-class CurveRig(Rig):
-    """Rig plus a V/F table of `rows` (volt_uV, freq_kHz) the driver answers for
-    up to len(rows) mask bits (one more bit fails with status -1), and a delta
-    table the setter changes."""
-
-    def __init__(self, *, arch=6, rows=None, with_curve=True, with_get=True, with_set=True, get_status=0,
-                 set_status=0, curve_status=0, **kw):
-        super().__init__(**kw)
-        self.rows_config = list(rows if rows is not None else turing_rows())
-        self.get_status, self.set_status, self.curve_status = get_status, set_status, curve_status
-        self.reset()
-        e, i, n = self.nvml.exports, self.nvapi.interfaces, self.names
-        e["nvmlDeviceGetArchitecture"] = u32_callback(arch)
-
-        if with_curve:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def vfp_curve(handle, pointer):
-                cv = NV._VfpCurve.from_address(pointer)
-                bits = mask_bits(cv.masks)
-                self.calls.append(("VfpCurve", bits))
-                if cv.version != NV.NvAPI.ver(NV._VfpCurve, 1):
-                    return -9
-                if self.curve_status:
-                    return self.curve_status
-                if bits > len(self.rows):
-                    return -1
-                for k in range(bits):
-                    cv.entries[k].volt_uV, cv.entries[k].freq_kHz = self.rows[k]
-                return 0
-            n["VfpCurve"] = i[VFP_CURVE] = vfp_curve
-
-        if with_get:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def boost_get(handle, pointer):
-                bt = NV._BoostTable.from_address(pointer)
-                bits = mask_bits(bt.masks)
-                self.calls.append(("BoostTableGet", bits))
-                if self.get_status:
-                    return self.get_status
-                for k in range(bits):
-                    bt.rows[k].w[5] = self.deltas[k]
-                return 0
-            n["BoostTableGet"] = i[BOOST_GET] = boost_get
-
-        if with_set:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def boost_set(handle, pointer):
-                bt = NV._BoostTable.from_address(pointer)
-                bits = mask_bits(bt.masks)
-                written = tuple(bt.rows[k].w[5] for k in range(bits))
-                self.calls.append(("BoostTableSet", bt.version, bits, written))
-                if self.set_status:
-                    return self.set_status
-                self.deltas[:bits] = written
-                return 0
-            n["BoostTableSet"] = i[BOOST_SET] = boost_set
-
-    def reset(self):
-        self.calls = []
-        self.rows = list(self.rows_config)
-        self.deltas = [0] * 128
-
-    def state(self):
-        return copy.deepcopy((self.rows, self.deltas))
-
-    def python_gpu(self):
-        gpu = super().python_gpu()
-        for name in ("VfpCurve", "BoostTableGet", "BoostTableSet"):
-            setattr(gpu.nvapi, name, self.names.get(name))
-        gpu.static.update(gfx_max=2100, mem_clocks=[405, 810, 5001, 7001])  # what _read_static reads here
-        return gpu
+from tests.fake_driver import (  # noqa: E402, F401
+    BOOST_GET,
+    BOOST_SET,
+    VFP_CURVE,
+    CurveRig,
+    mask_bits,
+    pascal_rows,
+    turing_rows,
+)
 
 
 def delta_snapshot(g):

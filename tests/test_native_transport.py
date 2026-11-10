@@ -10,188 +10,35 @@ ctypes.WinDLL, the native core through the resolver seam (library "gdi32").
 Every case compares the result, the full gdi call log (including the packet
 bytes the escape received) and the packet contents afterwards."""
 import ctypes
-from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 
-from druta import native, nvbackend
-from tests.test_native_identity import TITAN
-from tests.test_native_telemetry import Rig, u32_callback
+from druta import native
 from tests.test_native_vflock import ParityCase
 
 if not native.available():
     raise unittest.SkipTest("native core not built (native/build.sh linux)")
 
-NV = nvbackend
-u32 = ctypes.c_uint32
-KMT = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_void_p)
-
-ENUM2, QUERY, CLOSE, ESCAPE = ("D3DKMTEnumAdapters2", "D3DKMTQueryAdapterInfo",
-                               "D3DKMTCloseAdapter", "D3DKMTEscape")
-ENUM, FROM_NAME, FROM_HDC = ("D3DKMTEnumAdapters", "D3DKMTOpenAdapterFromGdiDisplayName",
-                             "D3DKMTOpenAdapterFromHdc")
-REQUIRED = (ENUM2, QUERY, CLOSE, ESCAPE)
-FIELDS = dict(hAdapter=999, hDevice=0, Type=0, Flags=8, hContext=0)
-NTSTATUS_INVALID_PARAMETER = -1073741811  # 0xC000000D as a signed c_long
-
-
-# ctypes mirrors of native/src/win/d3dkmt.h (x64 layout)
-class Adapter(ctypes.Structure):
-    _fields_ = [("handle", u32), ("luid", u32 * 2), ("sources", u32), ("preferred", ctypes.c_int32)]
-
-
-class Enum2(ctypes.Structure):
-    _fields_ = [("count", u32), ("items", ctypes.POINTER(Adapter))]
-
-
-class Query(ctypes.Structure):
-    _fields_ = [("handle", u32), ("kind", u32), ("data", ctypes.c_void_p), ("size", u32)]
-
-
-assert ctypes.sizeof(Adapter) == 20
-
-
-def install(nvml=None, nvapi=None, gdi=None):
-    """test_native_identity.install plus library "gdi32": gdi is a dict name -> callback,
-    or None for "gdi32 not loadable"."""
-    def resolve(library, name):
-        table = {"nvml": nvml, "nvapi": nvapi, "gdi32": gdi}.get(library)
-        if table is None:
-            return None
-        if name == "":
-            return 1
-        if library == "nvapi":
-            return ctypes.cast(table.query, ctypes.c_void_p).value if name == "nvapi_QueryInterface" else None
-        fn = (table if library == "gdi32" else table.exports).get(name)
-        return ctypes.cast(fn, ctypes.c_void_p).value if fn else None
-    native.set_export_resolver(resolve)
-
-
-def slot_of(bus, device):
-    return f"0000:{bus:02x}:{device:02x}.0"  # NVAPI exposes bus and device only
-
-
-class TransportRig(Rig):
-    """Rig with the card at (bus, device) and a fake gdi32.
-
-    adapters: (handle, bus, device, function) the kernel enumerates
-    enum_status / escape_status: the return codes; query_fail: handles whose query fails
-    escape_writes: packet words the driver writes; missing: exports left out; gdi=False: no gdi32
-    """
-
-    def __init__(self, *, bus=1, device=0, adapters=None, enum_status=0, query_fail=(), escape_status=0,
-                 escape_writes=None, missing=(), gdi=True, nvml_devid=None, **kw):
-        super().__init__(**kw)
-        self.bus, self.device = bus, device
-        card = dict(TITAN, bus=bus, device=device)
-        if nvml_devid is not None:
-            card["devid"] = nvml_devid
-        self.nvml.devices[0] = card  # FakeNvml's callbacks read this list
-        self.nvapi.interfaces[0x1BE0B8E5] = u32_callback(bus)      # GetBusId
-        self.nvapi.interfaces[0x2A0A350F] = u32_callback(device)   # GetBusSlotId
-        self.adapters = [(111, 1, 0, 0), (222, 2, 0, 0), (333, 3, 0, 0)] if adapters is None else adapters
-        self.enum_status, self.query_fail, self.escape_status = enum_status, set(query_fail), escape_status
-        self.escape_writes = {16: 0, 17: 2} if escape_writes is None else escape_writes
-        self.missing, self.with_gdi = set(missing), gdi
-        self.calls = []
-        self.packet = None
-        self.windll = None
-        self.native_error = "unset"
-        self._callbacks = self._fake_gdi()
-        self.reset()
-
-    def _fake_gdi(self):
-        @KMT
-        def enum2(pointer):
-            self.calls.append(("EnumAdapters2",))
-            if self.enum_status:
-                return self.enum_status
-            request = Enum2.from_address(pointer)
-            capacity = request.count
-            request.count = len(self.adapters)
-            for k, (handle, *_) in enumerate(self.adapters[:capacity]):
-                request.items[k].handle = handle
-                request.items[k].luid[0], request.items[k].luid[1] = 0x1000 + k, 0
-            return 0
-
-        @KMT
-        def query(pointer):
-            request = Query.from_address(pointer)
-            self.calls.append(("QueryAdapterInfo", request.handle, request.kind, request.size))
-            hit = [a for a in self.adapters if a[0] == request.handle]
-            if request.handle in self.query_fail or not hit or request.kind != 6 or request.size != 12:
-                return -1
-            (u32 * 3).from_address(request.data)[:] = hit[0][1:]
-            return 0
-
-        @KMT
-        def close(pointer):
-            self.calls.append(("CloseAdapter", u32.from_address(pointer).value))
-            return 0
-
-        @KMT
-        def escape(pointer):
-            e = NV.GPU._Escape.from_address(pointer)
-            self.calls.append(("Escape", e.hAdapter, e.hDevice, e.Type, e.Flags, e.hContext,
-                               e.PrivateDriverDataSize, ctypes.string_at(e.pPrivateDriverData,
-                                                                         e.PrivateDriverDataSize)))
-            words = (u32 * (e.PrivateDriverDataSize // 4)).from_address(e.pPrivateDriverData)
-            for index, value in self.escape_writes.items():
-                words[index] = value
-            return self.escape_status
-
-        def unexpected(name):
-            @KMT
-            def callback(pointer):
-                self.calls.append(("Unexpected", name))
-                return -1
-            return callback
-
-        table = {ENUM2: enum2, QUERY: query, CLOSE: close, ESCAPE: escape}
-        for name in (ENUM, FROM_NAME, FROM_HDC):  # reported by the capability, never called here
-            table[name] = unexpected(name)
-        return table
-
-    def gdi_table(self):
-        if not self.with_gdi:
-            return None
-        return {name: fn for name, fn in self._callbacks.items() if name not in self.missing}
-
-    def reset(self):
-        self.calls = []
-        self.packet = (NV.u32 * 21)(*(0xA5A50000 | k for k in range(21)))
-
-    def state(self):
-        return (list(self.packet),)
-
-    def python_gpu(self):
-        gpu = super().python_gpu()
-        gpu.nvapi.selected = {"slot": slot_of(self.bus, self.device)}
-        gpu.nvml.selected = {"slot": slot_of(self.bus, self.device)}
-        return gpu
-
-    def native_gpu(self):
-        install(self.nvml if self.with_nvml else None, self.nvapi if self.with_nvapi else None, self.gdi_table())
-        return native.Gpu()
-
-    def python_windll(self):
-        table = self.gdi_table()
-        if table is None:
-            return patch.object(NV.ctypes, "WinDLL", create=True, side_effect=OSError("gdi32.dll not found"))
-        return patch.object(NV.ctypes, "WinDLL", create=True, return_value=SimpleNamespace(**table))
-
-    def escape(self, fields=FIELDS):
-        """The action for ParityCase.both: one _legacy_clk_escape on the rig's packet."""
-        def action(gpu):
-            if isinstance(gpu, NV.GPU):
-                with self.python_windll() as windll:
-                    result = gpu._legacy_clk_escape(self.packet, fields)
-                self.windll = windll
-                return result
-            result = gpu._legacy_clk_escape(self.packet, fields)
-            self.native_error = gpu.last_escape_error
-            return result
-        return action
+from tests.fake_driver import (  # noqa: E402, F401
+    CLOSE,
+    ENUM,
+    ENUM2,
+    ESCAPE,
+    FROM_HDC,
+    FROM_NAME,
+    KMT,
+    NTSTATUS_INVALID_PARAMETER,
+    NV,
+    QUERY,
+    REQUIRED,
+    Adapter,
+    Enum2,
+    Query,
+    TransportRig,
+    install,
+    slot_of,
+    u32,
+)
+from tests.fake_driver import TRANSPORT_FIELDS as FIELDS  # noqa: E402, F401
 
 
 def escape_call(handle, rig_packet_bytes):

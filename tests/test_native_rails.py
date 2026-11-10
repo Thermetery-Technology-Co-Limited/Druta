@@ -38,7 +38,8 @@ import random
 import unittest
 from unittest import mock
 
-from druta import native, nvbackend as NV
+from druta import native
+from druta import nvbackend as NV
 from tests.test_native_clkdom import Block
 from tests.test_native_target_binding import Card
 
@@ -48,73 +49,16 @@ if not native.available():
 from druta import native_rails as nr  # noqa: E402
 
 CDECL = ctypes.CFUNCTYPE
-CONTROL_ID, ABS_ID = 0xA3070DB0, 0x5D0634EE
-V2, V1 = 0x00020AC8, 0x00010AC8
-SIZE = 8192
+from tests.fake_driver import ABS_ID, CONTROL_ID, STOCK, V1, V2  # noqa: E402, F401
+from tests.fake_driver import RAIL_SIZE as SIZE  # noqa: E402, F401
+from tests.fake_driver import RailFake as Fake  # noqa: E402, F401
+
 KINDS = {"VoltRailsCtlGet": "control", "VoltRailsAbs": "live"}
 CACHES = ("_volt_rail_masks_cache", "_volt_rail_retry_after", "_volt_rail_getter_diagnostics",
           "_volt_rail_read_versions")
-STOCK = [1, 800000, 1068750, 1093750, 1125000, 1068750, 650000]
 MSVDD = [3, 850000, 1040000, 1060000, 1200000, 1040000, 800000]
 
 
-class Fake:
-    """Both rail getters over one record set.
-
-    control / live: {rail: values}; a rail missing here answers -8 (absent)
-    accept:  {kind: versions the getter understands}; any other version answers -9
-    script:  {kind: [entry per call]}: None answers normally, an int is returned without answering,
-             ("echo", word, value) answers and then overwrites that u32 word
-    boost:   the live block's header word 2 (microvolts): one word for every rail, or {rail: word}
-    control_type: {rail: the control record's first (signed) word}; 0 for a rail not listed
-    empty_absent: the control getter answers 0 without writing a record for a rail missing from
-             control (the R470 V1 behaviour of tests/test_volt_rails_legacy.py)
-    hook:    hook(fake, kind) runs as each call arrives, before it is answered (state changes
-             between the samples of one read)
-    """
-
-    def __init__(self, *, control=None, live=None, accept=None, boost=0, control_type=None, empty_absent=False):
-        self.control = copy.deepcopy({0: [0, 0, 0, 0]} if control is None else control)
-        self.control_type = dict(control_type or {})
-        self.live = copy.deepcopy({0: list(STOCK)} if live is None else live)
-        self.accept = {"control": {V2}, "live": {V1}}
-        self.accept.update(copy.deepcopy(accept or {}))
-        self.script = {"control": [], "live": []}
-        self.boost = boost
-        self.empty_absent = empty_absent
-        self.hook = None
-        self.calls = []
-
-    def answer(self, kind, handle, pointer):
-        words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
-        self.calls.append((kind, handle, words[0], words[1], Block(ctypes.string_at(pointer, SIZE))))
-        if self.hook is not None:
-            self.hook(self, kind)
-        entry = self.script[kind].pop(0) if self.script[kind] else None
-        if isinstance(entry, int):
-            return entry
-        if words[0] not in self.accept[kind]:
-            return -9
-        if words[1] not in (1, 2):
-            return -8
-        rail = 0 if words[1] == 1 else 1
-        records = self.control if kind == "control" else self.live
-        if rail not in records:
-            return 0 if kind == "control" and self.empty_absent else -8
-        values = [self.control_type.get(rail, 0)] + records[rail] if kind == "control" else records[rail]
-        signed = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_int32))
-        base = (0x48 + rail * 0x54) // 4
-        for index, value in enumerate(values):
-            if kind == "control":
-                signed[base + index] = value
-            else:
-                words[base + index] = value
-        if kind == "live":
-            words[2] = self.boost.get(rail, 0) if isinstance(self.boost, dict) else self.boost
-        if entry is not None:
-            _, word, value = entry
-            words[word] = value
-        return 0
 
 
 class Rig:

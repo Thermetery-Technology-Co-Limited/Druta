@@ -326,7 +326,7 @@ class ControlOnceTests(ClockCase):
                          ("PerfDiagnosticError", "transient", None, "GPU architecture could not be read"))
 
     def test_bool_float_fraction_and_complex_equal_a_bound_one(self):
-        with mock.patch("tests.test_native_telemetry.TITAN", dict(TITAN, subsys=1)):
+        with mock.patch("tests.fake_driver.TITAN", dict(TITAN, subsys=1)):
             rig = ClockRig()
         for one in (1, True, 1.0, Fraction(1), 1 + 0j):
             with self.subTest(one=one):

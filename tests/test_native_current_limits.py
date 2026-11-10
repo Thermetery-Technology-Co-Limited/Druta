@@ -28,8 +28,6 @@ import unittest
 
 from druta import native, nvbackend
 from tests.test_current_limits import fixture
-from tests.test_native_telemetry import u32_callback
-from tests.test_native_transport import ESCAPE, KMT, TransportRig
 from tests.test_native_vflock import ParityCase
 
 if not native.available():
@@ -42,75 +40,13 @@ GPU = NV.GPU
 u32 = ctypes.c_uint32
 INFO, STATUS, CONTROL, SET = 0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B
 LEGACY_WIRE = {INFO: 0x20802618, STATUS: 0x20802619, CONTROL: 0x2080261A, SET: 0x2080261B}
-FIELDS = dict(hAdapter=3, hDevice=0, Type=0, Flags=8, hContext=0)  # the fixture's transport fields
-MATCHED_ADAPTER = 111  # TransportRig's adapter at the card's PCI location
+from tests.fake_driver import CL_FIELDS as FIELDS  # noqa: E402, F401
+from tests.fake_driver import MATCHED_ADAPTER, CLRig, Driver  # noqa: E402, F401
+
 RM_SIZE = 0x1F  # RM_CURRENT_POLICY_SIZE_REJECTED
 VOLTA = 5
 
 
-class Driver:
-    """The fixture's escape behind a log. fail: NTSTATUS returned (packet untouched) for the
-    escapes whose 0-based index is in fail_at; refuse(packet) -> an RM code written to word 16
-    instead of answering, or None to answer."""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.log = []
-        self.fail_at, self.fail = set(), -1
-        self.refuse = None
-
-    def __call__(self, packet, fields):
-        index = len(self.log)
-        entry = [ctypes.sizeof(packet), tuple(packet[:17]), tuple(packet[17:]), dict(fields)]
-        self.log.append(entry)
-        if index in self.fail_at:
-            entry += [self.fail, packet[16]]
-            return self.fail
-        rm = self.refuse(packet) if self.refuse else None
-        if rm is not None:
-            packet[16] = rm
-            status = 0
-        else:
-            status = self.inner(packet, fields)
-        entry += [status, packet[16]]
-        return status
-
-
-class CLRig(TransportRig):
-    """TransportRig whose fake D3DKMTEscape is a Driver: the core's escapes reach the fixture."""
-
-    def __init__(self, arch, driver):
-        self.driver = driver
-        super().__init__()
-        self.errors = []
-        if arch is None:  # NVML cannot report an architecture
-            self.nvml.exports["nvmlDeviceGetArchitecture"] = u32_callback(0, status=3)
-        else:
-            self.nvml.exports["nvmlDeviceGetArchitecture"] = u32_callback(arch)
-
-    def _fake_gdi(self):
-        table = super()._fake_gdi()
-
-        @KMT
-        def escape(pointer):
-            try:
-                e = GPU._Escape.from_address(pointer)
-                words = (u32 * (e.PrivateDriverDataSize // 4)).from_address(e.pPrivateDriverData)
-                packet = (u32 * len(words))(*words)
-                fields = {name: getattr(e, name) for name in ("hAdapter", "hDevice", "Type", "Flags", "hContext")}
-                # The real _legacy_clk_escape swaps in its own PCI-matched adapter handle (111, the
-                # card on bus 1; test_native_transport compares that); the twin's escape is mocked
-                # below that point and sees the transport's. Map exactly that swap back.
-                if fields["hAdapter"] == MATCHED_ADAPTER:
-                    fields["hAdapter"] = FIELDS["hAdapter"]
-                status = self.driver(packet, fields)
-                words[:] = packet[:]
-                return status
-            except BaseException as exc:  # the fixture's own asserts: surfaced through rig.errors
-                self.errors.append(repr(exc))
-                return -1
-        table[ESCAPE] = escape
-        return table
 
 
 class Side:

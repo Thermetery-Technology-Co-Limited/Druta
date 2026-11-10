@@ -4,15 +4,10 @@
 Python twins: the same fake NVML/NVAPI clock state serves both, and the
 snapping, the P-state fallback, the V/F shape restoration, the messages and
 the driver call sequences must agree."""
-import copy
 import ctypes
 import unittest
 
 from druta import native, nvbackend
-from tests.test_native_fan import ERROR_TEXT
-from tests.test_native_identity import write_u32
-from tests.test_native_telemetry import struct_callback, u32_callback
-from tests.test_native_vfcurve import CurveRig, turing_rows
 from tests.test_native_vflock import ParityCase
 
 if not native.available():
@@ -20,137 +15,7 @@ if not native.available():
 
 CDECL = ctypes.CFUNCTYPE
 NV = nvbackend
-PSTATES20_GET, PSTATES20_SET = 0x6FF81213, 0x0F4DAE6B
-
-
-def gp102_clocks():
-    return [round(139 + 12.657 * k) for k in range(141)]
-
-
-class ClockRig(CurveRig):
-    """CurveRig plus NVML clock offsets, the locked-clock pair and a state-backed P-state table.
-
-    offsets:     NVML ctype -> {off, mn, mx} (GetClockOffsets answers from it, SetClockOffsets changes off)
-    p0:          NVAPI domain -> {value, min, max, flags} for the single P0 entry
-    grid:        the graphics clocks enumerated at the top memory clock
-    log_grid:    opt-in (default off, so every existing call log is unchanged): each
-                 nvmlDeviceGetSupportedGraphicsClocks call appends ("GfxClocks", mem, filled),
-                 filled False for the count query and True for the call given a buffer
-    """
-
-    def __init__(self, *, nvml_offsets=True, nvml_set=True, nvml_set_status=0, nvml_apply=True, pstates=True,
-                 pstates_set=True, pstates_set_status=0, grid=None, with_lock=True, lock_status=0,
-                 reset_status=0, mem_div=4, log_grid=False, **kw):
-        self.log_grid = log_grid
-        self.grid_config = list(grid if grid is not None else [2100 - 15 * k for k in range(100)])
-        self.nvml_set_status, self.nvml_apply = nvml_set_status, nvml_apply
-        self.pstates_set_status, self.lock_status, self.reset_status = pstates_set_status, lock_status, reset_status
-        self.mem_div = mem_div
-        super().__init__(**kw)  # calls reset()
-        e, i, n = self.nvml.exports, self.nvapi.interfaces, self.names
-        if mem_div is None:
-            n["RamType"] = i[0x57F7CAAC] = u32_callback(99)  # an unmapped memory type: no true-MHz scale
-        e["nvmlErrorString"] = CDECL(ctypes.c_char_p, ctypes.c_int)(lambda st: ctypes.addressof(ERROR_TEXT.get(st, ERROR_TEXT[-1])))
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
-        def gfxclocks(device, mem, count, values):
-            if self.log_grid:
-                self.calls.append(("GfxClocks", mem, bool(values)))
-            wanted = self.grid if mem == 7001 else [300]
-            k = ctypes.cast(count, ctypes.POINTER(ctypes.c_uint32))
-            if not values or k[0] < len(wanted):
-                k[0] = len(wanted)
-                return 7
-            k[0] = len(wanted)
-            ctypes.memmove(values, (ctypes.c_uint32 * len(wanted))(*wanted), 4 * len(wanted))
-            return 0
-        e["nvmlDeviceGetSupportedGraphicsClocks"] = gfxclocks
-
-        if nvml_offsets:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def get_offsets(device, pointer):
-                co = NV._ClockOffset.from_address(pointer)
-                self.calls.append(("GetClockOffsets", co.type, co.pstate))
-                state = self.offsets.get(co.type)
-                if state is None:
-                    return 3
-                co.off, co.mn, co.mx = state["off"], state["mn"], state["mx"]
-                return 0
-            e["nvmlDeviceGetClockOffsets"] = get_offsets
-        if nvml_set:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def set_offsets(device, pointer):
-                co = NV._ClockOffset.from_address(pointer)
-                self.calls.append(("SetClockOffsets", co.version, co.type, co.pstate, co.off))
-                if self.nvml_set_status:
-                    return self.nvml_set_status
-                if self.nvml_apply and co.type in self.offsets:
-                    self.offsets[co.type]["off"] = co.off
-                return 0
-            e["nvmlDeviceSetClockOffsets"] = set_offsets
-        if with_lock:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32)
-            def lock(device, lo, hi):
-                self.calls.append(("SetGpuLockedClocks", lo, hi))
-                return self.lock_status
-            e["nvmlDeviceSetGpuLockedClocks"] = lock
-
-            @CDECL(ctypes.c_int, ctypes.c_void_p)
-            def unlock(device):
-                self.calls.append(("ResetGpuLockedClocks",))
-                return self.reset_status
-            e["nvmlDeviceResetGpuLockedClocks"] = unlock
-
-        if pstates:
-            def table(info):
-                if info.version != NV.NvAPI.ver(NV._Pstates20V2, 3):
-                    return -9
-                self.calls.append(("Pstates20Get",))
-                info.num_pstates, info.num_clocks, info.num_voltages = 2, 2, 1
-                p0 = info.pstates[0]
-                p0.pstate = 0
-                for k, (domain, kind) in enumerate(((0, 1), (4, 0))):
-                    row = self.p0[domain]
-                    clock = p0.clocks[k]
-                    clock.domain, clock.kind, clock.flags = domain, kind, row["flags"]
-                    clock.delta.value, clock.delta.minimum, clock.delta.maximum = row["value"], row["min"], row["max"]
-                p0.clocks[0].data[0], p0.clocks[0].data[1] = 300000, 2100000
-                p0.clocks[1].data[0] = 7000500
-                info.pstates[1].pstate = 8
-                return 0
-            n["Pstates20Get"] = i[PSTATES20_GET] = struct_callback(NV._Pstates20V2, table)
-            if pstates_set:
-                @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-                def pstates_set_fn(handle, pointer):
-                    req = NV._Pstates20V2.from_address(pointer)
-                    clock = req.pstates[0].clocks[0]
-                    self.calls.append(("Pstates20Set", req.version, req.num_pstates, req.num_clocks,
-                                       req.pstates[0].pstate, clock.domain, clock.delta.value))
-                    if self.pstates_set_status:
-                        return self.pstates_set_status
-                    self.p0[clock.domain]["value"] = clock.delta.value
-                    return 0
-                n["Pstates20Set"] = i[PSTATES20_SET] = pstates_set_fn
-        else:
-            n.pop("Pstates20Get", None)
-            i.pop(PSTATES20_GET, None)
-
-    def reset(self):
-        super().reset()
-        self.grid = list(self.grid_config)
-        self.offsets = {0: {"off": 0, "mn": -1000, "mx": 1000}, 2: {"off": 0, "mn": -2000, "mx": 6000}}
-        self.p0 = {0: {"value": 0, "min": -1000000, "max": 1000000, "flags": 1},
-                   4: {"value": 0, "min": -500500, "max": 1500500, "flags": 1}}
-
-    def state(self):
-        return copy.deepcopy((self.rows, self.deltas, self.offsets, self.p0))
-
-    def python_gpu(self):
-        gpu = super().python_gpu()
-        gpu.nvapi.Pstates20Set = self.names.get("Pstates20Set")
-        gpu.nvapi.Pstates20Get = self.names.get("Pstates20Get")
-        gpu.static.update(mem_div=self.mem_div, gfx_min=615, gfx_max=2100)  # what _read_static reads here
-        return gpu
+from tests.fake_driver import PSTATES20_GET, PSTATES20_SET, ClockRig, gp102_clocks  # noqa: E402, F401
 
 
 class ClockGridTests(ParityCase):

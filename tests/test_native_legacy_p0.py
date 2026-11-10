@@ -38,12 +38,10 @@ import copy
 import ctypes
 import threading
 import unittest
-from types import SimpleNamespace
 from unittest import mock
 
-from druta import native, nvbackend as NV
-from tests.test_native_identity import FakeNvapi, TITAN, write_u32
-from tests.test_native_telemetry import Rig, u32_callback
+from druta import native
+from druta import nvbackend as NV
 from tests.test_native_vflock import LockRig, entry
 
 if not native.available():
@@ -52,13 +50,22 @@ if not native.available():
 from druta import native_legacy_p0 as nl  # noqa: E402
 
 CDECL = ctypes.CFUNCTYPE
-FORCE_PSTATE = 0x025BFB10
-VOLT_RAILS_STATUS = 0x465F9BCF
-VOLT_STATUS_V1 = NV.NvAPI.ver(NV._VoltStatus, 1)
-ALL_CLOCKS, ALL_CLOCKS_PRIV, CURRENT_PSTATE, PSTATES20 = 0xDCB616C3, 0x1BD69F49, 0x927DA4F6, 0x6FF81213
-KEPLER, MAXWELL, TURING = 2, 3, 6
-GOOD = {"pstate": 0, "core": 705, "mem": 3004, "top": 3004}
-P8 = dict(GOOD, pstate=8, mem=324)
+from tests.fake_driver import (  # noqa: E402, F401
+    ALL_CLOCKS,
+    ALL_CLOCKS_PRIV,
+    CURRENT_PSTATE,
+    FORCE_PSTATE,
+    GOOD,
+    KEPLER,
+    MAXWELL,
+    P8,
+    PSTATES20,
+    TURING,
+    VOLT_RAILS_STATUS,
+    VOLT_STATUS_V1,
+    P0Rig,
+    serve_vcore,
+)
 
 HELD = "P0 held; core {core} MHz, memory {mem} MHz (not a maximum-core lock)"
 NOT_OBSERVED = "P0 and its top memory band were not observed"
@@ -66,20 +73,6 @@ RELEASED = "P0 request released; automatic performance states restored"
 UNAVAILABLE = "legacy P0 hold is unavailable on this GPU/driver"
 
 
-def serve_vcore(rig, log, value_uv=1043750, status=0):
-    """Serve VoltRailsStatus from the rig: log(handle, version) on each call, then status, and on
-    status 0 value_uv (rig.vcore, when the rig carries one, overrides both)."""
-    @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-    def volt(handle, pointer):
-        vs = NV._VoltStatus.from_address(pointer)
-        log(handle, vs.version)
-        code, value = getattr(rig, "vcore", (status, value_uv))
-        if code:
-            return code
-        vs.value_uV = value
-        return 0
-    rig._volt_keep = volt
-    rig.names["VoltRailsStatus"] = rig.nvapi.interfaces[VOLT_RAILS_STATUS] = volt
 
 
 def attempt(call):
@@ -89,95 +82,6 @@ def attempt(call):
         return ("raise", type(exc).__name__, str(exc))
 
 
-class P0Rig(Rig):
-    """Rig with scripted telemetry samples and a ForcePstate that logs into one event list.
-
-    samples: one dict per read (pstate, core, mem, top; None leaves that value out); the last one
-             repeats. force: the statuses ForcePstate returns, in order (0 once exhausted).
-    """
-
-    def __init__(self, *, arch=KEPLER, with_force=True, nvapi_init=0, pairing=False):
-        super().__init__()
-        if nvapi_init or pairing:  # the same interfaces behind a failing or mismatched NVAPI
-            old = self.nvapi
-            self.nvapi = FakeNvapi([dict(TITAN, devid=0x1B02) if pairing else TITAN], init_status=nvapi_init)
-            for ident, fn in old.interfaces.items():
-                self.nvapi.interfaces.setdefault(ident, fn)
-        i, n, e = self.nvapi.interfaces, self.names, self.nvml.exports
-        if arch is None:
-            e.pop("nvmlDeviceGetArchitecture", None)
-        else:
-            e["nvmlDeviceGetArchitecture"] = u32_callback(arch)
-        i.pop(ALL_CLOCKS_PRIV, None)
-        n["AllClocksPriv"] = None
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def pstates(handle, pointer):  # absent table: no Pstates20 fallback for the P0 maxima
-            return -9
-        n["Pstates20Get"] = i[PSTATES20] = pstates
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def clocks(handle, pointer):
-            self.reads += 1
-            self.events.append(("read", self.reads))
-            cf = NV._ClkFreqs.from_address(pointer)
-            if cf.clockType != 0:
-                return 1
-            s = self.sample()
-            for domain, key in ((0, "core"), (4, "mem")):
-                if s[key] is not None:
-                    cf.domain[domain].present, cf.domain[domain].frequency = 1, s[key] * 1000
-            return 0
-        n["AllClocks"] = i[ALL_CLOCKS] = clocks
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-        def pstate(handle, pointer):
-            value = self.sample()["pstate"]
-            if value is None:
-                return 1
-            write_u32(pointer, value)
-            return 0
-        n["CurrentPstate"] = i[CURRENT_PSTATE] = pstate
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
-        def minmax(device, ctype, pstate_index, low, high):
-            value = {0: 2100, 2: self.sample()["top"]}.get(ctype) if pstate_index == 0 else None
-            if value is None:
-                return 3
-            write_u32(low, 0)
-            write_u32(high, value)
-            return 0
-        e["nvmlDeviceGetMinMaxClockOfPState"] = minmax
-
-        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32)
-        def force(handle, pstate_index, flags):
-            self.events.append(("force", handle, pstate_index, flags))
-            return self.force.pop(0) if self.force else 0
-        self._force_keep = force
-        if with_force:
-            i[FORCE_PSTATE] = force
-        # every VoltRailsStatus call (each telemetry sample's, and read_vcore_mv's) in its own log
-        serve_vcore(self, lambda handle, version: self.vcore_calls.append((handle, version)))
-        self.reset()
-
-    def reset(self, samples=(GOOD,), force=()):
-        self.samples, self.force = [dict(s) for s in samples], list(force)
-        self.events, self.reads, self.vcore_calls = [], 0, []
-
-    def sample(self):
-        return self.samples[min(max(self.reads, 1), len(self.samples)) - 1]
-
-    def twin(self, opened):
-        """An nvbackend.GPU reading this fake, carrying the identity of the native handle."""
-        gpu = self.python_gpu()
-        gpu.nvapi.ok, gpu.nvapi.gpu = opened.nvapi.ok, opened.nvapi.gpu
-        gpu.pairing_error = opened.pairing_error
-        binder = SimpleNamespace(_qi=self.nvapi.query)
-        gpu.nvapi.ForcePstate = NV.NvAPI._i(binder, FORCE_PSTATE, NV.PTR, NV.u32, NV.u32)  # as NvAPI binds it
-        gpu.nvapi.GetArchInfo = None
-        gpu._legacy_p0_owned = False  # GPU.__init__
-        gpu._vf_lock_recovery = None
-        return gpu
 
 
 class PythonSide:

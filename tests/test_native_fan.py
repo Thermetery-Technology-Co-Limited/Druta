@@ -6,14 +6,11 @@ One set of fake NVML/NVAPI callbacks, with mutable fan state and a call log,
 serves nvbackend.GPU and the native core in turn. For every entry point the
 outcome text, the sequence of driver calls, the resulting fan state and the
 readback waits must be identical."""
-import copy
 import ctypes
 import unittest
 from unittest.mock import patch
 
 from druta import native, nvbackend
-from tests.test_native_identity import write_u32
-from tests.test_native_telemetry import Rig, struct_callback
 
 if not native.available():
     raise unittest.SkipTest("native core not built (native/build.sh linux)")
@@ -21,173 +18,7 @@ if not native.available():
 CDECL = ctypes.CFUNCTYPE
 NV = nvbackend
 
-# nvmlErrorString returns a pointer into the library: the fake hands out addresses of
-# buffers that live as long as the module (a bytes return would leak per call).
-ERROR_TEXT = {status: ctypes.create_string_buffer(text) for status, text in (
-    (0, b"Success"), (2, b"Invalid Argument"), (3, b"Not Supported"), (4, b"Insufficient Permissions"),
-    (-1, b"Unknown Error"))}
-
-
-class FanRig(Rig):
-    """Rig plus the fan getters/setters, with state the writes change.
-
-    nvml_fans: NVML fan index -> {policy, level} (policy getters answer from it)
-    classic:   the single classic cooler {level, policy, default}
-    client:    ClientFanCoolers id -> {level, mode}
-    settle_after: a write becomes visible only after that many reads
-    """
-
-    def __init__(self, *, nvml_setters=True, nvml_policy=True, error_string=True, set_status=0,
-                 settle_after=0, **kw):
-        super().__init__(**kw)
-        self.set_status = set_status
-        self.settle_after = settle_after
-        self.reset()
-        e, i, n = self.nvml.exports, self.nvapi.interfaces, self.names
-
-        def tick():
-            for pending in list(self.pending):
-                pending[0] -= 1
-                if pending[0] <= 0:
-                    pending[1]()
-                    self.pending.remove(pending)
-
-        def write(apply):
-            if self.settle_after:
-                self.pending.append([self.settle_after, apply])
-            else:
-                apply()
-
-        if nvml_policy:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p)
-            def policy(device, fan, pointer):
-                tick()
-                if fan not in self.nvml_fans:
-                    return 3
-                write_u32(pointer, self.nvml_fans[fan]["policy"])
-                return 0
-            e["nvmlDeviceGetFanControlPolicy_v2"] = policy
-
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p)
-            def target(device, fan, pointer):
-                tick()
-                if fan not in self.nvml_fans:
-                    return 3
-                write_u32(pointer, self.nvml_fans[fan]["level"])
-                return 0
-            e["nvmlDeviceGetTargetFanSpeed"] = target
-
-        if nvml_setters:
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32)
-            def set_speed(device, fan, speed):
-                self.calls.append(("nvmlDeviceSetFanSpeed_v2", fan, speed))
-                if self.set_status:
-                    return self.set_status
-                write(lambda: self.nvml_fans[fan].update(policy=1, level=speed))
-                return 0
-            e["nvmlDeviceSetFanSpeed_v2"] = set_speed
-
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
-            def set_default(device, fan):
-                self.calls.append(("nvmlDeviceSetDefaultFanSpeed_v2", fan))
-                if self.set_status:
-                    return self.set_status
-                write(lambda: self.nvml_fans[fan].update(policy=0))
-                return 0
-            e["nvmlDeviceSetDefaultFanSpeed_v2"] = set_default
-
-        if error_string:
-            @CDECL(ctypes.c_char_p, ctypes.c_int)
-            def error_text(status):
-                return ctypes.addressof(ERROR_TEXT.get(status, ERROR_TEXT[-1]))
-            e["nvmlErrorString"] = error_text
-
-        # NVAPI coolers answering from state (the Rig's fixed ones are replaced).
-        if self.cooler == "classic":
-            def cooler(cs, index):
-                tick()
-                if index != 7:
-                    return 1
-                cs.count = 1
-                row = cs.entries[0]
-                row.current_min, row.current_max = 30, 100
-                row.current_level = self.classic["level"]
-                row.current_policy, row.default_policy = self.classic["policy"], self.classic["default"]
-                return 0
-            n["CoolerSettings"] = i[0xDA141340] = struct_callback(NV._CoolerSettings, cooler,
-                                                                  extra_args=(ctypes.c_uint32,))
-
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32)
-            def levels_set(handle, index, pointer, count):
-                buf = NV._CoolerLevels.from_address(pointer)
-                self.calls.append(("CoolerLevelsSet", index, buf.version, count,
-                                   buf.entries[0].level, buf.entries[0].policy))
-                if self.set_status:
-                    return self.set_status
-                level = buf.entries[0].level
-                write(lambda: self.classic.update(level=level, policy=1))  # engages manual regardless
-                return 0
-            n["CoolerLevelsSet"] = i[0x891FA0AE] = levels_set
-
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32)
-            def restore(handle, pointer, count):
-                indexes = tuple(ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))[:count])
-                self.calls.append(("CoolerRestore", indexes))
-                if self.set_status:
-                    return self.set_status
-                write(lambda: self.classic.update(policy=self.classic["default"]))
-                return 0
-            n["CoolerRestore"] = i[0x8F6ED0FB] = restore
-        elif self.cooler == "client":
-            def control(ctl):
-                tick()
-                ctl.count = len(self.client)
-                for k, (fid, fan) in enumerate(self.client.items()):
-                    ctl.entries[k].id, ctl.entries[k].level, ctl.entries[k].mode = fid, fan["level"], fan["mode"]
-                    ctl.entries[k].reserved[0] = 0x5A5A0000 | fid  # an opaque field the setter must keep
-                return 0
-            n["FanCoolersControl"] = i[0x814B209F] = struct_callback(NV._FanCoolersControl, control)
-
-            def status(st):
-                st.count = len(self.client)
-                for k, (fid, fan) in enumerate(reversed(list(self.client.items()))):
-                    row = st.entries[k]
-                    row.id, row.rpm, row.min, row.max, row.level = fid, 1000 + 100 * fid, 30, 100, fan["level"]
-                return 0
-            n["FanCoolersStatus"] = i[0x35AED5E8] = struct_callback(NV._FanCoolersStatus, status)
-
-            @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
-            def set_control(handle, pointer):
-                buf = NV._FanCoolersControl.from_address(pointer)
-                rows = tuple((row.id, row.level, row.mode, row.reserved[0]) for row in buf.entries[:buf.count])
-                self.calls.append(("FanCoolersSetControl", buf.version, buf.count, rows))
-                if self.set_status:
-                    return self.set_status
-
-                def apply():
-                    for fid, level, mode, _ in rows:
-                        self.client[fid].update(level=level, mode=mode)
-                write(apply)
-                return 0
-            n["FanCoolersSetControl"] = i[0xA58971A5] = set_control
-
-    def reset(self):
-        self.calls = []
-        self.pending = []
-        self.nvml_fans = {0: {"policy": 0, "level": 41}, 1: {"policy": 0, "level": 42}}
-        self.classic = {"level": 44, "policy": 16, "default": 16}
-        self.client = {5: {"level": 40, "mode": 0}, 7: {"level": 55, "mode": 0}}
-
-    def state(self):
-        return copy.deepcopy((self.nvml_fans, self.classic, self.client))
-
-    def python_gpu(self):
-        gpu = super().python_gpu()
-        for name in ("CoolerLevelsSet", "CoolerRestore", "FanCoolersSetControl"):
-            setattr(gpu.nvapi, name, self.names.get(name))
-        # GPU.static as _read_static fills it from these fakes (test_capabilities_match_read_static_keys)
-        gpu.static.update(fan_min=25, fan_max=100)
-        return gpu
+from tests.fake_driver import ERROR_TEXT, FanRig  # noqa: E402, F401
 
 
 class FanParityTests(unittest.TestCase):

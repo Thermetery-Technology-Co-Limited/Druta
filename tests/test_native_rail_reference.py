@@ -29,7 +29,8 @@ import ctypes
 import math
 import unittest
 
-from druta import native, nvbackend as NV
+from druta import native
+from druta import nvbackend as NV
 from tests.test_native_rails import CACHES, CDECL, V1, V2, NativeSide, PythonSide, Rig
 from tests.test_native_target_binding import GET_ARCH_INFO, Card
 
@@ -39,11 +40,8 @@ if not native.available():
 from druta import native_rails as nr  # noqa: E402
 
 FIELDS = ("reliability", "alt_reliability", "overvoltage", "vmin")
-LIVE_TYPE = {0: 1, 1: 3}
-BASES = {"turing": (1068750, 1093750, 1125000, 650000),
-         "pascal": (1068750, 1093750, 1200000, 650000),
-         "blackwell": (1040000, 1060000, 1200000, 800000)}
-ARCH = {"pascal": 4, "turing": 6, "ampere": 7, "blackwell": 10}
+from tests.fake_driver import ARCH, BASES, LIVE_TYPE, config, live_record  # noqa: E402, F401
+
 TEXT = {
     1: "GPU architecture could not be detected. Retry detection.",
     2: "Rail limit control is not yet understood for this GPU architecture.",
@@ -96,11 +94,6 @@ class ArchInfoV1Card(CountingCard):
         self.nvapi.interfaces[GET_ARCH_INFO] = arch_info
 
 
-def live_record(rail, bases, deltas):
-    """FakeRailAPI.sync_live's record for one rail."""
-    reliability, alternate, overvoltage, vmin = [b + d for b, d in zip(bases, deltas)]
-    return [LIVE_TYPE[rail], 800000, reliability, alternate, overvoltage,
-            min(reliability, alternate, overvoltage), vmin]
 
 
 def sync(fake, bases):
@@ -110,23 +103,6 @@ def sync(fake, bases):
             fake.live[rail][2:] = live_record(rail, bases, deltas)[2:]
 
 
-def config(kind="turing", *, rails=None, bases=None, control=None, architecture=None, legacy=False):
-    """Rig options for tests/test_volt_rails.py::fake_gpu(kind) (legacy: legacy_gpu(kind))."""
-    rails = rails or ((0, 1) if kind == "blackwell" else (0,))
-    if control is None:
-        control = {r: [0, 0, 0, 0] for r in rails}
-        if kind == "blackwell" and 1 in control:
-            control[1][0] = -50000
-    bases = bases or BASES[kind]
-    live = {r: live_record(r, bases, control[r]) for r in rails if r in control}
-    card = {"arch": ARCH[kind] if architecture is None else architecture}
-    options = {"control": control, "live": live, "card": card}
-    if legacy:
-        if kind == "pascal":  # R470's V1 control block uses the 1068.75 mV reliability base
-            live[0][2] = 1068750
-            live[0][5] = min(live[0][2:5])
-        options.update(accept={"control": {V1}}, control_type={0: 1}, empty_absent=True)
-    return options
 
 
 def shape(value):
