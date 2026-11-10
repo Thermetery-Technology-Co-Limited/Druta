@@ -1988,6 +1988,92 @@ class Gpu:
         from . import native_rails
         return native_rails.reset_volt_rail_limits(self, rail, fields)
 
+    # ---- the hold-headroom runtime (nvbackend.GPU.*hold_headroom*; increment R6) -------------- #
+    #
+    # The record and the four state attributes live in the core as this session's process memory:
+    # never persisted, never reapplied after a driver restart (the crash marker is druta.py's, written
+    # by the before_write hook). The attributes are properties over the core so druta.py's getattr /
+    # assignment of them reaches it. Divergences: druta.native_rails' module docstring.
+
+    _foreign_hold_headroom = None  # another window's raise, set by druta.py (Python's getattr default)
+
+    def hold_headroom_grain_mv(self):
+        """nvbackend.GPU.hold_headroom_grain_mv (druta.native_rails.hold_headroom_grain_mv)."""
+        from . import native_rails
+        return native_rails.hold_headroom_grain_mv(self)
+
+    def hold_headroom_architecture(self):
+        """nvbackend.GPU.hold_headroom_architecture: True, False or None (arch() unread)."""
+        from . import native_rails
+        return native_rails.hold_headroom_architecture(self)
+
+    def hold_headroom_rail_unavailable(self, rail=0):
+        """nvbackend.GPU.hold_headroom_rail_unavailable (druta.native_rails)."""
+        from . import native_rails
+        return native_rails.hold_headroom_rail_unavailable(self, rail)
+
+    def hold_headroom_overwritten(self, limits=None):
+        """nvbackend.GPU.hold_headroom_overwritten (druta.native_rails)."""
+        from . import native_rails
+        return native_rails.hold_headroom_overwritten(self, limits)
+
+    def hold_headroom_record(self):
+        """nvbackend.GPU.hold_headroom_record: the active raise's record (a new dict), or None."""
+        from . import native_rails
+        return native_rails.hold_record(self)
+
+    def apply_hold_headroom(self, hold_mv, margin_mv, rail=0, before_write=None):
+        """nvbackend.GPU.apply_hold_headroom (druta.native_rails.apply_hold_headroom); the session flag
+        voltage_xoc_enabled is read at the call. before_write runs under the handle lock."""
+        from . import native_rails
+        return native_rails.apply_hold_headroom(self, hold_mv, margin_mv, rail, before_write)
+
+    def hold_headroom_live_ok(self, record=None, live_mv=None):
+        """nvbackend.GPU.hold_headroom_live_ok (druta.native_rails.hold_headroom_live_ok)."""
+        from . import native_rails
+        return native_rails.hold_headroom_live_ok(self, record, live_mv)
+
+    def restore_hold_headroom(self, force=False):
+        """nvbackend.GPU.restore_hold_headroom (druta.native_rails.restore_hold_headroom)."""
+        from . import native_rails
+        return native_rails.restore_hold_headroom(self, force)
+
+    def user_rail_limits(self, cur=None):
+        """nvbackend.GPU.user_rail_limits (druta.native_rails.user_rail_limits)."""
+        from . import native_rails
+        return native_rails.user_rail_limits(self, cur)
+
+    def adopt_foreign_hold_headroom(self, record):
+        """nvbackend.GPU.adopt_foreign_hold_headroom (druta.native_rails.adopt_foreign_hold_headroom)."""
+        from . import native_rails
+        return native_rails.adopt_foreign_hold_headroom(self, record)
+
+    @property
+    def _hold_headroom(self):
+        from . import native_rails
+        return native_rails.hold_record(self)
+
+    @_hold_headroom.setter
+    def _hold_headroom(self, record):
+        from . import native_rails
+        native_rails.set_hold_record(self, record)
+
+    def _hold_state(name):  # noqa: N805 - a property factory used in the class body only
+        def get(self):
+            from . import native_rails
+            return native_rails.hold_state(self)[name]
+
+        def set_(self, value):
+            from . import native_rails
+            native_rails.set_hold_state(self, **{name: value})
+        return property(get, set_)
+
+    _hold_headroom_grain = _hold_state("_hold_headroom_grain")
+    _hold_headroom_offset_mv = _hold_state("_hold_headroom_offset_mv")
+    _hold_headroom_unread = _hold_state("_hold_headroom_unread")
+    _hold_headroom_live_trip = _hold_state("_hold_headroom_live_trip")
+    del _hold_state
+
     # ---- current-policy operations on the transport (nvbackend.GPU._current_limit_*) --------- #
 
     _CL_COMMANDS = (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)

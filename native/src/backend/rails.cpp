@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "backend/rails.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <utility>
 
 #include "backend/nvapi.h"
 #include "backend/rail_limits.h"
@@ -844,6 +847,471 @@ Outcome Rails::reset_limits(std::optional<std::int32_t> rail, const RailResetReq
         what = std::string(rail_name(rails[0])) + " " + (fields.has_fields ? fields.joined : std::string("limits"));
     }
     return {true, what + " restored to first-read values (not factory defaults)"};
+}
+
+// ---- Increment R6: the hold-headroom runtime ----------------------------------------------------
+
+namespace {
+
+constexpr double kNan = std::numeric_limits<double>::quiet_NaN();
+constexpr std::size_t kHoldFields = rail::kHeadroomFieldCount;  // HOLD_HEADROOM_FIELDS: fields 0 .. 2
+
+// Python's f"{x:.2f}" / f"{x:g}": printf's "%.2f" / "%g" (both round half to even on the exact
+// binary value, as Python does), with Python's spellings of the non-finite values.
+const char* py_nonfinite(double x) {
+    if (std::isnan(x)) return "nan";
+    if (std::isinf(x)) return x < 0 ? "-inf" : "inf";
+    return nullptr;
+}
+std::string f2(double x) {
+    if (const char* text = py_nonfinite(x)) return text;
+    char text[400];  // DBL_MAX is 309 digits
+    std::snprintf(text, sizeof text, "%.2f", x);
+    return text;
+}
+std::string fg(double x) {
+    if (const char* text = py_nonfinite(x)) return text;
+    char text[64];
+    std::snprintf(text, sizeof text, "%g", x);
+    return text;
+}
+
+// A read_volt_rail_limits row as the rail_limits port's Row with "_effective_mv" too (the hold
+// ceiling and the enforced figure read it).
+rail::Row hold_row(const RailLimitRow& row) {
+    rail::Row fields = port_row(row);
+    fields.effective_mv = row.effective_mv ? rail::Value::real(*row.effective_mv) : rail::Value::none();
+    return fields;
+}
+
+// The record as the port's Record (the keys hold_headroom_bound_mv / _allowance_mv read). A float
+// key that is NaN reads as Python reads a missing or unconvertible one there.
+rail::Record port_record(const HoldRecord& h) {
+    rail::Record r;
+    r.truthy = h.present;
+    r.raised_ceiling_mv = h.raised_ceiling_mv ? rail::Value::real(*h.raised_ceiling_mv) : rail::Value::absent();
+    r.hold_mv = rail::Value::real(h.hold_mv);
+    r.margin_mv = rail::Value::real(h.margin_mv);
+    r.grain_mv = h.grain_mv ? rail::Value::real(*h.grain_mv) : rail::Value::none();
+    r.live_offset_mv = rail::Value::real(h.live_offset_mv);
+    return r;
+}
+
+// `if grain:` of an optional float: None and 0.0 are false, NaN is true.
+bool truthy(const std::optional<double>& v) { return v && *v != 0.0; }
+
+// "reliability" -> "reliability", "alt_reliability" -> "alt-reliability" (k.replace("_", "-")).
+std::string dashed(std::size_t field) {
+    std::string name = rail::field_name(field);
+    std::replace(name.begin(), name.end(), '_', '-');
+    return name;
+}
+
+}  // namespace
+
+std::optional<double> Rails::hold_grain_mv(const CurveVolts& volts) {
+    // the curve's voltage grid does not change: remembered once read (`if grain:` - 0.0 is read again)
+    if (truthy(state_.grain)) return state_.grain;
+    // try: points, _err = self.read_vf_curve() except Exception: points = None
+    const std::optional<std::vector<double>> points = volts ? volts() : std::nullopt;
+    std::vector<double> grid;
+    if (points) {
+        for (double v : *points) {
+            if (std::isfinite(v)) grid.push_back(rail::round_digits(v, 4));
+        }
+    }
+    std::sort(grid.begin(), grid.end());
+    grid.erase(std::unique(grid.begin(), grid.end()), grid.end());  // the set
+    std::vector<std::pair<double, std::size_t>> counts;  // step -> count, first seen first
+    for (std::size_t i = 0; i + 1 < grid.size(); ++i) {
+        const double d = grid[i + 1] - grid[i];
+        if (!(d > 0)) continue;
+        const double step = rail::round_digits(d, 2);
+        bool seen = false;
+        for (auto& c : counts) {
+            if (c.first == step) {
+                ++c.second;
+                seen = true;
+            }
+        }
+        if (!seen) counts.emplace_back(step, 1u);
+    }
+    if (counts.empty()) return std::nullopt;
+    // min(counts, key=lambda s: (-counts[s], s)): the most common step, ties to the smallest
+    std::pair<double, std::size_t> modal = counts[0];
+    for (const auto& c : counts) {
+        if (c.second > modal.second || (c.second == modal.second && c.first < modal.first)) modal = c;
+    }
+    // min(2 * fallback, max(fallback / 2, modal)): a sanity bound, not this card's grain
+    state_.grain = py_min(rail::kHoldHeadroomGrainMaxMv, py_max(rail::kHoldHeadroomGrainMinMv, modal.first));
+    return state_.grain;
+}
+
+std::optional<HoldUnavailable> Rails::hold_rail_unavailable(std::int32_t rail) {
+    if (limits_supported(rail)) return std::nullopt;
+    const bool valid = rail >= 0 && static_cast<std::size_t>(rail) < kRailCount;
+    const std::size_t r = valid ? static_cast<std::size_t>(rail) : 0;
+    // after a failed read the rail is read once more at once, not after the getters' retry cadence
+    if (valid) {
+        for (auto& retry : caches_.retry_after) retry[r].reset();
+    }
+    if (limits_supported(rail)) return std::nullopt;
+    // A reference is only ever captured from two valid paired reads, and Retry detection keeps it
+    // while it empties the getters' cache.
+    bool answered = valid && reference_[r].has_value();
+    if (!answered && valid) {
+        answered = true;
+        for (const auto& known : caches_.known) answered = answered && known && (*known >> r & 1u);
+    }
+    // volt_rail_diagnostics() does not throw natively (only allocation can), so Python's
+    // {"rails": {}, "getters": {}, "error": str(exc)} fallback is not reached.
+    const RailDiagnosis diag = diagnostics();
+    std::string reason = "the rail's control settings were not returned";
+    if (valid && diag.present[r] && diag.reasons[r] != RailReason::none) reason = rail_reason_text(diag.reasons[r]);
+    std::vector<std::string> statuses;
+    const Nvapi& a = gpu_.nvapi;
+    for (std::size_t f = 0; f < kRailGetters; ++f) {
+        const RailGetter getter = static_cast<RailGetter>(f);
+        const char* function = getter == RailGetter::Control ? "VoltRailsCtlGet" : "VoltRailsAbs";
+        const auto fn = a.get<HandlePtrFn>(getter == RailGetter::Control ? nvapi_id::VoltRailsCtlGet
+                                                                         : nvapi_id::VoltRailsAbs);
+        if (!(a.ok && fn)) {
+            statuses.push_back(std::string(function) + " not exported");
+            continue;
+        }
+        // A native getter diagnostic carries no "error" text: Python sets one only when ctypes turns a
+        // structured exception inside the getter into OSError, which the core does not survive.
+        const auto& got = valid ? caches_.diagnostics[f][r] : std::optional<RailDiagnostic>{};
+        if (got && !got->valid) statuses.push_back(std::string(function) + " status " + std::to_string(got->status));
+    }
+    HoldUnavailable out;
+    out.transient = answered;
+    out.detail = reason;
+    if (!statuses.empty()) {
+        out.detail += " (";
+        for (std::size_t i = 0; i < statuses.size(); ++i) out.detail += (i ? "; " : "") + statuses[i];
+        out.detail += ")";
+    }
+    return out;
+}
+
+HoldOverwritten Rails::hold_overwritten(const std::optional<RailLimits>* given) {
+    if (!hold_.present) return HoldOverwritten::no;
+    const std::optional<RailLimits> read = given ? std::optional<RailLimits>{} : limits();
+    const std::optional<RailLimits>& limits = given ? *given : read;
+    // limits[record["rail"]]: None (TypeError) or a missing rail (KeyError) is False
+    if (!limits || hold_.rail < 0 || static_cast<std::size_t>(hold_.rail) >= kRailCount) return HoldOverwritten::no;
+    const auto& row = (*limits)[static_cast<std::size_t>(hold_.rail)];
+    if (!row) return HoldOverwritten::no;
+    // now = {k: int(round(row[k] * 1000))}: ValueError (NaN) is False, OverflowError (inf) raises,
+    // in field order. Compared as doubles: exact for every integer an int32 can hold.
+    const RailFields fields = fields_of(row->deltas);
+    std::array<double, rail::kFieldCount> now{};
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) {
+        const double product = fields[k] * 1000;
+        if (std::isnan(product)) return HoldOverwritten::no;
+        if (std::isinf(product)) return HoldOverwritten::overflow;
+        now[k] = std::nearbyint(product);
+    }
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) {
+        if (hold_.written_uv[k] && now[k] != static_cast<double>(*hold_.written_uv[k])) return HoldOverwritten::yes;
+    }
+    // an untouched term only matters when it went DOWN: raised, the plan still holds
+    for (std::size_t k = 0; k < kHoldFields; ++k) {
+        if (hold_.input_uv[k] && !hold_.written_uv[k] && now[k] < static_cast<double>(*hold_.input_uv[k]))
+            return HoldOverwritten::yes;
+    }
+    return HoldOverwritten::no;
+}
+
+Outcome Rails::hold_live_ok(const HoldRecord* record, std::optional<double> live) {
+    // record or self.hold_headroom_record()
+    const HoldRecord* chosen = record && record->present ? record : (hold_.present ? &hold_ : nullptr);
+    if (!chosen) return {true, "no active raise"};
+    const HoldRecord rec = *chosen;  // a copy: the read below may not move the record under it
+    const rail::Record port = port_record(rec);
+    const double bound = rail::hold_headroom_bound_mv(&port, nullptr).value;
+    if (!std::isfinite(bound)) return {true, "no bound to check against"};
+    if (!live) live = live_mv(rec.rail);  // read_rail_live_mv(record["rail"]); it does not raise here
+    if (!live || !(*live > 0)) return {true, "no live rail reading"};
+    const double allowance = rail::hold_headroom_allowance_mv(&port, nullptr).value;
+    if (*live > bound + allowance)
+        return {false, "the rail reads " + f2(*live) + " mV live, " + f2(*live - bound) + " mV above the " + f2(bound) +
+                           " mV ceiling the headroom raise set (this card's allowance is " + f2(allowance) + " mV)"};
+    return {true, "live " + f2(*live) + " mV"};
+}
+
+HoldOutcome Rails::restore_hold(bool force, RailWriterTrace& trace) {
+    // Undo the active raise. Only fields that still carry our value are restored (force: every
+    // recorded field, the rollback of an unverified write). The record is NOT cleared on a failure:
+    // the caller's exit path retries.
+    if (!hold_.present) return {1, "no headroom to restore", {}, false};
+    const std::int32_t rail = hold_.rail;
+    const std::optional<RailLimits> cur = limits();
+    const bool valid = rail >= 0 && static_cast<std::size_t>(rail) < kRailCount;
+    if (!cur || !valid || !(*cur)[static_cast<std::size_t>(rail)])
+        return {-1, "cannot read the current limits to restore headroom", {}, false};
+    const std::size_t r = static_cast<std::size_t>(rail);
+    RailRecords recs;
+    recs.records[0] = record_of(r, *(*cur)[r]);
+    recs.count = 1;
+    RailRecord& rec = recs.records[0];
+    if (!(hold_.keys & kHoldKeyWritten)) {
+        HoldOutcome raised;
+        raised.ok = -1;
+        raised.key_error = kHoldKeyErrorWritten;  // record["written_uv"]
+        return raised;
+    }
+    std::vector<std::size_t> ours;  // record["written_uv"] in its (field) order
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) {
+        if (hold_.written_uv[k] && (force || rec.values[k] == *hold_.written_uv[k])) ours.push_back(k);
+    }
+    if (ours.empty()) {
+        hold_ = HoldRecord{};
+        return {1, "headroom limits were changed since; nothing of ours to restore", {}, false};
+    }
+    for (std::size_t k : ours) {
+        if (!(hold_.keys & kHoldKeyPrior) || !hold_.prior_uv[k]) {
+            HoldOutcome raised;
+            raised.ok = -1;
+            raised.key_error = hold_.keys & kHoldKeyPrior ? k : kHoldKeyErrorPrior;  // record["prior_uv"][key]
+            return raised;
+        }
+        rec.values[k] = *hold_.prior_uv[k];
+    }
+    const std::optional<std::int32_t> boost = telemetry_.read_voltage_boost();
+    if (!boost) return {-1, "cannot preserve the current voltage boost; headroom left in place", {}, false};
+    const RailWriteOutcome w = write_traced(recs, trace);
+    if (!w.ok || (w.status && *w.status)) {
+        if (w.ok) return {-1, "headroom restore refused (NV_STATUS 0x" + hex_upper(w.status.value_or(0u)) + ")", {}, false};
+        if (trace.last_attributes && !trace.result.error.empty()) return {-1, trace.result.error, {}, false};
+        return {-1, "the rails request was not seen", {}, false};
+    }
+    const RailVerifyOutcome v = verify_records(expected_records(*cur, recs), boost);
+    if (!v.error.empty()) return {-1, "headroom restore not verified: " + v.error, {}, false};
+    hold_ = HoldRecord{};
+    std::string text = std::string(rail_name(r)) + ": ";
+    for (std::size_t i = 0; i < ours.size(); ++i) text += (i ? ", " : "") + dashed(ours[i]);
+    return {1, text + " restored after the hold", {}, false};
+}
+
+HoldOutcome Rails::apply_hold(double hold_mv, double margin_mv, std::uint32_t invalid, std::int32_t rail, bool xoc,
+                              const CurveVolts& volts, const BeforeWrite& before_write, RailWriterTrace& trace) {
+    const auto none = [](std::string message) { return HoldOutcome{0, std::move(message), {}, false}; };
+    const auto failed = [](std::string message) { return HoldOutcome{-1, std::move(message), {}, false}; };
+    // _headroom_unread: a refusal because something could not be read THIS time (the caller retries)
+    const auto unread = [&](std::string message) {
+        state_.unread = true;
+        return none(std::move(message));
+    };
+    state_.unread = false;
+    // a re-plan takes the old raise off first, and the live field lags a write: its reading right
+    // after is not this card's settled offset
+    const bool replanning = hold_.present;
+    if (replanning) {
+        HoldOutcome first = restore_hold(false, trace);
+        if (first.key_error) return first;
+        if (first.ok != 1) {
+            // one bounded retry: a write aborted by another thread's driver call is the expected transient
+            first = restore_hold(false, trace);
+            if (first.key_error) return first;
+        }
+        if (first.ok != 1) return failed("previous headroom could not be restored first: " + first.message);
+    }
+    if (!limits_supported(rail))
+        return unread("the voltage limits could not be read right now; no headroom applied this time");
+    // set(HOLD_HEADROOM_FIELDS).issubset(volt_rail_limit_fields(rail)): the fields are all four or none
+    if (limit_fields(rail) != rail::kFieldCount)
+        return none("reliability/alt-reliability/overvoltage are not validated on this rail; no headroom applied");
+    const std::optional<RailLimits> cur = limits();
+    const bool valid = rail >= 0 && static_cast<std::size_t>(rail) < kRailCount;
+    if (!cur || !valid || !(*cur)[static_cast<std::size_t>(rail)])
+        return unread("the current limits could not be read right now; no headroom applied");
+    const std::size_t r = static_cast<std::size_t>(rail);
+    const RailLimitRow& row = *(*cur)[r];
+    // the boost contribution and the card's effective limit would be placeholders: a plan made on
+    // them overshoots by the boost
+    if (!row.absolute_ok)
+        return unread("the rail's absolute state could not be read right now; no headroom applied this time");
+    const rail::Row fields = hold_row(row);
+    // A float row with a dict base: the port's error paths are unreachable.
+    const double ceiling = rail::hold_headroom_ceiling_mv(fields).value.v;
+    if (invalid & kHoldBadHold) return none("hold voltage must be a number; no headroom applied");
+    const double hold = hold_mv;
+    if (!(std::isfinite(ceiling) && std::isfinite(hold)))
+        return none("the current voltage ceiling cannot be estimated; no headroom applied");
+    // A hold exactly AT the ceiling is the case this exists for and is allowed; above it, raising
+    // the ceiling would raise the voltage.
+    if (hold > ceiling + 1e-3)
+        return none("the held point (" + f2(hold) + " mV) is above the voltage ceiling (" + f2(ceiling) +
+                    " mV), so the card runs it at about " + f2(ceiling) +
+                    " mV and may run below the clock it shows. Headroom was NOT applied, because raising the "
+                    "ceiling would raise the voltage. Hold a point at or below " +
+                    f2(ceiling) + " mV, or raise the voltage limits yourself.");
+    const double maximum = xoc ? kVoltLimitXocMaxMv : kVoltLimitMaxMv;
+    // float(margin_mv) that raised is an object the port cannot convert: its own "must be numbers"
+    rail::Value margin_value = rail::Value::real(margin_mv);
+    if (invalid & kHoldBadMargin) margin_value = rail::Value{rail::Kind::other, true, false, 0.0};
+    const rail::Result<rail::Targets> plan =
+        rail::hold_headroom_targets(fields, rail::Value::real(hold), margin_value, rail::Value::real(maximum));
+    const rail::Targets& targets = plan.value;
+    if (!targets.planned) return none(targets.message + "; no headroom applied");
+    bool any = false;
+    for (std::size_t k = 0; k < kHoldFields; ++k) any = any || targets.has_target[k];
+    if (!any)
+        return {1,
+                std::string(rail_name(r)) + ": the voltage ceiling (" + f2(ceiling) + " mV) already clears the " +
+                    f2(hold) + " mV hold by " + fg(margin_mv) + " mV",
+                {},
+                false};
+    const std::optional<std::int32_t> boost = telemetry_.read_voltage_boost();
+    if (!boost) return unread("cannot preserve the current voltage boost right now; no headroom applied");
+    const std::optional<double> grain = hold_grain_mv(volts);
+    // The live reading's offset above the card's own ceiling BEFORE the raise. It is this card's,
+    // kept for the session; a new reading can only LOWER it, and a re-plan does not measure at all.
+    const std::optional<double> read0 = live_mv(rail);
+    const bool has_live0 = read0.has_value() && *read0 > 0;
+    const double live0 = has_live0 ? *read0 : 0.0;
+    const rail::Value grain_value = grain ? rail::Value::real(*grain) : rail::Value::none();
+    const double enforced0 = rail::headroom_enforced_mv(fields, &grain_value).value.v;
+    const std::optional<double> known = state_.offset_mv;
+    double offset = 0.0;
+    if (replanning && known) {
+        offset = *known;
+    } else if (has_live0 && std::isfinite(enforced0)) {
+        offset = py_max(0.0, live0 - enforced0);
+        if (known) offset = py_min(*known, offset);
+        state_.offset_mv = offset;
+    } else {
+        offset = truthy(known) ? *known : 0.0;  // known or 0.0
+    }
+    if (offset > margin_mv + 1e-6)
+        return none("the rail read " + f2(offset) + " mV above its ceiling before any raise - more than the " +
+                    fg(margin_mv) + " mV margin, so a raise could not be checked on this card. Headroom was NOT applied.");
+    // base = row["_base_mv"]: the rail's fields are validated, so its reference exists
+    const RailFields base = row.base.value_or(RailFields{kNan, kNan, kNan, kNan});
+    RailRecords recs;
+    recs.records[0] = record_of(r, row);
+    recs.count = 1;
+    RailRecord& rec = recs.records[0];
+    HoldRecord record;
+    record.present = true;
+    record.rail = rail;
+    record.keys = kHoldKeysAll;
+    for (std::size_t k = 0; k < kHoldFields; ++k) record.input_uv[k] = static_cast<std::int32_t>(rec.values[k]);
+    for (std::size_t k = 0; k < kHoldFields; ++k) {
+        if (!targets.has_target[k]) continue;
+        record.prior_uv[k] = static_cast<std::int32_t>(rec.values[k]);
+        rec.values[k] = static_cast<std::int64_t>(std::nearbyint((targets.target_mv[k] - base[k]) * 1000));
+        record.written_uv[k] = static_cast<std::int32_t>(rec.values[k]);
+    }
+    for (std::size_t k = 0; k < rail::kFieldCount; ++k) rec.exact = rec.exact && fits_i32(rec.values[k]);
+    // ceiling_mv / boost_mv are what this plan was made against; live_offset_mv / grain_mv are this
+    // card's, for the live check
+    record.hold_mv = hold;
+    record.margin_mv = margin_mv;
+    record.ceiling_mv = ceiling;
+    record.boost_mv = row.boost_mv;
+    record.live_offset_mv = offset;
+    if (truthy(grain)) record.grain_mv = grain;
+    // A plan whose written values do not all fit int32 is refused by the writer below (prepare_write's
+    // "record values must be signed int32 integers") before any SET. Python calls the hook first with
+    // the true int; here the hook would see a wrapped value, so for such a plan it is not called and
+    // the record is not kept (a recorded divergence: the marker Python writes is dropped by its caller).
+    const bool exact = rec.exact;
+    if (before_write && exact) {
+        // Write-ahead evidence: the crash marker must exist before the limits move. A hook that
+        // reports failure (or raises) stops the raise.
+        std::string error;
+        const Tracked tracked = before_write(record, error);
+        if (tracked == Tracked::abort) {
+            HoldOutcome aborted;
+            aborted.ok = 0;  // nothing of this apply was kept or written
+            aborted.aborted = true;
+            return aborted;
+        }
+        const std::string why_not = tracked == Tracked::raised ? error : "the crash marker could not be written";
+        if (tracked != Tracked::proceed)
+            return unread(why_not + ", so a crash could leave the raise untracked; no headroom applied");
+    }
+    // Recorded BEFORE the SET: a failure after the driver took it must not lose the only record of
+    // the original limits. A write the driver never saw drops the record again.
+    if (exact) hold_ = record;
+    // Python's except branch (an exception out of _write_rail_records) has no native counterpart
+    // here: the native sequence returns every failure as (ok, status), and the one it reports as a
+    // raise (RailWriteOutcome::type_error, a rail key without an int shift) cannot occur for this
+    // plain int rail. The failures land on the branches below.
+    const RailWriteOutcome w = write_traced(recs, trace);
+    const auto rollback = [&](const std::string& prefix) {
+        HoldOutcome back = restore_hold(true, trace);
+        if (back.key_error) return back;
+        return failed(prefix + (back.ok == 1 ? std::string("limits restored") : "RESTORE FAILED: " + back.message));
+    };
+    if (!w.ok && !w.status) {
+        // no SET was issued
+        hold_ = HoldRecord{};
+        if (trace.last_attributes && !trace.result.error.empty()) return failed(trace.result.error);
+        return failed("the rails request was not seen - nothing was written");
+    }
+    // a SET was issued but not confirmed (a follow-up step failed)
+    if (!w.ok) return rollback("the headroom write was issued but not confirmed; ");
+    if (w.status && *w.status)
+        return rollback("driver refused the headroom write (NV_STATUS 0x" + hex_upper(*w.status) + "); ");
+    const RailVerifyOutcome v = verify_records(expected_records(*cur, recs), boost);
+    if (!v.error.empty()) return rollback("headroom write not verified (" + v.error + "); ");
+    // The ceiling the raise created, from the verified read-back: the HIGHER of Druta's estimate and
+    // the card's effective limit, at most one grain above the estimate.
+    double raised_mv = kNan;
+    // (back or {}).get(rail): a verified read-back always carries it
+    const RailLimitRow* after = v.back && (*v.back)[r] ? &*(*v.back)[r] : nullptr;
+    if (after && after->absolute_ok) {
+        const rail::Result<rail::Num> enforced = rail::headroom_enforced_mv(hold_row(*after), &grain_value);
+        raised_mv = enforced.error == rail::Error::none ? enforced.value.v : kNan;
+    }
+    // the record held as _hold_headroom IS apply's dict in Python: the stored record gains the key
+    hold_.raised_ceiling_mv = std::isfinite(raised_mv) ? raised_mv : hold + margin_mv;
+    // The read-back proves the request was STORED, not what it did: a live rail above the RAISED
+    // ceiling (beyond this card's offset and grain) means the clamp is not holding, and the raise
+    // comes off.
+    const HoldRecord active = hold_;
+    const Outcome live = hold_live_ok(&active, std::nullopt);
+    if (!live.ok) {
+        // the caller keeps this hold's headroom off until the hold changes
+        state_.live_trip = true;
+        HoldOutcome back = restore_hold(true, trace);
+        if (back.key_error) return back;
+        if (back.ok == 1) return none(live.message + "; raise undone");
+        return failed(live.message + "; RESTORE FAILED: " + back.message);
+    }
+    // sorted(targets.items()): alt_reliability, overvoltage, reliability
+    static constexpr std::size_t kByName[] = {rail::alt_reliability, rail::overvoltage, rail::reliability};
+    std::string raised;
+    for (std::size_t k : kByName) {
+        if (!targets.has_target[k]) continue;
+        if (!raised.empty()) raised += ", ";
+        raised += dashed(k) + " " + f2(targets.target_mv[k]);
+    }
+    std::string notes;
+    if (!has_live0) {
+        notes += "; this card gives no live rail reading, so the live check cannot run";
+    } else if (offset != 0.0) {  // `elif offset:` (NaN is true)
+        notes += "; the live rail read " + f2(offset) + " mV above the ceiling before the raise; the live check "
+                 "allows the same offset";
+    }
+    if (!truthy(grain))
+        notes += "; the V/F curve could not be read, so the live check uses a " +
+                 fg(rail::kHoldHeadroomFallbackGrainMv) + " mV grain";
+    return {1,
+            std::string(rail_name(r)) + ": " + raised + " mV while holding " + f2(hold) + " mV (+" + fg(margin_mv) +
+                " mV headroom)" + notes,
+            {},
+            false};
+}
+
+bool Rails::replace_initial(std::size_t rail, const RailInitial& values) {
+    if (rail >= kRailCount || !initial_[rail]) return false;
+    initial_[rail] = values;
+    return true;
 }
 
 }  // namespace druta::backend

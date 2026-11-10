@@ -725,6 +725,33 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    come back as a trace the ABI entry owns (`dc_rails_setter_writes`), filled even when a later step fails,
    so they describe the last write that ran as Python's `_write_rail_records` leaves them; the caller texts
    travel as presence, pointer and byte length, so an empty or NUL-bearing name is refused as in Python. The
+   hold-headroom runtime over the setters (`hold_headroom_grain_mv`, `hold_headroom_architecture`,
+   `hold_headroom_rail_unavailable`, `hold_headroom_overwritten`, `hold_headroom_record`,
+   `apply_hold_headroom`, `_headroom_unread`, `hold_headroom_live_ok`, `restore_hold_headroom`, the fuller
+   `_hold_headroom` record and the four `_hold_headroom_*` state attributes) as `Rails::hold_grain_mv` /
+   `hold_rail_unavailable` / `hold_overwritten` / `apply_hold` / `hold_live_ok` / `restore_hold`,
+   `dc_rails_hold_apply`, `dc_rails_hold_restore`, `dc_rails_hold_live_ok`, `dc_rails_hold_grain_mv`,
+   `dc_rails_hold_architecture`, `dc_rails_hold_rail_unavailable`, `dc_rails_hold_overwritten`,
+   `dc_rails_hold_state_get` / `_set`, `dc_rails_initial_get` / `_set`, `tests/test_native_hold_headroom.py`;
+   `user_rail_limits` and `adopt_foreign_hold_headroom` stay in `druta.native_rails` over the native getters.
+   The record carries a key-presence mask, so a record set from outside round-trips only the keys it was
+   given. Apply keeps the record before its SET, so an exception after the driver took the write cannot lose
+   the only copy of the prior limits. Python's write-ahead `before_write(record)` is a cdecl callback
+   (`dc_rails_before_write_fn`) that runs on the calling thread under the handle lock, before the record is
+   kept and before any SET; it answers `DC_RAILS_HOLD_HOOK_PROCEED` (1), `_FALSE` (2: the hook returned
+   `False`, the only value that stops the raise in Python), `_RAISED` (3, with the exception's text) or
+   `_ABORT` (4: a `BaseException` the binding re-raises once the core has returned; the core reports no
+   outcome and an empty message). No answer is zero, and the core fails closed: 0 (what ctypes returns when
+   the callback itself raises before it can answer) or any unknown value is `_FALSE`, so nothing is kept or
+   written and the refusal says the crash marker could not be written. A plan whose values are not int32 is
+   decided before the hook: the hook is not called, no record is kept and the writer's refusal is returned.
+   `dc_rails_hold_state_set` takes a mask (`DC_RAILS_HOLD_STATE_GRAIN` / `_OFFSET` / `_UNREAD` /
+   `_LIVE_TRIP`) and changes only those attributes under the handle lock, so setting one never writes back
+   another thread's change to the others. The grain reproduces Python's half-even `round(x, 2)` exactly
+   below 2^39 through the pure helpers' `round_digits` (`dc_rl_round_digits`). A read
+   that fails now stays a transient (`_hold_headroom_unread`, "transient" from the availability check) and
+   never an unsupported rail. The record and the state are the handle's session state: the core never
+   persists them, and the crash marker stays in `druta.py`, so a GPU driver restart re-applies nothing. The
    legacy P0 hold and the core support for the
    verification holds (`legacy_p0_supported`, `hold_legacy_p0`, `release_legacy_p0`, the request half of
    `verification_legacy_p0`, the recovery record and lock-table entry accessors, `read_vcore_mv`) as

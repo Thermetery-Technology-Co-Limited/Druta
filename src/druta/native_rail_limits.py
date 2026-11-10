@@ -101,6 +101,7 @@ _SIGNATURES = {
     "dc_rl_hold_headroom_targets": (ctypes.c_int32, [_P(_Row), _P(_Value), _P(_Value), _P(_Value), _P(_Targets)]),
     "dc_rl_hold_headroom_bound_mv": (ctypes.c_int32, [_P(_Record), _P(_Record), _P(ctypes.c_double)]),
     "dc_rl_hold_headroom_allowance_mv": (ctypes.c_int32, [_P(_Record), _P(_Record), _P(ctypes.c_double)]),
+    "dc_rl_round_digits": (ctypes.c_int32, [ctypes.c_double, ctypes.c_int32, _P(ctypes.c_double)]),
 }
 
 _lock = threading.Lock()
@@ -378,3 +379,14 @@ def hold_headroom_bound_mv(record=None, active=None):
 
 def hold_headroom_allowance_mv(record=None, active=None):
     return _double_call(load().dc_rl_hold_headroom_allowance_mv, lambda: None, _record(record), _record(active))
+
+
+def round_digits(x, ndigits):
+    """round(float(x), ndigits) for ndigits 2 or 4 as the core computes it (the hold-headroom grain's
+    rounding): exact, ties to even, for |x| < 2**39; x itself at or above 2**53 and for 0, +-inf and
+    NaN; nearbyint(x * 10**ndigits) / 10**ndigits between 2**39 and 2**53, which may differ from
+    Python's round there. Another ndigits raises ValueError."""
+    out = ctypes.c_double()
+    if ndigits not in (2, 4) or load().dc_rl_round_digits(float(x), ndigits, ctypes.byref(out)) != DC_OK:
+        raise ValueError("the core rounds to 2 or 4 digits only")
+    return out.value

@@ -433,5 +433,73 @@ class Constants(unittest.TestCase):
         self.assertEqual(c["grain_max_mv"], 2 * GPU.HOLD_HEADROOM_FALLBACK_GRAIN_MV)
 
 
+class RoundDigits(unittest.TestCase):
+    """dc_rl_round_digits, the hold-headroom grain's round(x, 2) / round(x, 4), against CPython's
+    round: identical bits (the sign of a zero included) for |x| < 2**39, x itself at and beyond
+    2**53, and within one unit of the last decimal place between the two (the recorded bound)."""
+
+    def same(self, x, ndigits):
+        got, want = nr.round_digits(x, ndigits), round(x, ndigits)
+        if math.isnan(want):
+            self.assertTrue(math.isnan(got), (x, ndigits))
+        else:
+            self.assertEqual((got, math.copysign(1.0, got)), (want, math.copysign(1.0, want)), (x, ndigits))
+
+    def test_the_classic_decimals_and_their_negatives(self):
+        for x in (1.115, 2.675, 1.005, 0.285, 5.015, 6.125, 6.375, 0.125, 0.375, 0.005, 0.015, 1.25, 2.5,
+                  0.00005, 0.00015, 1.00005, 6.25005, 12.5, 6.12500001):
+            for ndigits in (2, 4):
+                self.same(x, ndigits)
+                self.same(-x, ndigits)
+
+    def test_ties_and_their_neighbours_across_magnitudes(self):
+        for ndigits in (2, 4):
+            scale = 10 ** ndigits
+            for exponent in range(-3, 39):
+                for mantissa in (1, 3, 5, 7, 11, 13, 25, 125, 625):
+                    k = mantissa * 2 ** exponent if exponent >= 0 else mantissa / 2 ** -exponent
+                    for tie in (k + 0.5, k + 1.5, k * 10 + 0.5):
+                        x = tie / scale
+                        if not abs(x) < 2.0 ** 39:
+                            continue
+                        for y in (x, math.nextafter(x, math.inf), math.nextafter(x, -math.inf)):
+                            self.same(y, ndigits)
+                            self.same(-y, ndigits)
+
+    def test_random_doubles_below_two_to_the_39(self):
+        import random
+        rng = random.Random(20261110)
+        for _ in range(200000):
+            x = math.ldexp(rng.random() + 0.5, rng.randint(-60, 38)) * rng.choice((1, -1))
+            self.same(x, rng.choice((2, 4)))
+
+    def test_zeros_subnormals_infinities_and_nan(self):
+        for x in (0.0, -0.0, 5e-324, -5e-324, 2.2250738585072014e-308, 1e-300, -1e-300, INF, -INF, NAN):
+            for ndigits in (2, 4):
+                self.same(x, ndigits)
+
+    def test_at_and_beyond_two_to_the_53_x_is_returned(self):
+        for x in (2.0 ** 53, 2.0 ** 53 + 2, 2.0 ** 60 + 2 ** 8, 1e300, 1.7976931348623157e308):
+            for ndigits in (2, 4):
+                self.assertEqual(nr.round_digits(x, ndigits), x)
+                self.assertEqual(nr.round_digits(-x, ndigits), -x)
+                self.same(x, ndigits)
+
+    def test_between_two_to_the_39_and_53_within_one_last_place(self):
+        import random
+        rng = random.Random(39)
+        for _ in range(20000):
+            x = math.ldexp(rng.random() + 0.5, rng.randint(40, 53)) * rng.choice((1, -1))
+            for ndigits in (2, 4):
+                self.assertLessEqual(abs(nr.round_digits(x, ndigits) - round(x, ndigits)),
+                                     10.0 ** -ndigits + math.ulp(x), (x, ndigits))
+
+    def test_other_digit_counts_are_refused(self):
+        for ndigits in (0, 1, 3, 5, -2):
+            with self.assertRaises(ValueError):
+                nr.round_digits(1.0, ndigits)
+        self.assertEqual(nr.load().dc_rl_round_digits(1.0, 2, None), native.DC_E_ARGUMENT)
+
+
 if __name__ == "__main__":
     unittest.main()

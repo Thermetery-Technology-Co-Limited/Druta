@@ -452,8 +452,34 @@ DC_API dc_status DC_CALL dc_rails_reset_limits(dc_gpu* handle, int32_t has_rail,
                                                const dc_rails_reset_request* fields, dc_outcome* out,
                                                dc_rails_setter_writes* writes);
 
-/* The hold-headroom record (_hold_headroom) as far as the setters read and clear it. Increment R6
- * (apply/restore_hold_headroom) owns its fuller shape and extends this struct. */
+/* ---- Increment R6: the hold-headroom runtime ---------------------------------------------------
+ * hold_headroom_grain_mv, hold_headroom_architecture, hold_headroom_rail_unavailable,
+ * hold_headroom_overwritten, hold_headroom_record, apply_hold_headroom (with _headroom_unread),
+ * hold_headroom_live_ok and restore_hold_headroom over the R5 store and writer. The record and the
+ * four state attributes are this session's process memory: the core never persists them and never
+ * reapplies a raise after a driver restart (the crash marker is the binding's, written by the
+ * before_write hook). user_rail_limits and adopt_foreign_hold_headroom are composed by the binding
+ * over dc_rails_hold_record_get and dc_rails_initial_get/_set. */
+
+/* The hold-headroom record (_hold_headroom), the store the R5 setters adopt into and clear and the
+ * R6 runtime writes. Its dict's keys in order: "rail", "hold_mv", "margin_mv", "ceiling_mv",
+ * "boost_mv", "live_offset_mv", "grain_mv" (has_grain 0: None), "input_uv" (the first three
+ * VOLT_LIMIT_FIELDS, HOLD_HEADROOM_FIELDS), "prior_uv", "written_uv" (keyed by VOLT_LIMIT_FIELDS in
+ * field order) and "raised_ceiling_mv" (has_raised_ceiling 0: no such key). A float a record set
+ * from outside does not carry is NaN, which every reader treats as Python treats the missing key;
+ * `keys` says which keys besides "rail" and "raised_ceiling_mv" the dict has (a record apply made has
+ * DC_RAILS_HOLD_KEYS_ALL), so hold_headroom_record() gives back the keys it was given and restore
+ * raises KeyError where Python indexes a missing "written_uv" or "prior_uv". */
+#define DC_RAILS_HOLD_KEY_HOLD 0x001u
+#define DC_RAILS_HOLD_KEY_MARGIN 0x002u
+#define DC_RAILS_HOLD_KEY_CEILING 0x004u
+#define DC_RAILS_HOLD_KEY_BOOST 0x008u
+#define DC_RAILS_HOLD_KEY_LIVE_OFFSET 0x010u
+#define DC_RAILS_HOLD_KEY_GRAIN 0x020u
+#define DC_RAILS_HOLD_KEY_INPUT 0x040u
+#define DC_RAILS_HOLD_KEY_PRIOR 0x080u
+#define DC_RAILS_HOLD_KEY_WRITTEN 0x100u
+#define DC_RAILS_HOLD_KEYS_ALL 0x1FFu
 typedef struct dc_rails_hold_record {
     uint32_t size;          /* sizeof(dc_rails_hold_record), set by the caller */
     int32_t present;        /* 0: None */
@@ -462,10 +488,148 @@ typedef struct dc_rails_hold_record {
     int32_t written_uv[4];
     int32_t has_prior[4];   /* "prior_uv" has VOLT_LIMIT_FIELDS[k] */
     int32_t prior_uv[4];
+    int32_t has_input[3];   /* "input_uv" has HOLD_HEADROOM_FIELDS[k] */
+    int32_t input_uv[3];
+    int32_t has_grain;          /* "grain_mv" is a float, not None */
+    int32_t has_raised_ceiling; /* "raised_ceiling_mv" is present */
+    uint32_t keys;              /* DC_RAILS_HOLD_KEY_* bits: the keys the dict has */
+    double hold_mv;
+    double margin_mv;
+    double ceiling_mv;
+    double boost_mv;
+    double live_offset_mv;
+    double grain_mv;
+    double raised_ceiling_mv;
 } dc_rails_hold_record;
 
 DC_API dc_status DC_CALL dc_rails_hold_record_get(dc_gpu* handle, dc_rails_hold_record* out);
 DC_API dc_status DC_CALL dc_rails_hold_record_set(dc_gpu* handle, const dc_rails_hold_record* record);
+
+/* The session state kept besides the record: _hold_headroom_grain (has_grain 0: None),
+ * _hold_headroom_offset_mv (has_offset 0: None), _hold_headroom_unread and _hold_headroom_live_trip
+ * (0: False or never set). */
+typedef struct dc_rails_hold_state {
+    uint32_t size; /* sizeof(dc_rails_hold_state), set by the caller */
+    int32_t has_grain;
+    int32_t has_offset;
+    int32_t unread;
+    int32_t live_trip;
+    int32_t reserved; /* 0 */
+    double grain;
+    double offset_mv;
+} dc_rails_hold_state;
+
+DC_API dc_status DC_CALL dc_rails_hold_state_get(dc_gpu* handle, dc_rails_hold_state* out);
+/* dc_rails_hold_state_set changes only the fields `mask` names (DC_RAILS_HOLD_STATE_*), under the
+ * handle lock, so assigning one attribute never rewrites the other three; a mask with any other bit
+ * is DC_E_ARGUMENT. */
+#define DC_RAILS_HOLD_STATE_GRAIN 0x1u     /* has_grain / grain */
+#define DC_RAILS_HOLD_STATE_OFFSET 0x2u    /* has_offset / offset_mv */
+#define DC_RAILS_HOLD_STATE_UNREAD 0x4u    /* unread */
+#define DC_RAILS_HOLD_STATE_LIVE_TRIP 0x8u /* live_trip */
+#define DC_RAILS_HOLD_STATE_ALL 0xFu
+DC_API dc_status DC_CALL dc_rails_hold_state_set(dc_gpu* handle, uint32_t mask, const dc_rails_hold_state* state);
+
+#define DC_RAILS_HOLD_MESSAGE_MAX 8192u /* dc_rails_hold_outcome.message, with its NUL */
+#define DC_RAILS_HOLD_ERROR_MAX 2048u   /* the before_write error buffer, with its NUL */
+
+#define DC_RAILS_HOLD_OK 1      /* True */
+#define DC_RAILS_HOLD_NONE 0    /* None: not applied, nothing of it on the card */
+#define DC_RAILS_HOLD_FAILED -1 /* False */
+
+/* apply_hold_headroom / restore_hold_headroom's (ok, message). key_error nonzero: restore raised
+ * KeyError on a record set from outside, and nothing after it ran (`message` is empty): 1 + k for
+ * VOLT_LIMIT_FIELDS[k] (record["prior_uv"][key]), DC_RAILS_HOLD_KEY_ERROR_WRITTEN for "written_uv",
+ * DC_RAILS_HOLD_KEY_ERROR_PRIOR for "prior_uv". aborted 1: the
+ * before_write hook answered DC_RAILS_HOLD_HOOK_ABORT; the call returned at once with ok
+ * DC_RAILS_HOLD_NONE and an empty message (nothing of this apply was kept or written; the binding
+ * re-raises what the hook raised). */
+#define DC_RAILS_HOLD_KEY_ERROR_WRITTEN 5
+#define DC_RAILS_HOLD_KEY_ERROR_PRIOR 6
+typedef struct dc_rails_hold_outcome {
+    uint32_t size; /* sizeof(dc_rails_hold_outcome), set by the caller */
+    int32_t ok;    /* DC_RAILS_HOLD_OK, _NONE or _FAILED */
+    int32_t key_error;
+    int32_t aborted;
+    int32_t reserved; /* 0 */
+    char message[DC_RAILS_HOLD_MESSAGE_MAX];
+} dc_rails_hold_outcome;
+
+/* What before_write(dict(record)) did. No answer is zero: a callback that fails without answering
+ * (a ctypes callback that raises returns a zeroed int32) must not let the raise go ahead without its
+ * crash marker, so 0 and every value other than these four are taken as DC_RAILS_HOLD_HOOK_FALSE. */
+#define DC_RAILS_HOLD_HOOK_PROCEED 1 /* returned anything but False */
+#define DC_RAILS_HOLD_HOOK_FALSE 2   /* returned False */
+#define DC_RAILS_HOLD_HOOK_RAISED 3  /* raised an Exception: its str() in `error` (NUL-terminated) */
+#define DC_RAILS_HOLD_HOOK_ABORT 4   /* raised a BaseException that is not an Exception */
+
+/* The before_write hook: `planned` is the record about to be stored and written (size set). It runs
+ * on the calling thread WHILE THE HANDLE LOCK IS HELD (as dc_cl_confirm_fn does), so it must not wait
+ * on another thread that needs this GPU handle. `error` holds `error_cap` bytes
+ * (DC_RAILS_HOLD_ERROR_MAX) for DC_RAILS_HOLD_HOOK_RAISED's text; any other answer than the four
+ * values above (0 included) is DC_RAILS_HOLD_HOOK_FALSE: the raise is refused as unread ("the crash
+ * marker could not be written, ..."), nothing is kept or written, and the caller may retry. The hook
+ * is not called for a plan whose written values do not all fit int32 (the writer refuses that plan;
+ * nothing is kept). */
+typedef int32_t(DC_CALL* dc_rails_before_write_fn)(void* context, const dc_rails_hold_record* planned, char* error,
+                                                    size_t error_cap);
+
+/* The bits of apply's `invalid`: the binding's float(hold_mv) / float(margin_mv) raised TypeError or
+ * ValueError (the core then answers Python's text at Python's step; hold_mv / margin_mv are ignored). */
+#define DC_RAILS_HOLD_BAD_HOLD 1u
+#define DC_RAILS_HOLD_BAD_MARGIN 2u
+
+/* apply_hold_headroom(hold_mv, margin_mv, rail, before_write). rail -1 is any key that names no rail;
+ * `xoc` is the session's voltage_xoc_enabled (VOLT_LIMIT_XOC_MAX_MV bound, else VOLT_LIMIT_MAX_MV);
+ * before_write NULL is None. The V/F curve for the grain is the handle's own reader. In order: the
+ * unread flag cleared, a re-plan's restore (one bounded retry), the support / fields / limits /
+ * _absolute_ok / ceiling / bound / plan refusals, the boost read, the grain, the live offset (kept
+ * for the session; a re-plan reuses it), the margin refusal, the hook, the record stored BEFORE the
+ * write, the write, the forced rollback of an unconfirmed, refused or unverified write, the raised
+ * ceiling from the verified read-back (hold + margin when it cannot be read), and the live check.
+ * DC_E_ARGUMENT for a NULL argument (but before_write), a size mismatch or invalid beyond the two
+ * bits. `writes` describes the last _write_rail_records call the apply made (calls counts them);
+ * it is filled even when the call then fails (DC_E_FAILED). */
+DC_API dc_status DC_CALL dc_rails_hold_apply(dc_gpu* handle, double hold_mv, double margin_mv, uint32_t invalid,
+                                             int32_t rail, int32_t xoc, dc_rails_before_write_fn before_write,
+                                             void* context, dc_rails_hold_outcome* out,
+                                             dc_rails_setter_writes* writes);
+
+/* restore_hold_headroom(force). `writes` as for dc_rails_hold_apply. */
+DC_API dc_status DC_CALL dc_rails_hold_restore(dc_gpu* handle, int32_t force, dc_rails_hold_outcome* out,
+                                               dc_rails_setter_writes* writes);
+
+/* hold_headroom_live_ok(record, live_mv): has_record 0 (or a record with present 0) is the active
+ * record; has_live 0 reads the record's rail. */
+DC_API dc_status DC_CALL dc_rails_hold_live_ok(dc_gpu* handle, int32_t has_record, const dc_rails_hold_record* record,
+                                               int32_t has_live, double live_mv, dc_outcome* out);
+
+/* hold_headroom_grain_mv(): *has 0 is None. Reads the handle's V/F curve once a grain is not cached. */
+DC_API dc_status DC_CALL dc_rails_hold_grain_mv(dc_gpu* handle, int32_t* has, double* grain_mv);
+
+/* hold_headroom_architecture(): *supported 1 True, 0 False, -1 None (arch() could not be read). */
+DC_API dc_status DC_CALL dc_rails_hold_architecture(dc_gpu* handle, int32_t* supported);
+
+/* hold_headroom_rail_unavailable(rail): *unavailable 0 is None; else *kind 0 "transient" or 1
+ * "unanswered" and the detail text, truncated to `detail_cap` bytes with its NUL (*needed: its full
+ * length without the NUL). rail -1 is any key that names no rail. */
+#define DC_RAILS_HOLD_TRANSIENT 0
+#define DC_RAILS_HOLD_UNANSWERED 1
+DC_API dc_status DC_CALL dc_rails_hold_rail_unavailable(dc_gpu* handle, int32_t rail, int32_t* unavailable,
+                                                        int32_t* kind, char* detail, size_t detail_cap,
+                                                        size_t* needed);
+
+/* hold_headroom_overwritten(limits): has_limits 0 reads read_volt_rail_limits(); else `limits` is
+ * the caller's (present 0: None). *out 0 False, 1 True, 2 Python's OverflowError of
+ * int(round(inf)) (the binding raises it). */
+DC_API dc_status DC_CALL dc_rails_hold_overwritten(dc_gpu* handle, int32_t has_limits, const dc_rails_limit_set* limits,
+                                                   int32_t* out);
+
+/* _volt_rail_initial_uv[rail] (adopt_foreign_hold_headroom's read and its replacement of an existing
+ * entry). get: *has 0 when the rail has no first read. set: *replaced 0 when it has none (nothing is
+ * added). DC_E_ARGUMENT for a rail other than 0 and 1. */
+DC_API dc_status DC_CALL dc_rails_initial_get(dc_gpu* handle, int32_t rail, int32_t* has, int32_t values[4]);
+DC_API dc_status DC_CALL dc_rails_initial_set(dc_gpu* handle, int32_t rail, const int32_t values[4], int32_t* replaced);
 
 #ifdef __cplusplus
 }

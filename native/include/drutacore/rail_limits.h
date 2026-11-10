@@ -160,6 +160,13 @@ DC_API dc_status DC_CALL dc_rl_hold_headroom_bound_mv(const dc_rl_record* record
 DC_API dc_status DC_CALL dc_rl_hold_headroom_allowance_mv(const dc_rl_record* record, const dc_rl_record* active,
                                                           double* out);
 
+/* Python's round(x, ndigits) for ndigits 2 or 4 (any other ndigits: DC_E_ARGUMENT), as the
+ * hold-headroom grain uses it: the decimal with ndigits places nearest to x's exact binary value,
+ * ties to even, then the double nearest to it. Exact for |x| < 2^39. At or above 2^53 x is an
+ * integer and *out is x; so are 0, +-inf and NaN. Between 2^39 and 2^53 the result is
+ * nearbyint(x * 10^ndigits) / 10^ndigits, which may differ from Python's (no voltage is that large). */
+DC_API dc_status DC_CALL dc_rl_round_digits(double x, int32_t ndigits, double* out);
+
 #ifdef __cplusplus
 }
 #endif

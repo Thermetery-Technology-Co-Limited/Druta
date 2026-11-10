@@ -37,11 +37,21 @@
 // flags they read (volt_limits_write_enabled, voltage_xoc_enabled) are passed per call by the
 // binding, never stored here. The restore target is this session's first read (initial_), never a
 // factory default.
+//
+// Increment R6 adds the hold-headroom runtime over the setters' store (hold_headroom_grain_mv,
+// hold_headroom_architecture, hold_headroom_rail_unavailable, hold_headroom_overwritten,
+// hold_headroom_record, apply_hold_headroom, _headroom_unread, hold_headroom_live_ok and
+// restore_hold_headroom) and the four pieces of session state they keep (_hold_headroom_grain,
+// _hold_headroom_offset_mv, _hold_headroom_unread, _hold_headroom_live_trip). All of it is process
+// memory for this session only: nothing is persisted or reapplied after a driver restart (the crash
+// marker is the binding's). The V/F curve the grain is read from is the handle's own reader, passed
+// in as a callable (the caller composes it under the same handle lock).
 #pragma once
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -211,16 +221,76 @@ struct RailVerifyOutcome {
     std::string error;
 };
 
-// Increment R5. The hold-headroom record (Python's _hold_headroom dict) as far as the setters read
-// and clear it: its "rail", and the "written_uv" and "prior_uv" dicts keyed by VOLT_LIMIT_FIELDS
-// (an absent optional is an absent key). Increment R6 (apply/restore_hold_headroom) owns the fuller
-// shape and extends this struct; until then the binding sets and reads it for the parity tests.
+// The hold-headroom record (Python's _hold_headroom dict, apply_hold_headroom's record): one store
+// that the R5 setters adopt into and clear and the R6 runtime writes, restores and checks. The dict's
+// keys in their order: "rail", "hold_mv", "margin_mv", "ceiling_mv", "boost_mv", "live_offset_mv",
+// "grain_mv" (None: nullopt), "input_uv" (HOLD_HEADROOM_FIELDS), "prior_uv" and "written_uv" (keyed
+// by VOLT_LIMIT_FIELDS, an absent optional an absent key, in field order as apply inserts them), and
+// "raised_ceiling_mv" only once the verified read-back has set it. A float key a record set from
+// outside lacks (the binding's mirror) is NaN, which every reader treats as Python treats the
+// missing key.
+// The record's keys besides "rail" and "raised_ceiling_mv" (HoldRecord::keys): a record apply made
+// has them all; one set from outside has those its dict had. Readers that index a missing key
+// (restore's record["written_uv"] / record["prior_uv"]) raise KeyError as Python does.
+inline constexpr std::uint32_t kHoldKeyHold = 1u << 0, kHoldKeyMargin = 1u << 1, kHoldKeyCeiling = 1u << 2,
+                               kHoldKeyBoost = 1u << 3, kHoldKeyLiveOffset = 1u << 4, kHoldKeyGrain = 1u << 5,
+                               kHoldKeyInput = 1u << 6, kHoldKeyPrior = 1u << 7, kHoldKeyWritten = 1u << 8,
+                               kHoldKeysAll = (1u << 9) - 1u;
+// HoldOutcome::key_error beyond the four field indices: the dict that was missing.
+inline constexpr std::size_t kHoldKeyErrorWritten = 4, kHoldKeyErrorPrior = 5;
+
 struct HoldRecord {
     bool present = false;  // false: None
     std::int32_t rail = 0;
+    std::uint32_t keys = 0;  // kHoldKey* bits
+    double hold_mv = 0.0, margin_mv = 0.0, ceiling_mv = 0.0, boost_mv = 0.0, live_offset_mv = 0.0;
+    std::optional<double> grain_mv;
+    std::array<std::optional<std::int32_t>, 3> input_uv;  // HOLD_HEADROOM_FIELDS, a prefix of the fields
     std::array<std::optional<std::int32_t>, 4> written_uv;
     std::array<std::optional<std::int32_t>, 4> prior_uv;
+    std::optional<double> raised_ceiling_mv;
 };
+
+// The session state the hold-headroom runtime keeps besides the record (GPU attributes, absent until
+// set: an absent optional or false).
+struct HoldState {
+    std::optional<double> grain;      // _hold_headroom_grain
+    std::optional<double> offset_mv;  // _hold_headroom_offset_mv
+    bool unread = false;              // _hold_headroom_unread
+    bool live_trip = false;           // _hold_headroom_live_trip
+};
+
+// apply_hold_headroom / restore_hold_headroom's (ok, message): ok 1 True, 0 None, -1 False.
+// key_error: Python's KeyError raised out of restore on a record set from outside, nothing after it
+// ran: a field index (record["prior_uv"][key] without that key), kHoldKeyErrorWritten
+// (record["written_uv"]) or kHoldKeyErrorPrior (record["prior_uv"]).
+struct HoldOutcome {
+    int ok = 1;
+    std::string message;
+    std::optional<std::size_t> key_error;
+    bool aborted = false;  // the before_write hook raised a BaseException: the binding re-raises it
+};
+
+// What apply_hold_headroom's before_write(record) returned: anything but False (proceed), False,
+// an Exception (raised; its str() in the error text), or a BaseException the binding re-raises.
+// No value is zero: a hook that fails without answering is refused, never taken for proceed.
+enum class Tracked : int { proceed = 1, refused = 2, raised = 3, abort = 4 };
+using BeforeWrite = std::function<Tracked(const HoldRecord& planned, std::string& error)>;
+// read_vf_curve()'s points' volt_mv (nullopt: no points, or the read raised).
+using CurveVolts = std::function<std::optional<std::vector<double>>()>;
+
+// hold_headroom_rail_unavailable's (kind, detail).
+struct HoldUnavailable {
+    bool transient = false;  // "transient", else "unanswered"
+    std::string detail;
+};
+
+// hold_headroom_overwritten's answer: Python's False, True, or the OverflowError of int(round(inf)).
+enum class HoldOverwritten : int { no = 0, yes = 1, overflow = 2 };
+
+// The bits of apply's `invalid`: float(hold_mv) / float(margin_mv) raised TypeError or ValueError.
+inline constexpr std::uint32_t kHoldBadHold = 1u;
+inline constexpr std::uint32_t kHoldBadMargin = 2u;
 
 // set_volt_rail_limits' keyword arguments that name a field: the field indices in the caller's
 // keyword order and, per field index, its value in mV (nullopt: passed as None). `unknown` is
@@ -315,6 +385,32 @@ public:
     const HoldRecord& hold_record() const { return hold_; }
     void set_hold_record(const HoldRecord& record) { hold_ = record; }
 
+    // Increment R6: the hold-headroom runtime. Every write runs through write_records and is noted in
+    // `trace` as the R5 setters note theirs.
+    // hold_headroom_grain_mv(): the cached grain when truthy, else this card's modal V/F step.
+    std::optional<double> hold_grain_mv(const CurveVolts& volts);
+    // hold_headroom_rail_unavailable(rail): nullopt is None. Any rail other than 0 and 1 is a key no
+    // cache or diagnosis holds.
+    std::optional<HoldUnavailable> hold_rail_unavailable(std::int32_t rail);
+    // hold_headroom_overwritten(limits): given nullptr reads read_volt_rail_limits(); a given nullopt
+    // is a limits of None.
+    HoldOverwritten hold_overwritten(const std::optional<RailLimits>* given);
+    // apply_hold_headroom(hold_mv, margin_mv, rail, before_write); before_write empty is None. `xoc` is
+    // the session's voltage_xoc_enabled, passed per call. rail -1 is any key that names no rail.
+    HoldOutcome apply_hold(double hold_mv, double margin_mv, std::uint32_t invalid, std::int32_t rail, bool xoc,
+                           const CurveVolts& volts, const BeforeWrite& before_write, RailWriterTrace& trace);
+    // restore_hold_headroom(force).
+    HoldOutcome restore_hold(bool force, RailWriterTrace& trace);
+    // hold_headroom_live_ok(record, live_mv): record nullptr is the active record; live nullopt reads
+    // the record's rail.
+    Outcome hold_live_ok(const HoldRecord* record, std::optional<double> live);
+    const HoldState& hold_state() const { return state_; }
+    void set_hold_state(const HoldState& state) { state_ = state; }
+    // _volt_rail_initial_uv[rail] (adopt_foreign_hold_headroom's read and its in-place replacement of
+    // an existing entry; a rail without a first read stays without one).
+    const std::optional<RailInitial>& initial(std::size_t rail) const { return initial_[rail]; }
+    bool replace_initial(std::size_t rail, const RailInitial& values);
+
     // The four caches _refresh_volt_rail_capabilities resets (its _volt_rail_write_error is the
     // writer's, not part of these getters). The reference and the first-read record stay: refresh
     // retries discovery without redefining the session's restore target.
@@ -335,7 +431,8 @@ private:
     std::array<std::optional<RailFields>, kRailCount> reference_;  // _volt_rail_reference[rail]["bases"]
     std::array<std::optional<RailInitial>, kRailCount> initial_;   // _volt_rail_initial_uv[rail]
     std::vector<std::size_t> order_;  // the rails of reference_ in insertion order (initial_ follows it)
-    HoldRecord hold_;                 // _hold_headroom (R6 fills it)
+    HoldRecord hold_;                 // _hold_headroom
+    HoldState state_;                 // _hold_headroom_grain, _offset_mv, _unread, _live_trip
 };
 
 }  // namespace druta::backend

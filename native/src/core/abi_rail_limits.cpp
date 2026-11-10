@@ -263,4 +263,10 @@ DC_API dc_status DC_CALL dc_rl_hold_headroom_allowance_mv(const dc_rl_record* re
     return DC_OK;
 }
 
+DC_API dc_status DC_CALL dc_rl_round_digits(double x, int32_t ndigits, double* out) {
+    if (!out || (ndigits != 2 && ndigits != 4)) return DC_E_ARGUMENT;
+    *out = rail::round_digits(x, ndigits);
+    return DC_OK;
+}
+
 }  // extern "C"

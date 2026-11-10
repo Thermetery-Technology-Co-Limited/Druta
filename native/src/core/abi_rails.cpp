@@ -4,6 +4,8 @@
 //
 // The C ABI of drutacore/rails.h.
 #include <cstring>
+#include <limits>
+#include <optional>
 
 #include "backend/rail_limits.h"
 #include "backend/rails.h"
@@ -173,6 +175,125 @@ dc_status run_setter(dc_gpu* handle, Setter&& setter, dc_outcome* out, dc_rails_
     } catch (...) {
         put_writes(trace, writes);  // copies into fixed fields only: does not throw
         throw;                      // guarded() turns it into DC_E_FAILED
+    }
+    put_writes(trace, writes);
+    return DC_OK;
+}
+
+// ---- Increment R6 ------------------------------------------------------------------------------
+
+using druta::backend::HoldRecord;
+
+static_assert(DC_RAILS_HOLD_OK == 1 && DC_RAILS_HOLD_NONE == 0 && DC_RAILS_HOLD_FAILED == -1, "hold ok");
+static_assert(DC_RAILS_HOLD_HOOK_PROCEED == static_cast<int>(druta::backend::Tracked::proceed), "hook");
+static_assert(DC_RAILS_HOLD_HOOK_FALSE == static_cast<int>(druta::backend::Tracked::refused), "hook");
+static_assert(DC_RAILS_HOLD_HOOK_RAISED == static_cast<int>(druta::backend::Tracked::raised), "hook");
+static_assert(DC_RAILS_HOLD_HOOK_ABORT == static_cast<int>(druta::backend::Tracked::abort), "hook");
+static_assert(DC_RAILS_HOLD_BAD_HOLD == druta::backend::kHoldBadHold, "invalid bits");
+static_assert(DC_RAILS_HOLD_BAD_MARGIN == druta::backend::kHoldBadMargin, "invalid bits");
+static_assert(sizeof(((dc_rails_hold_outcome*)nullptr)->message) == DC_RAILS_HOLD_MESSAGE_MAX, "message");
+static_assert(druta::backend::rail::kHeadroomFieldCount == 3, "headroom fields");
+static_assert(DC_RAILS_HOLD_KEYS_ALL == druta::backend::kHoldKeysAll, "hold keys");
+static_assert(DC_RAILS_HOLD_KEY_HOLD == druta::backend::kHoldKeyHold && DC_RAILS_HOLD_KEY_MARGIN == druta::backend::kHoldKeyMargin &&
+                  DC_RAILS_HOLD_KEY_CEILING == druta::backend::kHoldKeyCeiling &&
+                  DC_RAILS_HOLD_KEY_BOOST == druta::backend::kHoldKeyBoost &&
+                  DC_RAILS_HOLD_KEY_LIVE_OFFSET == druta::backend::kHoldKeyLiveOffset &&
+                  DC_RAILS_HOLD_KEY_GRAIN == druta::backend::kHoldKeyGrain &&
+                  DC_RAILS_HOLD_KEY_INPUT == druta::backend::kHoldKeyInput &&
+                  DC_RAILS_HOLD_KEY_PRIOR == druta::backend::kHoldKeyPrior &&
+                  DC_RAILS_HOLD_KEY_WRITTEN == druta::backend::kHoldKeyWritten,
+              "hold keys");
+static_assert(DC_RAILS_HOLD_KEY_ERROR_WRITTEN == druta::backend::kHoldKeyErrorWritten + 1 &&
+                  DC_RAILS_HOLD_KEY_ERROR_PRIOR == druta::backend::kHoldKeyErrorPrior + 1,
+              "key errors");
+// The longest apply text (the above-the-ceiling refusal, four %.2f of at most 309 digits each, or a
+// two-rail failure text carrying the writer's error) fits the message with its NUL.
+static_assert(DC_RAILS_HOLD_MESSAGE_MAX > 4 * 320 + 400 + 2 * 1024, "message capacity");
+
+void put_hold(const HoldRecord& h, dc_rails_hold_record* out) {
+    clear(out);
+    if (!h.present) return;
+    out->present = 1;
+    out->rail = h.rail;
+    out->keys = h.keys;
+    for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
+        out->has_written[k] = h.written_uv[k] ? 1 : 0;
+        out->written_uv[k] = h.written_uv[k].value_or(0);
+        out->has_prior[k] = h.prior_uv[k] ? 1 : 0;
+        out->prior_uv[k] = h.prior_uv[k].value_or(0);
+    }
+    for (std::size_t k = 0; k < 3; ++k) {
+        out->has_input[k] = h.input_uv[k] ? 1 : 0;
+        out->input_uv[k] = h.input_uv[k].value_or(0);
+    }
+    out->has_grain = h.grain_mv ? 1 : 0;
+    out->has_raised_ceiling = h.raised_ceiling_mv ? 1 : 0;
+    out->hold_mv = h.hold_mv;
+    out->margin_mv = h.margin_mv;
+    out->ceiling_mv = h.ceiling_mv;
+    out->boost_mv = h.boost_mv;
+    out->live_offset_mv = h.live_offset_mv;
+    out->grain_mv = h.grain_mv.value_or(0.0);
+    out->raised_ceiling_mv = h.raised_ceiling_mv.value_or(0.0);
+}
+
+HoldRecord get_hold(const dc_rails_hold_record& in) {
+    HoldRecord h;
+    if (!in.present) return h;
+    h.present = true;
+    h.rail = in.rail;
+    h.keys = in.keys;
+    for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
+        if (in.has_written[k]) h.written_uv[k] = in.written_uv[k];
+        if (in.has_prior[k]) h.prior_uv[k] = in.prior_uv[k];
+    }
+    for (std::size_t k = 0; k < 3; ++k) {
+        if (in.has_input[k]) h.input_uv[k] = in.input_uv[k];
+    }
+    // a float key the record does not carry is NaN (the header's contract), whatever the caller left
+    // in the slot, so every reader treats it as Python treats the missing key
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const auto keyed = [&](std::uint32_t bit, double value) { return (in.keys & bit) ? value : nan; };
+    h.hold_mv = keyed(DC_RAILS_HOLD_KEY_HOLD, in.hold_mv);
+    h.margin_mv = keyed(DC_RAILS_HOLD_KEY_MARGIN, in.margin_mv);
+    h.ceiling_mv = keyed(DC_RAILS_HOLD_KEY_CEILING, in.ceiling_mv);
+    h.boost_mv = keyed(DC_RAILS_HOLD_KEY_BOOST, in.boost_mv);
+    h.live_offset_mv = keyed(DC_RAILS_HOLD_KEY_LIVE_OFFSET, in.live_offset_mv);
+    if (in.has_grain) h.grain_mv = in.grain_mv;
+    if (in.has_raised_ceiling) h.raised_ceiling_mv = in.raised_ceiling_mv;
+    return h;
+}
+
+void put_hold_outcome(const druta::backend::HoldOutcome& o, dc_rails_hold_outcome* out) {
+    clear(out);
+    out->ok = o.ok;
+    out->key_error = o.key_error ? static_cast<int32_t>(*o.key_error) + 1 : 0;
+    out->aborted = o.aborted ? 1 : 0;
+    put_text(out->message, o.message.c_str());
+}
+
+// read_vf_curve()'s points' volt_mv over the handle's own curve reader (the handle lock is held).
+druta::backend::CurveVolts curve_volts(dc_gpu* handle) {
+    return [handle]() -> std::optional<std::vector<double>> {
+        const druta::backend::CurveResult result = handle->curve().read_vf_curve();
+        if (!result.points) return std::nullopt;
+        std::vector<double> volts;
+        volts.reserve(result.points->size());
+        for (const druta::backend::VfPoint& p : *result.points) volts.push_back(p.volt_mv);
+        return volts;
+    };
+}
+
+// One hold call under the handle lock, its writer trace reaching `writes` as run_setter's does.
+template <typename Call>
+dc_status run_hold(dc_gpu* handle, Call&& call, dc_rails_hold_outcome* out, dc_rails_setter_writes* writes) {
+    druta::backend::RailWriterTrace trace;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        put_hold_outcome(call(trace), out);
+    } catch (...) {
+        put_writes(trace, writes);
+        throw;
     }
     put_writes(trace, writes);
     return DC_OK;
@@ -511,35 +632,216 @@ DC_API dc_status DC_CALL dc_rails_hold_record_get(dc_gpu* handle, dc_rails_hold_
     if (!handle || !out || out->size != sizeof(dc_rails_hold_record)) return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
-        const druta::backend::HoldRecord& h = handle->rails.hold_record();
-        clear(out);
-        if (!h.present) return DC_OK;
-        out->present = 1;
-        out->rail = h.rail;
-        for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
-            out->has_written[k] = h.written_uv[k] ? 1 : 0;
-            out->written_uv[k] = h.written_uv[k].value_or(0);
-            out->has_prior[k] = h.prior_uv[k] ? 1 : 0;
-            out->prior_uv[k] = h.prior_uv[k].value_or(0);
-        }
+        put_hold(handle->rails.hold_record(), out);
         return DC_OK;
     });
 }
 
 DC_API dc_status DC_CALL dc_rails_hold_record_set(dc_gpu* handle, const dc_rails_hold_record* record) {
-    if (!handle || !record || record->size != sizeof(dc_rails_hold_record)) return DC_E_ARGUMENT;
+    if (!handle || !record || record->size != sizeof(dc_rails_hold_record) || (record->keys & ~DC_RAILS_HOLD_KEYS_ALL))
+        return DC_E_ARGUMENT;
     return guarded([&]() -> dc_status {
-        druta::backend::HoldRecord h;
-        if (record->present) {
-            h.present = true;
-            h.rail = record->rail;
-            for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) {
-                if (record->has_written[k]) h.written_uv[k] = record->written_uv[k];
-                if (record->has_prior[k]) h.prior_uv[k] = record->prior_uv[k];
-            }
-        }
+        const HoldRecord h = get_hold(*record);
         druta::LockGuard guard(handle->gpu.lock());
         handle->rails.set_hold_record(h);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_state_get(dc_gpu* handle, dc_rails_hold_state* out) {
+    if (!handle || !out || out->size != sizeof(dc_rails_hold_state)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::HoldState& st = handle->rails.hold_state();
+        clear(out);
+        out->has_grain = st.grain ? 1 : 0;
+        out->grain = st.grain.value_or(0.0);
+        out->has_offset = st.offset_mv ? 1 : 0;
+        out->offset_mv = st.offset_mv.value_or(0.0);
+        out->unread = st.unread ? 1 : 0;
+        out->live_trip = st.live_trip ? 1 : 0;
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_state_set(dc_gpu* handle, uint32_t mask, const dc_rails_hold_state* state) {
+    if (!handle || !state || state->size != sizeof(dc_rails_hold_state) || (mask & ~DC_RAILS_HOLD_STATE_ALL))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        // only the named fields change, under the handle lock: assigning one attribute never rewrites
+        // another thread's update of the others (each is its own attribute in Python)
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::backend::HoldState st = handle->rails.hold_state();
+        if (mask & DC_RAILS_HOLD_STATE_GRAIN)
+            st.grain = state->has_grain ? std::optional<double>(state->grain) : std::nullopt;
+        if (mask & DC_RAILS_HOLD_STATE_OFFSET)
+            st.offset_mv = state->has_offset ? std::optional<double>(state->offset_mv) : std::nullopt;
+        if (mask & DC_RAILS_HOLD_STATE_UNREAD) st.unread = state->unread != 0;
+        if (mask & DC_RAILS_HOLD_STATE_LIVE_TRIP) st.live_trip = state->live_trip != 0;
+        handle->rails.set_hold_state(st);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_apply(dc_gpu* handle, double hold_mv, double margin_mv, uint32_t invalid,
+                                             int32_t rail, int32_t xoc, dc_rails_before_write_fn before_write,
+                                             void* context, dc_rails_hold_outcome* out,
+                                             dc_rails_setter_writes* writes) {
+    if (!handle || !out || !writes || out->size != sizeof(dc_rails_hold_outcome) ||
+        writes->size != sizeof(dc_rails_setter_writes) ||
+        (invalid & ~(DC_RAILS_HOLD_BAD_HOLD | DC_RAILS_HOLD_BAD_MARGIN)))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::backend::BeforeWrite hook;
+        if (before_write) {
+            hook = [before_write, context](const HoldRecord& planned, std::string& error) {
+                dc_rails_hold_record record;
+                record.size = sizeof record;
+                put_hold(planned, &record);
+                char text[DC_RAILS_HOLD_ERROR_MAX];
+                text[0] = '\0';
+                const int32_t answer = before_write(context, &record, text, sizeof text);
+                text[sizeof text - 1] = '\0';
+                switch (answer) {
+                    case DC_RAILS_HOLD_HOOK_PROCEED:
+                        return druta::backend::Tracked::proceed;
+                    case DC_RAILS_HOLD_HOOK_RAISED:
+                        error = text;
+                        return druta::backend::Tracked::raised;
+                    case DC_RAILS_HOLD_HOOK_ABORT:
+                        return druta::backend::Tracked::abort;
+                    default:  // FALSE, and 0 or any unknown answer: fail closed (no marker, no raise)
+                        return druta::backend::Tracked::refused;
+                }
+            };
+        }
+        const druta::backend::CurveVolts volts = curve_volts(handle);
+        return run_hold(
+            handle,
+            [&](druta::backend::RailWriterTrace& trace) {
+                return handle->rails.apply_hold(hold_mv, margin_mv, invalid, rail, xoc != 0, volts, hook, trace);
+            },
+            out, writes);
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_restore(dc_gpu* handle, int32_t force, dc_rails_hold_outcome* out,
+                                               dc_rails_setter_writes* writes) {
+    if (!handle || !out || !writes || out->size != sizeof(dc_rails_hold_outcome) ||
+        writes->size != sizeof(dc_rails_setter_writes))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        return run_hold(
+            handle, [&](druta::backend::RailWriterTrace& trace) { return handle->rails.restore_hold(force != 0, trace); },
+            out, writes);
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_live_ok(dc_gpu* handle, int32_t has_record, const dc_rails_hold_record* record,
+                                               int32_t has_live, double live_mv, dc_outcome* out) {
+    if (!handle || !out || (has_record && (!record || record->size != sizeof(dc_rails_hold_record))))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        std::optional<HoldRecord> given;
+        if (has_record) given = get_hold(*record);
+        std::optional<double> live;
+        if (has_live) live = live_mv;
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::abi::put_outcome(handle->rails.hold_live_ok(given ? &*given : nullptr, live), out);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_grain_mv(dc_gpu* handle, int32_t* has, double* grain_mv) {
+    if (!handle || !has || !grain_mv) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const std::optional<double> grain = handle->rails.hold_grain_mv(curve_volts(handle));
+        *has = grain ? 1 : 0;
+        *grain_mv = grain.value_or(0.0);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_architecture(dc_gpu* handle, int32_t* supported) {
+    if (!handle || !supported) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const auto arch = handle->telemetry.arch();
+        *supported = druta::backend::rail::volt_rail_architecture(arch.has_value(), arch.value_or(0));
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_rail_unavailable(dc_gpu* handle, int32_t rail, int32_t* unavailable,
+                                                        int32_t* kind, char* detail, size_t detail_cap,
+                                                        size_t* needed) {
+    if (!handle || !unavailable || !kind || !needed || (!detail && detail_cap)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const auto got = handle->rails.hold_rail_unavailable(rail);
+        *unavailable = got ? 1 : 0;
+        *kind = got && !got->transient ? DC_RAILS_HOLD_UNANSWERED : DC_RAILS_HOLD_TRANSIENT;
+        const std::string text = got ? got->detail : std::string();
+        *needed = text.size();
+        if (detail_cap) {
+            const std::size_t n = text.size() < detail_cap - 1 ? text.size() : detail_cap - 1;
+            if (n) std::memcpy(detail, text.data(), n);
+            detail[n] = '\0';
+        }
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_hold_overwritten(dc_gpu* handle, int32_t has_limits, const dc_rails_limit_set* limits,
+                                                   int32_t* out) {
+    if (!handle || !out || (has_limits && (!limits || limits->size != sizeof(dc_rails_limit_set) ||
+                                           (limits->present >> DC_RAILS_COUNT))))
+        return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        std::optional<druta::backend::RailLimits> given;
+        if (has_limits && limits->present) {
+            druta::backend::RailLimits rows;
+            for (std::size_t r = 0; r < DC_RAILS_COUNT; ++r) {
+                if (!(limits->present >> r & 1u)) continue;
+                const dc_rails_limit_row& e = limits->rails[r];
+                druta::backend::RailLimitRow row;
+                row.deltas.type = e.type;
+                row.deltas.reliability = e.fields[0];
+                row.deltas.alt_reliability = e.fields[1];
+                row.deltas.overvoltage = e.fields[2];
+                row.deltas.vmin = e.fields[3];
+                if (e.has_base) row.base = druta::backend::RailFields{e.base[0], e.base[1], e.base[2], e.base[3]};
+                row.absolute_ok = e.absolute_ok != 0;
+                row.boost_mv = e.boost_mv;
+                if (e.has_effective) row.effective_mv = e.effective_mv;
+                rows[r] = row;
+            }
+            given = rows;
+        }
+        druta::LockGuard guard(handle->gpu.lock());
+        *out = static_cast<int32_t>(handle->rails.hold_overwritten(has_limits ? &given : nullptr));
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_initial_get(dc_gpu* handle, int32_t rail, int32_t* has, int32_t values[4]) {
+    if (!handle || !has || !values || (rail != 0 && rail != 1)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const auto& initial = handle->rails.initial(static_cast<std::size_t>(rail));
+        *has = initial ? 1 : 0;
+        for (std::size_t k = 0; k < DC_RAILS_LIMIT_FIELDS; ++k) values[k] = initial ? (*initial)[k] : 0;
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_initial_set(dc_gpu* handle, int32_t rail, const int32_t values[4], int32_t* replaced) {
+    if (!handle || !values || !replaced || (rail != 0 && rail != 1)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        const druta::backend::RailInitial v{values[0], values[1], values[2], values[3]};
+        druta::LockGuard guard(handle->gpu.lock());
+        *replaced = handle->rails.replace_initial(static_cast<std::size_t>(rail), v) ? 1 : 0;
         return DC_OK;
     });
 }

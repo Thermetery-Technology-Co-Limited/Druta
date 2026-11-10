@@ -7,6 +7,7 @@
 #include "backend/rail_limits.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <utility>
@@ -407,6 +408,53 @@ Result<double> hold_headroom_allowance_mv(const Record* record, const Record* ac
     if (!(std::isfinite(offset) && offset >= 0)) offset = 0.0;
     out.value = offset + grain / 2.0;
     return out;
+}
+
+// round_digits: Python's round(x, ndigits) for ndigits 2 and 4: the decimal with that many places nearest to x's
+// EXACT binary value (ties to even), then the double nearest to that decimal. Not nearbyint(x * 100):
+// the product is itself rounded, which can move a value onto or off a tie. Below 2^39 the product
+// is formed exactly in 128 bits (|x| = m / 2^s with m < 2^53, times 10^n < 2^14) and the quotient
+// k / 10^n is one correctly rounded division of two exact doubles (k < 2^53), which is what
+// Python's strtod of the decimal gives. At or above 2^53 x is an integer and is returned. Between
+// 2^39 and 2^53 (beyond any voltage: 5.5e11 mV) nearbyint(x * 10^n) / 10^n is used.
+double round_digits(double x, int ndigits) {
+    if (!std::isfinite(x) || x == 0.0) return x;
+    const double ax = std::fabs(x);
+    if (ax >= 9007199254740992.0) return x;
+    const std::uint64_t scale = ndigits == 2 ? 100u : 10000u;
+    const double fscale = static_cast<double>(scale);
+    if (ax >= 549755813888.0) return std::nearbyint(x * fscale) / fscale;
+    int e = 0;
+    const double f = std::frexp(ax, &e);  // ax = f * 2^e, 0.5 <= f < 1
+    const std::uint64_t m = static_cast<std::uint64_t>(std::ldexp(f, 53));  // exact: 53 bits
+    const int s = 53 - e;  // ax = m / 2^s, s >= 14 here
+    if (s > 67) return std::copysign(0.0, x);  // m * scale < 2^67 <= 2^(s - 1): below one half
+    // M = m * scale as (hi, lo): M < 2^67
+    const std::uint64_t ph = (m >> 32) * scale, pl = (m & 0xFFFFFFFFu) * scale;
+    const std::uint64_t lo = pl + (ph << 32);
+    const std::uint64_t hi = (ph >> 32) + (lo < pl ? 1u : 0u);
+    std::uint64_t k = 0;
+    int cmp = 0;  // the remainder against one half: -1 below, 0 equal, 1 above
+    const unsigned us = static_cast<unsigned>(s);
+    if (us < 64) {
+        k = (lo >> us) | (hi << (64u - us));  // hi < 2^3 and s >= 14: k < 2^53
+        const std::uint64_t rem = lo & ((std::uint64_t{1} << us) - 1u);
+        const std::uint64_t half = std::uint64_t{1} << (us - 1u);
+        cmp = rem < half ? -1 : rem > half ? 1 : 0;
+    } else {
+        const unsigned t = us - 64u;  // 0 .. 3
+        k = hi >> t;
+        const std::uint64_t rem_hi = hi & ((std::uint64_t{1} << t) - 1u);
+        if (t == 0) {
+            const std::uint64_t half = std::uint64_t{1} << 63;
+            cmp = lo < half ? -1 : lo > half ? 1 : 0;
+        } else {
+            const std::uint64_t half_hi = std::uint64_t{1} << (t - 1u);
+            cmp = rem_hi < half_hi ? -1 : rem_hi > half_hi ? 1 : (lo ? 1 : 0);
+        }
+    }
+    if (cmp > 0 || (cmp == 0 && (k & 1u))) ++k;
+    return std::copysign(static_cast<double>(k) / fscale, x);
 }
 
 }  // namespace druta::backend::rail

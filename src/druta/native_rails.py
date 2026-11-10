@@ -1,7 +1,7 @@
 # Druta - a monitor and tuner for NVIDIA GPUs.
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The voltage-rail getters of the native core (drutacore/rails.h), increments R2 to R4.
+"""The voltage-rail getters of the native core (drutacore/rails.h), increments R2 to R6.
 
 On a ``druta.native.Gpu``: ``read_volt_rail_blocks(gpu, function, version)`` is
 ``GPU._read_volt_rail_blocks`` (``{rail: bytes}`` of the 8192-byte buffer the getter filled, where
@@ -58,7 +58,7 @@ Divergences of R3:
   ``"observed_packets"`` and ``"write_protocol"`` are None, [] and None, because the rail writer
   that owns them is not ported yet.
 - ``_headroom_mv`` and the profile's ``headroom_mv`` are always None: the reference holds only
-  ``"bases"`` until the hold-headroom writer is ported.
+  ``"bases"``, as Python's does (R6 does not change that).
 
 Increment R4, the rail write sequence: ``write_rail_records(gpu, records)`` is
 ``GPU._write_rail_records`` (the native.Gpu method ``_write_rail_records`` delegates to it) and
@@ -93,8 +93,8 @@ native.Gpu methods keep Python's keyword interface and delegate here). The sessi
 ``volt_limits_write_enabled`` and ``voltage_xoc_enabled`` are read from ``gpu`` at each call and
 passed to the core, which never stores them. The writer's three attributes are set as Python's
 ``_write_rail_records`` calls leave them. ``hold_record(gpu)`` / ``set_hold_record(gpu, record)``
-read and set the core's minimal ``_hold_headroom`` (``{"rail", "written_uv", "prior_uv"}``; R6 owns
-the fuller record), which the setters adopt into and clear.
+read and set the core's ``_hold_headroom`` (since R6 the fuller record, below), which the setters
+adopt into and clear.
 
 Divergences of R5:
 
@@ -118,13 +118,78 @@ Divergences of R5:
 - When a setter fails after its write ran (DC_E_FAILED: only an allocation failure reaches that),
   the writer's three attributes are still set from that write before the error is raised, as
   Python's ``_write_rail_records`` had already set them.
-- ``set_hold_record`` accepts None (or an empty dict) or a dict whose ``rail`` is a plain int and
-  whose ``written_uv`` / ``prior_uv`` map field names to int32 values; anything else raises.
+- ``set_hold_record``: see R6.
+
+Increment R6, the hold-headroom runtime: ``hold_headroom_grain_mv``, ``hold_headroom_architecture``,
+``hold_headroom_rail_unavailable``, ``hold_headroom_overwritten``, ``apply_hold_headroom``,
+``hold_headroom_live_ok`` and ``restore_hold_headroom`` are the GPU methods of those names, run by
+the core on the handle (``_headroom_unread`` is the core's own unread path). ``user_rail_limits``
+and ``adopt_foreign_hold_headroom`` stay here, over ``hold_record``, ``read_volt_rail_limits`` and
+``dc_rails_initial_get`` / ``_set``. The record (``hold_record`` / ``set_hold_record``) carries
+apply's keys in apply's order: ``rail``, ``hold_mv``, ``margin_mv``, ``ceiling_mv``, ``boost_mv``,
+``live_offset_mv``, ``grain_mv``, ``input_uv``, ``prior_uv``, ``written_uv`` and
+``raised_ceiling_mv``; a record set from outside keeps exactly the keys it was given (a key mask
+travels with it). ``hold_state`` / ``set_hold_state`` read and change ``_hold_headroom_grain``,
+``_hold_headroom_offset_mv``, ``_hold_headroom_unread`` and ``_hold_headroom_live_trip``, which the
+native.Gpu exposes as attributes; ``set_hold_state`` changes only the values it is given, in one
+locked core call (a field mask), so assigning one attribute never rewrites the other three. A float
+key a record set from outside lacks reads as NaN in the core, as Python's missing key does. All of it
+is session state of the handle: the core never persists it, and the crash marker stays with druta.py. ``before_write(record)`` runs as a cdecl callback on
+the calling thread while the core holds the handle lock, before the record is kept and before any
+SET; it returns PROCEED (1), FALSE (2, the hook returned ``False`` itself), RAISED (3, an Exception,
+its text copied into the core's buffer) or ABORT (4, a BaseException, re-raised once the core has
+returned; the outcome is then None with ``aborted`` set). No answer is zero: 0 and any unknown
+answer are refused as FALSE, so a callback that fails without answering never lets the raise go
+ahead without its crash marker.
+
+Divergences of R6:
+
+- Native diagnostics carry no ``"error"`` key (see R2), so the unavailable detail never gets
+  Python's ``diag.get("error")`` reason or a getter's " (error)" suffix.
+- Python's ``except`` around ``_write_rail_records`` (the "raised" text, and the restore after it)
+  is not reached through the real writer: an escape callback that raises is swallowed by ctypes on
+  either side. The core has no such branch; the tests show both sides alike.
+- ``before_write`` receives a new dict built from the planned record, not Python's shallow copy whose
+  nested ``*_uv`` dicts are the record's own (a hook that mutates them changes nothing natively).
+- ``float(hold_mv)`` / ``float(margin_mv)`` run before any read: an OverflowError (``10 ** 400``) is
+  raised then, where Python raises it after its reads. TypeError / ValueError become the core's
+  "must be a number" refusals at Python's point.
+- ``rail`` must be a plain int (as the R5 setters): True or 1.0 raises TypeError before any read.
+- An exception that ctypes swallows at the hook's entry, before the binding's ``try`` (an
+  asynchronous KeyboardInterrupt), is lost where Python would raise it: the callback answers 0, which
+  the core refuses as FALSE ("the crash marker could not be written, ...", unread set, nothing kept
+  or written), so the caller retries.
+- A plan whose written values do not all fit int32 (a corrupt reading near +-2147 V) is refused by
+  the writer before any SET on both sides with the same text and no record kept, but natively the
+  hook is not called for it: Python calls it first with the true int (its caller's marker is then
+  dropped again), where the int32 record would have carried a wrapped value.
+- ``hold_headroom_overwritten(limits)`` follows Python's order (no record: False before any row is
+  looked at; ``limits[record["rail"]]`` that raises KeyError / TypeError / ValueError, or a row that
+  does not support ``in``, is False; other rails' rows are never looked at). The one difference: a
+  row of the record's own rail that lacks some ``VOLT_LIMIT_FIELDS`` key raises TypeError (Python
+  skips the missing keys); a record rail outside 0 and 1 (possible only through ``set_hold_record``)
+  is never overwritten natively.
+- ``hold_headroom_live_ok`` converts an explicit record's numbers in Python's order (see the
+  function); an unhashable rail is no rail (-1) rather than Python's caught read error, and
+  ``live_mv`` is converted with ``float()``.
+- ``adopt_foreign_hold_headroom`` skips a field whose prior is not a plain int32 (a corrupt marker):
+  that field keeps its first-read value and is not in the returned list, and nothing raises. Python
+  stores any prior in the first-read dict (and its later reset is refused by the writer).
+- ``set_hold_record`` accepts None (or an empty dict) or a dict with only the keys above, a plain
+  int32 ``rail``, numbers for the float keys, None or a number for ``grain_mv`` and field names to
+  int32 values in the ``*_uv`` dicts; anything else raises TypeError. ``hold_headroom_record`` returns
+  a new dict each call, always in apply's key order (an outside record's own order is not kept).
+- The error text a hook's exception carries is NUL-terminated in the core's buffer, so a NUL in it
+  shortens the printed text (at most ``HOLD_ERROR_MAX`` - 1 UTF-8 bytes are carried).
+- The grain's ``round(x, 2)`` (the pure helpers' ``round_digits``, ``dc_rl_round_digits``) is exact
+  half-even below 2**39 and ``nearbyint`` between 2**39 and 2**53 (the grain is bounded far below
+  either).
 """
 
 from __future__ import annotations
 
 import ctypes
+import math
 import threading
 
 from . import native
@@ -266,7 +331,33 @@ class _SetterWrites(ctypes.Structure):  # dc_rails_setter_writes
 class _HoldRecord(ctypes.Structure):  # dc_rails_hold_record
     _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_int32), ("rail", ctypes.c_int32),
                 ("has_written", ctypes.c_int32 * 4), ("written_uv", ctypes.c_int32 * 4),
-                ("has_prior", ctypes.c_int32 * 4), ("prior_uv", ctypes.c_int32 * 4)]
+                ("has_prior", ctypes.c_int32 * 4), ("prior_uv", ctypes.c_int32 * 4),
+                ("has_input", ctypes.c_int32 * 3), ("input_uv", ctypes.c_int32 * 3),
+                ("has_grain", ctypes.c_int32), ("has_raised_ceiling", ctypes.c_int32), ("keys", ctypes.c_uint32),
+                ("hold_mv", ctypes.c_double), ("margin_mv", ctypes.c_double), ("ceiling_mv", ctypes.c_double),
+                ("boost_mv", ctypes.c_double), ("live_offset_mv", ctypes.c_double), ("grain_mv", ctypes.c_double),
+                ("raised_ceiling_mv", ctypes.c_double)]
+
+
+class _HoldState(ctypes.Structure):  # dc_rails_hold_state
+    _fields_ = [("size", ctypes.c_uint32), ("has_grain", ctypes.c_int32), ("has_offset", ctypes.c_int32),
+                ("unread", ctypes.c_int32), ("live_trip", ctypes.c_int32), ("reserved", ctypes.c_int32),
+                ("grain", ctypes.c_double), ("offset_mv", ctypes.c_double)]
+
+
+HOLD_MESSAGE_MAX = 8192  # DC_RAILS_HOLD_MESSAGE_MAX
+HOLD_ERROR_MAX = 2048    # DC_RAILS_HOLD_ERROR_MAX
+
+
+class _HoldOutcome(ctypes.Structure):  # dc_rails_hold_outcome
+    _fields_ = [("size", ctypes.c_uint32), ("ok", ctypes.c_int32), ("key_error", ctypes.c_int32),
+                ("aborted", ctypes.c_int32), ("reserved", ctypes.c_int32),
+                ("message", ctypes.c_char * HOLD_MESSAGE_MAX)]
+
+
+# dc_rails_before_write_fn: cdecl (DC_CALL), int32 (void* context, const record*, char* error, size_t cap)
+BEFORE_WRITE = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(_HoldRecord), ctypes.c_void_p,
+                                ctypes.c_size_t)
 
 
 _P = ctypes.POINTER
@@ -298,6 +389,26 @@ _SIGNATURES = {
                                                _P(native._Outcome), _P(_SetterWrites)]),
     "dc_rails_hold_record_get": (ctypes.c_int32, [ctypes.c_void_p, _P(_HoldRecord)]),
     "dc_rails_hold_record_set": (ctypes.c_int32, [ctypes.c_void_p, _P(_HoldRecord)]),
+    "dc_rails_hold_state_get": (ctypes.c_int32, [ctypes.c_void_p, _P(_HoldState)]),
+    "dc_rails_hold_state_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, _P(_HoldState)]),
+    "dc_rails_hold_apply": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_double, ctypes.c_double, ctypes.c_uint32,
+                                             ctypes.c_int32, ctypes.c_int32, BEFORE_WRITE, ctypes.c_void_p,
+                                             _P(_HoldOutcome), _P(_SetterWrites)]),
+    "dc_rails_hold_restore": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(_HoldOutcome),
+                                               _P(_SetterWrites)]),
+    "dc_rails_hold_live_ok": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(_HoldRecord), ctypes.c_int32,
+                                               ctypes.c_double, _P(native._Outcome)]),
+    "dc_rails_hold_grain_mv": (ctypes.c_int32, [ctypes.c_void_p, _P(ctypes.c_int32), _P(ctypes.c_double)]),
+    "dc_rails_hold_architecture": (ctypes.c_int32, [ctypes.c_void_p, _P(ctypes.c_int32)]),
+    "dc_rails_hold_rail_unavailable": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(ctypes.c_int32),
+                                                        _P(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                                        _P(ctypes.c_size_t)]),
+    "dc_rails_hold_overwritten": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(_LimitSet),
+                                                   _P(ctypes.c_int32)]),
+    "dc_rails_initial_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(ctypes.c_int32),
+                                              _P(ctypes.c_int32)]),
+    "dc_rails_initial_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, _P(ctypes.c_int32),
+                                              _P(ctypes.c_int32)]),
 }
 
 _lock = threading.Lock()
@@ -772,31 +883,379 @@ def reset_volt_rail_limits(gpu, rail=None, fields=None):
     return _finish(gpu, status, outcome, writes)
 
 
-def hold_record(gpu):
-    """The core's _hold_headroom: None or {"rail", "written_uv", "prior_uv"} (fields in
-    VOLT_LIMIT_FIELDS order)."""
-    out = _new(_HoldRecord)
-    _check(load().dc_rails_hold_record_get(gpu._handle, ctypes.byref(out)))
+# ---- increment R6: the hold-headroom runtime ------------------------------------------------- #
+
+HOLD_HEADROOM_FIELDS = VOLT_LIMIT_FIELDS[:3]
+HOLD_HEADROOM_FALLBACK_GRAIN_MV = 6.25
+_HOLD_FLOATS = ("hold_mv", "margin_mv", "ceiling_mv", "boost_mv", "live_offset_mv")
+# DC_RAILS_HOLD_KEY_*: the record's keys besides "rail" and "raised_ceiling_mv", in apply's order
+_HOLD_KEYS = {"hold_mv": 0x001, "margin_mv": 0x002, "ceiling_mv": 0x004, "boost_mv": 0x008,
+              "live_offset_mv": 0x010, "grain_mv": 0x020, "input_uv": 0x040, "prior_uv": 0x080,
+              "written_uv": 0x100}
+_HOLD_DICTS = {"input_uv": ("has_input", "input_uv", HOLD_HEADROOM_FIELDS),
+               "prior_uv": ("has_prior", "prior_uv", VOLT_LIMIT_FIELDS),
+               "written_uv": ("has_written", "written_uv", VOLT_LIMIT_FIELDS)}
+_HOLD_OK = {1: True, 0: None, -1: False}
+_KEY_ERRORS = {5: "written_uv", 6: "prior_uv"}  # DC_RAILS_HOLD_KEY_ERROR_*; 1 + k is VOLT_LIMIT_FIELDS[k]
+_HOOK_PROCEED, _HOOK_FALSE, _HOOK_RAISED, _HOOK_ABORT = 1, 2, 3, 4  # DC_RAILS_HOLD_HOOK_*: 0 is never proceed
+_BAD_HOLD, _BAD_MARGIN = 1, 2
+
+
+def _record_dict(out):
+    """_hold_headroom from a dc_rails_hold_record: None, or the dict with the keys it was given in
+    apply_hold_headroom's order (ints for "rail" and the *_uv values, floats otherwise)."""
     if not out.present:
         return None
-    return {"rail": out.rail,
-            "written_uv": {k: out.written_uv[i] for i, k in enumerate(VOLT_LIMIT_FIELDS) if out.has_written[i]},
-            "prior_uv": {k: out.prior_uv[i] for i, k in enumerate(VOLT_LIMIT_FIELDS) if out.has_prior[i]}}
+    record = {"rail": out.rail}
+    for key, bit in _HOLD_KEYS.items():
+        if not out.keys & bit:
+            continue
+        if key in _HOLD_FLOATS:
+            record[key] = getattr(out, key)
+        elif key == "grain_mv":
+            record[key] = out.grain_mv if out.has_grain else None
+        else:
+            has, values, names = _HOLD_DICTS[key]
+            has, values = getattr(out, has), getattr(out, values)
+            record[key] = {k: values[i] for i, k in enumerate(names) if has[i]}
+    if out.has_raised_ceiling:
+        record["raised_ceiling_mv"] = out.raised_ceiling_mv
+    return record
+
+
+def hold_record(gpu):
+    """GPU.hold_headroom_record(): the core's _hold_headroom, None or a new dict each call."""
+    out = _new(_HoldRecord)
+    _check(load().dc_rails_hold_record_get(gpu._handle, ctypes.byref(out)))
+    return _record_dict(out)
+
+
+def _number(value, what):
+    if not isinstance(value, (int, float)):
+        raise TypeError(f"the hold record's {what} must be a number")
+    return float(value)
 
 
 def set_hold_record(gpu, record):
-    """Set the core's _hold_headroom from None (or {}) or a dict with the keys hold_record returns."""
+    """Set the core's _hold_headroom from None (or {}) or a dict with keys hold_record returns: "rail"
+    (a plain int32), the five floats and "raised_ceiling_mv" (int or float), "grain_mv" (None or a
+    number) and the *_uv dicts (field names to int32 values). The keys it has are kept."""
     value = _new(_HoldRecord)
     if record:
         rail = record["rail"]
         if not _plain_int(rail) or not _INT32[0] <= rail <= _INT32[1]:
             raise TypeError("the hold record's rail must be a plain int32")
         value.present, value.rail = 1, rail
-        for name, has, values in (("written_uv", value.has_written, value.written_uv),
-                                  ("prior_uv", value.has_prior, value.prior_uv)):
-            for key, uv in (record.get(name) or {}).items():
-                if key not in VOLT_LIMIT_FIELDS or not _plain_int(uv) or not _INT32[0] <= uv <= _INT32[1]:
-                    raise TypeError(f"the hold record's {name} must map field names to int32 values")
-                index = VOLT_LIMIT_FIELDS.index(key)
-                has[index], values[index] = 1, uv
+        for key in record:
+            if key not in _HOLD_KEYS and key not in ("rail", "raised_ceiling_mv"):
+                raise TypeError(f"the hold record has no key {key!r} natively")
+        for key, bit in _HOLD_KEYS.items():
+            if key not in record:
+                continue
+            value.keys |= bit
+            item = record[key]
+            if key in _HOLD_FLOATS:
+                setattr(value, key, _number(item, key))
+            elif key == "grain_mv":
+                if item is not None:
+                    value.has_grain, value.grain_mv = 1, _number(item, key)
+            else:
+                has, values, names = _HOLD_DICTS[key]
+                has, values = getattr(value, has), getattr(value, values)
+                for name, uv in (item or {}).items():
+                    if name not in names or not _plain_int(uv) or not _INT32[0] <= uv <= _INT32[1]:
+                        raise TypeError(f"the hold record's {key} must map field names to int32 values")
+                    index = names.index(name)
+                    has[index], values[index] = 1, uv
+        if "raised_ceiling_mv" in record:
+            value.has_raised_ceiling = 1
+            value.raised_ceiling_mv = _number(record["raised_ceiling_mv"], "raised_ceiling_mv")
     _check(load().dc_rails_hold_record_set(gpu._handle, ctypes.byref(value)))
+
+
+def hold_state(gpu):
+    """The session state besides the record: {"_hold_headroom_grain", "_hold_headroom_offset_mv",
+    "_hold_headroom_unread", "_hold_headroom_live_trip"} (None / False when never set)."""
+    out = _new(_HoldState)
+    _check(load().dc_rails_hold_state_get(gpu._handle, ctypes.byref(out)))
+    return {"_hold_headroom_grain": out.grain if out.has_grain else None,
+            "_hold_headroom_offset_mv": out.offset_mv if out.has_offset else None,
+            "_hold_headroom_unread": bool(out.unread),
+            "_hold_headroom_live_trip": bool(out.live_trip)}
+
+
+_STATE_BITS = {"_hold_headroom_grain": 0x1, "_hold_headroom_offset_mv": 0x2, "_hold_headroom_unread": 0x4,
+               "_hold_headroom_live_trip": 0x8}  # DC_RAILS_HOLD_STATE_*
+
+
+def set_hold_state(gpu, **changes):
+    """Change some of hold_state's four values (the grain and offset: None or a number; the flags are
+    stored as bool()). Only the named values change, in one locked core call: nothing is read first,
+    so another thread's change to the others is never written back over."""
+    unknown = set(changes) - set(_STATE_BITS)
+    if unknown:
+        raise TypeError(f"unknown hold-headroom state {sorted(unknown)!r}")
+    value, mask = _new(_HoldState), 0
+    for name in changes:
+        mask |= _STATE_BITS[name]
+    grain = changes.get("_hold_headroom_grain")
+    offset = changes.get("_hold_headroom_offset_mv")
+    if grain is not None:
+        value.has_grain, value.grain = 1, _number(grain, "grain")
+    if offset is not None:
+        value.has_offset, value.offset_mv = 1, _number(offset, "offset")
+    value.unread = 1 if changes.get("_hold_headroom_unread") else 0
+    value.live_trip = 1 if changes.get("_hold_headroom_live_trip") else 0
+    _check(load().dc_rails_hold_state_set(gpu._handle, mask, ctypes.byref(value)))
+
+
+def hold_headroom_grain_mv(gpu):
+    """GPU.hold_headroom_grain_mv(): this card's modal V/F voltage step (bounded), or None."""
+    has, grain = ctypes.c_int32(), ctypes.c_double()
+    _check(load().dc_rails_hold_grain_mv(gpu._handle, ctypes.byref(has), ctypes.byref(grain)))
+    return grain.value if has.value else None
+
+
+def hold_headroom_architecture(gpu):
+    """GPU.hold_headroom_architecture(): True, False, or None when arch() could not be read."""
+    supported = ctypes.c_int32()
+    _check(load().dc_rails_hold_architecture(gpu._handle, ctypes.byref(supported)))
+    return {1: True, 0: False}.get(supported.value)
+
+
+def hold_headroom_rail_unavailable(gpu, rail=0):
+    """GPU.hold_headroom_rail_unavailable(rail): None, or ("transient" | "unanswered", detail)."""
+    index = _rail(rail)
+    unavailable, kind, needed = ctypes.c_int32(), ctypes.c_int32(), ctypes.c_size_t()
+    detail = ctypes.create_string_buffer(4096)
+    _check(load().dc_rails_hold_rail_unavailable(gpu._handle, index, ctypes.byref(unavailable), ctypes.byref(kind),
+                                                 detail, len(detail), ctypes.byref(needed)))
+    if not unavailable.value:
+        return None
+    text = detail.raw[:min(needed.value, len(detail) - 1)]
+    if needed.value >= len(detail):  # cannot happen with the texts the core composes; read it whole
+        detail = ctypes.create_string_buffer(needed.value + 1)
+        _check(load().dc_rails_hold_rail_unavailable(gpu._handle, index, ctypes.byref(unavailable),
+                                                     ctypes.byref(kind), detail, len(detail), ctypes.byref(needed)))
+        text = detail.raw[:needed.value]
+    return ("unanswered" if kind.value == 1 else "transient"), text.decode("utf-8", "replace")
+
+
+def _limit_row(rail, row):
+    """The record's rail's row of a caller's limits as a dc_rails_limit_set holding that row only (a
+    non-number field is NaN, which hold_headroom_overwritten answers False for, as Python does)."""
+    if not all(k in row for k in VOLT_LIMIT_FIELDS):
+        raise TypeError("native hold_headroom_overwritten needs every VOLT_LIMIT_FIELDS key in the record's row")
+    value = _new(_LimitSet)
+    if 0 <= rail < RAILS:
+        value.present |= 1 << rail
+        e = value.rails[rail]
+        for i, k in enumerate(VOLT_LIMIT_FIELDS):
+            item = row[k]
+            e.fields[i] = float(item) if isinstance(item, (int, float)) else float("nan")
+    return value
+
+
+def hold_headroom_overwritten(gpu, limits=None):
+    """GPU.hold_headroom_overwritten(limits): True when the plan's inputs changed under the raise.
+    In Python's order: no record is False before any row is looked at; limits[record["rail"]] that
+    raises KeyError / TypeError / ValueError, or a row that does not support `in` (None), is False;
+    rows of other rails are never looked at. Only the record's rail's row reaches the core."""
+    rows = None
+    if limits is not None:
+        record = hold_record(gpu)
+        if not record:
+            return False
+        try:
+            row = limits[record["rail"]]
+            for k in VOLT_LIMIT_FIELDS:
+                k in row  # noqa: B015 - Python's `if k in row` raises TypeError for None
+        except (KeyError, TypeError, ValueError):
+            return False
+        rows = _limit_row(record["rail"], row)
+    out = ctypes.c_int32()
+    _check(load().dc_rails_hold_overwritten(gpu._handle, 1 if rows is not None else 0,
+                                            ctypes.byref(rows) if rows is not None else None, ctypes.byref(out)))
+    if out.value == 2:
+        raise OverflowError("cannot convert float infinity to integer")
+    return bool(out.value)
+
+
+def _float_or_nan(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+_NO_ALLOWANCE = ("no active raise", "no bound to check against", "no live rail reading")
+
+
+def hold_headroom_live_ok(gpu, record=None, live_mv=None):
+    """GPU.hold_headroom_live_ok(record, live_mv): (ok, message). An explicit record's numbers are
+    converted here in Python's order: raised_ceiling_mv first (hold_headroom_bound_mv); hold_mv and
+    margin_mv only when that is not finite; grain_mv and live_offset_mv in hold_headroom_allowance_mv's
+    one try, whose OverflowError is raised only once the core has consulted the allowance."""
+    value, has_live, live, pending = None, 0, 0.0, None
+    nan = float("nan")
+    if record:
+        value = _new(_HoldRecord)
+        value.present, value.keys = 1, 0x1FF
+        bound = _float_or_nan(record.get("raised_ceiling_mv"))  # OverflowError propagates, as in Python
+        if "raised_ceiling_mv" in record:
+            value.has_raised_ceiling, value.raised_ceiling_mv = 1, bound
+        hold = margin = nan
+        if not math.isfinite(bound):
+            try:
+                hold = float(record["hold_mv"])
+                margin = float(record["margin_mv"])
+            except (KeyError, TypeError, ValueError):
+                hold = margin = nan
+        value.hold_mv, value.margin_mv = hold, margin
+        try:
+            grain = float(record.get("grain_mv") or HOLD_HEADROOM_FALLBACK_GRAIN_MV)
+            offset = float(record.get("live_offset_mv") or 0.0)
+        except (TypeError, ValueError):
+            grain, offset = HOLD_HEADROOM_FALLBACK_GRAIN_MV, 0.0
+        except OverflowError as exc:  # Python raises it only when the allowance is computed
+            pending, grain, offset = exc, HOLD_HEADROOM_FALLBACK_GRAIN_MV, 0.0
+        value.has_grain, value.grain_mv, value.live_offset_mv = 1, grain, offset
+        if "rail" in record:
+            try:
+                value.rail = _rail(record["rail"])
+            except TypeError:  # unhashable: Python's read raises after the state read, then None
+                value.rail = -1
+        else:
+            has_live, live = 1, 0.0  # record["rail"] raises KeyError: no read, no live reading
+    if live_mv is not None:
+        has_live = 1
+        live = float(live_mv) if isinstance(live_mv, (int, float)) else 0.0  # not a number: no reading
+    outcome = native._Outcome()
+    _check(load().dc_rails_hold_live_ok(gpu._handle, 1 if value is not None else 0,
+                                        ctypes.byref(value) if value is not None else None, has_live, live,
+                                        ctypes.byref(outcome)))
+    message = _message(outcome)
+    if pending is not None and message not in _NO_ALLOWANCE:
+        raise pending
+    return bool(outcome.ok), message
+
+
+def _utf8_prefix(text, cap):
+    """text's UTF-8 bytes (surrogatepass), cut to at most cap bytes at a character boundary."""
+    data = text.encode("utf-8", "surrogatepass")
+    if len(data) <= cap:
+        return data
+    data = data[:cap]
+    while data and (data[-1] & 0xC0) == 0x80:
+        data = data[:-1]
+    if data and data[-1] >= 0xC0:  # a lead byte whose continuation was cut
+        data = data[:-1]
+    return data
+
+
+def _hold_finish(gpu, status, outcome, writes, failure):
+    _take_writes(gpu, writes)
+    _check(status)
+    if failure:
+        raise failure[0]
+    if outcome.key_error:
+        name = _KEY_ERRORS.get(outcome.key_error) or VOLT_LIMIT_FIELDS[outcome.key_error - 1]
+        raise KeyError(name)
+    return _HOLD_OK[outcome.ok], _message(outcome)
+
+
+def apply_hold_headroom(gpu, hold_mv, margin_mv, rail=0, before_write=None):
+    """GPU.apply_hold_headroom(hold_mv, margin_mv, rail, before_write): (True | None | False, message).
+    before_write(record) runs on this thread while the core holds the handle lock."""
+    index = _setter_rail(rail)
+    invalid, hold, margin = 0, 0.0, 0.0
+    try:
+        hold = float(hold_mv)
+    except (TypeError, ValueError):
+        invalid |= _BAD_HOLD
+    try:
+        margin = float(margin_mv)
+    except (TypeError, ValueError):
+        invalid |= _BAD_MARGIN
+    failure = []
+    callback = None
+    if before_write is not None:
+        def hook(_context, planned, error, cap):
+            try:
+                try:
+                    tracked = before_write(_record_dict(planned.contents))
+                except Exception as exc:                                # noqa: BLE001 - Python's
+                    text = _utf8_prefix(str(exc), cap - 1)
+                    ctypes.memmove(error, text + b"\0", len(text) + 1)
+                    return _HOOK_RAISED
+                return _HOOK_FALSE if tracked is False else _HOOK_PROCEED
+            except BaseException as exc:                                # noqa: BLE001 - re-raised below
+                failure.append(exc)
+                return _HOOK_ABORT
+        callback = BEFORE_WRITE(hook)
+    xoc = 1 if getattr(gpu, "voltage_xoc_enabled", False) else 0
+    outcome, writes = _new(_HoldOutcome), _new(_SetterWrites)
+    status = load().dc_rails_hold_apply(gpu._handle, hold, margin, invalid, index, xoc,
+                                        callback if callback is not None else BEFORE_WRITE(),
+                                        None, ctypes.byref(outcome), ctypes.byref(writes))
+    return _hold_finish(gpu, status, outcome, writes, failure)
+
+
+def restore_hold_headroom(gpu, force=False):
+    """GPU.restore_hold_headroom(force): (True | False, message)."""
+    outcome, writes = _new(_HoldOutcome), _new(_SetterWrites)
+    status = load().dc_rails_hold_restore(gpu._handle, 1 if force else 0, ctypes.byref(outcome),
+                                          ctypes.byref(writes))
+    return _hold_finish(gpu, status, outcome, writes, [])
+
+
+def user_rail_limits(gpu, cur=None):
+    """GPU.user_rail_limits(cur): read_volt_rail_limits() with this window's raise (the core's record)
+    and another window's (gpu._foreign_hold_headroom) taken out."""
+    if cur is None:
+        cur = read_volt_rail_limits(gpu)
+    records = [r for r in (hold_record(gpu), getattr(gpu, "_foreign_hold_headroom", None))
+               if isinstance(r, dict)]
+    if cur is None or not records:
+        return cur
+    out = {r: dict(row) for r, row in cur.items()}
+    for record in records:
+        row = out.get(record.get("rail"))
+        if row is None:
+            continue
+        for key, written in (record.get("written_uv") or {}).items():
+            if key in row and key in (record.get("prior_uv") or {}) \
+                    and int(round(row[key] * 1000)) == written:
+                row[key] = record["prior_uv"][key] / 1000.0
+    return out
+
+
+def adopt_foreign_hold_headroom(gpu, record):
+    """GPU.adopt_foreign_hold_headroom(record): another window's priors in place of its raised values in
+    this session's first-read restore target, where they still match. Returns the changed fields."""
+    try:
+        rail, written, prior = record["rail"], record["written_uv"], record["prior_uv"]
+    except (KeyError, TypeError):
+        return []
+    index = _rail(rail)
+    if index < 0:
+        return []  # (initial or {}).get(rail) is None
+    has, current = ctypes.c_int32(), (ctypes.c_int32 * 4)()
+    _check(load().dc_rails_initial_get(gpu._handle, index, ctypes.byref(has), current))
+    if not has.value:
+        return []
+    values, changed = list(current), []
+    for key, uv in written.items():
+        if key in VOLT_LIMIT_FIELDS and key in prior:
+            i = VOLT_LIMIT_FIELDS.index(key)
+            value = prior[key]
+            # a prior the first-read record cannot hold (not a plain int32: a corrupt marker) is not
+            # adopted, and nothing raises; Python would store it and refuse its later reset
+            if values[i] == uv and _plain_int(value) and _INT32[0] <= value <= _INT32[1]:
+                values[i] = value
+                changed.append(key)
+    if changed:
+        replaced = ctypes.c_int32()
+        _check(load().dc_rails_initial_set(gpu._handle, index, (ctypes.c_int32 * 4)(*values),
+                                           ctypes.byref(replaced)))
+    return changed

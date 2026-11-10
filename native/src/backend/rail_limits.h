@@ -144,4 +144,10 @@ Result<Targets> hold_headroom_targets(const Row& fields, const Value& hold_mv, c
 Result<double> hold_headroom_bound_mv(const Record* record, const Record* active);
 Result<double> hold_headroom_allowance_mv(const Record* record, const Record* active);
 
+// Python's round(x, ndigits) for ndigits 2 or 4 (the caller passes only those): exact (ties to even
+// on x's binary value) for |x| < 2^39; x itself (an integer) at or above 2^53, and for 0, +-inf and
+// NaN; between 2^39 and 2^53 nearbyint(x * 10^n) / 10^n, which may differ from Python's. Used by the
+// hold-headroom grain (rails.cpp).
+double round_digits(double x, int ndigits);
+
 }  // namespace druta::backend::rail
