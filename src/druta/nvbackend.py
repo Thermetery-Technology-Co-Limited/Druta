@@ -1906,6 +1906,15 @@ class GPU:
                     return (low, high, int(delta.value * scale / 1000))
         return None
 
+    def clock_offset_range(self, ctype):
+        """(min, max, current) clock offset for ctype 0 (graphics) or 2 (memory),
+        in the units _offset_range returns, or None when unreadable or for any
+        other type. A fresh driver read on every call, never cached: profile
+        device checks compare it with the live card. Part of the front-end
+        surface both backends carry (DESIGN-FRONTEND b4); no lock, as
+        _offset_range takes none."""
+        return self._offset_range(ctype)
+
     def _read_pstates20(self):
         """Read and validate the public P-state table; never change clocks."""
         a = self.nvapi
@@ -2154,6 +2163,21 @@ class GPU:
             vs = _VoltStatus(version=a.ver(_VoltStatus, 1))
             if a.VoltRailsStatus(a.gpu, ctypes.byref(vs)) == 0 and vs.value_uV:
                 d["vcore_mv"] = vs.value_uV / 1000.0
+
+    def read_enforced_power_limit_mw(self):
+        """The NVML enforced power limit in mW (int), or None when NVML is not
+        live, nvmlDeviceGetEnforcedPowerLimit is absent or the call fails. One
+        fresh driver call, the same one _read_power makes for pl_now_mw, and
+        nothing else (the configured request is read_power_limit_mw). Part of
+        the front-end surface both backends carry (DESIGN-FRONTEND b4); no lock,
+        as _read_power's enforced-limit read takes none."""
+        nv = self.nvml
+        if not (nv.ok and nv.has("nvmlDeviceGetEnforcedPowerLimit")):
+            return None
+        v = u32(0)
+        if nv.dll.nvmlDeviceGetEnforcedPowerLimit(nv.dev, ctypes.byref(v)) != 0:
+            return None
+        return v.value
 
     def _read_fan(self, d):
         nv = self.nvml
@@ -3843,6 +3867,16 @@ class GPU:
         if err or CLKDOM_XBAR not in (rows or {}):
             return None
         return rows[CLKDOM_XBAR]["freq_khz"] / 1000.0
+
+    def msvdd_offset_domains(self):
+        """(written, seen): the MSVDD request domains this session wrote
+        (_set_msvdd_offset_mv) and saw available (rail_offset_capability), as two
+        frozensets of ints, empty when none. A copy of the private sets, which
+        reset_all keeps using. Part of the front-end surface both backends carry
+        (DESIGN-FRONTEND b4); no lock: it reads two attributes the writers
+        replace whole."""
+        return (frozenset(getattr(self, "_msvdd_offset_domains_written", ())),
+                frozenset(getattr(self, "_msvdd_offset_domains_seen", ())))
 
     @_synchronized
     def rail_offset_capability(self, rail=1, domain=None):

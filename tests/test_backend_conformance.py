@@ -77,11 +77,9 @@ DESIGN_B_SITES = [
     ("druta.py", "VOLT_LIMIT_FIELDS", "attr"),
     ("rail_limit_profiles.py", "VOLT_LIMIT_XOC_MAX_MV", None),
     ("tuning_profiles.py", "RAIL_OFFSET_MAX_MV", None),
-    ("profiles.py", "VOLT_LIMIT_MIN_MV", "getattr"),
-    ("profiles.py", "VOLT_LIMIT_MAX_MV", "getattr"),
-    ("profiles.py", "VOLT_LIMIT_XOC_MAX_MV", "getattr"),
-    ("profiles.py", "MAX_ABS_DELTA_KHZ", "getattr"),
-    ("profiles.py", "RAIL_OFFSET_XOC_MAX_MV", "getattr"),
+    # profiles.py's literal getattr reads of the five envelope constants
+    # (design section b2) became backend_envelope's one dynamic read in G4f:
+    # see UNRESOLVED_DYNAMIC and test_envelope_constants_are_tracked.
     ("app.py", "peak_info", "class"),
     ("app.py", "MAX_ABS_DELTA_KHZ", "class"),
     ("app.py", "compute_deflatten", "class"),
@@ -102,10 +100,11 @@ DESIGN_B_SITES = [
     ("druta.py", "_foreign_hold_headroom", None),
     ("druta.py", "_hold_headroom_live_trip", None),
     # b4: private reaches
-    ("profiles.py", "_msvdd_offset_domains_written", "getattr"),
-    ("profiles.py", "_msvdd_offset_domains_seen", "getattr"),
-    ("druta.py", "_read_power", "getattr"),
-    ("tuning_profiles.py", "_offset_range", None),
+    # (G4f: the design's _msvdd_offset_domains_written / _seen, _read_power and
+    # _offset_range sites now use the public methods that replace them)
+    ("profiles.py", "msvdd_offset_domains", "getattr"),
+    ("druta.py", "read_enforced_power_limit_mw", "getattr"),
+    ("tuning_profiles.py", "clock_offset_range", "attr"),
     ("all_pstates_registry.py", "_read_pstates20", None),
     ("bios_runtime.py", "_read_pstates20", None),
     ("voltage_rel_live.py", "_read_pstates20", None),
@@ -148,16 +147,26 @@ def added(problems, baseline):
 
 
 def dynamic_problems():
-    found = {site.key: site for site in fs.dynamic_sites()}
-    return ([f"unreviewed dynamic access: {found[k].file}:{found[k].line} {found[k].call}"
-             for k in sorted(set(found) - set(fs.UNRESOLVED_DYNAMIC))]
-            + [f"listed dynamic access gone: {k}" for k in sorted(set(fs.UNRESOLVED_DYNAMIC) - set(found))])
+    found = {}
+    for site in fs.dynamic_sites():
+        found.setdefault(site.key, []).append(site)
+    problems = []
+    for key in sorted(found):
+        sites = sorted(found[key], key=lambda d: d.line)
+        listed = fs.UNRESOLVED_DYNAMIC.get(key)
+        if listed is None:
+            problems += [f"unreviewed dynamic access: {d.file}:{d.line} {d.call}" for d in sites]
+        elif len(sites) != listed[0]:
+            lines = ", ".join(f"{d.file}:{d.line}" for d in sites)
+            problems.append(f"reviewed dynamic access {key} occurs {len(sites)} times, "
+                            f"listed {listed[0]}: {lines}")
+    return problems + [f"listed dynamic access gone: {k}" for k in sorted(set(fs.UNRESOLVED_DYNAMIC) - set(found))]
 
 
-def _scan_source(source):
+def _scan_source(source, filename="sample.py"):
     """Scan one source text as if it were a front-end file: (gpu_uses, companion_uses, dynamic)."""
     with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "sample.py"
+        path = Path(tmp) / filename
         path.write_text(source)
         dynamic = []
         with patch.object(fs, "SRC", Path(tmp)):
@@ -165,10 +174,11 @@ def _scan_source(source):
     return gpu, companion, dynamic
 
 
-def _with_extra(source):
-    """Patch the cached front-end scan to include ``source``'s uses and dynamic sites."""
+def _with_extra(source, filename="sample.py"):
+    """Patch the cached front-end scan to include ``source``'s uses and dynamic sites,
+    attributed to ``filename`` (an existing front-end file name adds to that file)."""
     gpu, companion = fs.scan()
-    extra_gpu, extra_companion, extra_dynamic = _scan_source(source)
+    extra_gpu, extra_companion, extra_dynamic = _scan_source(source, filename)
     return patch.dict(fs._CACHE, {"scan": (gpu + extra_gpu, companion + extra_companion),
                                   "dynamic": fs.dynamic_sites() + extra_dynamic})
 
@@ -296,9 +306,20 @@ class DynamicNameTests(unittest.TestCase):
             "    getattr(gpu, n)\n"
             "def unrelated(obj, name):\n"
             "    getattr(obj, name)\n")
-        self.assertEqual(sorted((d.line, d.call) for d in dynamic),
-                         [(2, "getattr(gpu, name)"), (5, "setattr(gpu, name, None)"),
-                          (7, "getattr(gpu, 'x' + 'y')"), (11, "getattr(gpu, n)")])
+        self.assertEqual(sorted((d.line, d.scope, d.call) for d in dynamic),
+                         [(2, "f", "getattr(gpu, name)"), (5, "g", "setattr(gpu, name, None)"),
+                          (7, "h", "getattr(gpu, 'x' + 'y')"), (11, "h", "getattr(gpu, n)")])
+
+    def test_a_dynamic_site_records_its_qualified_scope(self):
+        _, _, dynamic = _scan_source(
+            "getattr(gpu, name)\n"
+            "class C:\n"
+            "    def m(self, name):\n"
+            "        def inner(n):\n"
+            "            return getattr(self.gpu, n)\n"
+            "        return (lambda k: getattr(gpu, k))\n")
+        self.assertEqual(sorted((d.line, d.scope) for d in dynamic),
+                         [(1, "<module>"), (5, "C.m.inner"), (6, "C.m.<lambda>")])
 
     def test_the_vfe_loop_stores_are_scanned(self):
         sites = {(u.name, u.kind) for u in fs.scan()[0] if u.file == "vfe_equation_runtime.py"}
@@ -306,8 +327,48 @@ class DynamicNameTests(unittest.TestCase):
 
     def test_unresolved_dynamic_accesses_are_reviewed(self):
         self.assertEqual(dynamic_problems(), [])
-        for reason in fs.UNRESOLVED_DYNAMIC.values():
+        for key, (count, reason) in fs.UNRESOLVED_DYNAMIC.items():
+            self.assertEqual(len(key), 3)
+            self.assertIs(type(count), int)
+            self.assertGreaterEqual(count, 1)
             self.assertTrue(reason)
+
+    def test_the_same_call_in_another_function_of_the_file_turns_the_ratchet_red(self):
+        # A reviewed key whitelists one function, not every identical call text in the file.
+        before = dynamic_problems()
+        with _with_extra("def _sneak(gpu, name):\n    return getattr(gpu, name)\n", "profiles.py"):
+            self.assertEqual(added(dynamic_problems(), before),
+                             ["unreviewed dynamic access: profiles.py:2 getattr(gpu, name)"])
+
+    def test_another_identical_call_inside_the_reviewed_function_turns_the_ratchet_red(self):
+        before = dynamic_problems()
+        source = "def backend_envelope(gpu, name):\n    return getattr(gpu, name)\n"
+        _, _, extra = _scan_source(source, "profiles.py")
+        self.assertEqual([d.key for d in extra], [("profiles.py", "backend_envelope", "getattr(gpu, name)")])
+        with _with_extra(source, "profiles.py"):
+            problems = added(dynamic_problems(), before)
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith(
+            "reviewed dynamic access ('profiles.py', 'backend_envelope', 'getattr(gpu, name)') occurs 2 times, "
+            "listed 1: profiles.py:"), problems)
+
+    def test_envelope_constants_are_tracked(self):
+        # backend_envelope's dynamic read reaches exactly ENVELOPE_MEANINGS'
+        # keys: each must be an nvbackend.GPU number and, while native.Gpu
+        # lacks it, a listed b2-constant gap, so the dynamic read hides none.
+        # Either on native.Gpu's static surface or a listed b2-constant gap,
+        # never both and never neither; the library plays no part.
+        from druta import profiles
+        self.assertIn(("profiles.py", "backend_envelope", "getattr(gpu, name)"), fs.UNRESOLVED_DYNAMIC)
+        native_surface = fs.native_static_surface()
+        for name in profiles.ENVELOPE_MEANINGS:
+            with self.subTest(name=name):
+                self.assertIn(type(getattr(nvbackend.GPU, name)), (int, float))
+                on_native = name in native_surface
+                gap = fs.KNOWN_GAPS.get(name, (None,))[0] == "b2-constant"
+                self.assertNotEqual(on_native, gap,
+                                    f"{name}: on native.Gpu={on_native}, b2-constant gap={gap}; "
+                                    "exactly one must hold")
 
     def test_a_new_dynamic_access_turns_the_ratchet_red(self):
         before = dynamic_problems()
@@ -379,6 +440,50 @@ class SurfaceRatchetTests(unittest.TestCase):
                 else:
                     self.assertTrue(files)
                     self.assertLessEqual(files, {u.file for u in uses.get(name, [])})
+
+    def test_table_evidence_carries_no_line_numbers(self):
+        # Lines drift; a table mixing line snapshots of different revisions points at
+        # the wrong code. Cite the file; `python3 tests/frontend_surface.py NAME` prints lines.
+        import re
+        stale = [(table, key, text) for table, key, text in fs.table_strings()
+                 if re.search(fs.LINE_CITATION, text)]
+        self.assertEqual(stale, [], "table evidence must cite files, not file:line (lines come from "
+                                    "fs.lookup / `python3 tests/frontend_surface.py NAME`)")
+
+    def test_evidence_files_are_citations_not_prose_or_definitions(self):
+        self.assertEqual(fs.evidence_files("druta.py (getattr), controllers/up9512r.py, profiles.py, and more"),
+                         {"druta.py", "controllers/up9512r.py", "profiles.py"})
+        self.assertEqual(fs.evidence_files("nvbackend.py (no front-end use; check a)"), set())
+        self.assertEqual(fs.evidence_files("druta.py; also [profiles.py] backend_envelope"), {"druta.py"})
+
+    def test_a_cited_file_without_the_name_fails_the_evidence_check(self):
+        # The evidence checks stay as strict as with line citations: a file in which
+        # the scanner does not find the name is not accepted.
+        uses = fs.by_name(fs.scan()[0])
+        evidence = fs.KNOWN_GAPS["VOLT_LIMIT_MAX_MV"][1]
+        self.assertLessEqual(fs.evidence_files(evidence), {u.file for u in uses["VOLT_LIMIT_MAX_MV"]})
+        self.assertNotIn("profiles.py", {u.file for u in uses["VOLT_LIMIT_MAX_MV"]})
+        bad = evidence.replace("[profiles.py]", "profiles.py")
+        self.assertFalse(fs.evidence_files(bad) <= {u.file for u in uses["VOLT_LIMIT_MAX_MV"]})
+
+    def test_lookup_prints_the_scanners_live_lines(self):
+        uses = [u for u in fs.scan()[0] if u.name == "clock_offset_range"]
+        self.assertTrue(uses)
+        out = fs.lookup(["clock_offset_range"])
+        self.assertEqual(out[0], "clock_offset_range:")
+        self.assertEqual(sorted(line.split()[0] for line in out[1:] if not line.lstrip().startswith(("dynamic",
+                                                                                                       "defined"))),
+                         sorted(u.where for u in uses))
+        self.assertEqual({u.file for u in uses}, {"tuning_profiles.py"})
+        definition = [line for line in out if line.lstrip().startswith("defined at nvbackend.py:")]
+        self.assertEqual(len(definition), 1)
+        line = int(definition[0].rsplit(":", 1)[1])
+        source = fs.NVBACKEND.read_text(encoding="utf-8-sig").splitlines()
+        self.assertIn("def clock_offset_range(", source[line - 1])
+        dynamic = fs.lookup(["VOLT_LIMIT_MAX_MV", "power_policy_names"])
+        self.assertIn("  no front-end use", fs.lookup(["_g4f_no_such_name"]))
+        self.assertTrue(any(line.startswith("  dynamic in profiles.py:") and "backend_envelope" in line
+                            for line in dynamic))
 
     def test_exempt_members_exist_on_nvbackend_only_and_have_no_front_end_use(self):
         uses = fs.by_name(fs.scan()[0])

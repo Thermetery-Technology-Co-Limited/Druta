@@ -22,9 +22,16 @@ The same is recorded for companion expressions: the names ``nvapi``, ``api``,
 ``nvml`` and ``nv``, and any ``<expr>.nvapi`` / ``<expr>.nvml``. A use of
 ``<companion>.dll.X`` is also recorded as ``dll.X``.
 
-Every table entry carries the evidence (``file:line``) that put it there; the
-line numbers are a snapshot of the day G4a measured (cpp/core 30d6096), and
-the conformance test checks the file and name, not the line.
+Every table entry cites the front-end files whose uses put it there (each file
+once, with the access form, ``(getattr)`` / ``(class)``, where it matters),
+never a line number: lines drift and a table of line snapshots from different
+revisions misleads. The conformance test checks that the scanner finds the name
+in each cited file. ``[file.py]`` in square brackets is a prose mention, not a
+citation, and is not checked. For the live lines run::
+
+    python3 tests/frontend_surface.py NAME [NAME ...]
+
+which prints every use the scanner finds now (see ``lookup``).
 """
 from __future__ import annotations
 
@@ -229,10 +236,24 @@ class DynamicSite:
     file: str
     line: int
     call: str      # ast.unparse of the call
+    scope: str = "<module>"   # qualified name of the enclosing function / class
 
     @property
     def key(self):
-        return (self.file, self.call)
+        return (self.file, self.scope, self.call)
+
+
+def _qualname(node, parents):
+    """Dotted name of the functions and classes enclosing ``node``, or ``<module>``."""
+    names = []
+    node = parents.get(node)
+    while node is not None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.append(node.name)
+        elif isinstance(node, ast.Lambda):
+            names.append("<lambda>")
+        node = parents.get(node)
+    return ".".join(reversed(names)) or "<module>"
 
 
 def scan_file(path, dynamic=None):
@@ -273,7 +294,8 @@ def scan_file(path, dynamic=None):
                          if isinstance(arg, ast.Name) else None)
                 if names is None:
                     if dynamic is not None:
-                        dynamic.append(DynamicSite(rel, node.lineno, ast.unparse(node)))
+                        dynamic.append(DynamicSite(rel, node.lineno, ast.unparse(node),
+                                                   _qualname(node, parents)))
                 else:
                     for name in names:
                         record(node.args[0], name, kind, "getattr", node.lineno)
@@ -468,19 +490,18 @@ def measured_gaps(nvb_cls=None, native_cls=None):
 
 
 # --------------------------------------------------------------------------- #
-#  Tables (measured on cpp/core 30d6096)                                       #
+#  Tables (counts measured on the G4f tree; cite files, lines via lookup())    #
 # --------------------------------------------------------------------------- #
 #  EXEMPT: public nvbackend.GPU members native.Gpu is not expected to carry.
 #  Each must exist on nvbackend.GPU, be absent from native.Gpu and have no
 #  front-end use (the conformance test checks all three).
 EXEMPT = {
-    "clkdom_debug_report": "experiment that writes and samples; not ported (native/README.md); "
-                           "no front-end use (DESIGN-FRONTEND b4); nvbackend.py:3409",
-    "clkdom_mapping_probe": "experiment that writes and samples; not ported (native/README.md); "
-                            "no front-end use (DESIGN-FRONTEND b4); nvbackend.py:3157",
-    "LEGACY_P0_PROFILES": "developer-board table (nvbackend.py:4448), recorded as not ported; the front "
-                          "end reaches it only through legacy_p0_profile, whose native shim returns "
-                          "None (DESIGN-FRONTEND b4, Q4)",
+    "clkdom_debug_report": "experiment that writes and samples; not ported (native/README.md); no front-end use "
+                           "(DESIGN-FRONTEND b4); nvbackend.py",
+    "clkdom_mapping_probe": "experiment that writes and samples; not ported (native/README.md); no front-end use "
+                            "(DESIGN-FRONTEND b4); nvbackend.py",
+    "LEGACY_P0_PROFILES": "developer-board table (nvbackend.py), recorded as not ported; the front end reaches it "
+                          "only through legacy_p0_profile, whose native shim returns None (DESIGN-FRONTEND b4, Q4)",
 }
 
 #  FRONTEND_OWNED: names the scan finds on a GPU expression that are not the
@@ -488,12 +509,10 @@ EXEMPT = {
 #  (a dict that happens to be named gpu / fresh). Not gaps whatever native.Gpu
 #  carries; neither backend class defines them (the test checks that).
 FRONTEND_OWNED = {
-    "power_policy_names": "front-end-owned display table, defined by neither backend: stored at "
-                          "druta.py:2714, druta.py:2861, druta.py:2908, read with a getattr default at "
-                          "profiles.py:275 (DESIGN-FRONTEND b3)",
-    "get": "false positive, dict receivers named gpu / fresh: pcie_speed_panel.py:136, "
-           "power_integral_panel.py:157, registry_overrides.py:1345 (DESIGN-FRONTEND b names only "
-           "pcie_speed_panel.py:136-140)",
+    "power_policy_names": "front-end-owned display table, defined by neither backend: stored at druta.py, read with "
+                          "a getattr default at profiles.py (DESIGN-FRONTEND b3)",
+    "get": "false positive, dict receivers named gpu / fresh: pcie_speed_panel.py, power_integral_panel.py, "
+           "registry_overrides.py (DESIGN-FRONTEND b names only pcie_speed_panel.py)",
 }
 
 #  PRIVATE_REACHES: every private member the front ends reach into on a GPU
@@ -502,73 +521,59 @@ FRONTEND_OWNED = {
 #  lacks today are also in KNOWN_GAPS.
 PRIVATE_REACHES = {
     "_clkdom_get": ("G4e: delegate nvbackend's function object over the companions (explicit list)",
-                    "voltage_rel_live.py:61"),
+                    "voltage_rel_live.py"),
     "_clkdom_valid_block": ("G4e: delegate nvbackend's function object over the companions (explicit list)",
-                            "voltage_rel_live.py:62"),
+                            "voltage_rel_live.py"),
     "_current_limit_abi": ("keep: already mirrored on native.Gpu",
-                           "power_integral_runtime.py:70, power_weight_runtime.py:58"),
+                           "power_integral_runtime.py, power_weight_runtime.py"),
     "_current_limit_error": ("keep: already on native.Gpu (not listed in DESIGN-FRONTEND b4)",
-                             "profiles.py:238 (getattr), profiles.py:241 (getattr)"),
-    "_current_limit_generation_policies": ("keep: already mirrored on native.Gpu",
-                                           "profiles.py:225 (getattr)"),
+                             "profiles.py (getattr)"),
+    "_current_limit_generation_policies": ("keep: already mirrored on native.Gpu", "profiles.py (getattr)"),
     "_current_limit_layout_choice": ("keep: written by the front end; native.Gpu has a setter (b3)",
-                                     "client_power_runtime.py:271, clock_bios_runtime.py:311, "
-                                     "clock_vf_registry.py:216, vfe_equation_runtime.py:231 (getattr, "
-                                     "a literal loop name), +15 more"),
+                                     "client_power_runtime.py, clock_bios_runtime.py, clock_vf_registry.py, "
+                                     "vfe_equation_runtime.py (getattr, a literal loop name), and more (see the "
+                                     "lookup)"),
     "_current_limit_read_error": ("keep: already on native.Gpu (not listed in DESIGN-FRONTEND b4)",
-                                  "profiles.py:236 (getattr), profiles.py:259 (getattr)"),
+                                  "profiles.py (getattr)"),
     "_current_limit_rm": ("keep: already mirrored on native.Gpu",
-                          "power_integral_runtime.py:77, power_integral_runtime.py:80, "
-                          "power_integral_runtime.py:108, +3 more"),
+                          "power_integral_runtime.py, and more (see the lookup)"),
     "_current_limit_transport": ("keep: written by the front end; native.Gpu has a setter (b3)",
-                                 "client_power_runtime.py:270, clock_bios_runtime.py:310, "
-                                 "clock_vf_registry.py:215, vfe_equation_runtime.py:231 (getattr, "
-                                 "a literal loop name), +16 more"),
-    "_current_limit_transport_layouts": ("keep: already mirrored on native.Gpu", "perf_diagnostics.py:265"),
+                                 "client_power_runtime.py, clock_bios_runtime.py, clock_vf_registry.py, "
+                                 "vfe_equation_runtime.py (getattr, a literal loop name), and more (see the lookup)"),
+    "_current_limit_transport_layouts": ("keep: already mirrored on native.Gpu", "perf_diagnostics.py"),
     "_foreign_hold_headroom": ("keep: written by the front end; native.Gpu has the class default (b3, R6); "
                                "nvbackend.GPU does not define it (getattr default)",
-                               "druta.py:7974 (getattr), druta.py:7975, druta.py:7998"),
+                               "druta.py (getattr; also attribute)"),
     "_hold_headroom_live_trip": ("keep: written by the front end; native.Gpu carries it (b3)",
-                                 "druta.py:7444 (getattr), druta.py:7445"),
-    "_hold_headroom_unread": ("keep: already on native.Gpu (not listed in DESIGN-FRONTEND b4)",
-                              "druta.py:7447 (getattr)"),
+                                 "druta.py (getattr; also attribute)"),
+    "_hold_headroom_unread": ("keep: already on native.Gpu (not listed in DESIGN-FRONTEND b4)", "druta.py (getattr)"),
     "_legacy_clk_escape": ("keep: already mirrored on native.Gpu",
-                           "client_power_runtime.py:358, clock_bios_runtime.py:226, "
-                           "clock_vf_registry.py:159, +14 more"),
+                           "client_power_runtime.py, clock_bios_runtime.py, clock_vf_registry.py, and more (see the "
+                           "lookup)"),
     "_lock": ("keep: already mirrored on native.Gpu (G4c replaces it with the handle lock)",
-              "adaptive_power_live.py:83, adaptive_power_live.py:90, all_pstates_registry.py:375 (getattr), "
-              "+89 more"),
-    "_msvdd_offset_domains_seen": ("G4f: new public msvdd_offset_domains() on both backends; call site changes",
-                                   "profiles.py:747 (getattr)"),
-    "_msvdd_offset_domains_written": ("G4f: new public msvdd_offset_domains() on both backends; "
-                                      "call site changes", "profiles.py:746 (getattr)"),
-    "_offset_range": ("G4f: new public clock_offset_range(ctype) on both backends; call sites change",
-                      "tuning_profiles.py:90, tuning_profiles.py:157"),
+              "adaptive_power_live.py, all_pstates_registry.py (getattr), and more (see the lookup)"),
     "_power_policy_mask": ("keep: written by the front end; native.Gpu has a setter (b3)",
-                           "power_integral_runtime.py:84"),
+                           "power_integral_runtime.py"),
     "_power_policy_pins": ("keep: written by the front end; native.Gpu has a strict setter (b3, Q8)",
-                           "druta.py:2875 (getattr), druta.py:2879, power_action_profiles.py:48 (getattr), "
-                           "+4 more"),
-    "_policy_amount": ("keep: a GPU.X namespace reference (b2: stays on nvbackend.GPU for G4); native.Gpu "
-                       "mirrors it (DESIGN-FRONTEND b4 'already mirrored')",
-                       "druta.py:2767 (class), druta.py:2942 (class), druta.py:2966 (class)"),
-    "_power_policy_table": ("keep: already mirrored on native.Gpu", "linked_current_runtime.py:110"),
+                           "druta.py (getattr; also attribute), power_action_profiles.py (getattr), and more (see "
+                           "the lookup)"),
+    "_policy_amount": ("keep: a GPU.X namespace reference (b2: stays on nvbackend.GPU for G4); native.Gpu mirrors it "
+                       "(DESIGN-FRONTEND b4 'already mirrored')",
+                       "druta.py (class)"),
+    "_power_policy_table": ("keep: already mirrored on native.Gpu", "linked_current_runtime.py"),
     "_pstate20_clock": ("G4e: delegate nvbackend's function object over the companions (explicit list)",
-                        "bios_runtime.py:32"),
-    "_read_power": ("G4f: new public read_enforced_power_limit_mw() on both backends; call site changes",
-                    "druta.py:6558 (getattr)"),
+                        "bios_runtime.py"),
     "_read_pstates20": ("G4e: delegate nvbackend's function object over the companions (explicit list)",
-                        "all_pstates_registry.py:346, bios_runtime.py:25, voltage_rel_live.py:53"),
-    "_read_volt_rail_deltas": ("G4e: b1 shim over native_rails", "voltage_bios_runtime.py:54"),
+                        "all_pstates_registry.py, bios_runtime.py, voltage_rel_live.py"),
+    "_read_volt_rail_deltas": ("G4e: b1 shim over native_rails", "voltage_bios_runtime.py"),
     "_refresh_volt_rail_capabilities": ("G4e: b1 shim over native_rails (native_rails.refresh)",
-                                        "voltage_bios_runtime.py:106 (getattr)"),
-    "_rm_power_transport": ("keep: already mirrored on native.Gpu", "client_power_runtime.py:297"),
-    "_vf_lock_recovery": ("G4e: b1 property over vf_lock_recovery / set_vf_lock_recovery",
-                          "druta.py:6963 (getattr)"),
+                                        "voltage_bios_runtime.py (getattr)"),
+    "_rm_power_transport": ("keep: already mirrored on native.Gpu", "client_power_runtime.py"),
+    "_vf_lock_recovery": ("G4e: b1 property over vf_lock_recovery / set_vf_lock_recovery", "druta.py (getattr)"),
     "_vfp_curve_error": ("G4e: delegate nvbackend's function object over the companions (explicit list)",
-                         "voltage_rel_live.py:87"),
-    "_volt_rail_profile": ("G4e: b1 shim over native_rails", "druta.py:2348"),
-    "_write_policy_limit": ("keep: already mirrored on native.Gpu", "client_power_runtime.py:646"),
+                         "voltage_rel_live.py"),
+    "_volt_rail_profile": ("G4e: b1 shim over native_rails", "druta.py"),
+    "_write_policy_limit": ("keep: already mirrored on native.Gpu", "client_power_runtime.py"),
 }
 
 #  KNOWN_GAPS: name -> (group, evidence), grouped as DESIGN-FRONTEND (b) groups
@@ -576,96 +581,98 @@ PRIVATE_REACHES = {
 #  exists. Evidence is front-end use sites ("(class)" = GPU.X, "(getattr)" = a
 #  literal getattr/hasattr), or, for a public nvbackend member the front ends
 #  never use, its definition line marked "check a".
-GROUPS = ("b1-shim", "b2-constant", "b3-written", "b4-private")
+GROUPS = ("b1-shim", "b2-constant", "b3-written", "b4-private", "b4-public")
 KNOWN_GAPS = {
     # b1: shims over existing native helper modules (37)
-    "_read_volt_rail_deltas": ("b1-shim", "voltage_bios_runtime.py:54"),
-    "_refresh_volt_rail_capabilities": ("b1-shim", "voltage_bios_runtime.py:106 (getattr)"),
-    "_vf_lock_recovery": ("b1-shim", "druta.py:6963 (getattr)"),
-    "_volt_rail_profile": ("b1-shim", "druta.py:2348"),
-    "abs_limit_mv": ("b1-shim", "druta.py:2446 (class), druta.py:2462 (class), druta.py:3060 (class), "
-                                "druta.py:3067 (class), profiles.py:714, profiles.py:1378, "
-                                "rail_limit_profiles.py:125, +1 more"),
-    "cascade_meta": ("b1-shim", "nvbackend.py:8421 (no front-end use; check a)"),
-    "compute_deflatten": ("b1-shim", "app.py:1175, app.py:1666 (class), druta.py:10144 (class)"),
-    "compute_hard_deflatten": ("b1-shim", "druta.py:10382 (class)"),
-    "compute_ramp": ("b1-shim", "druta.py:10231 (class)"),
-    "compute_rephase": ("b1-shim", "druta.py:10059 (class), druta.py:10448 (class)"),
-    "evaluate_curve_law": ("b1-shim", "nvbackend.py:8362 (no front-end use; check a)"),
-    "hold_headroom_allowance_mv": ("b1-shim", "nvbackend.py:7828 (no front-end use; check a)"),
-    "hold_headroom_bound_mv": ("b1-shim", "nvbackend.py:7810 (no front-end use; check a)"),
-    "hold_headroom_ceiling_mv": ("b1-shim", "nvbackend.py:7445 (no front-end use; check a)"),
-    "hold_headroom_targets": ("b1-shim", "nvbackend.py:7485 (no front-end use; check a)"),
-    "hold_legacy_p0": ("b1-shim", "druta.py:6880, druta.py:13761"),
-    "legacy_p0_owned": ("b1-shim", "druta.py:6144 (getattr), druta.py:6851, druta.py:6872, druta.py:6883, "
-                                   "+6 more"),
-    "legacy_p0_supported": ("b1-shim", "druta.py:6838 (getattr)"),
-    "peak_info": ("b1-shim", "app.py:1144 (class), app.py:1779 (class), druta.py:8997 (class), "
-                             "druta.py:9001 (class), +2 more"),
-    "predict_curve": ("b1-shim", "nvbackend.py:8407 (no front-end use; check a)"),
-    "rail_ceiling_mv": ("b1-shim", "druta.py:2248 (class), druta.py:2464 (class)"),
-    "rail_floor_mv": ("b1-shim", "nvbackend.py:7225 (no front-end use; check a)"),
-    "read_power_arbitration": ("b1-shim", "registry_panel.py:1134"),
-    "read_power_relationships": ("b1-shim", "registry_panel.py:1050"),
-    "read_rail_live_mv": ("b1-shim", "druta.py:2221"),
-    "read_volt_rail_limits": ("b1-shim", "druta.py:2347, druta.py:2354, druta.py:2380, druta.py:2397, +9 more"),
-    "read_volt_rail_state": ("b1-shim", "druta.py:2403, druta.py:2989, druta.py:8358, voltage_bios_runtime.py:54"),
-    "release_legacy_p0": ("b1-shim", "druta.py:6862, druta.py:6896, druta.py:6988"),
-    "resolve_vf_point": ("b1-shim", "druta.py:9687 (class)"),
-    "stock_limit_mv": ("b1-shim", "druta.py:8320, profiles.py:1385 (getattr), rail_limit_profiles.py:133"),
-    "verification_legacy_p0": ("b1-shim", "nvbackend.py:6039 (no front-end use; check a)"),
-    "verification_p0": ("b1-shim", "gpuload.py:437"),
-    "volt_boost_headroom_mv": ("b1-shim", "nvbackend.py:6877 (no front-end use; check a)"),
-    "volt_rail_diagnostics": ("b1-shim", "druta.py:2093 (getattr)"),
-    "volt_rail_limit_fields": ("b1-shim", "druta.py:3057, profiles.py:700, profiles.py:719, profiles.py:1372, "
-                                          "rail_limit_profiles.py:60, rail_limit_profiles.py:64"),
-    "volt_rail_limits_mv": ("b1-shim", "nvbackend.py:7298 (no front-end use; check a)"),
-    "volt_rail_limits_supported": ("b1-shim", "profiles.py:1364"),
+    "_read_volt_rail_deltas": ("b1-shim", "voltage_bios_runtime.py"),
+    "_refresh_volt_rail_capabilities": ("b1-shim", "voltage_bios_runtime.py (getattr)"),
+    "_vf_lock_recovery": ("b1-shim", "druta.py (getattr)"),
+    "_volt_rail_profile": ("b1-shim", "druta.py"),
+    "abs_limit_mv": ("b1-shim", "druta.py (class), profiles.py, rail_limit_profiles.py, and more (see the lookup)"),
+    "cascade_meta": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "compute_deflatten": ("b1-shim", "app.py (class; also attribute), druta.py (class)"),
+    "compute_hard_deflatten": ("b1-shim", "druta.py (class)"),
+    "compute_ramp": ("b1-shim", "druta.py (class)"),
+    "compute_rephase": ("b1-shim", "druta.py (class)"),
+    "evaluate_curve_law": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "hold_headroom_allowance_mv": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "hold_headroom_bound_mv": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "hold_headroom_ceiling_mv": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "hold_headroom_targets": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "hold_legacy_p0": ("b1-shim", "druta.py"),
+    "legacy_p0_owned": ("b1-shim", "druta.py (getattr; also attribute), and more (see the lookup)"),
+    "legacy_p0_supported": ("b1-shim", "druta.py (getattr)"),
+    "peak_info": ("b1-shim", "app.py (class), druta.py (class), and more (see the lookup)"),
+    "predict_curve": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "rail_ceiling_mv": ("b1-shim", "druta.py (class)"),
+    "rail_floor_mv": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "read_power_arbitration": ("b1-shim", "registry_panel.py"),
+    "read_power_relationships": ("b1-shim", "registry_panel.py"),
+    "read_rail_live_mv": ("b1-shim", "druta.py"),
+    "read_volt_rail_limits": ("b1-shim", "druta.py, and more (see the lookup)"),
+    "read_volt_rail_state": ("b1-shim", "druta.py, voltage_bios_runtime.py"),
+    "release_legacy_p0": ("b1-shim", "druta.py"),
+    "resolve_vf_point": ("b1-shim", "druta.py (class)"),
+    "stock_limit_mv": ("b1-shim", "druta.py, profiles.py (getattr), rail_limit_profiles.py"),
+    "verification_legacy_p0": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "verification_p0": ("b1-shim", "gpuload.py"),
+    "volt_boost_headroom_mv": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "volt_rail_diagnostics": ("b1-shim", "druta.py (getattr)"),
+    "volt_rail_limit_fields": ("b1-shim", "druta.py, profiles.py, rail_limit_profiles.py"),
+    "volt_rail_limits_mv": ("b1-shim", "nvbackend.py (no front-end use; check a)"),
+    "volt_rail_limits_supported": ("b1-shim", "profiles.py"),
     # b2: class-level constants (28)
-    "ARCH_ADA": ("b2-constant", "nvbackend.py:2807 (no front-end use; check a)"),
-    "ARCH_AMPERE": ("b2-constant", "nvbackend.py:2806 (no front-end use; check a)"),
-    "ARCH_KEPLER": ("b2-constant", "druta.py:4126 (class), druta.py:11762 (class)"),
-    "ARCH_MAXWELL": ("b2-constant", "druta.py:4126 (class), druta.py:11764 (class)"),
-    "ARCH_NAMES": ("b2-constant", "nvbackend.py:2808 (no front-end use; check a)"),
-    "ARCH_PASCAL": ("b2-constant", "druta.py:3071 (class), druta.py:4127 (class), druta.py:11767 (class)"),
-    "ARCH_TURING": ("b2-constant", "nvbackend.py:2805 (no front-end use; check a)"),
-    "CLKDOM_DELTA_APPLIES": ("b2-constant", "nvbackend.py:2907 (no front-end use; check a)"),
-    "CLKDOM_DELTA_CLEARS_CEILING": ("b2-constant", "nvbackend.py:2917 (no front-end use; check a)"),
-    "CURRENT_LIMIT_GENERATION_POLICIES": ("b2-constant", "nvbackend.py:4880 (no front-end use; check a)"),
-    "EXTRA_POINTS_ABOVE_CAP": ("b2-constant", "nvbackend.py:8259 (no front-end use; check a)"),
-    "HARD_FLOOR_MV": ("b2-constant", "druta.py:8613 (class)"),
-    "HOLD_HEADROOM_FALLBACK_GRAIN_MV": ("b2-constant", "nvbackend.py:7351 (no front-end use; check a)"),
-    "HOLD_HEADROOM_FIELDS": ("b2-constant", "nvbackend.py:7345 (no front-end use; check a)"),
-    "HOLD_HEADROOM_MAX_MARGIN_MV": ("b2-constant", "vfheadroom.py:31 (class)"),
-    "LIVE_RAIL_BASE": ("b2-constant", "nvbackend.py:6831 (no front-end use; check a)"),
-    "LIVE_RAIL_FIELDS": ("b2-constant", "nvbackend.py:6833 (no front-end use; check a)"),
-    "LIVE_RAIL_STRIDE": ("b2-constant", "nvbackend.py:6832 (no front-end use; check a)"),
-    "LIVE_RAIL_VER": ("b2-constant", "nvbackend.py:6830 (no front-end use; check a)"),
-    "MAX_ABS_DELTA_KHZ": ("b2-constant", "app.py:1651 (class), druta.py:9749 (class), profiles.py:1094 (getattr)"),
-    "RAIL_OFFSET_MAX_MV": ("b2-constant", "druta.py:3565, druta.py:8334, tuning_profiles.py:168"),
-    "RAIL_OFFSET_XOC_MAX_MV": ("b2-constant", "druta.py:3572, profiles.py:1409 (getattr), tuning_profiles.py:168"),
-    "VOLT_LIMIT_BASE_MV": ("b2-constant", "nvbackend.py:6874 (no front-end use; check a)"),
-    "VOLT_LIMIT_FIELDS": ("b2-constant", "druta.py:2349, druta.py:2463 (class)"),
-    "VOLT_LIMIT_MAX_MV": ("b2-constant", "druta.py:3012, druta.py:8327, profiles.py:818 (getattr), "
-                                         "profiles.py:1368 (getattr), rail_limit_profiles.py:130"),
-    "VOLT_LIMIT_MIN_MV": ("b2-constant", "druta.py:3011, druta.py:8322, profiles.py:1384 (getattr), "
-                                         "rail_limit_profiles.py:132"),
-    "VOLT_LIMIT_POWERON": ("b2-constant", "nvbackend.py:7240 (no front-end use; check a)"),
-    "VOLT_LIMIT_XOC_MAX_MV": ("b2-constant", "druta.py:3013, profiles.py:1367 (getattr), rail_limit_profiles.py:129"),
+    "ARCH_ADA": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "ARCH_AMPERE": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "ARCH_KEPLER": ("b2-constant", "druta.py (class)"),
+    "ARCH_MAXWELL": ("b2-constant", "druta.py (class)"),
+    "ARCH_NAMES": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "ARCH_PASCAL": ("b2-constant", "druta.py (class)"),
+    "ARCH_TURING": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "CLKDOM_DELTA_APPLIES": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "CLKDOM_DELTA_CLEARS_CEILING": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "CURRENT_LIMIT_GENERATION_POLICIES": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "EXTRA_POINTS_ABOVE_CAP": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "HARD_FLOOR_MV": ("b2-constant", "druta.py (class)"),
+    "HOLD_HEADROOM_FALLBACK_GRAIN_MV": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "HOLD_HEADROOM_FIELDS": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "HOLD_HEADROOM_MAX_MARGIN_MV": ("b2-constant", "vfheadroom.py (class)"),
+    "LIVE_RAIL_BASE": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "LIVE_RAIL_FIELDS": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "LIVE_RAIL_STRIDE": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "LIVE_RAIL_VER": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "MAX_ABS_DELTA_KHZ": ("b2-constant",
+                          "app.py (class), druta.py (class); also [profiles.py] backend_envelope (UNRESOLVED_DYNAMIC)"),
+    "RAIL_OFFSET_MAX_MV": ("b2-constant", "druta.py, tuning_profiles.py"),
+    "RAIL_OFFSET_XOC_MAX_MV": ("b2-constant",
+                               "druta.py, tuning_profiles.py; also [profiles.py] backend_envelope "
+                               "(UNRESOLVED_DYNAMIC)"),
+    "VOLT_LIMIT_BASE_MV": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "VOLT_LIMIT_FIELDS": ("b2-constant", "druta.py (class; also attribute)"),
+    "VOLT_LIMIT_MAX_MV": ("b2-constant",
+                          "druta.py, rail_limit_profiles.py; also [profiles.py] backend_envelope (UNRESOLVED_DYNAMIC)"),
+    "VOLT_LIMIT_MIN_MV": ("b2-constant",
+                          "druta.py, rail_limit_profiles.py; also [profiles.py] backend_envelope (UNRESOLVED_DYNAMIC)"),
+    "VOLT_LIMIT_POWERON": ("b2-constant", "nvbackend.py (no front-end use; check a)"),
+    "VOLT_LIMIT_XOC_MAX_MV": ("b2-constant",
+                              "druta.py, rail_limit_profiles.py; also [profiles.py] backend_envelope "
+                              "(UNRESOLVED_DYNAMIC)"),
     # b3: attributes the front end writes (1)
-    "volt_limits_write_enabled": ("b3-written", "druta.py:3141, druta.py:6248 (getattr), druta.py:13213, "
-                                                "rail_limit_profiles.py:111"),
-    # b4: private nvbackend members the front end reaches into, and legacy_p0_profile (10)
-    "_clkdom_get": ("b4-private", "voltage_rel_live.py:61"),
-    "_clkdom_valid_block": ("b4-private", "voltage_rel_live.py:62"),
-    "_msvdd_offset_domains_seen": ("b4-private", "profiles.py:747 (getattr)"),
-    "_msvdd_offset_domains_written": ("b4-private", "profiles.py:746 (getattr)"),
-    "_offset_range": ("b4-private", "tuning_profiles.py:90, tuning_profiles.py:157"),
-    "_pstate20_clock": ("b4-private", "bios_runtime.py:32"),
-    "_read_power": ("b4-private", "druta.py:6558 (getattr)"),
-    "_read_pstates20": ("b4-private", "all_pstates_registry.py:346, bios_runtime.py:25, voltage_rel_live.py:53"),
-    "_vfp_curve_error": ("b4-private", "voltage_rel_live.py:87"),
-    "legacy_p0_profile": ("b4-private", "druta.py:6842 (getattr)"),
+    "volt_limits_write_enabled": ("b3-written", "druta.py (getattr; also attribute), rail_limit_profiles.py"),
+    # b4: private nvbackend members the front end reaches into, and legacy_p0_profile (6)
+    "_clkdom_get": ("b4-private", "voltage_rel_live.py"),
+    "_clkdom_valid_block": ("b4-private", "voltage_rel_live.py"),
+    "_pstate20_clock": ("b4-private", "bios_runtime.py"),
+    "_read_pstates20": ("b4-private", "all_pstates_registry.py, bios_runtime.py, voltage_rel_live.py"),
+    "_vfp_curve_error": ("b4-private", "voltage_rel_live.py"),
+    "legacy_p0_profile": ("b4-private", "druta.py (getattr)"),
+    # b4-public: G4f replaced four private reaches with public nvbackend.GPU
+    # methods; public on both backends once the native side lands (3)
+    "clock_offset_range": ("b4-public", "tuning_profiles.py (replaces _offset_range)"),
+    "msvdd_offset_domains": ("b4-public",
+                             "profiles.py (getattr; replaces _msvdd_offset_domains_written and "
+                             "_msvdd_offset_domains_seen)"),
+    "read_enforced_power_limit_mw": ("b4-public", "druta.py (getattr; replaces _read_power)"),
 }
 
 #  Kind differences between shared members (check d), each with its reason.
@@ -679,10 +686,10 @@ KIND_DIFFERENCES = {
 #  Companion uses (nvapi / api / nvml / nv expressions) that are not the
 #  driver objects' surface: (half, name) -> reason.
 COMPANION_FRONTEND_OWNED = {
-    ("nvapi", "_up9512r_mutex"): "created by the front end on first use (controllers/up9512r.py:98-100); "
-                                 "it must round-trip through setattr on the companion",
-    ("nvml", "get"): "false positive: nv is a dict at all_pstates_registry.py:195-199",
-    ("nvml", "values"): "false positive: nv is a dict at all_pstates_registry.py:195-196",
+    ("nvapi", "_up9512r_mutex"): "created by the front end on first use (controllers/up9512r.py); it must round-trip "
+                                 "through setattr on the companion",
+    ("nvml", "get"): "false positive: nv is a dict at all_pstates_registry.py",
+    ("nvml", "values"): "false positive: nv is a dict at all_pstates_registry.py",
 }
 
 #  COMPANION_GAPS: (half, name) -> evidence: names used on nvapi / api / nvml /
@@ -690,35 +697,43 @@ COMPANION_FRONTEND_OWNED = {
 #  lack. Measured against a native.Gpu constructed over a fake card. Check (c)
 #  (G4d, the companions) replaces this table.
 COMPANION_GAPS = {
-    ("nvapi", "AllClocks"): "rated_clock_runtime.py:83 (getattr)",
-    ("nvapi", "BoostTableGet"): "factory_clock_runtime.py:70 (getattr), voltage_rel_live.py:70",
-    ("nvapi", "ClkDomCtlGet"): "clock_bios_runtime.py:244 (getattr)",
-    ("nvapi", "ClkDomCtlSet"): "tuning_profiles.py:97 (getattr), tuning_profiles.py:106 (getattr)",
-    ("nvapi", "GetArchInfo"): "controllers/up9512r.py:120 (getattr), power_runtime.py:66 (getattr)",
-    ("nvapi", "Pstates20Get"): "voltage_rel_live.py:56 (getattr)",
-    ("nvapi", "Pstates20Set"): "tuning_profiles.py:88 (getattr)",
-    ("nvapi", "VfpCurve"): "voltage_rel_live.py:66 (getattr), voltage_rel_live.py:71",
-    ("nvapi", "VoltCtrlGet"): "tuning_profiles.py:117 (getattr), voltage_ceiling_runtime.py:70 (getattr)",
-    ("nvapi", "VoltCtrlSet"): "tuning_profiles.py:117 (getattr)",
-    ("nvapi", "VoltRailsCtlGet"): "voltage_rail_control_runtime.py:108 (getattr)",
-    ("nvapi", "_i"): "all_pstates_registry.py:329, clock_bios_runtime.py:212, controllers/icx.py:214, +16 more",
-    ("nvapi", "ver"): "voltage_rel_live.py:77",
-    ("nvml", "dev"): "bios_runtime.py:129, profiles.py:136",
-    ("nvml", "dll"): "bios_runtime.py:119, profiles.py:135",
-    ("nvml", "dll.nvmlDeviceGetFanControlPolicy_v2"): "profiles.py:135",
-    ("nvml", "dll.nvmlDeviceGetTemperatureThreshold"): "bios_runtime.py:119",
-    ("nvml", "has"): "bios_runtime.py:117, power_action_profiles.py:13, profiles.py:132, +1 more",
+    ("nvapi", "AllClocks"): "rated_clock_runtime.py (getattr)",
+    ("nvapi", "BoostTableGet"): "factory_clock_runtime.py (getattr), voltage_rel_live.py",
+    ("nvapi", "ClkDomCtlGet"): "clock_bios_runtime.py (getattr)",
+    ("nvapi", "ClkDomCtlSet"): "tuning_profiles.py (getattr)",
+    ("nvapi", "GetArchInfo"): "controllers/up9512r.py (getattr), power_runtime.py (getattr)",
+    ("nvapi", "Pstates20Get"): "voltage_rel_live.py (getattr)",
+    ("nvapi", "Pstates20Set"): "tuning_profiles.py (getattr)",
+    ("nvapi", "VfpCurve"): "voltage_rel_live.py (getattr; also attribute)",
+    ("nvapi", "VoltCtrlGet"): "tuning_profiles.py (getattr), voltage_ceiling_runtime.py (getattr)",
+    ("nvapi", "VoltCtrlSet"): "tuning_profiles.py (getattr)",
+    ("nvapi", "VoltRailsCtlGet"): "voltage_rail_control_runtime.py (getattr)",
+    ("nvapi", "_i"): "all_pstates_registry.py, clock_bios_runtime.py, controllers/icx.py, and more (see the lookup)",
+    ("nvapi", "ver"): "voltage_rel_live.py",
+    ("nvml", "dev"): "bios_runtime.py, profiles.py",
+    ("nvml", "dll"): "bios_runtime.py, profiles.py",
+    ("nvml", "dll.nvmlDeviceGetFanControlPolicy_v2"): "profiles.py",
+    ("nvml", "dll.nvmlDeviceGetTemperatureThreshold"): "bios_runtime.py",
+    ("nvml", "has"): "bios_runtime.py, power_action_profiles.py, profiles.py, and more (see the lookup)",
 }
 
 
-#  UNRESOLVED_DYNAMIC: (file, call source) -> "file:line: reason" for each
-#  getattr / hasattr / setattr / delattr on a GPU or companion expression whose
-#  name the scanner cannot resolve to literals. Ratcheted: a new dynamic access
-#  fails the test until it is reviewed and listed here. Keyed by the call's
-#  source text rather than its line, so unrelated edits above it do not move
-#  the key. Empty on the measured tree: the only dynamic site
-#  (vfe_equation_runtime.py:231) loops over a literal tuple and is resolved.
-UNRESOLVED_DYNAMIC = {}
+#  UNRESOLVED_DYNAMIC: (file, enclosing function, call source) -> (number of
+#  such calls, reason), for each getattr / hasattr / setattr / delattr on a GPU
+#  or companion expression whose name the scanner cannot resolve to literals.
+#  Ratcheted: a new dynamic access, the same call text in another function, or
+#  another identical call in the same function fails the test until it is
+#  reviewed and listed here. Keyed by source text rather than line, so
+#  unrelated edits above it do not move the key. The loop in
+#  vfe_equation_runtime.py runs over a literal tuple and is resolved, so it is
+#  not listed.
+UNRESOLVED_DYNAMIC = {
+    ("profiles.py", "backend_envelope", "getattr(gpu, name)"): (
+        1, "backend_envelope reads the request-envelope constant named by its caller, always a key of "
+           "profiles.ENVELOPE_MEANINGS (VOLT_LIMIT_MIN_MV, VOLT_LIMIT_MAX_MV, VOLT_LIMIT_XOC_MAX_MV, "
+           "RAIL_OFFSET_XOC_MAX_MV, MAX_ABS_DELTA_KHZ); the conformance test checks those keys against "
+           "KNOWN_GAPS and native.Gpu's static surface"),
+}
 
 
 def private_reaches_measured():
@@ -726,8 +741,81 @@ def private_reaches_measured():
     return {u.name for u in scan()[0] if u.name.startswith("_")}
 
 
+LINE_CITATION = r"[\w/]+\.py:\d"
+
+
 def evidence_files(evidence):
-    """The front-end files an evidence string cites (``file:line`` tokens),
-    excluding nvbackend.py (a definition line, not a use)."""
+    """The front-end files an evidence string cites (``file.py`` tokens),
+    excluding nvbackend.py (a definition, not a use) and ``[file.py]`` (a prose
+    mention in square brackets, not a citation)."""
     import re
-    return {m for m in re.findall(r"([\w/]+\.py):\d+", evidence) if m != "nvbackend.py"}
+    return {m for m in re.findall(r"(?<![\w/\[])([\w/]+\.py)(?![\w\]])", evidence) if m != "nvbackend.py"}
+
+
+def table_strings():
+    """(table, key, text) for every string in every evidence table, keys included."""
+    tables = {"EXEMPT": EXEMPT, "FRONTEND_OWNED": FRONTEND_OWNED, "PRIVATE_REACHES": PRIVATE_REACHES,
+              "KNOWN_GAPS": KNOWN_GAPS, "KIND_DIFFERENCES": KIND_DIFFERENCES,
+              "COMPANION_FRONTEND_OWNED": COMPANION_FRONTEND_OWNED, "COMPANION_GAPS": COMPANION_GAPS,
+              "UNRESOLVED_DYNAMIC": UNRESOLVED_DYNAMIC}
+
+    def strings(value):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, tuple):
+            for item in value:
+                yield from strings(item)
+    for table, rows in tables.items():
+        for key, value in rows.items():
+            for text in (*strings(key), *strings(value)):
+                yield table, key, text
+
+
+def nvbackend_definition_line(name):
+    """Line of ``name``'s definition in nvbackend.GPU's body (or its __init__), or None."""
+    cls = _class_node(NVBACKEND, "GPU")
+    for node in cls.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            return node.lineno
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id == name for t in targets):
+                return node.lineno
+    init = next((n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "__init__"), None)
+    for node in ast.walk(init) if init else ():
+        if (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store) and node.attr == name
+                and isinstance(node.value, ast.Name) and node.value.id == "self"):
+            return node.lineno
+    return None
+
+
+def lookup(names):
+    """The live locations behind the tables' file citations, as printable lines:
+    for each name every use the scanner finds (``file:line  via / kind``),
+    the dynamic sites in the files involved, and nvbackend.GPU's definition."""
+    gpu, companion = scan()
+    out = []
+    for name in names:
+        uses = sorted((u for u in gpu + companion if u.name == name), key=lambda u: (u.file, u.line))
+        out.append(f"{name}:")
+        for u in uses:
+            half = "" if u.receiver == "gpu" else f" on {u.receiver}"
+            out.append(f"  {u.where}  {u.via} / {u.kind}{half}")
+        if not uses:
+            out.append("  no front-end use")
+        files = {u.file for u in uses}
+        for site in sorted(dynamic_sites(), key=lambda d: (d.file, d.line)):
+            if site.file in files:
+                out.append(f"  dynamic in {site.file}:{site.line}  {site.scope}: {site.call}")
+        line = nvbackend_definition_line(name)
+        if line is not None:
+            out.append(f"  defined at nvbackend.py:{line}")
+    return out
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) < 2:
+        print("usage: python3 tests/frontend_surface.py NAME [NAME ...]   (live uses of each name)")
+    else:
+        print("\n".join(lookup(sys.argv[1:])))

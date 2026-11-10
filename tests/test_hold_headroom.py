@@ -656,7 +656,7 @@ class ApplyRestoreTests(unittest.TestCase):
             read_volt_rail_limits=gpu.read_volt_rail_limits, hold_headroom_record=gpu.hold_headroom_record,
             user_rail_limits=gpu.user_rail_limits, abs_limit_mv=GPU.abs_limit_mv,
             volt_rail_limit_fields=lambda r: GPU.VOLT_LIMIT_FIELDS if r == 0 else (),
-            voltage_xoc_enabled=False)
+            voltage_xoc_enabled=False, VOLT_LIMIT_MAX_MV=GPU.VOLT_LIMIT_MAX_MV)
         state = {profiles.INCOMPLETE_KEY: []}
         profiles.capture_rails(view, state, None)
         self.assertEqual(state[profiles.INCOMPLETE_KEY], [])

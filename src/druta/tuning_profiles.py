@@ -87,7 +87,7 @@ def _read(gpu, kind, index):
         if not ((nv.ok and nv.has('nvmlDeviceSetClockOffsets')) or
                 (api.ok and getattr(api, 'Pstates20Set', None))):
             raise ValueError('memory offset setter unavailable')
-        bounds = gpu._offset_range(2)
+        bounds = gpu.clock_offset_range(2)
         if not isinstance(bounds, (tuple, list)) or len(bounds) < 3:
             raise ValueError('memory offset readback unavailable')
         value = _integer(bounds[2], 'memory offset')
@@ -154,7 +154,7 @@ def preflight(gpu, state):
             request = data['value'] / scale
             if request * scale != data['value']:
                 raise ValueError('saved memory offset cannot be replayed exactly')
-            bounds = gpu._offset_range(2)
+            bounds = gpu.clock_offset_range(2)
             if (not isinstance(bounds, (tuple, list)) or len(bounds) < 3
                     or not bounds[0] <= data['value'] <= bounds[1]):
                 raise ValueError('saved memory offset is outside the current control range')

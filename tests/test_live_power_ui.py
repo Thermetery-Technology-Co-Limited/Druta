@@ -146,7 +146,7 @@ class LivePowerUiTests(unittest.TestCase):
     def test_accepted_configured_request_keeps_slider_and_discloses_lower_nvml_limit(self):
         self.values.update(sl_pl=400, in_pl=400, power_request_status="")
         self.app.gpu.read_power_limit_mw.side_effect = [350000, 400000]
-        self.app.gpu._read_power = Mock(side_effect=lambda state: state.update(pl_now_mw=350000))
+        self.app.gpu.read_enforced_power_limit_mw = Mock(return_value=350000)
         self.app.apply_pl(400)
         self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
         ok, message = self.app.report.call_args.args[0]
@@ -158,7 +158,7 @@ class LivePowerUiTests(unittest.TestCase):
     def test_native_limit_warns_even_when_nvml_echoes_the_accepted_request(self):
         self.values.update(sl_pl=400, in_pl=400, power_request_status="")
         self.app.gpu.read_power_limit_mw.side_effect = [350000, 400000]
-        self.app.gpu._read_power = Mock(side_effect=lambda state: state.update(pl_now_mw=400000))
+        self.app.gpu.read_enforced_power_limit_mw = Mock(return_value=400000)
         self.app.gpu.read_native_power_limit_mw = Mock(return_value=(350000, None))
         self.app.apply_pl(400)
         self.assertEqual((self.values["sl_pl"], self.values["in_pl"]), (400, 400))
@@ -194,7 +194,7 @@ class LivePowerUiTests(unittest.TestCase):
     def test_native_unavailable_or_malformed_never_turns_nvml_echo_into_native_proof(self):
         self.values["power_request_status"] = ""
         self.app.gpu.read_power_limit_mw.return_value = 400000
-        self.app.gpu._read_power = Mock(side_effect=lambda state: state.update(pl_now_mw=400000))
+        self.app.gpu.read_enforced_power_limit_mw = Mock(return_value=400000)
         for result in ((None, "not available"), (True, None), ("350000", None),
                        (-1, None), (0xFFFFFFFF, None), OSError("native getter failed")):
             with self.subTest(result=result):

@@ -6554,14 +6554,17 @@ class Druta:
                                f"readback {got / 1000:g} W; slider returned to readback.")
                     self._power_request_feedback = (self.gpu, "mismatch", warning)
                     ok, message = False, f"{message}; {warning}"
-                power = {}
-                reader = getattr(self.gpu, "_read_power", None)
-                if callable(reader):
+                # Advisory: a failed read only leaves the note out. A backend
+                # without the reader is said so, not taken for "no difference".
+                enforced = None
+                reader = getattr(self.gpu, "read_enforced_power_limit_mw", None)
+                if not callable(reader):
+                    message += "; enforced power limit not checked: this backend does not report it"
+                else:
                     try:
-                        reader(power)
+                        enforced = reader()
                     except Exception:                                  # noqa: BLE001
-                        pass
-                enforced = power.get("pl_now_mw")
+                        enforced = None
                 if (type(got) is int and type(enforced) is int and 0 < enforced < (1 << 32)
                         and got != enforced):
                     message += (f"; configured request {got / 1000:g} W, NVML-reported "

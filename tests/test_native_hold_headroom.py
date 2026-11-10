@@ -247,7 +247,8 @@ class HoldPythonSide(HoldSide, WritePythonSide):
         g = self.gpu
         return SimpleNamespace(read_volt_rail_limits=g.read_volt_rail_limits, hold_headroom_record=g.hold_headroom_record,
                                user_rail_limits=g.user_rail_limits, abs_limit_mv=GPU.abs_limit_mv,
-                               volt_rail_limit_fields=g.volt_rail_limit_fields, voltage_xoc_enabled=False)
+                               volt_rail_limit_fields=g.volt_rail_limit_fields, voltage_xoc_enabled=False,
+                               VOLT_LIMIT_MAX_MV=GPU.VOLT_LIMIT_MAX_MV)
 
 
 class HoldNativeSide(HoldSide, WriteNativeSide):
@@ -272,7 +273,7 @@ class HoldNativeSide(HoldSide, WriteNativeSide):
                                hold_headroom_record=g.hold_headroom_record, user_rail_limits=g.user_rail_limits,
                                abs_limit_mv=GPU.abs_limit_mv,
                                volt_rail_limit_fields=lambda r: nr.volt_rail_limit_fields(g, r),
-                               voltage_xoc_enabled=False)
+                               voltage_xoc_enabled=False, VOLT_LIMIT_MAX_MV=GPU.VOLT_LIMIT_MAX_MV)
 
 
 class HoldRig(WriteRig):

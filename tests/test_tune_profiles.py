@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from druta.druta import profiles, Druta
+from druta.nvbackend import GPU
 from druta.railctl import Rail
 
 
@@ -39,7 +40,11 @@ def hardware():
         clkdom_controls_for_ui=Mock(return_value=[0, 2, 7]),
         read_clk_domain_offsets=Mock(return_value=({0: {"freq_khz": 90000},
                                                    2: {"freq_khz": 200000},
-                                                   7: {"freq_khz": 45000}}, None)))
+                                                   7: {"freq_khz": 45000}}, None)),
+        # the request envelopes profiles validate against: the backend's own
+        VOLT_LIMIT_MIN_MV=GPU.VOLT_LIMIT_MIN_MV, VOLT_LIMIT_MAX_MV=GPU.VOLT_LIMIT_MAX_MV,
+        VOLT_LIMIT_XOC_MAX_MV=GPU.VOLT_LIMIT_XOC_MAX_MV, RAIL_OFFSET_XOC_MAX_MV=GPU.RAIL_OFFSET_XOC_MAX_MV,
+        MAX_ABS_DELTA_KHZ=GPU.MAX_ABS_DELTA_KHZ)
     for label in ("set_volt_rail_limits", "set_volt_rail_limits_raw", "set_rail_offset_mv", "set_clk_domain_offset",
                   "set_clock_offset", "set_power_limit_mw", "set_voltage_boost",
                   "restore_fan_control_state", "apply_vf_deltas"):
