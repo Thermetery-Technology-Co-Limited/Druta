@@ -279,6 +279,12 @@ class _PolicyRow(ctypes.Structure):  # dc_policy_row (increment B2)
 CL_POLICY_INPUTS = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
                                     ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(_ClStatics))
 
+
+class _PolicyStep(ctypes.Structure):  # dc_policy_step (increment B4)
+    _fields_ = [("size", ctypes.c_uint32), ("ok", ctypes.c_int32), ("label_needed", ctypes.c_uint32),
+                ("message_needed", ctypes.c_uint32), ("label", ctypes.c_char * 128),
+                ("message", ctypes.c_char * 1024)]
+
 class _ClockDomainRow(ctypes.Structure):
     _fields_ = [("domain", ctypes.c_uint32), ("name", ctypes.c_char * 24), ("grade", ctypes.c_char * 16),
                 ("kind", ctypes.c_char * 12), ("prog_khz", ctypes.c_uint32), ("meas_khz", ctypes.c_uint32),
@@ -597,6 +603,18 @@ _SIGNATURES = {
     "dc_pl_set_nvml": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64,
                                         ctypes.POINTER(_Outcome), ctypes.POINTER(ctypes.c_int32),
                                         ctypes.POINTER(ctypes.c_uint32)]),
+    # increment B4: stock_power_policy, max_all_power_policies, read_native_power_limit_mw
+    "dc_pl_stock_power_policy": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64,
+                                                  ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_max_all": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int32,
+                                       ctypes.POINTER(_PolicyStep), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_pl_step_text_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32, ctypes.c_char_p,
+                                             ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_native_power_limit": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics),
+                                                  ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_uint32),
+                                                  ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
     "dc_hook_test_entry": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_hook_test_state": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32),
                                             ctypes.POINTER(ctypes.c_uint32)]),
@@ -3112,6 +3130,178 @@ class Gpu:
         self._pl_check(status)
         ok, text = self._outcome(out)
         return ok, text, (got.value if has.value else None)
+
+    # ---- stock and max-all over the policy list, and the native effective board limit ------------ #
+    # ---- (nvbackend.GPU.stock_power_policy, max_all_power_policies, read_native_power_limit_mw; --- #
+    # ---- increment B4) --------------------------------------------------------------------------- #
+    #
+    # The core composes the A8 board-limit pieces with the B2/B3 policy pieces under the handle mutex
+    # and calls no Python code: the derived-clamp confirmation of _current_limit_state and
+    # read_power_policies' inputs are answered in the core through the same native live read the
+    # binding's callbacks (_confirm_derived_clamp, _policy_inputs) make. The pins dropped or cleared
+    # here are the core's process state: nothing is persisted, and a driver restart is never followed
+    # by a re-application. self.static's pl_* keys go in and come back as _pl_call's.
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_policy_ops.py):
+    # - stock_power_policy formats str(policy) before the call (Python formats it only for a message)
+    #   and maps a policy that is not a plain int within int64 to the first index 0..31 equal to it
+    #   (else -1) for the pin drop and the row lookups, where Python hashes and compares the object
+    #   itself; an object whose == or hash is inconsistent with an index can therefore differ. An
+    #   unhashable policy raises TypeError where Python's pins.pop raises (only when a pin exists).
+    # - the static rule of A8 (_pl_statics): a pl_* value not equal to an int64 is None to the core.
+    #   max_all_power_policies runs Python's steps over the native methods when pl_max_mw is present
+    #   and not a plain int (type int) within int64, so such a top is offered to set_power_limit_mw
+    #   as Python offers it.
+    # - power_limit_bounds_mw inside max_all_power_policies can only fail natively by allocation,
+    #   which is caught as Python's `except Exception` (the nominal top stays).
+    # - stock and max-all run wholly under the handle mutex (Python's callees lock one at a time);
+    #   self._lock is held around each call and its text fetches, as set_power_limit_mw's.
+    # - texts longer than the first buffers are fetched from the handle (dc_pl_message_get,
+    #   dc_pl_step_text_get), never by repeating a call.
+    # Every text goes both ways as UTF-8 with surrogatepass and comes back by its reported length, not
+    # ctypes' .value, so a str(policy) holding a NUL or a lone surrogate reaches the message as
+    # nvbackend formats it (as native_rails carries its texts).
+
+    _PL_MAX_STEPS = 33  # DC_PL_MAX_STEPS: the board limit and one step per policy of a 32-bit mask
+
+    @staticmethod
+    def _pl_text(raw, needed):
+        """A sized text the core wrote: its bytes by the reported length (needed counts the NUL),
+        surrogatepass undoing the name's encoding; anything else that does not decode is replaced."""
+        data = bytes(raw[:max(needed - 1, 0)])
+        try:
+            return data.decode("utf-8", "surrogatepass")
+        except UnicodeDecodeError:
+            return data.decode("utf-8", "replace")
+
+    def stock_power_policy(self, policy):
+        """Stock: drop the user's value and give the policy back to the driver; (ok, message) as
+        nvbackend's. The rated default is written, then the board limit is sent again (or the live
+        board request is verified unchanged) so the driver re-derives what it couples to it."""
+        # Python's pins.pop on a copy of the pins: an unhashable policy raises TypeError there, and
+        # only when a pin exists (an empty dict's pop never hashes its key)
+        dict(self._power_policy_pins or {}).pop(policy, None)
+        whole = type(policy) is int and self._int64(policy)
+        if whole:
+            index = policy
+        else:
+            index = -1
+            for candidate in range(32):
+                try:
+                    if candidate == policy:
+                        index = candidate
+                        break
+                except Exception:                                       # noqa: BLE001 - see above
+                    break
+        name = f"{policy}".encode("utf-8", "surrogatepass")
+        library = load()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(self._PL_MESSAGE)
+        with self._lock:
+            status = self._pl_call(library.dc_pl_stock_power_policy, index, 1 if whole else 0, name, len(name),
+                                   ctypes.byref(ok), message, len(message), ctypes.byref(needed))
+            if status == DC_E_RANGE:  # read_power_policies' / _write_policy_limit's / the pins' IndexError
+                raise IndexError("list index out of range")
+            if status == DC_E_UNAVAILABLE:  # _set_power_limit_nvml's attribute access
+                raise AttributeError("nvmlDeviceSetPowerManagementLimit")
+            self._pl_check(status)
+            while needed.value > len(message):  # never repeat a write to fetch its text
+                message = ctypes.create_string_buffer(needed.value)
+                self._pl_check(library.dc_pl_message_get(self._handle, message, len(message), ctypes.byref(needed)))
+        return bool(ok.value), self._pl_text(message.raw, needed.value)
+
+    def _pl_step_text(self, index, field, raw, needed, capacity):
+        """One step's label or message: the entry's own buffer (raw bytes), else the handle's kept text."""
+        size = ctypes.c_size_t(needed)
+        while size.value > capacity:
+            buffer = ctypes.create_string_buffer(size.value)
+            capacity = len(buffer)
+            self._pl_check(load().dc_pl_step_text_get(self._handle, index, field, buffer, capacity,
+                                                      ctypes.byref(size)))
+            raw = buffer.raw
+        return self._pl_text(raw, size.value)
+
+    def max_all_power_policies(self):
+        """Clear the user's values, raise the board limit to its maximum (with XOC to the live request
+        envelope), then every other policy still below its own maximum to that maximum; a named
+        current policy to the maximum its own slider allows. [(step, ok, message)] as nvbackend's."""
+        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
+        if top is not None and not (type(top) is int and self._int64(top)):
+            return self._max_all_power_policies_steps()
+        library = load()
+        steps = (_PolicyStep * self._PL_MAX_STEPS)()
+        for step in steps:
+            step.size = ctypes.sizeof(_PolicyStep)
+        count = ctypes.c_uint32()
+        xoc = 1 if getattr(self, "voltage_xoc_enabled", False) else 0
+        with self._lock:
+            status = self._pl_call(library.dc_pl_max_all, xoc, steps, len(steps), ctypes.byref(count))
+            if status == DC_E_RANGE:  # set_power_limit_mw's / read_power_policies' / the writer's IndexError
+                raise IndexError("list index out of range")
+            self._pl_check(status)
+            out = []
+            for k in range(min(count.value, len(steps))):
+                s = steps[k]
+                raw = bytes(s)  # the c_char fields' attribute access would stop at a NUL
+                label = raw[_PolicyStep.label.offset:_PolicyStep.label.offset + _PolicyStep.label.size]
+                text = raw[_PolicyStep.message.offset:_PolicyStep.message.offset + _PolicyStep.message.size]
+                out.append((self._pl_step_text(k, 0, label, s.label_needed, _PolicyStep.label.size),
+                            bool(s.ok),
+                            self._pl_step_text(k, 1, text, s.message_needed, _PolicyStep.message.size)))
+        return out
+
+    def _max_all_power_policies_steps(self):
+        """nvbackend's max_all_power_policies over the native methods, for a pl_max_mw the ABI
+        cannot carry as Python uses it."""
+        self._power_policy_pins = {}
+        steps = []
+        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
+        if getattr(self, "voltage_xoc_enabled", False):
+            try:
+                extended = self.power_limit_bounds_mw()[1]
+            except Exception:                                           # noqa: BLE001 - Python's
+                extended = None
+            if type(extended) is int and extended > (top or 0):
+                top = extended
+        if top:
+            steps.append(("power limit", *self.set_power_limit_mw(top)))
+        rows, error = self.read_power_policies()
+        if error:
+            return steps + [("power policies", False, error)]
+        currents = {r["policy"]: r for r in getattr(self, "_current_limit_last_rows", None) or []}
+        for row in rows:
+            if row["board"]:
+                continue
+            if row["named_current"]:
+                current = currents.get(row["policy"])
+                if current is None:
+                    continue
+                ceiling = (current["maximum_ma"] if getattr(self, "voltage_xoc_enabled", False)
+                           else max(current["normal_maximum_ma"], current["limit_ma"]))
+                ceiling = min(ceiling, current["maximum_ma"])
+                if current["requested_ma"] < ceiling:
+                    steps.append((current["label"], *self.set_current_limit_ma(row["policy"], ceiling, pin=False)))
+                continue
+            if not row["writable"] or row["requested"] >= row["maximum"]:
+                continue
+            steps.append((f"policy {row['policy']}", *self._write_policy_limit(row["policy"], row["maximum"])))
+        return steps
+
+    def read_native_power_limit_mw(self):
+        """(mW, None) from fresh role-bound native effective STATUS, independent of NVML, or
+        (None, error). Never a substitute for the configured-request readback."""
+        library = load()
+        has, value, needed = ctypes.c_int32(), ctypes.c_uint32(), ctypes.c_size_t()
+        error = ctypes.create_string_buffer(1024)
+        with self._lock:
+            status = self._pl_call(library.dc_pl_native_power_limit, ctypes.byref(has), ctypes.byref(value), error,
+                                   len(error), ctypes.byref(needed))
+            self._pl_check(status)
+            while needed.value > len(error):
+                error = ctypes.create_string_buffer(needed.value)
+                self._pl_check(library.dc_pl_message_get(self._handle, error, len(error), ctypes.byref(needed)))
+        if has.value:
+            return value.value, None
+        return None, self._pl_text(error.raw, needed.value)
 
     # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
 

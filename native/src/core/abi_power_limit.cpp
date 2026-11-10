@@ -8,6 +8,7 @@
 #include <exception>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "backend/power_limit.h"
 #include "core/abi_internal.h"
@@ -180,6 +181,83 @@ DC_API dc_status DC_CALL dc_pl_set_nvml(dc_gpu* handle, dc_cl_statics* statics, 
         put_statics(st, statics);
         druta::abi::put_outcome({r.ok, r.message}, out);
         put_reading(r.got, has_got, got);
+        return DC_OK;
+    });
+}
+
+// ---- increment B4 ------------------------------------------------------------------------------ //
+
+DC_API dc_status DC_CALL dc_pl_stock_power_policy(dc_gpu* handle, dc_cl_statics* statics, int64_t policy,
+                                                  int32_t whole, const char* name, size_t name_size, int32_t* ok,
+                                                  char* message, size_t capacity, size_t* needed) {
+    if (!handle || !statics_ok(statics) || (!name && name_size) || !ok || !needed || (!message && capacity))
+        return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        StaticTriState st = get_statics(*statics);
+        const druta::backend::StockResult r =
+            handle->pl.stock_policy(policy, whole != 0, std::string(name ? name : "", name_size), st);
+        put_statics(st, statics);
+        if (!r.in_bounds) return DC_E_RANGE;
+        if (r.setter_missing) return DC_E_UNAVAILABLE;
+        *ok = r.ok ? 1 : 0;
+        put_text(r.message, message, capacity, needed);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_pl_max_all(dc_gpu* handle, dc_cl_statics* statics, int32_t xoc, dc_policy_step* steps,
+                                       uint32_t capacity, uint32_t* count) {
+    if (!handle || !statics_ok(statics) || !count || (!steps && capacity)) return DC_E_ARGUMENT;
+    for (uint32_t i = 0; i < capacity; ++i)
+        if (steps[i].size != sizeof(dc_policy_step)) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        StaticTriState st = get_statics(*statics);
+        const druta::backend::CpPeerWriter peer{druta::abi::write_peer, handle};
+        const druta::backend::MaxAllResult r = handle->pl.max_all(xoc != 0, st, peer);
+        put_statics(st, statics);
+        *count = 0;
+        if (!r.in_bounds) return DC_E_RANGE;
+        *count = static_cast<uint32_t>(r.steps.size());
+        for (uint32_t i = 0; i < capacity && i < r.steps.size(); ++i) {
+            dc_policy_step& out = steps[i];
+            const druta::backend::PolicyStep& step = r.steps[i];
+            size_t label_needed = 0, message_needed = 0;
+            out.ok = step.ok ? 1 : 0;
+            put_text(step.label, out.label, sizeof out.label, &label_needed);
+            put_text(step.message, out.message, sizeof out.message, &message_needed);
+            out.label_needed = static_cast<uint32_t>(label_needed);  // texts are far below 4 GiB
+            out.message_needed = static_cast<uint32_t>(message_needed);
+        }
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_pl_step_text_get(dc_gpu* handle, uint32_t index, int32_t field, char* out,
+                                             size_t capacity, size_t* needed) {
+    if (!handle || !needed || (!out && capacity) || (field != DC_PL_STEP_LABEL && field != DC_PL_STEP_MESSAGE))
+        return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const std::vector<druta::backend::PolicyStep>& kept = handle->pl.steps;
+        if (index >= kept.size()) return DC_E_RANGE;
+        put_text(field == DC_PL_STEP_LABEL ? kept[index].label : kept[index].message, out, capacity, needed);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_pl_native_power_limit(dc_gpu* handle, dc_cl_statics* statics, int32_t* has_value,
+                                                  uint32_t* value, char* error, size_t capacity, size_t* needed) {
+    if (!handle || !statics_ok(statics) || !has_value || !value || !needed || (!error && capacity))
+        return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        StaticTriState st = get_statics(*statics);
+        const druta::backend::NativeLimit r = handle->pl.native_limit(st);
+        put_statics(st, statics);
+        put_reading(r.value, has_value, value);
+        put_text(r.error, error, capacity, needed);
         return DC_OK;
     });
 }

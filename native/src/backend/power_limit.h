@@ -10,12 +10,22 @@
 // pin re-application (B3). No driver version, board, device, subsystem or VBIOS identity is
 // consulted anywhere. Everything is session-only: an NVML write or a live SET is the user's
 // request of this call; nothing is stored for, or re-applied after, a GPU driver restart.
+//
+// Increment B4 adds nvbackend.GPU.stock_power_policy, max_all_power_policies and
+// read_native_power_limit_mw here: they compose this class's pieces (read, set, set_nvml,
+// live_read, bounds, the pin re-application) with CurrentLimits' (read_power_policies,
+// write_policy_limit, set_current_limit_ma, policy_table), and this is the one class holding
+// both. They run wholly in the core: the read_live_power_request dependency of
+// _current_limit_state (its derived-clamp confirmation) and read_power_policies' inputs are
+// answered here through the same live read, so no Python callback is involved. The pins they
+// drop or clear are process state; nothing is persisted or re-applied after a driver restart.
 #pragma once
 
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "backend/client_power_controller.h"
 #include "backend/current_limits.h"
@@ -55,6 +65,36 @@ struct PowerLimitSet {
     std::string message;
 };
 
+// stock_power_policy's (ok, message), or what Python lets escape: the IndexError of
+// read_power_policies / _write_policy_limit / _reapply_power_policy_pins (in_bounds false), or the
+// AttributeError of _set_power_limit_nvml's attribute access when NVML is not live or has no setter
+// export (setter_missing). In both escapes ok and message are unset and the kept message unchanged.
+struct StockResult {
+    bool in_bounds = true;
+    bool setter_missing = false;
+    bool ok = false;
+    std::string message;
+};
+
+// One (step, ok, message) of max_all_power_policies.
+struct PolicyStep {
+    std::string label;
+    bool ok = false;
+    std::string message;
+};
+
+// max_all_power_policies' steps, or the IndexError Python lets escape (in_bounds false, no steps).
+struct MaxAllResult {
+    bool in_bounds = true;
+    std::vector<PolicyStep> steps;
+};
+
+// read_native_power_limit_mw's (value, error): value set exactly when error is empty.
+struct NativeLimit {
+    std::optional<std::uint32_t> value;
+    std::string error;
+};
+
 // The live-read hook of a caller that keeps its own `static` dict: before a live read the core
 // cannot see it, so it is passed in (StaticTriState) and updated here where Python's dict changes.
 class PowerLimit {
@@ -85,11 +125,46 @@ public:
     // caller has checked that the setter export exists (Python's attribute access raises otherwise).
     NvmlLimitSet set_nvml(std::int64_t mw, StaticTriState& st);
 
-    // The last set() message in full (dc_pl_message_get). Session memory only.
+    // stock_power_policy(policy): drop the pin first (before any validation, as Python does), write
+    // the rated default, then preserve the live board request or re-send the NVML board limit.
+    // policy is the int64 Python's dict and list lookups match (r["policy"] == policy, pins.pop);
+    // whole is `type(policy) is int` (false: _write_policy_limit refuses it after its table read).
+    // name is str(policy) for the messages.
+    StockResult stock_policy(std::int64_t policy, bool whole, const std::string& name, StaticTriState& st);
+    // max_all_power_policies: clear the pins, raise the board limit (with XOC to the live
+    // envelope), then each policy below its own maximum. xoc is bool(voltage_xoc_enabled); peer is
+    // set()'s. The steps are also kept in `steps`.
+    MaxAllResult max_all(bool xoc, StaticTriState& st, const CpPeerWriter& peer);
+    // read_native_power_limit_mw: the bound policy's effective STATUS value from a fresh table read
+    // that matches a fresh live observation byte for byte. The error is also kept in `message`.
+    NativeLimit native_limit(StaticTriState& st);
+
+    // The last set(), stock_policy() or native_limit() text in full (dc_pl_message_get), including
+    // the set() inside max_all(). Session memory only.
     std::string message;
+    // The last max_all() steps in full (dc_pl_step_text_get). Session memory only.
+    std::vector<PolicyStep> steps;
 
 private:
     PolicyWriteResult reapply(std::optional<std::int64_t> board_mw);
+
+    // The context of the two in-core callbacks below: this object and the caller's static keys.
+    struct Session {
+        PowerLimit* self;
+        StaticTriState* st;
+    };
+    // _current_limit_state's read_live_power_request branch (ConfirmDerivedClamp): a fresh live
+    // read whose ROLE_INFO byte 4 is 0x30, whose request exceeds its binding's maximum, and whose
+    // native INFO and CONTROL bytes equal the words just read.
+    static bool confirm_clamp(void* context, std::uint32_t policy, std::uint32_t requested_ma,
+                              std::uint32_t effective_ma, const std::vector<std::uint32_t>& info,
+                              const std::vector<std::uint32_t>& control);
+    // read_power_policies' inputs (ReadPolicyInputs): read_power_limit_mw, then the static keys as
+    // that read left them, then GPU._board_policy.
+    static PolicyInputs policy_inputs(void* context);
+    // read_power_policies with both, storing the board candidate as GPU._board_policy (as
+    // dc_cl_power_policies_read does: only for an in-bounds read without an error).
+    ReadPoliciesResult read_policies(StaticTriState& st);
 
     Gpu& gpu_;
     Telemetry& telemetry_;

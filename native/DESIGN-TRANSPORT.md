@@ -800,6 +800,21 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    them alone. `read_power_policies`' inputs callback calls the native `read_power_limit_mw`. Everything is session-only: nothing is stored for, or re-applied after, a
    GPU driver restart.
 
+   Stock and max-all power policies (increment B4): `GPU.stock_power_policy`, `max_all_power_policies`
+   and `read_native_power_limit_mw` as `PowerLimit::stock_policy`, `max_all` and `native_limit`, the one
+   class holding both the board-limit pieces and `CurrentLimits`. `dc_pl_stock_power_policy`,
+   `dc_pl_max_all` (with `dc_policy_step`, `DC_PL_MAX_STEPS` 33), `dc_pl_step_text_get` and
+   `dc_pl_native_power_limit` (`drutacore/power_limit.h`), `tests/test_native_power_policy_ops.py`. They run
+   wholly in the core under the handle lock: the derived-clamp confirmation of `_current_limit_state` (a
+   fresh live read whose ROLE_INFO byte 4 is 0x30, whose request exceeds its binding's maximum and whose
+   INFO and CONTROL bytes equal the table words) and `read_power_policies`' inputs are answered by the same
+   live read the binding's callbacks make. `stock_power_policy` drops the policy's pin before any read or
+   refusal, as Python does. Python's escaping IndexError is `DC_E_RANGE`; the AttributeError of a missing
+   NVML setter is `DC_E_UNAVAILABLE`. Texts beyond the first buffers are kept per handle and fetched with
+   `dc_pl_message_get` / `dc_pl_step_text_get`, never by repeating a writing call. Nothing is decided by
+   driver version or board identity. The pins dropped or cleared are process state: nothing is persisted,
+   and nothing is re-applied after a GPU driver restart.
+
    Reset all (increment G3): `GPU.reset_all` as `backend/reset_all` (`reset_all`, `ResetParts`,
    `ResetHooks`), `dc_gpu_reset_all` / `dc_gpu_reset_message_get` (`drutacore/reset.h`),
    `tests/test_native_reset_all.py`. It composes the ported knobs and re-implements none, under the handle

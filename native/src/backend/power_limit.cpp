@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <exception>
+#include <map>
 #include <utility>
 
 #include "core/calling.h"
@@ -222,6 +224,273 @@ NvmlLimitSet PowerLimit::set_nvml(std::int64_t mw, StaticTriState& st) {
     }
     out.ok = true;
     out.message = "power limit configured to " + watts_g(*got) + " W";
+    return out;
+}
+
+// ---- increment B4: stock_power_policy, max_all_power_policies, read_native_power_limit_mw ------ //
+
+namespace {
+
+// struct.pack(f"<{len(words)}I", *words): the words' little-endian bytes.
+std::vector<std::uint8_t> packed(const std::vector<std::uint32_t>& words) {
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(words.size() * 4);
+    for (std::uint32_t word : words)
+        for (int shift = 0; shift < 32; shift += 8) bytes.push_back(static_cast<std::uint8_t>(word >> shift));
+    return bytes;
+}
+
+// next((r for r in rows if r["policy"] == policy), None)
+const PolicyRow* row_of(const std::vector<PolicyRow>& rows, std::int64_t policy) {
+    for (const PolicyRow& row : rows)
+        if (static_cast<std::int64_t>(row.policy) == policy) return &row;
+    return nullptr;
+}
+
+// `if error:` on read_power_policies' result (an empty text is falsy).
+bool failed(const ReadPoliciesResult& r) { return r.error && !r.error->empty(); }
+
+constexpr const char* kIndexError = "list index out of range";  // str() of Python's IndexError
+
+}  // namespace
+
+bool PowerLimit::confirm_clamp(void* context, std::uint32_t, std::uint32_t, std::uint32_t,
+                               const std::vector<std::uint32_t>& info, const std::vector<std::uint32_t>& control) {
+    // CurrentLimits::state has already checked the generation, the range and the effective value;
+    // this is the fresh paired FE observation nvbackend reads there (read_live_power_request, with
+    // its bookkeeping and the static back-fill into the caller's keys).
+    const Session& s = *static_cast<const Session*>(context);
+    const CpRead<CpReading> r = s.self->live_read(s.st);
+    if (!r.value) return false;
+    const CpObservation& o = r.value->observation;
+    const CpMetadata& m = o.metadata;
+    return m.role_info.size() > 4 && m.role_info[4] == 0x30 && o.requested_mw > m.maximum_mw &&
+           m.native_info == packed(info) && o.native_control == packed(control);
+}
+
+PolicyInputs PowerLimit::policy_inputs(void* context) {
+    const Session& s = *static_cast<const Session*>(context);
+    PolicyInputs in;
+    if (std::optional<std::uint32_t> board = s.self->read(s.st)) in.board_mw = *board;
+    in.statics = *s.st;  // after the read's back-fill, as Python's dict is read after it
+    in.board_policy = s.self->cp_.live().board_policy;
+    return in;
+}
+
+ReadPoliciesResult PowerLimit::read_policies(StaticTriState& st) {
+    Session session{this, &st};
+    ReadPoliciesResult r = cl_.read_power_policies(confirm_clamp, &session, policy_inputs, &session);
+    if (r.in_bounds && !r.error && r.remember) cp_.set_board_policy(*r.remember);
+    return r;
+}
+
+StockResult PowerLimit::stock_policy(std::int64_t policy, bool whole, const std::string& name, StaticTriState& st) {
+    StockResult out;
+    auto done = [&](bool ok, std::string text) {
+        out.ok = ok;
+        out.message = std::move(text);
+        message = out.message;
+        return out;
+    };
+    auto escape = [&] {
+        out.in_bounds = false;
+        return out;
+    };
+    // Drop the user's value before anything is validated: a refused stock still unpins it.
+    if (0 <= policy && policy <= 0xFFFFFFFF) cl_.pins.erase(static_cast<std::uint32_t>(policy));
+    ReadPoliciesResult rows = read_policies(st);
+    if (!rows.in_bounds) return escape();
+    if (failed(rows)) return done(false, *rows.error);
+    const PolicyRow* found = row_of(rows.rows, policy);
+    if (!found) return done(false, "policy " + name + " is not in the driver's table");
+    if (!found->named_current && !found->writable)
+        return done(false, "policy " + name + ": " + CurrentLimits::unwritable_reason(*found));
+    if (!(found->minimum <= found->default_value && found->default_value <= found->maximum))
+        return done(false, "policy " + name + ": its default lies outside its own range; nothing written");
+    const std::int64_t default_value = found->default_value;
+    std::string label = "policy " + name;
+    for (const CurrentRow& r : cl_.last_rows) {
+        if (static_cast<std::int64_t>(r.policy) == policy) {
+            label = r.label;
+            break;
+        }
+    }
+    std::optional<std::int64_t> board;
+    if (std::optional<std::uint32_t> mw = read(&st)) board = *mw;
+    const PowerBounds normal = normal_power_bounds(st);  // after the read's back-fill, as Python
+    const bool extended = board && !within(normal.low, *board, normal.high);
+    Nvml& nv = gpu_.nvml;
+    // Python's `or` evaluates the NVML read only when neither earlier operand holds.
+    const bool live_stock = board && (extended || !(nv.ok && nv.has(kSetExport)) || !read_nvml());
+    if (live_stock) {
+        CpRead<CpReading> observed = live_read(&st);
+        if (!observed.value)
+            return done(false, "policy default not written: live board request is unreadable (" +
+                                   observed.error.message + ")");
+        board = observed.value->observation.requested_mw;
+    }
+    PolicyWriteResult written;
+    if (whole) {
+        written = cl_.write_policy_limit(policy, default_value);
+        if (!written.in_bounds) return escape();
+    } else {
+        // _write_policy_limit with a policy that is not an int: the table read, `mask = info[1]`,
+        // then its refusal.
+        PolicyTableResult table = cl_.policy_table();
+        if (!table.table)
+            written.message = "policy " + name + ": the policy table could not be read (" + table.error.message +
+                              "); nothing written";
+        else if (table.table->info.size() < 2)
+            return escape();
+        else
+            written.message = "policy " + name + " is not in the driver's table";
+    }
+    if (!written.ok) return done(false, written.message);
+    std::vector<std::string> notes;
+    bool ok = true;
+    if (live_stock) {
+        CpRead<CpReading> observed = live_read(&st);
+        if (!observed.value || static_cast<std::int64_t>(observed.value->observation.requested_mw) != *board) {
+            const std::string why =
+                !observed.value && !observed.error.message.empty() ? observed.error.message : "request changed";
+            return done(false, label + " default was sent, but the board request was not preserved exactly (" + why +
+                                   ")");
+        }
+        notes.push_back("board request preserved at " + watts_g(*board) +
+                        " W; host-derived policy limits were not recomputed");
+    } else if (std::optional<std::uint32_t> now = read(&st)) {
+        // Python's nv.dll.nvmlDeviceSetPowerManagementLimit raises AttributeError here.
+        if (!(nv.ok && nv.has(kSetExport))) {
+            out.setter_missing = true;
+            return out;
+        }
+        NvmlLimitSet sent = set_nvml(*now, st);
+        if (!sent.ok)
+            return done(false, label + " is at its default, but re-sending the board limit failed: " + sent.message);
+        const PolicyWriteResult pins = reapply(sent.got ? std::optional<std::int64_t>(*sent.got) : std::nullopt);
+        if (!pins.in_bounds) return escape();
+        ok = pins.ok;
+        if (!pins.message.empty()) notes.push_back(pins.message);
+    }
+    ReadPoliciesResult after = read_policies(st);
+    if (!after.in_bounds) return escape();
+    const PolicyRow* now = failed(after) ? nullptr : row_of(after.rows, policy);
+    std::string text = label + (live_stock ? " is at its rated default: " : " is back to the driver's value: ") +
+                       (now ? CurrentLimits::policy_amount(now->requested, now->unit) : std::string("unreadable"));
+    for (const std::string& note : notes) text += "; " + note;
+    return done(ok, std::move(text));
+}
+
+MaxAllResult PowerLimit::max_all(bool xoc, StaticTriState& st, const CpPeerWriter& peer) {
+    MaxAllResult out;
+    steps.clear();
+    auto escape = [&] {
+        out.in_bounds = false;
+        out.steps.clear();
+        return out;
+    };
+    cl_.pins.clear();
+    std::optional<std::int64_t> top;
+    if (present(st.pl_max)) top = st.pl_max.value;  // read before the bounds' live read, as Python
+    if (xoc) {
+        // Only ever raises: an unavailable live request interface leaves the nominal top in place.
+        std::optional<std::int64_t> extended;
+        try {
+            extended = bounds(st, true).high;
+        } catch (const std::exception&) {  // Python's `except Exception` (only allocation throws here)
+        }
+        if (extended && *extended > top.value_or(0)) top = extended;
+    }
+    if (top && *top != 0) {
+        const PowerLimitSet r = set(*top, xoc, st, peer);
+        if (!r.in_bounds) return escape();
+        out.steps.push_back({"power limit", r.ok, r.message});
+    }
+    ReadPoliciesResult rows = read_policies(st);
+    if (!rows.in_bounds) return escape();
+    if (failed(rows)) {
+        out.steps.push_back({"power policies", false, *rows.error});
+        steps = out.steps;
+        return out;
+    }
+    std::map<std::uint32_t, CurrentRow> currents;
+    for (const CurrentRow& r : cl_.last_rows) currents[r.policy] = r;
+    for (const PolicyRow& row : rows.rows) {
+        if (row.board) continue;
+        if (row.named_current) {
+            const auto it = currents.find(row.policy);
+            if (it == currents.end()) continue;
+            const CurrentRow& current = it->second;
+            std::int64_t ceiling = xoc ? current.maximum_ma : std::max(current.normal_maximum_ma, current.limit_ma);
+            ceiling = std::min<std::int64_t>(ceiling, current.maximum_ma);
+            if (current.requested_ma < ceiling) {
+                Session session{this, &st};
+                const SetResult r = cl_.set_current_limit_ma(row.policy, ceiling, false, confirm_clamp, &session);
+                out.steps.push_back({current.label, r.ok, r.message});
+            }
+            continue;
+        }
+        if (!row.writable || row.requested >= row.maximum) continue;
+        const PolicyWriteResult w = cl_.write_policy_limit(row.policy, row.maximum);
+        if (!w.in_bounds) return escape();
+        out.steps.push_back({"policy " + std::to_string(row.policy), w.ok, w.message});
+    }
+    steps = out.steps;
+    return out;
+}
+
+NativeLimit PowerLimit::native_limit(StaticTriState& st) {
+    NativeLimit out;
+    auto fail = [&](std::string text) {
+        out.value.reset();
+        out.error = std::move(text);
+        message = out.error;
+        return out;
+    };
+    const CpRead<CpReading> observed = live_read(&st);
+    if (!observed.value)
+        return fail(observed.error.message.empty() ? "native board-policy binding unavailable"
+                                                   : observed.error.message);
+    const CpObservation& o = observed.value->observation;
+    PolicyTableResult read = cl_.policy_table();
+    if (!read.table) return fail(read.error.message);
+    const PolicyTable& t = *read.table;
+    if (!t.control || !t.dynamic) return fail("native power-policy status unavailable");
+    const std::vector<std::uint32_t>& info = t.info;
+    const std::vector<std::uint32_t>& control = *t.control;
+    const std::vector<std::uint32_t>& status = *t.dynamic;
+    if (packed(info) != o.metadata.native_info || packed(control) != o.native_control)
+        return fail("native power definitions or configured requests changed during status read");
+    const std::uint64_t index = o.metadata.native_index;
+    const PowerLayout& layout = *t.layout;
+    const std::uint64_t meta = (layout.info_base + index * layout.info_stride) / 4;
+    const std::uint64_t record = (layout.control_base + index * layout.control_stride) / 4;
+    const std::uint64_t state = (layout.status_base + index * layout.status_stride) / 4;
+    // Python's short-circuit order: each operand indexes only when every earlier one passed.
+    // A missing word is Python's IndexError (the offsets are 64-bit; size_t may be 32).
+    auto word = [](const std::vector<std::uint32_t>& words, std::uint64_t at) -> std::optional<std::uint32_t> {
+        if (at >= words.size()) return std::nullopt;
+        return words[static_cast<std::size_t>(at)];
+    };
+    const char* mismatch = "native effective power status does not match the bound milliwatt policy";
+    const std::optional<std::uint32_t> definition = word(info, meta + 1);
+    if (!definition) return fail(kIndexError);
+    const std::uint32_t type_id = *definition & 255, unit = *definition >> 16 & 255;
+    if (index >= 32 || !(info[1] >> index & 1) || unit != 0) return fail(mismatch);  // info[1]: meta + 1 >= 1
+    const std::optional<std::uint32_t> kind = word(control, record);
+    if (!kind) return fail(kIndexError);
+    if (*kind != type_id) return fail(mismatch);
+    const std::optional<std::uint32_t> status_kind = word(status, state);
+    if (!status_kind) return fail(kIndexError);
+    if ((*status_kind & 255) != type_id) return fail(mismatch);
+    const std::optional<std::uint32_t> requested = word(control, record + 1);
+    if (!requested) return fail(kIndexError);
+    if (*requested != o.requested_mw) return fail(mismatch);
+    const std::optional<std::uint32_t> value = word(status, state + 1);
+    if (!value) return fail(kIndexError);
+    if (*value == 0xFFFFFFFF) return fail("native effective power status is missing or malformed");
+    out.value = value;
+    message.clear();
     return out;
 }
 
