@@ -14970,6 +14970,8 @@ deliberately does not put behind a button."""
             while dpg.is_dearpygui_running():
                 if self._startup_manager and self._startup_manager.ending:
                     break
+                for diagnostic in gpu_backend.drain_diagnostics():
+                    self.log(diagnostic, False)
                 if capture is None or not capture.active:
                     self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
@@ -15153,6 +15155,12 @@ def main(argv=None):
     except ValueError as exc:
         _tell(f"{exc} (try --help)")
         return 2
+    if argv and argv[0] == "--backend-compare":
+        from . import backend_compare
+        return backend_compare.cli(argv[1:], _tell)
+    if argv and argv[0] == "--backend-capture":
+        from . import backend_compare
+        return backend_compare.capture_cli(argv[1:])
     if argv and argv[0] == "--voltage-offsets":
         from . import voltage_offsets_cli
         return voltage_offsets_cli.cli(argv[1:], _tell)
@@ -15185,7 +15193,7 @@ def main(argv=None):
     while argv:
         a = argv.pop(0)
         if a in ("--version", "-V"):
-            _tell(f"Druta {__version__}")
+            _tell(f"Druta {__version__}\n{describe_backend()}")
             return 0
         if a in ("--list-gpus", "-l"):
             try:
@@ -15269,9 +15277,11 @@ def main(argv=None):
             _tell("usage: Druta [--gpu SLOT] [--list-gpus] [--startup-profile]\n\n"
                   "  --gpu SLOT   open on that card, e.g. 0000:02:00.0\n"
                   "  --list-gpus  print the slot and name of every card\n\n"
-                  "  --version    print the Druta version\n\n"
+                  "  --version    print the Druta version and backend request\n\n"
                   "  --backend auto|native|python  which GPU backend to use (default python;\n"
                   "                      same as the DRUTA_BACKEND environment variable)\n\n"
+                  "  --backend-compare SLOT NEW_DIRECTORY  read both backends in separate processes\n"
+                  "                      save JSON captures and a diff; never apply tuning\n\n"
                   "  --restart-gpu SLOT  restart that GPU through Windows PnP, then reopen\n"
                   "                      requires admin; never reboots the computer\n\n"
                   "  --voltage-offsets --gpu SLOT enable|read|set|capture|replay\n"

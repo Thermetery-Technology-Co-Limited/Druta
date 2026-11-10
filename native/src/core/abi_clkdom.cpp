@@ -54,6 +54,22 @@ void put_rows(const std::vector<PrivDomainRow>& rows, dc_clock_domains* out) {
 
 extern "C" {
 
+DC_API dc_status DC_CALL dc_gpu_msvdd_domains_get(dc_gpu* handle, uint32_t which, uint32_t* out,
+                                                  size_t capacity, size_t* count) {
+    if (!handle || which > 1 || !count || (!out && capacity)) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        const auto& domains = which == 0 ? handle->clkdom.msvdd_domains_written()
+                                        : handle->clkdom.msvdd_domains_seen();
+        *count = domains.size();
+        if (domains.size() > capacity) return DC_E_BUFFER;
+        if (!domains.empty()) std::copy(domains.begin(), domains.end(), out);
+        return DC_OK;
+    } catch (...) {
+        return DC_E_FAILED;
+    }
+}
+
 DC_API dc_status DC_CALL dc_gpu_clock_domains(dc_gpu* handle, const uint32_t* words, int32_t has_core,
                                               uint32_t core_mhz, int32_t has_mem, uint32_t mem_mhz,
                                               dc_clock_domains* out) {

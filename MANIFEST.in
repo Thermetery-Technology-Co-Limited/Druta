@@ -20,6 +20,13 @@ include ADA-VALIDATION.md
 include .github/PULL_REQUEST_TEMPLATE/i2c_profile.md
 recursive-include src/druta *.py
 recursive-include tests *.py
+# Native source and reproducible build recipes, never native/build outputs.
+include native/CMakeLists.txt native/build.sh native/*.md
+recursive-include native/include *.h
+recursive-include native/src *.h *.cpp *.c
+recursive-include native/cmake *.cmake
+recursive-include native/tools *.py *.txt
+recursive-include native/fuzz *.cpp *.h *.sh
 include i2c/*.toml i2c/*.md
 
 # Only these public measurements belong in a distribution.

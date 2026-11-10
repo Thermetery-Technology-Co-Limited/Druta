@@ -128,6 +128,15 @@ DC_API dc_status DC_CALL dc_pl_read_nvml(dc_gpu* handle, int32_t* has, uint32_t*
     });
 }
 
+DC_API dc_status DC_CALL dc_pl_enforced_read(dc_gpu* handle, int32_t* has, uint32_t* mw) {
+    if (!handle || !has || !mw) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        put_reading(handle->telemetry.read_enforced_power_limit(), has, mw);
+        return DC_OK;
+    });
+}
+
 DC_API dc_status DC_CALL dc_pl_read(dc_gpu* handle, dc_cl_statics* statics, int32_t* has, uint32_t* mw,
                                     dc_error* error) {
     if (!handle || !statics_ok(statics) || !has || !mw || !error_ok(error)) return DC_E_ARGUMENT;

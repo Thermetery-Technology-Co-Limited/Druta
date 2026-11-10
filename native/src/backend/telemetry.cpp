@@ -322,6 +322,15 @@ std::optional<std::uint32_t> Telemetry::read_power_limit_nvml() {
     return std::nullopt;
 }
 
+std::optional<std::uint32_t> Telemetry::read_enforced_power_limit() {
+    Nvml& nv = gpu_.nvml;
+    auto fn = nv.ok ? nv.get<HandleU32Fn>("nvmlDeviceGetEnforcedPowerLimit") : nullptr;
+    if (!fn) return std::nullopt;
+    std::uint32_t value = 0;
+    if (fn(nv.dev, &value) == 0) return value;
+    return std::nullopt;
+}
+
 void Telemetry::read_power(Snapshot& d) {
     Nvml& nv = gpu_.nvml;
     if (nv.ok) {
@@ -333,7 +342,7 @@ void Telemetry::read_power(Snapshot& d) {
         d.pl_from_live = from_live;
         std::uint32_t v = 0;
         if (auto fn = nv.get<HandleU32Fn>("nvmlDeviceGetPowerUsage"); fn && fn(nv.dev, &v) == 0) d.power_w = v / 1000.0;
-        if (auto fn = nv.get<HandleU32Fn>("nvmlDeviceGetEnforcedPowerLimit"); fn && fn(nv.dev, &v) == 0) d.pl_now_mw = v;
+        d.pl_now_mw = read_enforced_power_limit();
     }
     Nvapi& a = gpu_.nvapi;
     if (!a.ok) return;

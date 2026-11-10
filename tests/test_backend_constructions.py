@@ -200,7 +200,7 @@ def cli(monkeypatch):
                                   ["--backend", "NATIVE"], ["--backend=auto"]])
 def test_druta_main_strips_the_flag_before_the_option_loop(cli, flag):
     assert druta.main([*flag, "--version"]) == 0
-    cli.assert_called_once_with(f"Druta {druta.__version__}")
+    cli.assert_called_once_with(f"Druta {druta.__version__}\n{gpu_backend.describe()}")
     assert os.environ[gpu_backend.ENV] == flag[-1].split("=")[-1].lower()
 
 
@@ -223,7 +223,7 @@ def test_a_bad_environment_value_does_not_block_help_or_version(cli, monkeypatch
     assert druta.main(["--help"]) == 0
     assert "--backend auto|native|python" in cli.call_args.args[0]
     assert druta.main(["--version"]) == 0
-    assert cli.call_args.args[0] == f"Druta {druta.__version__}"
+    assert cli.call_args.args[0] == f"Druta {druta.__version__}\n{gpu_backend.describe()}"
 
 
 @pytest.mark.parametrize(("command", "module", "function"), [

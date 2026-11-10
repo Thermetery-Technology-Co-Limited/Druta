@@ -34,10 +34,8 @@ driver version, device id, subsystem id or VBIOS version, and nothing should (AG
 import contextlib
 import copy
 import ctypes
-import re
 import threading
 import weakref
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -1634,8 +1632,7 @@ def config(kind="turing", *, rails=None, bases=None, control=None, architecture=
 
 # nvbackend.NvAPI's attribute name for each QueryInterface id it binds: the driver-call log names an
 # NVAPI call by it on both kinds (an id nvbackend does not bind is logged as its hex value).
-NVAPI_NAMES = {int(ident, 16): name for name, ident in reversed(re.findall(
-    r"self\.(\w+)\s*=\s*self\._i\(\s*(0x[0-9A-Fa-f]+)", Path(NV.__file__).read_text()))}
+NVAPI_NAMES = {identifier: name for name, identifier, _argtypes in NV.NVAPI_INTERFACES}
 NVAPI_IDS = {name: ident for ident, name in NVAPI_NAMES.items()}
 
 MODERN_ARCH = 6   # NVML's architecture enum value the modern card answers (Turing-class)
@@ -2194,11 +2191,8 @@ class Session:
         if self.kind == "native":
             if not native.available():
                 raise RuntimeError("the native core is not built: skip native cases before opening a card")
-            # The factory refuses a forced native until the front-end surface is complete; for the life
-            # of the card the surface gate reports nothing missing.
-            previous = gpu_backend.surface_gate
-            stack.callback(setattr, gpu_backend, "surface_gate", previous)
-            gpu_backend.surface_gate = lambda native_module: ()
+            # The real factory surface gate is part of the integration contract. A missing
+            # frontend member must refuse this session just as it would refuse an application.
             # Every native.Gpu constructed while the card is open, whoever constructs it (the code
             # under test opens its own through gpu_backend.open_gpu): tracked by wrapping the class's
             # __init__, kept as weak references, closed on exit before the resolver goes.
@@ -2268,7 +2262,7 @@ def card(kind, slot=None, **options):
     Yields a Session (.gpu, .driver, .kind, .open(slot)). For its lifetime the card owns the
     process-wide state both backends load through: the core's export resolver and its sleep and
     clock hooks (native), ctypes.WinDLL / nvbackend's NVML loader and the `time` name of the modules
-    in PYTHON_TIME_MODULES (python), the surface gate, sys.unraisablehook and the backend pin
+    in PYTHON_TIME_MODULES (python), sys.unraisablehook and the backend pin
     (gpu_backend.open_gpu(kind=kind): a card of the other kind inside it raises BackendMismatch).
     On exit every native object constructed meanwhile is closed, everything is restored (the
     resolver and hooks to the platform defaults, not to whatever was installed before) and

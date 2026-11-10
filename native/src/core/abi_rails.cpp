@@ -11,6 +11,7 @@
 #include "backend/rails.h"
 #include "core/abi_internal.h"
 #include "core/mutex.h"
+#include "core/vf_plan.h"
 
 namespace {
 
@@ -302,6 +303,22 @@ dc_status run_hold(dc_gpu* handle, Call&& call, dc_rails_hold_outcome* out, dc_r
 }  // namespace
 
 extern "C" {
+
+DC_API dc_status DC_CALL dc_request_envelopes_get(dc_request_envelopes* out) {
+    if (!out || out->size != sizeof(dc_request_envelopes)) return DC_E_ARGUMENT;
+    clear(out);
+    out->volt_limit_min_mv = druta::backend::kVoltLimitMinMv;
+    out->volt_limit_max_mv = druta::backend::kVoltLimitMaxMv;
+    out->volt_limit_xoc_max_mv = druta::backend::kVoltLimitXocMaxMv;
+    out->rail_offset_max_mv = druta::backend::ClkDom::kRailOffsetMaxMv;
+    out->rail_offset_xoc_max_mv = druta::backend::ClkDom::kRailOffsetXocMaxMv;
+    out->max_abs_delta_khz = druta::backend::VfCurve::kMaxAbsDeltaKhz;
+    out->hard_floor_mv = druta::vfplan::kHardFloorMv;
+    out->power_limit_xoc_max_mw = druta::backend::kPowerLimitXocMaxMw;
+    for (std::size_t i = 0; i < 4; ++i)
+        put_text(out->volt_limit_fields[i], druta::backend::rail::field_name(i));
+    return DC_OK;
+}
 
 DC_API dc_status DC_CALL dc_rails_blocks(dc_gpu* handle, int32_t function, uint32_t version, dc_rails_block_set* out) {
     if (!handle || !out || out->size != sizeof(dc_rails_block_set)) return DC_E_ARGUMENT;

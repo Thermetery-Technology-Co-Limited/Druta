@@ -22,6 +22,10 @@
 
 namespace druta::vfplan {
 
+// Existing hard-de-flatten UI preset. Callers still pass an explicit floor to the planner;
+// this is not a measured device value or a lower bound imposed by the core.
+inline constexpr double kHardFloorMv = 800.0;
+
 inline constexpr std::size_t kMaxPoints = 128;           // VFP_POINTS
 inline constexpr std::int64_t kStepKhz = 15000;          // VF_STEP_KHZ, the fallback grid
 inline constexpr std::int64_t kMaxRiseKhz = 45000;       // VF_MAX_RISE_KHZ

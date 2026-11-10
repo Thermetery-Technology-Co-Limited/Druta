@@ -546,10 +546,21 @@ def _objdump_imports(listing):
         if inside and found:
             imports.append((found.group(1), []))
             continue
-        found = re.match(r"\s*[0-9a-f]+\s+\d+\s+(\S+)$", line)
+        # Binutils 2.44 adds an Ordinal column (<none> for named imports) and
+        # prints the hint in hexadecimal; older versions use a decimal hint.
+        found = re.match(r"\s*[0-9a-f]+\s+(?:<none>\s+)?[0-9a-f]+\s+(\S+)$", line)
         if inside and found and imports:
             imports[-1][1].append(found.group(1))
     return imports
+
+
+@pytest.mark.parametrize("row", ["\t168490  148  CloseHandle",
+                                  "\t00168290  <none>  0094  CloseHandle"])
+def test_objdump_import_rows_before_and_after_the_ordinal_column(row):
+    listing = ("The Import Tables (interpreted .idata section contents)\n"
+               "\tDLL Name: KERNEL32.dll\n" + row + "\n"
+               "The Export Tables\n\t168490  148  NotAnImport\n")
+    assert _objdump_imports(listing) == [("KERNEL32.dll", ["CloseHandle"])]
 
 
 @pytest.mark.parametrize("config", ["mingw-i686", "mingw-x86_64"])

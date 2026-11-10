@@ -1,6 +1,15 @@
 # G4 final design: the Python front ends on `native.Gpu`, with `nvbackend.GPU` as the fallback
 
-**Status: proposed, not implemented.** This is the design for increment G4 of the native-core port
+**Status: software integration implemented through G4i; hardware validation
+(G4j) and the default switch (G4k) pending.** The default remains `python`.
+The companion views, native surface and public methods are implemented, the
+surface-gap ratchets are empty, shared-driver front-end tests exercise both
+kinds, and Windows packaging and the read-only comparison tool are available.
+See `README.md` for build/use instructions. The design and historical baseline
+below describe the decisions behind the implementation; they are not hardware
+validation evidence.
+
+This is the design for increment G4 of the native-core port
 (the front-end switch). It was produced on 2026-11-10 by three independent designs, two judges who
 checked them against the code, and one synthesis. File and line references are a snapshot of
 `cpp/core` at `0c117d1`; function names are the stable reference. The questions in section (h) are

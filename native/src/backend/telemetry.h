@@ -138,6 +138,8 @@ public:
     // nullopt when NVAPI is down, the interface is absent, the status is nonzero or the value is 0.
     std::optional<double> read_vcore_mv();
     std::optional<std::uint32_t> read_power_limit_nvml();
+    // The enforced limit only; a successful zero is retained, as in read_power's pl_now_mw.
+    std::optional<std::uint32_t> read_enforced_power_limit();
     // read_power's pl_requested_mw: GPU.read_power_limit_mw (the NVML request, else the live
     // request while NVAPI is live; PowerLimit::read, installed by the handle). Unset, the NVML
     // request alone (a Telemetry without the client-power layer, as the self-test builds). The

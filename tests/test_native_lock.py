@@ -36,6 +36,7 @@ rig) are the parity suites' own; their values are inputs to the logic, not claim
 import ctypes
 import functools
 import gc
+import inspect
 import os
 import subprocess
 import sys
@@ -276,7 +277,7 @@ class LoaderTests(unittest.TestCase):
         gpu = native.Gpu()
         try:
             self.assertIsInstance(gpu._lock, native._HandleLock)
-            self.assertNotIn("RLock", Path(native.__file__).read_text().split("class Gpu:", 1)[1])
+            self.assertNotIn("RLock", inspect.getsource(native.Gpu))
             self.assertEqual(native._HandleLock.__slots__, ("_box",))  # no owner or depth of its own
         finally:
             gpu.close()
@@ -475,6 +476,7 @@ class OwnershipTests(LockCase):
         thread = threading.Thread(target=leaker)
         thread.start()
         thread.join(WAIT)
+        self.assertFalse(thread.is_alive(), "lock holder did not finish")
 
         def later():
             ids["later"] = (threading.get_ident(), threading.get_native_id())
@@ -488,6 +490,7 @@ class OwnershipTests(LockCase):
         thread = threading.Thread(target=later)
         thread.start()
         thread.join(WAIT)
+        self.assertFalse(thread.is_alive(), "later owner probe did not finish")
         if ids["later"][1] == ids["leaker"][1]:
             self.skipTest("the kernel gave the new thread the exited thread's id at once")
         self.assertEqual((ids["release"], ids["unlock"], ids["owned"]),
@@ -595,6 +598,40 @@ class LifetimeTests(LockCase):
 
 class CallAndFetchTests(LockCase):
     LIMIT = 30
+
+    def test_stock_max_all_and_native_limit_keep_their_message_fetch_locked(self):
+        # Force the ABI's documented larger-buffer response even when the no-driver
+        # error is short. The real fetch still supplies that error. A second thread
+        # tries the core mutex in the gap, releasing it immediately if it succeeds:
+        # deleting any wrapper's outer lock then fails, rather than wedging cleanup.
+        gpu, library = self.gpu, self.library
+        cases = (("dc_pl_stock_power_policy", "dc_pl_message_get", lambda: gpu.stock_power_policy(4)),
+                 ("dc_pl_max_all", "dc_pl_step_text_get", gpu.max_all_power_policies),
+                 ("dc_pl_native_power_limit", "dc_pl_message_get", gpu.read_native_power_limit_mw))
+        for entry_name, fetch_name, action in cases:
+            with self.subTest(entry=entry_name):
+                expected = action()
+                entry, fetch = getattr(library, entry_name), getattr(library, fetch_name)
+                probes = []
+
+                def larger(*args, _entry=entry, _name=entry_name):
+                    status = _entry(*args)
+                    self.assertEqual(status, native.DC_OK)
+                    if _name == "dc_pl_max_all":
+                        self.assertGreater(args[-1]._obj.value, 0)
+                        args[3][0].message_needed = 8192
+                    else:
+                        args[-1]._obj.value = 8192
+                    return status
+
+                def checked_fetch(*args, _fetch=fetch, _probes=probes):
+                    _probes.append(core_trylock_elsewhere(gpu._handle))
+                    return _fetch(*args)
+
+                with mock.patch.object(library, entry_name, larger), \
+                        mock.patch.object(library, fetch_name, checked_fetch):
+                    self.assertEqual(action(), expected)
+                self.assertEqual(probes, [(native.DC_OK, 0)])
 
     def test_another_caller_cannot_run_between_a_call_and_its_message_fetch(self):
         # set_power_limit_mw with a first buffer too small for the text: the binding fetches the kept

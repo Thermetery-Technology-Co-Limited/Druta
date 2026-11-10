@@ -732,9 +732,15 @@ class ReapplyTests(WriteCase):
 
         def growing(handle, out, capacity, needed):
             held = []
-            probe = threading.Thread(target=lambda: held.append(not self.gpu_lock.acquire(blocking=False)))
+            def check_lock():
+                acquired = self.gpu_lock.acquire(blocking=False)
+                held.append(not acquired)
+                if acquired:
+                    self.gpu_lock.release()
+            probe = threading.Thread(target=check_lock, daemon=True)
             probe.start()
-            probe.join()
+            probe.join(5)
+            self.assertFalse(probe.is_alive(), "lock probe did not finish")
             status = real(handle, out, capacity, needed)
             fetches.append((capacity, needed._obj.value, held[0]))
             if len(fetches) == 1:

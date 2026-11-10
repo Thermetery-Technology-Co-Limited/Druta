@@ -52,6 +52,11 @@ unsigned loader_generation();
 // trampoline that must never be patched, so the hook uses its buffer patcher.
 bool test_resolver_installed();
 
+// Resolve through loader() and keep the source alive so the returned address is never borrowed
+// from a temporary DLL. Only "nvapi" and "nvml" are supported. A resolver replacement discards the
+// retained sources: its addresses, just like its callback/context, must no longer be in use then.
+void* export_address(const char* library, const char* name);
+
 // Test seam: resolve(context, library, name) with library "nvapi", "nvml" or
 // "gdi32"; name "" asks whether the library loads at all (non-null means yes).
 using ResolveFn = void*(DRUTA_CDECL*)(void* context, const char* library, const char* name);

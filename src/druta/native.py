@@ -25,6 +25,7 @@ import threading
 import weakref
 
 from . import rail_transport as _py_rail
+from .native_frontend import FrontendSurface
 
 ABI_VERSION = 2  # 2: dc_gpu_lock / dc_gpu_trylock / dc_gpu_unlock / dc_gpu_lock_held and DC_E_STATE
 
@@ -419,6 +420,9 @@ _SIGNATURES = {
     "dc_gpu_unlock": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_gpu_lock_held": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
     "dc_gpu_identity_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_GpuIdentity)]),
+    "dc_export_address": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_char_p,
+                                           ctypes.POINTER(ctypes.c_void_p)]),
+    "dc_gpu_nvml_device": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]),
     "dc_gpu_status_line": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
                                             ctypes.POINTER(ctypes.c_size_t)]),
     "dc_gpu_architecture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
@@ -714,8 +718,15 @@ def candidate_paths(environ=None):
         from .paths import source_root
         root = source_root()
         if root is not None:
-            for config in ("linux", "msvc", "mingw-x86_64", "mingw-i686"):
-                out.append(root / "native" / "build" / config / name)
+            build = root / "native" / "build"
+            if sys.platform == "win32":
+                bits = ctypes.sizeof(ctypes.c_void_p) * 8
+                for config in (f"msvc-{bits}", "msvc"):
+                    for variant in ("Release", "RelWithDebInfo", ""):
+                        out.append(build / config / variant / name)
+                out.append(build / ("mingw-x86_64" if bits == 64 else "mingw-i686") / name)
+            else:
+                out.append(build / "linux" / name)
     return [path for path in out if path.is_absolute()]
 
 
@@ -725,6 +736,9 @@ def _bind(library, names=None):
         function = getattr(library, name)
         function.restype = restype
         function.argtypes = argtypes
+    if names is None:
+        from .native_frontend import bind
+        bind(library)
     return library
 
 
@@ -1021,13 +1035,6 @@ class _Static(dict):
         return dict.get(self, key, default)
 
 
-class _Half:
-    """The .ok / .err_detail / .selected shape of nvbackend.NvAPI and Nvml."""
-
-    def __init__(self, ok, err_detail, selected):
-        self.ok, self.err_detail, self.selected = ok, err_detail, selected
-
-
 class _HandleBox:
     """Owns one dc_gpu*: dc_gpu_close runs in this object's finalizer, at its last reference.
 
@@ -1130,7 +1137,7 @@ class _HandleLock:
         return f"<{type(self).__module__}.{type(self).__qualname__} {state}>"
 
 
-class Gpu:
+class Gpu(FrontendSurface):
     """One card through the native core: nvbackend.GPU's identity surface."""
 
     def __init__(self, slot=None):
@@ -1167,12 +1174,10 @@ class Gpu:
                              "devid": identity.nvml_devid if identity.nvml_has_devid else None,
                              "subsys": identity.nvml_subsys if identity.nvml_has_devid else None,
                              "uuid": _text(identity.uuid)}
-        self.nvapi = _Half(bool(identity.nvapi_ok), _text(identity.nvapi_error), nvapi_selected)
-        # NvAPI.gpu: the selected handle while the half is live; NvAPI.disable (a pairing failure) clears it
-        # but keeps the selected record, as nvbackend.GPU._pair does.
-        self.nvapi.gpu = (identity.nvapi_handle or None) if identity.nvapi_ok else None
-        self.nvml = _Half(bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected)
-        self.nvml.dll_path = _text(identity.nvml_path)
+        from .native_companions import BoundNvAPI, BoundNvml
+        self.nvapi = BoundNvAPI(box, bool(identity.nvapi_ok), _text(identity.nvapi_error), nvapi_selected)
+        self.nvml = BoundNvml(box, bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected,
+                             _text(identity.nvml_path))
         self.pairing_error = _text(identity.pairing_error)
         self.static = _Static(self, {"name": _text(identity.name), "driver": _text(identity.driver),
                                      "vbios": _text(identity.vbios), "admin": bool(identity.admin),
@@ -3177,7 +3182,6 @@ class Gpu:
     # - an exception inside the live SET before its dispatch (only allocation can throw) reaches the
     #   ABI guard as MemoryError, where Python returns "live power request failed: {exc}".
 
-    POWER_LIMIT_XOC_MAX_MW = 1999000  # Software request envelope, not a physical ceiling.
     _PL_KEYS = ("pl_min_mw", "pl_def_mw", "pl_max_mw")
     _PL_MESSAGE = 4096  # the first buffer; a longer text is fetched with dc_pl_message_get
 

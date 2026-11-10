@@ -1,7 +1,11 @@
 # Druta native core (work in progress)
 
 `native/` holds the C++17 core that is replacing the Python backend one
-feature at a time, and the tools built from it. Nothing here is shipped yet.
+feature at a time, and the tools built from it. The existing Python front ends
+can now use the core with `--backend native`; Python remains the default.
+Windows builds bundle an architecture-matched `drutacore.dll`. This is an
+opt-in implementation awaiting the hardware checks in `DESIGN-FRONTEND.md`
+section (f), item 7, not a completed hardware qualification or release.
 
 - `include/drutacore/drutacore.h`: the C ABI. Python (`ctypes`) and the
   future native front end both call this; nothing else crosses the boundary.
@@ -26,7 +30,10 @@ native/fuzz/run.sh                   # libFuzzer over the rail packet parser and
 ```
 
 Linux needs cmake, ninja, g++ or clang++, and `mingw-w64` for the Windows
-targets; Wine is optional and only smoke-runs the Windows binaries. On a
+targets. Select MinGW's Win32 thread model for the cross-compiler commands
+(`*-gcc-win32` / `*-g++-win32` on Debian); the POSIX runtime adds imports
+outside the deliberately narrow XP import policy. Wine is optional and only
+smoke-runs the Windows binaries. On a
 Windows host, `cmake -S native -B native/build/msvc` works with MSVC; the
 `v141_xp` toolset is required for a binary that runs on XP.
 
@@ -34,6 +41,61 @@ The Windows binaries link the C runtime statically and import only
 `KERNEL32.dll` and `msvcrt.dll` (PE subsystem version 5.1 = XP). Whether the
 MinGW-w64 runtime itself still starts on XP has not been verified on an XP
 installation; the probe is the first thing to run there.
+
+## Front-end integration (G4)
+
+The factory in `druta.gpu_backend` pins one backend kind per process.
+`--backend native` refuses a missing library, ABI/export mismatch or incomplete
+front-end surface; `--backend auto` can fall back to Python at initial selection.
+The default and an unconfigured startup-profile launch remain Python. Nothing
+automatically replays session-only settings after a driver restart.
+
+`native_companions` exposes NVAPI and NVML through the core's own loader and
+paired handles, including I2C callers. Cached functions retain the handle box
+and reject calls after close. `native_frontend` supplies the existing UI's
+native helper methods, software request envelopes read from the core, and an
+explicit list of Python read-only delegates. The three public methods for
+MSVDD session domains, fresh enforced power and clock-offset ranges are
+available on both backends. Conformance tests require no remaining surface
+gaps; unexpected member probes appear once in the UI log.
+
+Build on Windows with `build.ps1` (CMake and Visual C++ build tools required),
+or supply `-NativeLibrary` with a matching cross-built DLL. The source archive
+includes the native sources and build recipes, and the bundle manifest records
+the selected DLL's hash. Source launches also find the MSVC configuration
+outputs under `native/build/msvc-32` or `native/build/msvc-64`.
+
+For read-only comparison on a Windows GPU:
+
+```
+Druta.exe --backend-compare 0000:01:00.0 comparison-new
+Druta.exe --backend native
+```
+
+The comparison starts separate Python and native processes and writes both
+captures, a JSON summary and a text diff to a new directory. It does not apply
+profiles or call setters. Sequential live telemetry can differ with operating
+point; unavailable or failed captures are reported as incomplete, never equal.
+
+The software checks use the shared fake driver for both backends, including
+alternate identities, partial capabilities, transient failures, profile
+capture/apply/undo, UI flows, target binding, I2C and reset. These checks do not
+establish physical behavior. Windows GPU validation and the default switch
+remain pending; a native UI, a native device-restart implementation, and the
+older-gdi32 adapter openers are separate later work. The openers require the
+probe evidence described in `DESIGN-TRANSPORT.md` before implementation.
+
+Validation on 2026-11-10 used Linux, Python 3.12 and MinGW GCC 14 with the
+Win32 thread model. Linux and ASan/UBSan builds/self-tests passed; both Windows
+architectures built and all eight PE images passed the import audit. The
+focused front-end/companion/ABI/packaging suites passed 200 tests; the import
+audit suite passed 65 tests, including both binutils import-list formats.
+The full-suite regression comparison against `f01e0dd` leaves the same 39
+pre-existing failures in this Linux environment (Windows API, launch-path and
+startup assumptions); all additional failures found during integration were
+fixed and their tests rerun. Real Windows PowerShell/PyInstaller execution,
+Windows binary startup, GPU writes/readback and the hardware soak remain
+unverified here. Python remains the default until that separate validation.
 
 ## What is ported
 
@@ -242,9 +304,10 @@ factory default or a generation constant. `refresh_capabilities` clears the
 four read caches and keeps the reference and the first-read record, as
 `_refresh_volt_rail_capabilities` does.
 
-Not yet ported: the rest of the RM escape transport and the controls
-built on it (increments 5 to 7 of `DESIGN-TRANSPORT.md`: the fallback
-adapter openers for older gdi32 builds), the GPU restart, and the front end.
+Not yet ported: the fallback adapter openers for older gdi32 builds
+(`DESIGN-TRANSPORT.md`, increment 5), the remaining Python runtime consumers,
+the GPU restart, and a native UI. The existing Python front ends now support
+the native core through the G4 integration above.
 
 Text formatting follows Python's `:g` / `:+.2f` through the C runtime's
 `printf`; the rounding of an exact half by an old msvcrt has not been checked

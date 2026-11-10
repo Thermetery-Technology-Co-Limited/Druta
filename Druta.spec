@@ -1,5 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
+import os
+from pathlib import Path
+import runpy
+
+# Select by the Python process architecture, without loading a DLL. The core
+# lands at _MEIPASS/drutacore.dll, already searched by native.candidate_paths.
+# DRUTA_NATIVE_LIB allows an explicit CMake output (including a cross-build).
+_native_packaging = runpy.run_path(str(Path(SPECPATH) / 'src/druta/native_packaging.py'))
+_native_core = _native_packaging['native_binary'](SPECPATH, os.environ.get('DRUTA_NATIVE_LIB'))
 
 # GPL-3.0 section 4, reached for object code through section 6's chapeau
 # ("under the terms of sections 4 and 5"), requires that you "give all
@@ -20,7 +29,7 @@ from PyInstaller.utils.hooks import collect_all
 # go under _internal/ - is placed by build.ps1 after PyInstaller runs, since
 # the spec has no mechanism to place a data folder beside the exe in onedir.
 datas = [('COPYING', '.'), ('THIRD-PARTY-NOTICES.md', '.'), ('i2c', 'i2c')]
-binaries = []
+binaries = [(str(_native_core), '.')]
 hiddenimports = []
 tmp_ret = collect_all('dearpygui')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]

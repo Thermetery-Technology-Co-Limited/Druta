@@ -1,24 +1,19 @@
 # Copyright (C) 2026 Thermetery Technology Co Limited
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Front-end surface conformance between nvbackend.GPU and native.Gpu (G4a).
+"""Front-end surface conformance between nvbackend.GPU and native.Gpu (G4).
 
 native/DESIGN-FRONTEND.md section (f) item 2. The scanner and the tables are in
-tests/frontend_surface.py. Today native.Gpu does not yet carry everything the
-front ends use; KNOWN_GAPS freezes exactly what it lacks, as a ratchet that
+tests/frontend_surface.py. KNOWN_GAPS is empty after G4e/f, and remains a ratchet that
 fails in both directions: a gap that closes must be removed from the list, and
 a new gap (a front-end use native lacks, or a public nvbackend.GPU member
 native lacks) must be either closed or listed with its evidence.
 
-Checks that run today: (a), (b), (d), (e), (h), plus the ResetStep identity.
-(c), (f) and (g) need modules later increments create; each has a skipped
-placeholder naming its increment.
-
-Static checks need no built library. The checks that construct a native.Gpu
+All checks (a)-(h) run, plus the ResetStep identity. Static checks need no
+built library. Core constants and checks that construct a native.Gpu
 over a fake card (the fakes of tests/test_native_identity.py) skip cleanly when
 the library is not built, as tests/test_native_identity.py does:
 ConstructedNativeTests (b on an instance, stored-name round-trips, ResetStep
-identity, the companion gaps on the real _Half objects)."""
-import ast
+identity, and the real loader-backed companions)."""
 import inspect
 import tempfile
 import threading
@@ -206,18 +201,16 @@ def _shared_names():
 
 
 def _companion_static_surface():
-    """Static stand-in for the attributes native.Gpu's .nvapi / .nvml carry: native._Half's
-    __init__ stores plus ``self.nvapi.X =`` / ``self.nvml.X =`` in native.Gpu.__init__."""
-    base = fs.init_stores(fs.NATIVE, "_Half")
-    init = next(n for n in fs._class_node(fs.NATIVE, "Gpu").body
-                if isinstance(n, ast.FunctionDef) and n.name == "__init__")
-    extra = {"nvapi": set(), "nvml": set()}
-    for node in ast.walk(init):
-        if (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
-                and isinstance(node.value, ast.Attribute) and node.value.attr in extra
-                and isinstance(node.value.value, ast.Name) and node.value.value.id == "self"):
-            extra[node.value.attr].add(node.attr)
-    return {half: base | names for half, names in extra.items()}
+    """The real companion classes plus their explicit named interface table."""
+    from druta import native_companions
+    path = Path(native_companions.__file__)
+    return {
+        "nvapi": set(dir(native_companions.BoundNvAPI))
+                 | fs.init_stores(path, "BoundNvAPI")
+                 | {row[0] for row in nvbackend.NVAPI_INTERFACES},
+        "nvml": set(dir(native_companions.BoundNvml))
+                | fs.init_stores(path, "BoundNvml"),
+    }
 
 
 class ScannerTests(unittest.TestCase):
@@ -420,11 +413,10 @@ class SurfaceRatchetTests(unittest.TestCase):
                               "unlisted gap: third_new_member (found by check b)"])
 
     def test_closing_a_gap_turns_the_ratchet_red_until_it_is_removed(self):
-        class Closer(native.Gpu):
-            def read_rail_live_mv(self):
-                return None
-        self.assertEqual(added(ratchet_problems(native_cls=Closer), ratchet_problems()),
-                         ["listed gap closed, remove it from KNOWN_GAPS: read_rail_live_mv"])
+        # The production ratchet is empty; a stale entry must still fail.
+        with patch.dict(fs.KNOWN_GAPS, {"read_rail_live_mv": ("b1-shim", "druta.py")}):
+            self.assertIn("listed gap closed, remove it from KNOWN_GAPS: read_rail_live_mv",
+                          ratchet_problems())
 
     def test_every_known_gap_is_grouped_and_its_evidence_holds(self):
         uses = fs.by_name(fs.scan()[0])
@@ -460,7 +452,7 @@ class SurfaceRatchetTests(unittest.TestCase):
         # The evidence checks stay as strict as with line citations: a file in which
         # the scanner does not find the name is not accepted.
         uses = fs.by_name(fs.scan()[0])
-        evidence = fs.KNOWN_GAPS["VOLT_LIMIT_MAX_MV"][1]
+        evidence = "druta.py, rail_limit_profiles.py; also [profiles.py] backend_envelope"
         self.assertLessEqual(fs.evidence_files(evidence), {u.file for u in uses["VOLT_LIMIT_MAX_MV"]})
         self.assertNotIn("profiles.py", {u.file for u in uses["VOLT_LIMIT_MAX_MV"]})
         bad = evidence.replace("[profiles.py]", "profiles.py")
@@ -587,6 +579,9 @@ class KindSignatureValueTests(unittest.TestCase):
         differ = []
         for name in _shared_names():
             if _kind(nvbackend.GPU, name) == "data" and name not in fs.KIND_DIFFERENCES:
+                from druta.native_frontend import _CoreConstant
+                if not NATIVE_BUILT and isinstance(inspect.getattr_static(native.Gpu, name), _CoreConstant):
+                    continue  # the core supplies these values; checked when built below
                 ours, theirs = getattr(nvbackend.GPU, name), getattr(native.Gpu, name)
                 if ours != theirs:
                     differ.append(f"{name}: {ours!r} != {theirs!r}")
@@ -598,12 +593,16 @@ class KindSignatureValueTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(_kind(nvbackend.GPU, name), _kind(native.Gpu, name))
                 if _kind(nvbackend.GPU, name) == "data":
+                    from druta.native_frontend import _CoreConstant
+                    if not NATIVE_BUILT and isinstance(inspect.getattr_static(native.Gpu, name), _CoreConstant):
+                        continue
                     self.assertEqual(getattr(nvbackend.GPU, name), getattr(native.Gpu, name))
 
-    @unittest.skip("G4e: the core envelope (dc_request_envelopes_get) does not exist yet; "
-                   "its constants are KNOWN_GAPS (b2-constant) until then")
+    @unittest.skipUnless(NATIVE_BUILT, SKIP_REASON)
     def test_core_envelope_matches_nvbackend(self):
-        pass
+        from druta import native_frontend
+        for name, value in native_frontend.request_envelopes().items():
+            self.assertEqual(value, getattr(nvbackend.GPU, name.upper()), name)
 
 
 class LockUseTests(unittest.TestCase):
@@ -661,7 +660,7 @@ class LockUseTests(unittest.TestCase):
 
 
 class CompanionStaticTests(unittest.TestCase):
-    """The names used on nvapi / nvml expressions, before check (c) exists."""
+    """The names used on nvapi / nvml expressions exist on the companions."""
 
     def test_companion_uses_are_listed(self):
         surface = _companion_static_surface()
@@ -749,6 +748,12 @@ class ConstructedNativeTests(unittest.TestCase):
             if key in fs.COMPANION_FRONTEND_OWNED:
                 continue
             target = getattr(self.gpu, use.receiver)
+            if use.receiver == "nvml" and use.name.startswith("dll."):
+                # A driver export can be absent. Its presence probe must agree
+                # with the loader, rather than requiring a fake to serve it.
+                name = use.name.split(".", 1)[1]
+                self.assertEqual(target.has(name), hasattr(target.dll, name))
+                continue
             for part in use.name.split("."):
                 if not hasattr(target, part):
                     absent.add(key)
@@ -762,20 +767,30 @@ class ConstructedNativeTests(unittest.TestCase):
         self.assertIs(self.gpu.nvapi._up9512r_mutex, lock)
 
 
-class LaterIncrementPlaceholders(unittest.TestCase):
-    @unittest.skip("check (c), G4d: companion names and the interface table against "
-                   "native_companions.BoundNvAPI / BoundNvml (by id and argtypes)")
+class FrontendContractTests(unittest.TestCase):
     def test_c_companions_carry_every_name_and_the_interface_table(self):
-        pass
+        from druta import native_companions
+        expected = {name: (identifier, args) for name, identifier, args in nvbackend.NVAPI_INTERFACES}
+        self.assertEqual(native_companions._INTERFACES, expected)
+        self.assertEqual(len(expected), len(nvbackend.NVAPI_INTERFACES))
 
-    @unittest.skip("check (f), G4e: every PRIVATE_REACHES delegate in native_frontend.py reads only "
-                   "companion attributes that exist")
     def test_f_private_reach_delegates_read_existing_companion_attributes(self):
-        pass
+        from druta import native_frontend
+        surface = _companion_static_surface()
+        for name, dependencies in native_frontend.DELEGATES.items():
+            self.assertTrue(hasattr(native.Gpu, name), name)
+            for dependency in dependencies:
+                half, member = dependency.split(".", 1)
+                self.assertIn(member, surface[half], (name, dependency))
 
-    @unittest.skip("check (g), G4e: native_frontend.missing_members() equals this test's computation")
     def test_g_missing_members_agrees_with_the_scan(self):
-        pass
+        from druta import native_frontend
+        expected = ((fs.nvbackend_public_members() | {u.name for u in fs.scan()[0]})
+                    - set(fs.EXEMPT) - set(fs.FRONTEND_OWNED) - fs.init_stores(fs.NATIVE, "Gpu"))
+        self.assertEqual(native_frontend.REQUIRED_MEMBERS, expected)
+        self.assertEqual(set(native_frontend.missing_members()), set(fs.measured_gaps()))
+        with patch.object(native, "load", side_effect=AssertionError("surface check must not load")):
+            self.assertEqual(native_frontend.missing_members(), ())
 
 
 if __name__ == "__main__":

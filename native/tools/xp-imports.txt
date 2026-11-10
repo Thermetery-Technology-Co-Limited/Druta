@@ -37,6 +37,11 @@
 # WaitForSingleObject are imported only by druta-runtime-imports-test.exe (the
 # harness native/build.sh runs under Wine); they are judged like the rest
 # (Requirements: Windows XP / Server 2003; export history: 3.51 and higher).
+# GCC 14's win32 runtime also uses FormatMessageA and LocalFree for error text.
+# Microsoft Learn lists Windows XP / Windows Server 2003 and Kernel32.dll for
+# both, on either architecture (read 2026-11-10):
+# https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-formatmessagea
+# https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-localfree
 #
 # Sections: [DLL] applies to both machines, [DLL i686] / [DLL x86_64] to one.
 
@@ -55,6 +60,7 @@ CreateThread
 DeleteCriticalSection
 EnterCriticalSection
 FlushInstructionCache
+FormatMessageA
 FreeLibrary
 GetCurrentProcess
 GetCurrentThreadId
@@ -77,6 +83,7 @@ LeaveCriticalSection
 LoadLibraryA
 LoadLibraryExW
 LoadLibraryW
+LocalFree
 MultiByteToWideChar
 QueryPerformanceCounter
 QueryPerformanceFrequency

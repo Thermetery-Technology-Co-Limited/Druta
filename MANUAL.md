@@ -2,6 +2,51 @@ How to use Druta:
 
 Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can also denote a “rapid shift (of expressions)", which is perfect for what this project is. 
 
+## Native backend preview
+
+The C++ core is opt-in while hardware validation continues. Start
+`Druta.exe --backend native` to use it, or `Druta.exe --backend python` for
+the Python backend, which remains the default. `--backend auto` tries the
+native library and falls back to Python if it cannot load, has an incompatible
+ABI, lacks the required interface, or cannot open the card. Explicit `native`
+reports a failure and never silently falls back. The same choices can be set
+in the `DRUTA_BACKEND` environment variable. A process keeps one backend for
+all its cards; its helper processes inherit the choice.
+
+Help > About and the application log show the selected backend.
+`Druta.exe --version` shows the version and requested backend without opening
+a card. `DRUTA_NATIVE_LIB` can select a particular native library for testing.
+An unattended `--startup-profile` launch with no explicit backend still uses
+Python. Selecting a backend does not save or reapply tuning after a driver
+restart; session controls and manual profile application keep their existing
+behavior.
+
+To collect a read-only comparison on a specific card:
+
+```powershell
+Druta.exe --backend-compare 0000:01:00.0 C:\Druta-reports\comparison-1
+```
+
+The output directory must be new and its parent must exist. Two separate
+processes capture Python and native results, with a two-minute limit each:
+identity, static capabilities, one telemetry tick, V/F curve, rail limits and
+diagnostics, current limits, power policies, clock-domain rows, P-state table
+and the Windows target binding. This command never applies tuning or profiles.
+It writes `python.json`, `native.json`, `comparison.json` and `diff.txt`.
+Exit code 0 means complete equal captures; 1 means differences or an incomplete
+capture; 2 means invalid arguments or an output error. Live readings occur at
+different times, so a telemetry difference alone is not evidence of a backend
+defect. Preserve the captures with the tested device and operating conditions.
+
+Windows bundles built with `build.ps1` include a core matching the Python
+process architecture. The script builds it with CMake and Visual C++ first;
+`-NativeLibrary PATH` selects an existing architecture-matched CMake DLL,
+including a MinGW cross-build. `-NativeToolset v141_xp` selects that installed
+toolset for a native build targeting XP. The native core's legacy-OS target
+does not extend the Python front end's OS support. The shipped source snapshot
+includes the C++ source and build recipes, and its manifest records the
+bundled DLL hash.
+
 # I. Hotkeys built for gamers:
 
 - V/F curve editing is controlled by WASD: AD changes the point, WS changes the frequency.

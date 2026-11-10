@@ -43,7 +43,6 @@ Recorded divergences (DESIGN-TRANSPORT.md, reset all):
   Python calls set_power_limit_mw with it; no writer of the static stores such a value."""
 import copy
 import ctypes
-import re
 import unittest
 from unittest.mock import Mock, patch
 
@@ -70,7 +69,7 @@ CDECL = ctypes.CFUNCTYPE
 GPU = NV.GPU
 PASCAL, TURING = 4, 6
 # every interface nvbackend.NvAPI binds: the twins leave out the ones their rig does not serve
-NVAPI_NAMES = sorted(set(re.findall(r"self\.(\w+)\s*=\s*self\._i\(", open(NV.__file__).read())))
+NVAPI_NAMES = sorted(name for name, _identifier, _argtypes in NV.NVAPI_INTERFACES)
 ADAPTER_MATCH = {"EnumAdapters2", "QueryAdapterInfo", "CloseAdapter"}
 STATICS = {"pl_min_mw": 100000, "pl_def_mw": 260000, "pl_max_mw": 320000}
 POINT = NV.VF_LOCK_MODE_POINT

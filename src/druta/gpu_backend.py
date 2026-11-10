@@ -52,18 +52,8 @@ The surface gate
 ----------------
 :data:`surface_gate` is a module-level callable, ``surface_gate(native_module) -> sequence of
 str``, naming the members the front ends need that ``native.Gpu`` lacks; empty means complete.
-The front-end surface check (``native_frontend.missing_members()``) does not exist yet, so the
-default, :func:`surface_not_provided`, reports the surface as incomplete with a reason saying so:
-``auto`` resolves to Python and a forced ``native`` is refused. The increment that adds
-``native_frontend`` points the hook at it by replacing the default assignment, for example::
-
-    def _native_frontend_gate(native_module):
-        from . import native_frontend
-        return native_frontend.missing_members()
-
-    surface_gate = _native_frontend_gate
-
-Tests replace it with ``monkeypatch.setattr(gpu_backend, "surface_gate", ...)``.
+The default delegates to ``native_frontend.missing_members()`` without opening
+a card. Tests replace it with ``monkeypatch.setattr(gpu_backend, "surface_gate", ...)``.
 
 Test support
 ------------
@@ -125,12 +115,16 @@ class _Refusal:
 
 
 def surface_not_provided(native_module):
-    """The surface gate until the front-end surface check exists: the surface counts as incomplete."""
+    """Test seam for a missing front-end surface implementation."""
     return ("front-end surface check not provided yet (native_frontend.missing_members)",)
 
 
-# The surface gate hook: see the module docstring. Replace it, never call native_frontend directly.
-surface_gate = surface_not_provided
+def _native_frontend_gate(native_module):
+    from . import native_frontend
+    return native_frontend.missing_members(native_module.Gpu)
+
+
+surface_gate = _native_frontend_gate
 
 _lock = threading.Lock()
 _choice: Choice | None = None
@@ -365,6 +359,17 @@ def describe():
     except ValueError as exc:
         return f"backend: not chosen ({exc})"
     return f"backend: not chosen yet (requested {requested} via {source})"
+
+
+def drain_diagnostics():
+    """Consume native surface diagnostics on the UI thread, once per distinct miss.
+
+    Python mode does not import the native surface or load the core.
+    """
+    if _choice is None or _choice.kind != "native":
+        return []
+    from .native_frontend import drain_missing_members
+    return drain_missing_members()
 
 
 def reset_for_tests():

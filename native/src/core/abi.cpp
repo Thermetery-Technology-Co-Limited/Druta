@@ -166,6 +166,18 @@ DC_API void DC_CALL dc_set_export_resolver(dc_resolve_fn resolve, void* context)
     druta::backend::set_export_resolver(resolve, context);
 }
 
+DC_API dc_status DC_CALL dc_export_address(const char* library, const char* name, void** out) {
+    if (!library || !name || !*name || !out ||
+        (std::strcmp(library, "nvapi") != 0 && std::strcmp(library, "nvml") != 0)) return DC_E_ARGUMENT;
+    *out = nullptr;
+    try {
+        *out = druta::backend::export_address(library, name);
+        return *out ? DC_OK : DC_E_UNRECOGNIZED;
+    } catch (...) {
+        return DC_E_FAILED;
+    }
+}
+
 DC_API dc_status DC_CALL dc_enumerate_gpus(dc_gpu_entry* entries, size_t capacity, size_t* count) {
     if (!count || (!entries && capacity)) return DC_E_ARGUMENT;
     std::vector<druta::backend::GpuListEntry> gpus = druta::backend::enumerate_gpus();
@@ -262,6 +274,17 @@ DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* handle, dc_gpu_identi
     DC_COPY(out->uuid, gpu.identity.uuid);
     out->admin = gpu.identity.admin ? 1 : 0;
     return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_gpu_nvml_device(const dc_gpu* handle, void** out) {
+    if (!handle || !out) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(const_cast<dc_gpu*>(handle)->gpu.lock());
+        *out = handle->gpu.nvml.ok ? handle->gpu.nvml.dev : nullptr;
+        return DC_OK;
+    } catch (...) {
+        return DC_E_FAILED;
+    }
 }
 
 DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* handle, char* buffer, size_t size, size_t* needed) {

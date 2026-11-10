@@ -4,6 +4,8 @@
     local distributable zip with matching working-tree source.
 
 .DESCRIPTION
+    Builds the architecture-matched native core with CMake first, or validates
+    an explicitly supplied -NativeLibrary CMake output.
     1. Runs PyInstaller against Druta.spec via `python -m PyInstaller`
        (bare `pyinstaller` is not on PATH on this box).
     2. Copies i2c/ to dist/Druta/i2c/, landing it directly beside Druta.exe.
@@ -34,7 +36,12 @@
 [CmdletBinding()]
 param(
     # Build beside an existing running bundle when reviewing local changes.
-    [string]$DistDirectory = 'dist'
+    [string]$DistDirectory = 'dist',
+    # Optional prebuilt CMake output, e.g. a MinGW cross-build. Its PE machine
+    # must match this Python process. Otherwise build the current source.
+    [string]$NativeLibrary = '',
+    # Select v141_xp when building the native core for XP with that toolset.
+    [string]$NativeToolset = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -307,6 +314,16 @@ function Get-SourceSnapshot {
         $paths += @(Get-ChildItem -LiteralPath (Join-Path $root $directory) -Filter '*.py' -File -Recurse |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }
+    $paths += @('native/CMakeLists.txt', 'native/build.sh')
+    $paths += @(Get-ChildItem -LiteralPath (Join-Path $root 'native') -Filter '*.md' -File |
+        ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
+    # Never recurse through native/build: binaries, CMake caches and generated
+    # compiler probes are not source. These are the complete public inputs.
+    foreach ($directory in @('native/include', 'native/src', 'native/cmake', 'native/tools', 'native/fuzz')) {
+        $paths += @(Get-ChildItem -LiteralPath (Join-Path $root $directory) -File -Recurse |
+            Where-Object { $_.Extension -in @('.h', '.cpp', '.c', '.cmake', '.py', '.txt', '.sh') } |
+            ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
+    }
     foreach ($pattern in @('i2c/*.toml', 'i2c/*.md')) {
         $paths += @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction SilentlyContinue |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
@@ -330,22 +347,62 @@ function Get-SourceSnapshot {
 
 $sourceBefore = @(Get-SourceSnapshot)
 
+# --- Native core: built from the same source snapshot ------------------
+$nativePackaging = Join-Path $root 'src/druta/native_packaging.py'
+$pythonBits = (& python $nativePackaging --bits).Trim()
+if ($LASTEXITCODE -ne 0 -or $pythonBits -notin @('32', '64')) {
+    throw 'Cannot determine the Python/PyInstaller architecture.'
+}
+if (-not $NativeLibrary) {
+    if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+        throw 'CMake is required to build drutacore.dll. Install CMake and the Visual C++ build tools, or pass -NativeLibrary with an architecture-matched CMake output.'
+    }
+    $nativeBuild = Join-Path $root "native/build/msvc-$pythonBits"
+    $nativeArch = if ($pythonBits -eq '64') { 'x64' } else { 'Win32' }
+    $cmakeArguments = @('-S', (Join-Path $root 'native'), '-B', $nativeBuild, '-A', $nativeArch)
+    if ($NativeToolset) { $cmakeArguments += @('-T', $NativeToolset) }
+    Write-Host "==> Building $pythonBits-bit native core"
+    & cmake @cmakeArguments
+    if ($LASTEXITCODE -ne 0) { throw "Native CMake configure exited with code $LASTEXITCODE" }
+    & cmake --build $nativeBuild --config Release --target drutacore
+    if ($LASTEXITCODE -ne 0) { throw "Native build exited with code $LASTEXITCODE" }
+    $NativeLibrary = Join-Path $nativeBuild 'Release/drutacore.dll'
+}
+# Resolve relative inputs against this repository, as DistDirectory does.
+# PowerShell 5.1 Set-Location does not update the .NET process directory used
+# by GetFullPath on a relative path.
+if (-not [IO.Path]::IsPathRooted($NativeLibrary)) {
+    $NativeLibrary = Join-Path $root $NativeLibrary
+}
+$NativeLibrary = [IO.Path]::GetFullPath($NativeLibrary)
+& python $nativePackaging $root $NativeLibrary
+if ($LASTEXITCODE -ne 0) { throw 'Native core validation failed; no bundle was built.' }
+$nativeHash = (Get-FileHash -LiteralPath $NativeLibrary -Algorithm SHA256).Hash.ToLowerInvariant()
+
 # --- Step 1: PyInstaller -----------------------------------------------
 Write-Host "==> [1/5] python -m PyInstaller --noconfirm Druta.spec"
 
 Push-Location $root
+$previousNativeLibrary = [Environment]::GetEnvironmentVariable('DRUTA_NATIVE_LIB', 'Process')
 try {
+    $env:DRUTA_NATIVE_LIB = $NativeLibrary
     python -m PyInstaller --noconfirm --distpath $distDir $specPath
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller exited with code $LASTEXITCODE"
     }
 }
 finally {
+    [Environment]::SetEnvironmentVariable('DRUTA_NATIVE_LIB', $previousNativeLibrary, 'Process')
     Pop-Location
 }
 
 if (-not (Test-Path $exePath)) {
     throw "Expected build output not found at $exePath - aborting before packaging."
+}
+$bundledNative = Join-Path $bundleDir '_internal/drutacore.dll'
+if (-not (Test-Path -LiteralPath $bundledNative -PathType Leaf) -or
+    (Get-FileHash -LiteralPath $bundledNative -Algorithm SHA256).Hash.ToLowerInvariant() -ne $nativeHash) {
+    throw 'The bundled drutacore.dll does not match the selected native build.'
 }
 
 # --- Step 2: bundle i2c/ beside the exe ---------------------------------
@@ -413,6 +470,9 @@ $manifest = [ordered]@{
     git_working_tree_changes = $workingTreeChanges
     executable = 'Druta.exe'
     executable_sha256 = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    native_library = '_internal/drutacore.dll'
+    native_library_sha256 = $nativeHash
+    architecture_bits = [int]$pythonBits
     files = $sourceAfter
 }
 $manifestPath = Join-Path $sourceDir 'SOURCE-MANIFEST.json'
@@ -438,7 +498,7 @@ else {
     Write-Host "    found: $version"
 }
 
-$zipName = "Druta-$version-win64.zip"
+$zipName = "Druta-$version-win$pythonBits.zip"
 $zipPath = Join-Path $distDir $zipName
 
 # --- Step 5: zip ----------------------------------------------------------

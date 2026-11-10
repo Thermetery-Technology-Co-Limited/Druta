@@ -3,15 +3,18 @@
 """Build real distributions in a temporary checkout; never access GPU hardware."""
 import importlib.util
 import os
-from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
+from unittest.mock import patch
 
+from druta import native, native_packaging
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -92,6 +95,12 @@ class DistributionAssets(unittest.TestCase):
         self.assertTrue((source / "src/run_druta.py").is_file())
         self.assertTrue((source / "tests/__init__.py").is_file())
         self.assertTrue((source / "build.ps1").is_file())
+        self.assertTrue((source / "native/CMakeLists.txt").is_file())
+        self.assertTrue((source / "native/include/drutacore/drutacore.h").is_file())
+        self.assertTrue((source / "native/src/core/abi.cpp").is_file())
+        self.assertTrue((source / "native/tools/xp-imports.txt").is_file())
+        self.assertTrue((source / "native/cmake/mingw-i686.cmake").is_file())
+        self.assertFalse((source / "native/build").exists())
         self.assertTrue((source / "RELEASE-NOTES-1.9.0a.md").is_file())
         self.assertTrue((source / "RELEASE-NOTES-1.9.0b.md").is_file())
         evidence = Path("experiments/ui-recovery-result-qualified-20261029.json")
@@ -112,6 +121,97 @@ class DistributionAssets(unittest.TestCase):
              "assert Path(resource_path('THIRD-PARTY-NOTICES.md')).is_file(); "
              "assert Path(resource_path('i2c')).joinpath('packaging-extra.toml').is_file()"],
             cwd=self.work, env=env, check=True, capture_output=True, text=True, timeout=15)
+
+
+class NativeBundle(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def dll(self, relative, bits):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = bytearray(512)
+        data[:2] = b"MZ"
+        struct.pack_into("<I", data, 60, 128)
+        data[128:132] = b"PE\0\0"
+        struct.pack_into("<H", data, 132, 0x8664 if bits == 64 else 0x014C)
+        struct.pack_into("<HHH", data, 148, 240 if bits == 64 else 224, 0x2000,
+                         0x020B if bits == 64 else 0x010B)
+        path.write_bytes(data)
+        return path
+
+    def test_selects_the_matching_cross_build(self):
+        x86 = self.dll("native/build/mingw-i686/drutacore.dll", 32)
+        x64 = self.dll("native/build/mingw-x86_64/drutacore.dll", 64)
+        self.assertEqual(native_packaging.native_binary(self.root, bits=32), x86)
+        self.assertEqual(native_packaging.native_binary(self.root, bits=64), x64)
+
+    def test_source_loader_discovers_build_script_release_output(self):
+        bits = struct.calcsize("P") * 8
+        core = self.dll(f"native/build/msvc-{bits}/Release/drutacore.dll", bits)
+        with patch.object(sys, "platform", "win32"), \
+                patch("druta.paths.source_root", return_value=self.root):
+            self.assertIn(core, native.candidate_paths({}))
+
+    def test_build_helper_runs_as_file_with_space_containing_paths(self):
+        # PowerShell 5.1's native argument handling can strip quotes inside
+        # Python -c text. The build invokes this file with plain path arguments.
+        script = ROOT / "src/druta/native_packaging.py"
+        bits = struct.calcsize("P") * 8
+        result = subprocess.run([sys.executable, str(script), "--bits"],
+                                capture_output=True, text=True, check=True, timeout=15)
+        self.assertEqual(result.stdout.strip(), str(bits))
+        core = self.dll("native build with spaces/drutacore.dll", bits)
+        result = subprocess.run([sys.executable, str(script), str(self.root), str(core)],
+                                capture_output=True, text=True, check=True, timeout=15)
+        self.assertEqual(result.stdout.strip(), str(core))
+
+    def test_explicit_core_cannot_fall_through_on_machine_mismatch(self):
+        wrong = self.dll("selected/drutacore.dll", 32)
+        self.dll("native/build/mingw-x86_64/drutacore.dll", 64)
+        with self.assertRaisesRegex(ValueError, "does not match 64-bit"):
+            native_packaging.native_binary(self.root, wrong, bits=64)
+
+    def test_missing_or_malformed_core_is_a_build_error(self):
+        with self.assertRaisesRegex(FileNotFoundError, "Run build.ps1"):
+            native_packaging.native_binary(self.root, bits=64)
+        broken = self.root / "drutacore.dll"
+        broken.write_bytes(b"not a DLL")
+        with self.assertRaisesRegex(ValueError, "Not a Windows DLL"):
+            native_packaging.native_binary(self.root, broken, bits=64)
+        broken = self.dll("truncated/drutacore.dll", 64)
+        broken.write_bytes(broken.read_bytes()[:154])
+        with self.assertRaisesRegex(ValueError, "Expected an x86 or x64 PE DLL"):
+            native_packaging.windows_machine(broken)
+
+    def test_spec_bundles_validated_core_at_frozen_loader_location(self):
+        import types
+        core = self.dll("native/build/msvc-64/Release/drutacore.dll", struct.calcsize("P") * 8)
+        hooks = types.ModuleType("PyInstaller.utils.hooks")
+        hooks.collect_all = lambda name: ([], [], [])
+        captured = {}
+
+        def analysis(*args, **kwargs):
+            captured.update(kwargs)
+            return types.SimpleNamespace(pure=[], scripts=[], binaries=kwargs["binaries"], datas=[])
+
+        namespace = {"SPECPATH": str(ROOT), "Analysis": analysis, "PYZ": lambda *a: None,
+                     "EXE": lambda *a, **kw: None, "COLLECT": lambda *a, **kw: None}
+        with patch.dict(sys.modules, {"PyInstaller.utils.hooks": hooks}), \
+                patch.dict(os.environ, {"DRUTA_NATIVE_LIB": str(core)}):
+            exec(compile((ROOT / "Druta.spec").read_text(), str(ROOT / "Druta.spec"), "exec"), namespace)
+        self.assertIn((str(core), "."), captured["binaries"])
+        bundle = self.root / "bundle/_internal"
+        bundle.mkdir(parents=True)
+        bundled = bundle / "drutacore.dll"
+        shutil.copy2(core, bundled)
+        with patch.object(sys, "frozen", True, create=True), \
+                patch.object(sys, "_MEIPASS", str(bundle), create=True), \
+                patch.object(sys, "platform", "win32"), \
+                patch.object(sys, "executable", str(bundle.parent / "Druta.exe")):
+            self.assertIn(bundled, native.candidate_paths({}))
 
 
 if __name__ == "__main__":

@@ -123,6 +123,88 @@ def is_admin():
 # --------------------------------------------------------------------------- #
 #  NVAPI                                                                       #
 # --------------------------------------------------------------------------- #
+NVAPI_INTERFACES = (
+    ('Initialize', 0x0150E828, ()),
+    ('EnumGPUs', 0xE5AC921F, (PTR, ctypes.POINTER(u32))),
+    ('GetPCIIds', 0x2DDFB66E, (PTR, ctypes.POINTER(u32), ctypes.POINTER(u32), ctypes.POINTER(u32), ctypes.POINTER(u32))),
+    ('GetErrMsg', 0x6C2D048C, (ctypes.c_int, ctypes.c_char_p)),
+    # Both are PUBLIC SDK entry points, not reverse-engineered ids, and both
+    # returned status 0 on every handle of the two-card rig. They are what
+    # makes a handle addressable as a slot instead of as an index.
+    ('GetBusId', 0x1BE0B8E5, (PTR, ctypes.POINTER(u32))),
+    ('GetBusSlotId', 0x2A0A350F, (PTR, ctypes.POINTER(u32))),
+    # Public identity APIs stay available independently of NVML enumeration.
+    ('GetArchInfo', 0xD8265D24, (PTR, PTR)),
+    ('GetFullName', 0xCEEE8E9F, (PTR, ctypes.c_char_p)),
+    ('GetVbiosVersionString', 0xA561FD7D, (PTR, ctypes.c_char_p)),
+    ('GetDriverAndBranchVersion', 0x2926AAAD, (ctypes.POINTER(u32), ctypes.c_char_p)),
+
+    # readers
+    ('ThermalSettings', 0xE3640A56, (PTR, u32, PTR)),
+    ('ThermalSensors', 0x65FE3AAD, (PTR, PTR)),
+    # Legacy fan path used by Pascal/R470 when NVML has no fan setters.
+    ('CoolerSettings', 0xDA141340, (PTR, u32, PTR)),
+    ('CoolerLevelsSet', 0x891FA0AE, (PTR, u32, PTR, u32)),
+    ('CoolerRestore', 0x8F6ED0FB, (PTR, PTR, u32)),
+    ('TachReading', 0x5F608315, (PTR, ctypes.POINTER(u32))),
+    ('FanCoolersControl', 0x814B209F, (PTR, PTR)),
+    ('FanCoolersStatus', 0x35AED5E8, (PTR, PTR)),
+    ('FanCoolersSetControl', 0xA58971A5, (PTR, PTR)),
+    ('VoltRailsStatus', 0x465F9BCF, (PTR, PTR)),
+    ('PowerTopo', 0x0EDCF624E, (PTR, PTR)),
+    ('PowerPolInfo', 0x34206D86, (PTR, PTR)),
+    ('PowerPolStatus', 0x70916171, (PTR, PTR)),
+    ('PerfDecrease', 0x7F7F4600, (PTR, ctypes.POINTER(u32))),
+    ('DynPstates', 0x60DED2ED, (PTR, PTR)),
+    ('CurrentPstate', 0x927DA4F6, (PTR, ctypes.POINTER(u32))),
+    ('ForcePstate', 0x025BFB10, (PTR, u32, u32)),
+    ('Pstates20Get', 0x6FF81213, (PTR, PTR)),
+    ('Pstates20Set', 0x0F4DAE6B, (PTR, PTR)),
+    ('AllClocks', 0xDCB616C3, (PTR, PTR)),
+    ('AllClocksPriv', 0x1BD69F49, (PTR, PTR)),
+    # Per-domain V/F point lock. BoostLock is its GETTER; VfLockSet is the
+    # matching setter, and BOTH take the same 780-byte _ClockLock. That
+    # shared layout is the whole safety argument: every write hands back a
+    # buffer this getter produced (see GPU.set_vf_lock).
+    ('BoostLock', 0xE440B867, (PTR, PTR)),
+    ('VfLockSet', 0x39442CFB, (PTR, PTR)),
+    # VF curve: evaluated points, per-point delta table (get/set = AB's pair)
+    ('VfpCurve', 0x21537AD4, (PTR, PTR)),
+    ('BoostTableGet', 0x23F1B133, (PTR, PTR)),
+    ('BoostTableSet', 0x0733E009, (PTR, PTR)),
+    # over-voltage % ("Core Voltage" slider): get/set share a 40-byte V1
+    # struct. Set id 0xB9306D9B verified vs arcnmx + falahati + live exports.
+    ('RamType', 0x57F7CAAC, (PTR, ctypes.POINTER(u32))),
+    ('VoltCtrlGet', 0x9DF23CA1, (PTR, PTR)),
+    ('VoltCtrlSet', 0xB9306D9B, (PTR, PTR)),
+    # Per-rail voltage offset requests. The matching full setter is
+    # 0x87C55C8A; voltage_request_replay validates its V2/native layout,
+    # complete inventory and six-offset readback before using it.
+    ('VoltRailsCtlGet', 0xA3070DB0, (PTR, PTR)),
+    # The same rails as ABSOLUTE microvolts, including a LIVE per-rail
+    # voltage. See GPU.read_volt_rail_state: this is the block that makes a
+    # limit write checkable against a number the card produced rather than
+    # against an echo of the delta we sent.
+    ('VoltRailsAbs', 0x5D0634EE, (PTR, PTR)),
+    # Per-domain clock offsets - the ONLY path to XBAR. Neither NVML's
+    # clock offsets nor NVAPI's Pstates20 can reach it: both enumerate
+    # exactly two domains on this card, GRAPHICS and MEMORY, and
+    # NV_GPU_PUBLIC_CLOCK_ID has no crossbar member at all. Measured here:
+    # GetAllClockFrequencies reports bIsPresent for slots 0 and 4 only.
+    # These two wrap the RM CLK_DOMAINS controls (NV2080_CTRL_CMD_CLK_
+    # CLK_DOMAINS_{GET,SET}_CONTROL). Direction was established by
+    # MEASUREMENT, not by trusting a label: the applied XBAR offset was
+    # +90 MHz before and after a Get call, 24/24 samples each way.
+    ('ClkDomCtlGet', 0xF58938F5, (PTR, PTR)),
+    ('ClkDomCtlSet', 0xD14B69CF, (PTR, PTR)),
+    # Read-only physical clock counter used by the Blackwell probe.  It
+    # lets the probe distinguish a real clock movement from array-A's
+    # programmed-target echo, which is not sufficient evidence for a
+    # working mapping.
+    ('ClkMeasureFreq', 0x527FC458, (PTR, PTR)),
+)
+
+
 class NvAPI:
     def __init__(self, slot=None):
         self.ok = False
@@ -140,87 +222,8 @@ class NvAPI:
         qi.argtypes = [u32]
         self._qi = qi
 
-        self.Initialize = self._i(0x0150E828)
-        self.EnumGPUs = self._i(0xE5AC921F, PTR, ctypes.POINTER(u32))
-        self.GetPCIIds = self._i(0x2DDFB66E, PTR, ctypes.POINTER(u32),
-                                 ctypes.POINTER(u32), ctypes.POINTER(u32),
-                                 ctypes.POINTER(u32))
-        self.GetErrMsg = self._i(0x6C2D048C, ctypes.c_int, ctypes.c_char_p)
-        # Both are PUBLIC SDK entry points, not reverse-engineered ids, and both
-        # returned status 0 on every handle of the two-card rig. They are what
-        # makes a handle addressable as a slot instead of as an index.
-        self.GetBusId = self._i(0x1BE0B8E5, PTR, ctypes.POINTER(u32))
-        self.GetBusSlotId = self._i(0x2A0A350F, PTR, ctypes.POINTER(u32))
-        # Public identity APIs stay available independently of NVML enumeration.
-        self.GetArchInfo = self._i(0xD8265D24, PTR, PTR)
-        self.GetFullName = self._i(0xCEEE8E9F, PTR, ctypes.c_char_p)
-        self.GetVbiosVersionString = self._i(0xA561FD7D, PTR, ctypes.c_char_p)
-        self.GetDriverAndBranchVersion = self._i(
-            0x2926AAAD, ctypes.POINTER(u32), ctypes.c_char_p)
-
-        # readers
-        self.ThermalSettings = self._i(0xE3640A56, PTR, u32, PTR)
-        self.ThermalSensors = self._i(0x65FE3AAD, PTR, PTR)
-        # Legacy fan path used by Pascal/R470 when NVML has no fan setters.
-        self.CoolerSettings = self._i(0xDA141340, PTR, u32, PTR)
-        self.CoolerLevelsSet = self._i(0x891FA0AE, PTR, u32, PTR, u32)
-        self.CoolerRestore = self._i(0x8F6ED0FB, PTR, PTR, u32)
-        self.TachReading = self._i(0x5F608315, PTR, ctypes.POINTER(u32))
-        self.FanCoolersControl = self._i(0x814B209F, PTR, PTR)
-        self.FanCoolersStatus = self._i(0x35AED5E8, PTR, PTR)
-        self.FanCoolersSetControl = self._i(0xA58971A5, PTR, PTR)
-        self.VoltRailsStatus = self._i(0x465F9BCF, PTR, PTR)
-        self.PowerTopo = self._i(0x0EDCF624E, PTR, PTR)
-        self.PowerPolInfo = self._i(0x34206D86, PTR, PTR)
-        self.PowerPolStatus = self._i(0x70916171, PTR, PTR)
-        self.PerfDecrease = self._i(0x7F7F4600, PTR, ctypes.POINTER(u32))
-        self.DynPstates = self._i(0x60DED2ED, PTR, PTR)
-        self.CurrentPstate = self._i(0x927DA4F6, PTR, ctypes.POINTER(u32))
-        self.ForcePstate = self._i(0x025BFB10, PTR, u32, u32)
-        self.Pstates20Get = self._i(0x6FF81213, PTR, PTR)
-        self.Pstates20Set = self._i(0x0F4DAE6B, PTR, PTR)
-        self.AllClocks = self._i(0xDCB616C3, PTR, PTR)
-        self.AllClocksPriv = self._i(0x1BD69F49, PTR, PTR)
-        # Per-domain V/F point lock. BoostLock is its GETTER; VfLockSet is the
-        # matching setter, and BOTH take the same 780-byte _ClockLock. That
-        # shared layout is the whole safety argument: every write hands back a
-        # buffer this getter produced (see GPU.set_vf_lock).
-        self.BoostLock = self._i(0xE440B867, PTR, PTR)
-        self.VfLockSet = self._i(0x39442CFB, PTR, PTR)
-        # VF curve: evaluated points, per-point delta table (get/set = AB's pair)
-        self.VfpCurve = self._i(0x21537AD4, PTR, PTR)
-        self.BoostTableGet = self._i(0x23F1B133, PTR, PTR)
-        self.BoostTableSet = self._i(0x0733E009, PTR, PTR)
-        # over-voltage % ("Core Voltage" slider): get/set share a 40-byte V1
-        # struct. Set id 0xB9306D9B verified vs arcnmx + falahati + live exports.
-        self.RamType = self._i(0x57F7CAAC, PTR, ctypes.POINTER(u32))
-        self.VoltCtrlGet = self._i(0x9DF23CA1, PTR, PTR)
-        self.VoltCtrlSet = self._i(0xB9306D9B, PTR, PTR)
-        # Per-rail voltage offset requests. The matching full setter is
-        # 0x87C55C8A; voltage_request_replay validates its V2/native layout,
-        # complete inventory and six-offset readback before using it.
-        self.VoltRailsCtlGet = self._i(0xA3070DB0, PTR, PTR)
-        # The same rails as ABSOLUTE microvolts, including a LIVE per-rail
-        # voltage. See GPU.read_volt_rail_state: this is the block that makes a
-        # limit write checkable against a number the card produced rather than
-        # against an echo of the delta we sent.
-        self.VoltRailsAbs = self._i(0x5D0634EE, PTR, PTR)
-        # Per-domain clock offsets - the ONLY path to XBAR. Neither NVML's
-        # clock offsets nor NVAPI's Pstates20 can reach it: both enumerate
-        # exactly two domains on this card, GRAPHICS and MEMORY, and
-        # NV_GPU_PUBLIC_CLOCK_ID has no crossbar member at all. Measured here:
-        # GetAllClockFrequencies reports bIsPresent for slots 0 and 4 only.
-        # These two wrap the RM CLK_DOMAINS controls (NV2080_CTRL_CMD_CLK_
-        # CLK_DOMAINS_{GET,SET}_CONTROL). Direction was established by
-        # MEASUREMENT, not by trusting a label: the applied XBAR offset was
-        # +90 MHz before and after a Get call, 24/24 samples each way.
-        self.ClkDomCtlGet = self._i(0xF58938F5, PTR, PTR)
-        self.ClkDomCtlSet = self._i(0xD14B69CF, PTR, PTR)
-        # Read-only physical clock counter used by the Blackwell probe.  It
-        # lets the probe distinguish a real clock movement from array-A's
-        # programmed-target echo, which is not sufficient evidence for a
-        # working mapping.
-        self.ClkMeasureFreq = self._i(0x527FC458, PTR, PTR)
+        for name, identifier, argtypes in NVAPI_INTERFACES:
+            setattr(self, name, self._i(identifier, *argtypes))
 
         if self.Initialize is None:
             self.err_detail = "NvAPI_Initialize not resolvable"

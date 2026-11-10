@@ -117,6 +117,13 @@ DC_API dc_status DC_CALL dc_rail_packet_summary(const uint8_t* payload, size_t s
 typedef void*(DC_CALL* dc_resolve_fn)(void* context, const char* library, const char* name);
 DC_API void DC_CALL dc_set_export_resolver(dc_resolve_fn resolve, void* context);
 
+/* Resolve an export through the core's loader, including its test resolver. library is exactly
+ * "nvapi" or "nvml"; name must be nonempty. No driver initialization or enumeration occurs here.
+ * The loaded module is kept for the current resolver generation. DC_E_UNRECOGNIZED and *out NULL
+ * mean the library or export is absent; DC_E_ARGUMENT is a bad argument. As with the resolver seam,
+ * callers must not replace the resolver while an address returned from it is in use. */
+DC_API dc_status DC_CALL dc_export_address(const char* library, const char* name, void** out);
+
 typedef struct dc_gpu_entry {
     uint32_t size;       /* sizeof(dc_gpu_entry), set by the caller */
     char slot[24];       /* "0000:01:00.0", "" when unknown */
@@ -213,6 +220,38 @@ typedef struct dc_gpu_identity {
 } dc_gpu_identity;
 
 DC_API dc_status DC_CALL dc_gpu_identity_get(const dc_gpu* gpu, dc_gpu_identity* identity);
+
+/* The paired NVML device of this handle, or NULL when the NVML half is unavailable/disabled.
+ * The pointer is borrowed and is valid only while this handle remains open. Takes the handle lock. */
+DC_API dc_status DC_CALL dc_gpu_nvml_device(const dc_gpu* gpu, void** out);
+
+/* The software request envelopes enforced by the core. These are not hardware measurements or
+ * factory defaults. hard_floor_mv is the existing hard-de-flatten UI preset, not an enforced floor.
+ * Sized so a caller with an older layout is refused before anything is copied. */
+typedef struct dc_request_envelopes {
+    uint32_t size;
+    double volt_limit_min_mv;
+    double volt_limit_max_mv;
+    double volt_limit_xoc_max_mv;
+    double rail_offset_max_mv;
+    double rail_offset_xoc_max_mv;
+    int64_t max_abs_delta_khz;
+    double hard_floor_mv;
+    int64_t power_limit_xoc_max_mw;
+    char volt_limit_fields[4][32];
+} dc_request_envelopes;
+DC_API dc_status DC_CALL dc_request_envelopes_get(dc_request_envelopes* out);
+
+/* This session's MSVDD domains, sorted: which 0 = written, 1 = seen. *count is always the required
+ * number on DC_OK/DC_E_BUFFER; NULL out with capacity 0 is a count query. Nothing is copied when
+ * capacity is too small. Hold dc_gpu_lock across a count/fetch pair for one consistent snapshot. */
+DC_API dc_status DC_CALL dc_gpu_msvdd_domains_get(dc_gpu* gpu, uint32_t which, uint32_t* out,
+                                                 size_t capacity, size_t* count);
+
+/* One fresh nvmlDeviceGetEnforcedPowerLimit read. DC_OK with *has 0 and *mw 0 when NVML/the export
+ * is absent or the call fails; a successful zero is a value. No telemetry sweep or configured/live
+ * request fallback. Takes the handle lock. */
+DC_API dc_status DC_CALL dc_pl_enforced_read(dc_gpu* gpu, int32_t* has, uint32_t* mw);
 
 /* "NVAPI: ok   |   NVML: FAIL (...)   |   slot 0000:01:00.0" */
 DC_API dc_status DC_CALL dc_gpu_status_line(const dc_gpu* gpu, char* buffer, size_t size, size_t* needed);

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "backend/exports.h"
 
+#include <cstring>
 #include <vector>
 
 #include "core/mutex.h"
@@ -241,6 +242,26 @@ void set_export_resolver(ResolveFn resolve, void* context) {
 bool test_resolver_installed() {
     LockGuard guard(loader_mutex());
     return hooked_loader() != nullptr;
+}
+
+void* export_address(const char* library, const char* name) {
+    // Serialize the source cache and resolver replacement together. Loader calls take this same
+    // recursive mutex; no driver entry is invoked here, only export lookup.
+    LockGuard guard(loader_mutex());
+    static unsigned generation = 0;
+    static std::unique_ptr<ExportSource> nvapi;
+    static std::unique_ptr<ExportSource> nvml;
+    if (generation != generation_counter()) {
+        nvapi.reset();
+        nvml.reset();
+        generation = generation_counter();
+    }
+    auto& source = std::strcmp(library, "nvapi") == 0 ? nvapi : nvml;
+    if (!source) {
+        std::string error;
+        source = std::strcmp(library, "nvapi") == 0 ? loader().open_nvapi(error) : loader().open_nvml(error);
+    }
+    return source ? source->resolve(name) : nullptr;
 }
 
 }  // namespace druta::backend
