@@ -659,7 +659,28 @@ DC_API void DC_CALL dc_hook_test_fail_protect(int32_t fail);         /* BufferPa
    not ported, so `read_power_policies` reads it, with the `pl_*` statics, through a second caller-supplied
    callback (`dc_cl_policy_inputs_fn`); the binding supplies both until that layer lands. As in Python, the
    derived-clamp confirmation is remembered only after the confirm callback has returned and the request
-   has passed its bounds check, so a refused or failed confirmation names no policy. Every `dc_cl_*` entry
+   has passed its bounds check, so a refused or failed confirmation names no policy. The policy writer and
+   the user's values are done: `_write_policy_limit`, `_pin`, `set_power_policy` and
+   `_reapply_power_policy_pins` as `CurrentLimits::write_policy_limit`, `set_power_policy` and
+   `reapply_power_policy_pins`, `dc_cl_write_policy_limit`, `dc_cl_set_power_policy`, `dc_cl_reapply_pins`;
+   `tests/test_native_power_policy_write.py`. As in Python, the writer's and the re-application's rows are
+   computed with no named policies and no board reading (only the unit, limit and request are read from
+   them), so neither callback is needed there; `set_power_policy` takes `read_power_policies`' two. A board
+   policy found on the way is stored through the live request's storage (`dc_cpc_board_policy_set`'s) at the
+   point Python assigns it. The messages travel as `dc_cl_set_current_limit_ma`'s do, and because a
+   re-application's FAILED note joins one writer text per policy, the last message is kept in full for
+   `dc_cl_policy_message_get` instead of being bounded by a fixed buffer. The handle mutex covers each call,
+   not the call and the fetch together, so the binding holds its re-entrant `Gpu._lock` (the UI's tuning
+   writes hold it too) around both and repeats the fetch while the kept text outgrows the buffer;
+   nvbackend has no such window, its message being the return value. The inputs callback returns nonzero
+   when the caller's reading raised what Python lets escape `read_power_policies` (a `KeyboardInterrupt`
+   from `read_power_limit_mw`, an `AttributeError` from a `static` without `.get`): the core then stops
+   where Python's raise would, before any row, board store, write or pin, and returns `DC_E_CALLER` (a
+   caller-supplied callback reported a failure; nothing written), on which the binding raises the
+   caller's exception. The pins are the handle's process
+   state, never persisted: a GPU driver restart is the user's reset, after which nothing is re-applied.
+   Python's IndexError where its first row walk indexes outside a block (unreachable with the measured
+   layouts) escapes as `DC_E_RANGE`, and the re-application reports it as Python's text. Every `dc_cl_*` entry
    is guarded: an exception inside the core, in practice an allocation failure, returns `DC_E_FAILED` with
    `DC_ERR_TRANSIENT` instead of crossing the C boundary.)
 7. The Python consumers, one module at a time. (In progress: the paired target binding shared by

@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// The C ABI of the current-policy operations on the transport (increment 6a).
+// The C ABI of the current-policy operations on the transport (increment 6a), the policy rows and
+// setter (6b), every policy in the table (B2) and the policy writer with the pins (B3).
 #include <cstring>
 
 #include "backend/current_limits.h"
@@ -497,7 +498,8 @@ struct InputsContext {
 };
 
 // read_power_limit_mw through the caller, then the static keys, then GPU._board_policy as it is
-// now (the caller's read may have set it), in Python's order.
+// now (the caller's read may have set it), in Python's order. A nonzero return is the caller's
+// exception: failed, and nothing it may have written is read.
 druta::backend::PolicyInputs inputs_adapter(void* ctx) {
     const InputsContext* c = static_cast<const InputsContext*>(ctx);
     int32_t has_board_mw = 0;
@@ -505,8 +507,11 @@ druta::backend::PolicyInputs inputs_adapter(void* ctx) {
     dc_cl_statics st{};
     st.size = sizeof(dc_cl_statics);
     st.pl_min_state = st.pl_def_state = st.pl_max_state = DC_CL_STATIC_NONE;
-    c->fn(c->context, &has_board_mw, &board_mw, &st);
     druta::backend::PolicyInputs in;
+    if (c->fn(c->context, &has_board_mw, &board_mw, &st) != 0) {
+        in.failed = true;
+        return in;
+    }
     if (has_board_mw) in.board_mw = board_mw;
     // a callback that broke the struct's shape reports nothing: every key unequal
     if (!statics_ok(&st)) st.pl_min_state = st.pl_def_state = st.pl_max_state = DC_CL_STATIC_NONE;
@@ -590,11 +595,90 @@ DC_API dc_status DC_CALL dc_cl_power_policies_read(dc_gpu* handle, dc_cl_confirm
         druta::backend::ReadPoliciesResult r =
             handle->cl.read_power_policies(confirm ? confirm_adapter : nullptr, &cc, inputs_adapter, &ic);
         *count = 0;
+        if (r.caller_failed) {  // the callback asked to stop: no rows, nothing stored
+            put_error(druta::backend::RmError{}, error);
+            return DC_E_CALLER;
+        }
         if (!r.in_bounds) return DC_E_RANGE;
         if (r.error) return put_message(druta::backend::RmErrorKind::invalid, *r.error, error);
         if (r.remember) handle->cp.set_board_policy(r.remember);
         put_policy_rows(r.rows, rows, capacity, count);
         if (error) put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+}  // extern "C"
+
+namespace {
+
+// ---- increment B3 ------------------------------------------------------------------------------ //
+
+// GPU._board_policy where Python assigns it (the live request's storage, as dc_cl_policy_rows').
+void store_board(void* ctx, uint32_t policy) { static_cast<dc_gpu*>(ctx)->cp.set_board_policy(policy); }
+
+bool text_ok(const int32_t* ok, const char* message, size_t capacity, const size_t* needed) {
+    return ok && needed && (message || !capacity);
+}
+
+// (ok, message) into the caller's buffer, the full text kept for dc_cl_policy_message_get;
+// DC_E_RANGE for the IndexError Python lets escape and DC_E_CALLER for the inputs callback's
+// failure (in both, nothing written to *ok, the buffer or the kept message).
+dc_status put_outcome(dc_gpu* handle, const druta::backend::PolicyWriteResult& r, int32_t* ok, char* message,
+                      size_t capacity, size_t* needed) {
+    if (r.caller_failed) return DC_E_CALLER;
+    if (!r.in_bounds) return DC_E_RANGE;
+    handle->cl.policy_message = r.message;
+    *ok = r.ok ? 1 : 0;
+    put_text(r.message, message, capacity, needed);
+    return DC_OK;
+}
+
+}  // namespace
+
+extern "C" {
+
+DC_API dc_status DC_CALL dc_cl_write_policy_limit(dc_gpu* handle, int64_t policy, int64_t value, int32_t* ok,
+                                                  char* message, size_t capacity, size_t* needed) {
+    return guarded(nullptr, [&]() -> dc_status {
+        if (!handle || !text_ok(ok, message, capacity, needed)) return DC_E_ARGUMENT;
+        druta::LockGuard guard(handle->gpu.lock());
+        return put_outcome(handle, handle->cl.write_policy_limit(policy, value), ok, message, capacity, needed);
+    });
+}
+
+DC_API dc_status DC_CALL dc_cl_set_power_policy(dc_gpu* handle, dc_cl_confirm_fn confirm, void* context,
+                                                dc_cl_policy_inputs_fn inputs, void* inputs_context, int64_t policy,
+                                                int32_t whole, int64_t value, int32_t pin, int32_t allow_named,
+                                                int32_t* ok, char* message, size_t capacity, size_t* needed) {
+    return guarded(nullptr, [&]() -> dc_status {
+        if (!handle || !inputs || !text_ok(ok, message, capacity, needed)) return DC_E_ARGUMENT;
+        druta::LockGuard guard(handle->gpu.lock());
+        ConfirmContext cc{confirm, context};
+        InputsContext ic{handle, inputs, inputs_context};
+        const druta::backend::PolicyWriteResult r = handle->cl.set_power_policy(
+            policy, whole != 0, value, pin != 0, allow_named != 0, confirm ? confirm_adapter : nullptr, &cc,
+            inputs_adapter, &ic, store_board, handle);
+        return put_outcome(handle, r, ok, message, capacity, needed);
+    });
+}
+
+DC_API dc_status DC_CALL dc_cl_reapply_pins(dc_gpu* handle, int32_t has_board_mw, int64_t board_mw, int32_t* ok,
+                                            char* message, size_t capacity, size_t* needed) {
+    return guarded(nullptr, [&]() -> dc_status {
+        if (!handle || !text_ok(ok, message, capacity, needed)) return DC_E_ARGUMENT;
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::PolicyWriteResult r = handle->cl.reapply_power_policy_pins(
+            has_board_mw ? std::optional<int64_t>(board_mw) : std::nullopt, store_board, handle);
+        return put_outcome(handle, r, ok, message, capacity, needed);
+    });
+}
+
+DC_API dc_status DC_CALL dc_cl_policy_message_get(dc_gpu* handle, char* out, size_t capacity, size_t* needed) {
+    return guarded(nullptr, [&]() -> dc_status {
+        if (!handle || !needed || (!out && capacity)) return DC_E_ARGUMENT;
+        druta::LockGuard guard(handle->gpu.lock());
+        put_text(handle->cl.policy_message, out, capacity, needed);
         return DC_OK;
     });
 }

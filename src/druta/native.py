@@ -37,6 +37,7 @@ DC_E_RECORDS = -6
 DC_E_RANGE = -7
 DC_E_UNAVAILABLE = -8
 DC_E_FAILED = -9
+DC_E_CALLER = -10  # a caller-supplied callback reported a failure; abandoned before any write
 
 DC_ERR_NONE, DC_ERR_TRANSIENT, DC_ERR_INVALID, DC_ERR_UNSUPPORTED = 0, 1, 2, 3
 
@@ -272,8 +273,9 @@ class _PolicyRow(ctypes.Structure):  # dc_policy_row (increment B2)
                 ("writable", ctypes.c_int32)]
 
 
-# dc_cl_policy_inputs_fn: read_power_limit_mw and the static keys, where read_power_policies reads them.
-CL_POLICY_INPUTS = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+# dc_cl_policy_inputs_fn: read_power_limit_mw and the static keys, where read_power_policies reads them;
+# returns 0, or 1 when they raised (the core then abandons the call with DC_E_CALLER).
+CL_POLICY_INPUTS = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
                                     ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(_ClStatics))
 
 class _ClockDomainRow(ctypes.Structure):
@@ -561,6 +563,18 @@ _SIGNATURES = {
     "dc_cl_power_policies_read": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
                                                    ctypes.c_void_p, ctypes.POINTER(_PolicyRow), ctypes.c_uint32,
                                                    ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_cl_write_policy_limit": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64,
+                                                  ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_set_power_policy": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
+                                                ctypes.c_void_p, ctypes.c_int64, ctypes.c_int32, ctypes.c_int64,
+                                                ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
+                                                ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_reapply_pins": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
+                                            ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                            ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_policy_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_size_t)]),
     "dc_hook_test_entry": (ctypes.c_int32, [ctypes.c_void_p]),
     "dc_hook_test_state": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32),
                                             ctypes.POINTER(ctypes.c_uint32)]),
@@ -970,7 +984,11 @@ class Gpu:
                                      "vbios": _text(identity.vbios), "admin": bool(identity.admin),
                                      "slot": _text(identity.slot), "uuid": _text(identity.uuid)})
         # nvbackend.GPU._lock: the front end and the profiles serialize their own sequences on it.
-        # The core keeps its own re-entrant mutex per handle; this one exists for those callers.
+        # The core keeps its own re-entrant mutex per handle; this one exists for those callers and
+        # for the policy writes, which hold it around a call and its message fetch (_policy_outcome).
+        # Lock order: this lock first, then the handle mutex. Code the core calls back while it holds
+        # the handle mutex (the confirm, inputs and before_write callbacks) must therefore never wait
+        # for this lock: nvbackend has only the one lock, the native side has two.
         self._lock = threading.RLock()
 
     def close(self):
@@ -1208,7 +1226,7 @@ class Gpu:
         """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.
 
         Python's read_metadata holds `self.gpu._lock` around _stable_locked. This port does not take
-        self._lock, as no native Gpu method does, the ports of nvbackend's _synchronized methods
+        self._lock, as no native Gpu read does, the ports of nvbackend's _synchronized methods
         included: the core holds the handle's own mutex across the whole bounded read, which is what
         that lock covers within one call. self._lock is there for callers that serialize their own
         multi-call sequences on it; a caller that needs this read ordered against such a sequence
@@ -2523,6 +2541,27 @@ class Gpu:
             _raise(result)
         return [self._policy_row_dict(out[k]) for k in range(min(count.value, len(out)))]
 
+    def _policy_inputs(self, failure):
+        """The dc_cl_policy_inputs_fn of read_power_policies: read_power_limit_mw (its exception is
+        Python's None), then the static pl_* keys. Any other exception (one Python lets escape: a
+        KeyboardInterrupt from the reading, an AttributeError from a `static` without .get) is
+        appended to `failure` and the callback returns 1, so the core abandons the call there
+        (DC_E_CALLER: no rows, nothing stored or written) and the caller raises it. The caller keeps
+        the object alive for the call."""
+        def inputs(_context, has_board_mw, board_mw, statics):
+            try:
+                try:
+                    value = self._power_policies_board_mw()
+                except Exception:                                       # noqa: BLE001 - Python's None
+                    value = None
+                has_board_mw[0], board_mw[0] = (0, 0) if value is None else self._policy_word(value)
+                self._cl_statics_fill(statics.contents)
+            except BaseException as exc:                                # noqa: BLE001 - raised by the caller
+                failure.append(exc)
+                return 1
+            return 0
+        return CL_POLICY_INPUTS(inputs)
+
     def _power_policies_board_mw(self):
         """read_power_limit_mw where the binding has it (increment A8), else None (unreadable)."""
         reader = getattr(self, "read_power_limit_mw", None)
@@ -2536,27 +2575,16 @@ class Gpu:
         then reads the static pl_* keys and _board_policy, so a reader that changes them is seen.
         Recorded divergence: a static value or a reading whose int() or == raises is treated as
         unequal to every driver word; Python raises from the comparison. Any other exception in
-        the callback is raised once the core returns (the core has then used its defaults: board
-        None, every static key unequal)."""
+        the callback stops the core where Python's raise would (DC_E_CALLER: no rows built, no
+        board policy stored) and is raised here, as Python raises it out of read_power_policies."""
         confirm = self._confirm_derived_clamp()
         failure = []
-
-        def inputs(_context, has_board_mw, board_mw, statics):
-            try:
-                try:
-                    value = self._power_policies_board_mw()
-                except Exception:                                       # noqa: BLE001 - Python's None
-                    value = None
-                has_board_mw[0], board_mw[0] = (0, 0) if value is None else self._policy_word(value)
-                self._cl_statics_fill(statics.contents)
-            except BaseException as exc:                                # noqa: BLE001 - raised below
-                failure.append(exc)
-        callback = CL_POLICY_INPUTS(inputs)
+        callback = self._policy_inputs(failure)
         out, count, error = self._policy_rows_buffer(), ctypes.c_uint32(), _Error()
         error.size = ctypes.sizeof(_Error)
         status = load().dc_cl_power_policies_read(self._handle, confirm, None, callback, None, out, len(out),
                                                   ctypes.byref(count), ctypes.byref(error))
-        if failure:
+        if failure:  # DC_E_CALLER: the core stopped where the callback raised
             raise failure[0]
         if status == DC_E_FAILED and error.kind == DC_ERR_TRANSIENT:  # the core's guard: allocation
             raise MemoryError(_text(error.message))
@@ -2567,6 +2595,136 @@ class Gpu:
         if status != DC_OK:
             _raise(status)
         return [self._policy_row_dict(out[k]) for k in range(min(count.value, len(out)))], None
+
+    # ---- writing one policy and keeping the user's values (nvbackend.GPU._write_policy_limit, ------ #
+    # ---- _pin, set_power_policy, _reapply_power_policy_pins; increment B3) ----------------------- #
+    #
+    # The pins are the core's process state (dc_cl_pins_*): session-only, never persisted, and
+    # forgotten with the process, so a driver restart is never followed by a re-application.
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_policy_write.py):
+    # - _write_policy_limit takes a plain-int value within int64 (TypeError / ValueError otherwise;
+    #   Python compares a float and lets ctypes refuse it inside its try). set_power_policy and
+    #   _reapply_power_policy_pins only ever pass such values. A policy that is not a plain int
+    #   within int64 is refused here exactly as Python refuses it (after the table read).
+    # - set_power_policy with a policy that is not a plain int within int64 runs Python's steps
+    #   over the native pieces (read_power_policies, set_current_limit_ma, _write_policy_limit):
+    #   the ABI carries only int64 policies, and such a policy never reaches a write. The policy
+    #   gates are Python's `type(policy) is int`: an int subclass (an IntEnum, a bool) takes the
+    #   same path and is refused as Python refuses it; set_power_policy's value gate is Python's
+    #   `type(value) is int` too. _write_policy_limit's VALUE has no type gate in Python (an int
+    #   subclass is compared, formatted and packed as its int), so it keeps accepting one.
+    # - an exception Python lets escape read_power_policies inside set_power_policy (a
+    #   KeyboardInterrupt from read_power_limit_mw, an AttributeError from a `static` without
+    #   .get) stops the core before any write, pin or board store (DC_E_CALLER) and is raised here.
+    # - nvbackend's message is its return value; here a text longer than the first buffer is
+    #   fetched from the handle with a second call (dc_cl_policy_message_get). Both calls run under
+    #   self._lock, so no other thread's B3 call through this binding can replace the kept message
+    #   in between, and the fetch repeats while the text outgrows the buffer.
+    # - an allocation failure inside the core (the ABI guard) is a MemoryError with the core's text.
+
+    _POLICY_MESSAGE = 4096  # the first buffer; a longer text is fetched with dc_cl_policy_message_get
+
+    def _policy_outcome(self, function, *args, failure=()):
+        """(ok, message) of one B3 call. DC_E_RANGE is the IndexError Python lets escape; an
+        exception the inputs callback appended to `failure` (DC_E_CALLER) is raised as Python raises it.
+
+        A text longer than the first buffer is the handle's kept message, read by a second call
+        (never by repeating a write). The handle mutex covers each call, not the pair, so another
+        thread's B3 call could replace the kept text in between; nvbackend has no such window (its
+        message is the return value). self._lock (re-entrant; the UI's write_tuning_action holds it
+        too) is held around the call and the fetch, which closes the window for every caller of this
+        binding, and the fetch repeats while the kept text outgrows the buffer."""
+        library = load()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(self._POLICY_MESSAGE)
+        with self._lock:
+            try:
+                status = function(self._handle, *args, ctypes.byref(ok), message, len(message),
+                                  ctypes.byref(needed))
+            finally:
+                if failure:
+                    raise failure[0]
+            if status == DC_E_RANGE:
+                raise IndexError("list index out of range")
+            if status == DC_E_FAILED:  # the core's guard: only allocation throws there
+                raise MemoryError("native core: allocation failed")
+            if status != DC_OK:
+                _raise(status)
+            while needed.value > len(message):  # never repeat a write to fetch its text
+                message = ctypes.create_string_buffer(needed.value)
+                status = library.dc_cl_policy_message_get(self._handle, message, len(message),
+                                                          ctypes.byref(needed))
+                if status != DC_OK:
+                    _raise(status)
+        return bool(ok.value), message.value.decode(errors="replace")
+
+    @staticmethod
+    def _int64(value):
+        return _is_plain_int(value) and -(1 << 63) <= value < (1 << 63)
+
+    def _write_policy_limit(self, policy, value):
+        """Change one policy's limit word, SET with only it selected, read back; (ok, message) as
+        nvbackend's, replaying the original record on any failure (see the core)."""
+        if type(policy) is not int or not self._int64(policy):  # Python reads the table, then refuses it
+            try:
+                table = self._power_policy_table()
+            except Exception as exc:                                    # noqa: BLE001 - Python's text
+                return False, f"policy {policy}: the policy table could not be read ({exc}); nothing written"
+            table[1][1]  # noqa: B018 - Python's `mask = info[1]`
+            return False, f"policy {policy} is not in the driver's table"
+        if not _is_plain_int(value):
+            raise TypeError(f"policy limit must be an int, not {type(value).__name__}")
+        if not self._int64(value):
+            raise ValueError("policy limit does not fit a 64-bit integer")
+        return self._policy_outcome(load().dc_cl_write_policy_limit, policy, value)
+
+    def _pin(self, policy, value):
+        self._power_policy_pins = {**(self._power_policy_pins or {}), policy: value}
+
+    def set_power_policy(self, policy, value, *, pin=True, allow_named=False):
+        """Write one policy of the full list within its own range and verify; (ok, message) as
+        nvbackend's. pin records it as the user's value (re-applied after board-limit writes); a
+        named current policy goes through set_current_limit_ma when allow_named."""
+        if type(policy) is not int or not self._int64(policy):  # Python's `type(policy) is not int` path
+            return self._set_power_policy_steps(policy, value, pin, allow_named)
+        whole = type(value) is int
+        clamped = max(-(1 << 63), min(value, (1 << 63) - 1)) if whole else 0
+        confirm, failure = self._confirm_derived_clamp(), []
+        callback = self._policy_inputs(failure)
+        return self._policy_outcome(load().dc_cl_set_power_policy, confirm, None, callback, None, policy,
+                                    1 if whole else 0, clamped, 1 if pin else 0, 1 if allow_named else 0,
+                                    failure=failure)
+
+    def _set_power_policy_steps(self, policy, value, pin, allow_named):
+        """nvbackend's set_power_policy over the native pieces, for a policy the ABI cannot carry."""
+        rows, error = self.read_power_policies()
+        if error:
+            return False, error
+        row = next((r for r in rows if r["policy"] == policy), None)
+        if row is None:
+            return False, f"policy {policy} is not in the driver's table"
+        if row["named_current"]:
+            if not allow_named:
+                return False, f"policy {policy} is set with its current-limit slider"
+            if type(value) is not int:
+                return False, f"policy {policy} must be a whole number of milliamps"
+            return self.set_current_limit_ma(policy, value, pin=pin)
+        if not row["writable"]:
+            return False, f"policy {policy}: {self.power_policy_unwritable_reason(row)}"
+        if type(value) is not int or not row["minimum"] <= value <= row["maximum"]:
+            return False, (f"policy {policy} must be between "
+                           f"{self._policy_amount(row['minimum'], row['unit'])} and "
+                           f"{self._policy_amount(row['maximum'], row['unit'])}")
+        ok, message = self._write_policy_limit(policy, value)
+        if ok and pin:
+            self._pin(policy, value)
+        return ok, message
+
+    def _reapply_power_policy_pins(self, board_mw=None):
+        """After a board-limit write: put back every value the user set that the driver
+        recalculated; (ok, note) as nvbackend's, note "" when nothing moved."""
+        has_board, board = (0, 0) if board_mw is None else self._policy_word(board_mw)
+        return self._policy_outcome(load().dc_cl_reapply_pins, has_board, board)
 
     # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
 

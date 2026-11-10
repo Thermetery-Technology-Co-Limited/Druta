@@ -133,7 +133,11 @@ struct PolicyRowsResult {
 
 // What read_power_policies reads after the table, in Python's order: read_power_limit_mw (None
 // when it raised), then, inside _power_policy_rows, the static keys and GPU._board_policy.
+// failed: the caller's reading raised what Python lets escape (a KeyboardInterrupt from
+// read_power_limit_mw, an AttributeError from a `static` without .get): the call stops there,
+// before any row is built, anything stored or anything written; the rest is then unread.
 struct PolicyInputs {
+    bool failed = false;
     std::optional<std::int64_t> board_mw;
     StaticTriState statics;
     std::optional<std::uint32_t> board_policy;
@@ -142,9 +146,25 @@ using ReadPolicyInputs = PolicyInputs (*)(void* context);
 
 struct ReadPoliciesResult {  // read_power_policies: (rows, error)
     bool in_bounds = true;  // as PolicyRowsResult::in_bounds (Python raises instead of returning)
+    bool caller_failed = false;  // PolicyInputs::failed: Python raised; no rows, nothing to store
     std::vector<PolicyRow> rows;
     std::optional<std::string> error;
     std::optional<std::uint32_t> remember;  // as PolicyRowsResult::remember
+};
+
+// ---- increment B3: writing one policy and keeping the user's values (GPU._write_policy_limit, -- //
+// ---- set_power_policy, _reapply_power_policy_pins) ---------------------------------------------- //
+
+// Stores a policy as GPU._board_policy (ClientPowerController::set_board_policy behind the ABI), at
+// the point where Python assigns it, so a later read in the same call sees it.
+using StoreBoardPolicy = void (*)(void* context, std::uint32_t policy);
+
+struct PolicyWriteResult {  // (ok, message), or the IndexError Python lets escape
+    bool in_bounds = true;  // false: Python raised IndexError ("list index out of range"); ok/message unset
+    bool caller_failed = false;  // set_power_policy: the inputs callback failed (Python raised from
+                                 // read_power_policies); nothing written, pinned or stored
+    bool ok = false;
+    std::string message;
 };
 
 class CurrentLimits {
@@ -175,9 +195,26 @@ public:
     static std::string policy_amount(std::int64_t value, std::int32_t unit);
     // read_power_policies: `inputs` runs where Python calls read_power_limit_mw (only once a table is
     // in hand); the caller stores `remember` as GPU._board_policy. nullptr inputs: board_mw None and
-    // every static key None.
+    // every static key None. A failed input (PolicyInputs::failed) returns caller_failed and no rows.
     ReadPoliciesResult read_power_policies(ConfirmDerivedClamp confirm, void* context, ReadPolicyInputs inputs,
                                            void* inputs_context);
+
+    // _write_policy_limit(policy, value): copy the control GET, change only this policy's limit
+    // word, SET with only it selected, read back; any failure replays the original record. Python's
+    // `never raises` holds except where its first _power_policy_rows (or the request's mask word)
+    // indexes outside a block: that IndexError escapes, here in_bounds = false.
+    PolicyWriteResult write_policy_limit(std::int64_t policy, std::int64_t value);
+    // set_power_policy(policy, value, pin, allow_named): `whole` is Python's `type(value) is int`
+    // (value is then the int, clamped to int64 by the caller: beyond it is beyond every range).
+    // confirm / inputs are read_power_policies' (B2); its board candidate is stored through `store`.
+    // A failed input stops it there (caller_failed): Python's set_power_policy raises before any SET.
+    PolicyWriteResult set_power_policy(std::int64_t policy, bool whole, std::int64_t value, bool pin, bool allow_named,
+                                       ConfirmDerivedClamp confirm, void* context, ReadPolicyInputs inputs,
+                                       void* inputs_context, StoreBoardPolicy store, void* store_context);
+    // _reapply_power_policy_pins(board_mw): put back every pinned value the driver recomputed; a
+    // unique mW policy whose request is board_mw is stored as the board (and its pin dropped).
+    PolicyWriteResult reapply_power_policy_pins(std::optional<std::int64_t> board_mw, StoreBoardPolicy store,
+                                                void* store_context);
 
     // _current_limit_capacity: indices bounded by the three blocks and the 32-bit mask.
     static std::uint32_t capacity(const PowerLayout& layout);
@@ -199,7 +236,8 @@ public:
     std::vector<CurrentRow> last_rows;             // _current_limit_last_rows
     std::string error, read_error;                 // _current_limit_error, _current_limit_read_error
     std::uint32_t established = 0;                 // _current_limit_established, as a policy mask
-    std::map<std::uint32_t, std::int64_t> pins;    // _power_policy_pins
+    std::map<std::uint32_t, std::int64_t> pins;    // _power_policy_pins (session-only: never persisted)
+    std::string policy_message;                    // the last B3 message in full (dc_cl_policy_message_get)
 
 private:
     SetResult set_unpinned(std::int64_t policy, std::int64_t ma, ConfirmDerivedClamp confirm, void* context);

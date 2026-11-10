@@ -45,6 +45,7 @@ DC_API const char* DC_CALL dc_status_text(dc_status status) {
         case DC_E_RANGE: return "value out of range";
         case DC_E_UNAVAILABLE: return "not provided by this adapter";
         case DC_E_FAILED: return "the operation failed; see the error record";
+        case DC_E_CALLER: return "a caller-supplied callback reported a failure; nothing was written";
         default: return "unknown status";
     }
 }

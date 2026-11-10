@@ -765,6 +765,10 @@ ReadPoliciesResult CurrentLimits::read_power_policies(ConfirmDerivedClamp confir
     PolicyInputs in;
     if (inputs) {
         in = inputs(inputs_context);
+        if (in.failed) {  // Python's exception escapes read_power_policies: no rows, nothing stored
+            out.caller_failed = true;
+            return out;
+        }
     } else {
         in.statics.pl_min.kind = in.statics.pl_def.kind = in.statics.pl_max.kind = StaticKey::Kind::none;
     }
@@ -775,6 +779,300 @@ ReadPoliciesResult CurrentLimits::read_power_policies(ConfirmDerivedClamp confir
     out.in_bounds = rows.in_bounds;
     out.rows = std::move(rows.rows);
     out.remember = rows.remember;
+    return out;
+}
+
+// ---- increment B3: writing one policy and keeping the user's values ------------------------------ //
+
+namespace {
+
+// str() of the exceptions Python raises inside _write_policy_limit's try, where the core indexes.
+constexpr const char* kIndexError = "list index out of range";
+constexpr const char* kNoneSubscript = "'NoneType' object is not subscriptable";  // a read-back with an empty mask
+
+std::uint64_t limit_word(const PowerLayout& layout, std::uint32_t policy) {  // (base + q * stride) // 4 + 1
+    return (std::uint64_t{layout.control_base} + std::uint64_t{policy} * layout.control_stride) / 4 + 1;
+}
+
+const PolicyRow* row_of(const std::vector<PolicyRow>& rows, std::int64_t policy) {
+    for (const PolicyRow& row : rows)
+        if (row.policy == policy) return &row;
+    return nullptr;
+}
+
+const std::vector<std::uint32_t>& status_of(const PolicyTable& table) {
+    static const std::vector<std::uint32_t> kNoWords;  // never: control and status are read together
+    return table.dynamic ? *table.dynamic : kNoWords;
+}
+
+}  // namespace
+
+PolicyWriteResult CurrentLimits::write_policy_limit(std::int64_t policy, std::int64_t value) {
+    // set_current_limit_ma's method for ANY policy in the table. The driver may move OTHER
+    // policies' limit words (it derives some from the board limit); those are reported, while any
+    // other difference replays the original record.
+    PolicyWriteResult out;
+    const std::string name = "policy " + std::to_string(policy);
+    PolicyTableResult read = policy_table();
+    if (!read.table) {
+        out.message = name + ": the policy table could not be read (" + read.error.message + "); nothing written";
+        return out;
+    }
+    const PolicyTable table = std::move(*read.table);
+    const PowerLayout& layout = *table.layout;
+    if (table.info.size() < 2) {  // mask = info[1]
+        out.in_bounds = false;
+        return out;
+    }
+    const std::uint32_t mask = table.info[1];
+    if (!table.control || policy < 0 || policy >= 32 || !(mask >> policy & 1)) {
+        out.message = name + " is not in the driver's table";
+        return out;
+    }
+    const std::uint32_t p = static_cast<std::uint32_t>(policy);
+    const std::vector<std::uint32_t>& control = *table.control;
+    // Python's rows here pass no named policies and no board reading: only the unit and the limit
+    // are read from them, which neither changes, and nothing is stored as the board.
+    const PolicyRowsResult rows = policy_rows(layout, table.info, control, status_of(table), 0, std::nullopt, {}, std::nullopt);
+    const std::uint64_t mask_word = mask_word_of(layout);
+    if (!rows.in_bounds || mask_word >= control.size()) {  // every limit word is in bounds once the rows are
+        out.in_bounds = false;
+        return out;
+    }
+    std::map<std::uint32_t, std::size_t> words;  // ascending q, as Python's dict
+    for (std::uint32_t q = 0; q < 32; ++q)
+        if (mask >> q & 1) words[q] = static_cast<std::size_t>(limit_word(layout, q));
+    const std::int32_t unit = row_of(rows.rows, policy)->unit;
+    const std::size_t w = words[p];
+    if (control[w] == value) {
+        out.ok = true;
+        out.message = name + " already at " + policy_amount(value, unit);
+        return out;
+    }
+    std::vector<std::uint32_t> expected = control;
+    expected[w] = static_cast<std::uint32_t>(value);  // the SET packs it as a u32, as ctypes does
+    std::vector<std::uint32_t> request = expected;
+    request[static_cast<std::size_t>(mask_word)] = std::uint32_t{1} << p;
+
+    // Python's try: the first failure, as str(exc).
+    std::optional<std::string> failure;
+    Words set = rm(kControlSet, &request, std::nullopt, true);
+    if (!set.words) {
+        failure = set.error.message;
+    } else {
+        PolicyTableResult back_read = policy_table();
+        if (!back_read.table) {
+            failure = back_read.error.message;
+        } else if (!back_read.table->control) {
+            failure = kNoneSubscript;
+        } else {
+            const std::vector<std::uint32_t>& back = *back_read.table->control;
+            if (w >= back.size()) {
+                failure = kIndexError;
+            } else if (back[w] != value) {
+                failure = "control read-back disagrees";
+            } else {
+                // any word outside the limit words differing from the request: in Python's order, an
+                // index past `expected` raises before a later difference is seen
+                for (std::size_t i = 0; i < back.size() && !failure; ++i) {
+                    bool limit = false;
+                    for (const auto& [q, index] : words)
+                        if (index == i) limit = true;
+                    if (limit) continue;
+                    if (i >= expected.size())
+                        failure = kIndexError;
+                    else if (back[i] != expected[i])
+                        failure = "control read-back changed data outside the limits";
+                }
+            }
+            std::vector<std::uint32_t> moved;
+            for (const auto& [q, index] : words) {
+                if (failure) break;
+                if (q == p) continue;
+                if (index >= back.size())
+                    failure = kIndexError;
+                else if (back[index] != control[index])
+                    moved.push_back(q);
+            }
+            if (!failure) {
+                const PolicyRowsResult after = policy_rows(layout, table.info, back, status_of(*back_read.table), 0,
+                                                           std::nullopt, {}, std::nullopt);
+                if (!after.in_bounds) {
+                    failure = kIndexError;
+                } else {
+                    out.ok = true;
+                    out.message = name + " set to " + policy_amount(value, unit) + "; effective limit " +
+                                  policy_amount(row_of(after.rows, policy)->limit, unit);
+                    if (!moved.empty()) {
+                        std::vector<std::string> names;
+                        for (std::uint32_t q : moved) names.push_back(std::to_string(q));
+                        out.message += "; the driver also changed policies " + join(names, ", ");
+                    }
+                    return out;
+                }
+            }
+        }
+    }
+    // This also runs when the SET itself failed: replay the original record and say whether the
+    // limit word read back as it was.
+    std::vector<std::uint32_t> restore = control;
+    restore[static_cast<std::size_t>(mask_word)] = std::uint32_t{1} << p;
+    std::string note;
+    Words replay = rm(kControlSet, &restore, std::nullopt, true);
+    if (!replay.words) {
+        note = "restoration could not be verified: " + replay.error.message;
+    } else {
+        PolicyTableResult again = policy_table();
+        if (!again.table)
+            note = "restoration could not be verified: " + again.error.message;
+        else if (!again.table->control)
+            note = std::string("restoration could not be verified: ") + kNoneSubscript;
+        else if (w >= again.table->control->size())
+            note = std::string("restoration could not be verified: ") + kIndexError;
+        else if ((*again.table->control)[w] != control[w])
+            note = "restoration could not be verified: restoration read-back disagrees";
+        else
+            note = "original limit restored and verified";
+    }
+    out.message = name + ": " + *failure + "; " + note;
+    return out;
+}
+
+PolicyWriteResult CurrentLimits::set_power_policy(std::int64_t policy, bool whole, std::int64_t value, bool pin,
+                                                  bool allow_named, ConfirmDerivedClamp confirm, void* context,
+                                                  ReadPolicyInputs inputs, void* inputs_context, StoreBoardPolicy store,
+                                                  void* store_context) {
+    // Write one policy of the full list within its own range and verify. pin records it as the
+    // user's value (re-applied after board-limit writes). The board limit is refused (the Power
+    // limit slider owns it), and so is a named current policy unless allow_named, which then goes
+    // through that slider's own setter and its normal/XOC envelope.
+    PolicyWriteResult out;
+    const std::string name = "policy " + std::to_string(policy);
+    ReadPoliciesResult read = read_power_policies(confirm, context, inputs, inputs_context);
+    if (read.caller_failed) {  // raised out of read_power_policies: before any write, pin or store
+        out.caller_failed = true;
+        return out;
+    }
+    if (!read.in_bounds) {
+        out.in_bounds = false;
+        return out;
+    }
+    if (read.remember && store) store(store_context, *read.remember);
+    if (read.error && !read.error->empty()) {  // Python's `if error:`
+        out.message = *read.error;
+        return out;
+    }
+    const PolicyRow* row = row_of(read.rows, policy);
+    if (!row) {
+        out.message = name + " is not in the driver's table";
+        return out;
+    }
+    if (row->named_current) {
+        if (!allow_named) {
+            out.message = name + " is set with its current-limit slider";
+            return out;
+        }
+        if (!whole) {
+            out.message = name + " must be a whole number of milliamps";
+            return out;
+        }
+        const SetResult set = set_current_limit_ma(policy, value, pin, confirm, context);
+        out.ok = set.ok;
+        out.message = set.message;
+        return out;
+    }
+    if (!row->writable) {
+        out.message = name + ": " + unwritable_reason(*row);
+        return out;
+    }
+    if (!whole || value < row->minimum || value > row->maximum) {
+        out.message = name + " must be between " + policy_amount(row->minimum, row->unit) + " and " +
+                      policy_amount(row->maximum, row->unit);
+        return out;
+    }
+    out = write_policy_limit(policy, value);
+    if (out.in_bounds && out.ok && pin) pins[static_cast<std::uint32_t>(policy)] = value;  // _pin
+    return out;
+}
+
+PolicyWriteResult CurrentLimits::reapply_power_policy_pins(std::optional<std::int64_t> board_mw, StoreBoardPolicy store,
+                                                           void* store_context) {
+    // After a board-limit write: put back every value the user set that the driver recomputed.
+    // (ok, note) - note is "" when nothing moved. The policy the write itself set is the board,
+    // never re-applied.
+    PolicyWriteResult out;
+    std::map<std::uint32_t, std::int64_t> mine = pins;
+    if (mine.empty()) {
+        out.ok = true;
+        return out;
+    }
+    PolicyTableResult read = policy_table();
+    if (!read.table) {
+        out.message = "your policy values could not be checked: " + read.error.message;
+        return out;
+    }
+    const PolicyTable table = std::move(*read.table);
+    if (!table.control) {
+        out.message = "your policy values could not be checked: the policy mask is empty";
+        return out;
+    }
+    const PowerLayout& layout = *table.layout;
+    const std::vector<std::uint32_t>& control = *table.control;
+    if (table.info.size() < 2) {
+        out.in_bounds = false;
+        return out;
+    }
+    std::map<std::uint32_t, std::uint32_t> request;
+    for (std::uint32_t q = 0; q < 32; ++q) {
+        if (!(table.info[1] >> q & 1)) continue;
+        const std::uint64_t index = limit_word(layout, q);
+        if (index >= control.size()) {  // Python's IndexError escapes _reapply_power_policy_pins
+            out.in_bounds = false;
+            return out;
+        }
+        request[q] = control[static_cast<std::size_t>(index)];
+    }
+    if (board_mw) {
+        // Python's rows here pass no board reading: nothing is stored inside them, and only the unit
+        // and the request are read
+        const PolicyRowsResult rows = policy_rows(layout, table.info, control, status_of(table), 0, std::nullopt, {}, std::nullopt);
+        if (!rows.in_bounds) {
+            out.in_bounds = false;
+            return out;
+        }
+        std::vector<std::uint32_t> board;
+        for (const PolicyRow& row : rows.rows)
+            if (row.unit == kPolicyUnitMw && row.requested == *board_mw) board.push_back(row.policy);
+        if (board.size() == 1) {
+            if (store) store(store_context, board.front());
+            if (mine.erase(board.front())) pins = mine;
+        }
+    }
+    std::vector<std::pair<std::uint32_t, std::int64_t>> redo;  // sorted by policy (std::map order)
+    for (const auto& [p, v] : mine)
+        if (auto it = request.find(p); it != request.end() && it->second != v) redo.emplace_back(p, v);
+    if (redo.empty()) {
+        out.ok = true;
+        return out;
+    }
+    std::vector<std::string> failed, names;
+    for (const auto& [p, v] : redo) {
+        // Python catches an exception escaping _write_policy_limit here: its IndexError (see
+        // write_policy_limit) is the only one, and reads as Python's text
+        const PolicyWriteResult write = write_policy_limit(p, v);
+        if (!write.in_bounds)
+            failed.push_back("policy " + std::to_string(p) + ": " + kIndexError);
+        else if (!write.ok)
+            failed.push_back(write.message);
+        names.push_back(std::to_string(p));
+    }
+    const std::string recalculated = "the driver recalculated policies " + join(names, ", ");
+    if (!failed.empty()) {
+        out.message = recalculated + "; re-applying your values FAILED: " + join(failed, "; ");
+        return out;
+    }
+    out.ok = true;
+    out.message = recalculated + "; re-applied your values";
     return out;
 }
 

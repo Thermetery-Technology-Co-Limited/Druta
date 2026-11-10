@@ -46,7 +46,9 @@ enum {
     DC_E_RECORDS = -6,       /* records do not match the rail mask exactly */
     DC_E_RANGE = -7,         /* a value is outside its allowed range */
     DC_E_UNAVAILABLE = -8,     /* the adapter does not provide this value (Python's None) */
-    DC_E_FAILED = -9           /* the operation failed; the dc_error passed says how */
+    DC_E_FAILED = -9,          /* the operation failed; the dc_error passed says how */
+    DC_E_CALLER = -10          /* a caller-supplied callback reported a failure; the operation was
+                                  abandoned before any write */
 };
 
 /* The ABI version this library implements (DC_ABI_VERSION of its header). */
@@ -852,7 +854,7 @@ DC_API dc_status DC_CALL dc_rail_write_locked(dc_gpu* gpu, const dc_rail_write_r
  * 17-word header; at most capacity are written and *count is the total. DC_E_FAILED carries the
  * Python exception in *error (DC_ERR_UNSUPPORTED = CurrentLimitUnsupported, DC_ERR_INVALID a
  * ValueError raised before the driver was touched, DC_ERR_TRANSIENT one raised after).
- * Every dc_cl_* entry (6a, 6b and B2) is guarded: no exception crosses the C boundary. A failure
+ * Every dc_cl_* entry (6a, 6b, B2 and B3) is guarded: no exception crosses the C boundary. A failure
  * inside the core (only allocation throws) returns DC_E_FAILED, with, where the entry takes a
  * dc_error, kind DC_ERR_TRANSIENT and the fixed text "native core: allocation failed";
  * dc_cl_max_words returns 0 then. */
@@ -994,17 +996,58 @@ DC_API dc_status DC_CALL dc_cl_policy_rows(dc_gpu* gpu, const dc_power_layout* l
                                            const dc_cl_statics* statics, int32_t has_board_mw, int64_t board_mw,
                                            dc_policy_row* rows, uint32_t capacity, uint32_t* count);
 /* What read_power_policies reads after the table, where Python calls read_power_limit_mw: set
- * *has_board_mw / *board_mw (0: None, as when it raised), then fill *statics (its size is set). It
- * runs under the recursive GPU lock and only once a table is in hand. */
-typedef void (DC_CALL *dc_cl_policy_inputs_fn)(void* context, int32_t* has_board_mw, int64_t* board_mw,
-                                               dc_cl_statics* statics);
+ * *has_board_mw / *board_mw (0: None, as when it raised), then fill *statics (its size is set), and
+ * return 0. A nonzero return says the caller's reading raised what Python lets escape (the
+ * caller keeps the exception): the call is then abandoned with DC_E_CALLER, before any row is
+ * built, anything stored or anything written, and nothing the callback wrote is read. It runs
+ * under the recursive GPU lock and only once a table is in hand. */
+typedef int32_t (DC_CALL *dc_cl_policy_inputs_fn)(void* context, int32_t* has_board_mw, int64_t* board_mw,
+                                                  dc_cl_statics* statics);
 /* GPU.read_power_policies: DC_OK with the rows, or DC_E_FAILED with Python's error text in
- * error->message (kind DC_ERR_INVALID; DC_ERR_TRANSIENT is the guard's allocation failure) and no rows. confirm is get_current_limits' callback; inputs
- * must not be NULL. A unique board candidate is stored as GPU._board_policy. */
+ * error->message (kind DC_ERR_INVALID; DC_ERR_TRANSIENT is the guard's allocation failure) and no
+ * rows, or DC_E_CALLER when inputs returned nonzero (no rows, nothing stored). confirm is
+ * get_current_limits' callback; inputs must not be NULL. A unique board candidate is stored as
+ * GPU._board_policy. */
 DC_API dc_status DC_CALL dc_cl_power_policies_read(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
                                                    dc_cl_policy_inputs_fn inputs, void* inputs_context,
                                                    dc_policy_row* rows, uint32_t capacity, uint32_t* count,
                                                    dc_error* error);
+
+/* ---- writing one policy and keeping the user's values (increment B3) ------------------------------ */
+/* nvbackend.GPU._write_policy_limit, set_power_policy (with _pin) and _reapply_power_policy_pins.
+ * Each returns DC_OK with *ok and the message NUL-terminated within `capacity` (*needed its full
+ * length plus the terminator), as dc_cl_set_current_limit_ma. A message can exceed any fixed
+ * buffer (a FAILED note joins one _write_policy_limit text per re-applied policy, each carrying
+ * driver error texts), and these calls write: never repeat one to fetch a longer text, read it
+ * with dc_cl_policy_message_get, which keeps the last of these messages in full. DC_E_RANGE is the
+ * IndexError Python lets escape (a record index outside a block; nothing written to *ok or the
+ * buffer). The pins are this handle's process state, never persisted: a driver restart forgets
+ * them. */
+/* _write_policy_limit(policy, value): the table is read, this policy's limit word changed, the SET
+ * selects only it, the table is read back; any failure replays the original record and reports
+ * whether its limit word read back. value is packed into the u32 limit word as ctypes does. */
+DC_API dc_status DC_CALL dc_cl_write_policy_limit(dc_gpu* gpu, int64_t policy, int64_t value, int32_t* ok,
+                                                  char* message, size_t capacity, size_t* needed);
+/* set_power_policy(policy, value, pin=, allow_named=): rows from GPU.read_power_policies (confirm
+ * and inputs as dc_cl_power_policies_read's; inputs must not be NULL; a unique board candidate is
+ * stored as GPU._board_policy; inputs returning nonzero is DC_E_CALLER: nothing written, pinned or
+ * stored, *ok, the buffer and dc_cl_policy_message_get's text untouched), then the refusals in Python's order, a named current policy through
+ * dc_cl_set_current_limit_ma's setter (with pin) when allow_named, else dc_cl_write_policy_limit and,
+ * on success with pin, the pin. whole is Python's `type(value) is int` (value then the int, clamped
+ * to int64: beyond it lies beyond every range); with whole 0 value is not read. */
+DC_API dc_status DC_CALL dc_cl_set_power_policy(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
+                                                dc_cl_policy_inputs_fn inputs, void* inputs_context, int64_t policy,
+                                                int32_t whole, int64_t value, int32_t pin, int32_t allow_named,
+                                                int32_t* ok, char* message, size_t capacity, size_t* needed);
+/* _reapply_power_policy_pins(board_mw): has_board_mw 0 is None. A unique mW policy whose request is
+ * board_mw is stored as GPU._board_policy and its pin dropped; every other pin the table disagrees
+ * with is written again (in policy order). *ok 1 with "" when nothing moved. */
+DC_API dc_status DC_CALL dc_cl_reapply_pins(dc_gpu* gpu, int32_t has_board_mw, int64_t board_mw, int32_t* ok,
+                                            char* message, size_t capacity, size_t* needed);
+/* The last message of the three calls above, in full, as dc_cl_error_get's text. The message is
+ * kept per handle, not per thread: a caller that writes from several threads serializes each
+ * call with its fetch (the Python binding holds its own lock around the pair). */
+DC_API dc_status DC_CALL dc_cl_policy_message_get(dc_gpu* gpu, char* out, size_t capacity, size_t* needed);
 
 /* Test seams. While a resolver is installed the hook uses a buffer patcher (a served D3DKMTEscape is a
  * trampoline that must never be overwritten) and the thunk body is reached through dc_hook_test_entry,

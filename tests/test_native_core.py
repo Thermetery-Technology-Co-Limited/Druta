@@ -37,6 +37,8 @@ def test_abi_version_and_status_text():
     library = native.load()
     assert library.dc_abi_version() == native.ABI_VERSION
     assert library.dc_status_text(native.DC_E_MASK) == b"requested_mask must select rail 0, rail 1, or both"
+    assert library.dc_status_text(native.DC_E_CALLER) == (
+        b"a caller-supplied callback reported a failure; nothing was written")
     assert library.dc_status_text(12345) == b"unknown status"
 
 
