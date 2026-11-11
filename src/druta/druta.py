@@ -3899,7 +3899,15 @@ class Druta:
         self._knob_sync = True
         try:
             value = dpg.get_value(f"sl_{key}")
-            value = self.knob_input_value(key, value)
+            if key == "mem":
+                # Whole displayed MHz make dragging useful without claiming a
+                # hardware grid. Typed input keeps the transport's precision.
+                value = self.memory_offset_value(value, whole_mhz=True)
+                bounds = self.knob_bounds(key)
+                if bounds is not None:
+                    value = max(bounds[0], min(bounds[1], value))
+            else:
+                value = self.knob_input_value(key, value)
             if key in ("icxnv", "icxfb"):
                 value = self._snap_icx_mv(value)
                 dpg.set_value(f"sl_{key}", value)
@@ -4186,7 +4194,7 @@ class Druta:
         self.autosave_before("core-offset")
         self.report(self.gpu.set_clock_offset(0, mhz))
 
-    def memory_offset_value(self, value):
+    def memory_offset_value(self, value, *, whole_mhz=False):
         """Snap user input to one representable driver unit, in the UI's scale."""
         scale = self.gpu.mem_offset_scale()[0]
         if isinstance(value, bool):
@@ -4194,6 +4202,8 @@ class Druta:
         value = float(value)
         if not math.isfinite(value) or not math.isfinite(scale) or scale <= 0:
             raise ValueError("memory offset and its scale must be finite")
+        if whole_mhz:
+            value = round(value)
         step = getattr(self.gpu, "memory_offset_step_units", lambda: 1)()
         if type(step) is not int or step <= 0:
             raise ValueError("memory offset step is unavailable")
@@ -4214,7 +4224,25 @@ class Druta:
         for tag in ("sl_mem", "in_mem"):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, value)
-        self.report(self.write_tuning_action("memory", value, lambda: self.gpu.set_clock_offset(2, value)))
+        result = self.write_tuning_action("memory", value, lambda: self.gpu.set_clock_offset(2, value))
+        if not result[0]:
+            try:
+                bounds = self.gpu.clock_offset_range(2)
+                scale = self.gpu.mem_offset_scale()[0]
+                if (not isinstance(bounds, (tuple, list)) or len(bounds) < 3
+                        or type(bounds[2]) is not int
+                        or type(scale) not in (int, float)
+                        or not math.isfinite(scale) or scale <= 0):
+                    raise ValueError("invalid configured memory offset")
+                actual = bounds[2] / scale
+                if not math.isfinite(actual):
+                    raise ValueError("invalid configured memory offset")
+                for tag in ("sl_mem", "in_mem"):
+                    if dpg.does_item_exist(tag):
+                        dpg.set_value(tag, actual)
+            except Exception as exc:
+                result = (False, f"{result[1]}; memory offset readback unavailable: {exc}; staged value retained")
+        self.report(result)
 
     def build_i2c_rail_row(self):
         """Expose identified telemetry separately from a verified offset path."""

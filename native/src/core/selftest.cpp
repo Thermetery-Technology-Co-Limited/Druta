@@ -9,6 +9,15 @@
 #include <string>
 
 #include "core/slot.h"
+#include "drutacore/drutacore.h"
+
+// ABI mask values must survive the signed-32-bit boundary on every compiler.
+// In particular, an MSVC enum must not truncate the lock bits or sign-extend energy.
+static_assert(DC_T_ENERGY_J == UINT64_C(0x80000000));
+static_assert(DC_T_VF_LOCKED == UINT64_C(0x100000000));
+static_assert(DC_T_VF_LOCK_MV == UINT64_C(0x200000000));
+static_assert(DC_T_CLK_LOCK == UINT64_C(0x400000000));
+static_assert((DC_T_ENERGY_J | DC_T_VF_LOCKED | DC_T_VF_LOCK_MV | DC_T_CLK_LOCK) == UINT64_C(0x780000000));
 
 namespace {
 int failures = 0;

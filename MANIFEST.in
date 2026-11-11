@@ -27,6 +27,9 @@ recursive-include native/src *.h *.cpp *.c
 recursive-include native/cmake *.cmake
 recursive-include native/tools *.py *.txt
 recursive-include native/fuzz *.cpp *.h *.sh
+include experiments/native-3070ti-live-validation-20261111.md
+include experiments/native-3070ti-live-evidence-20261111.json
+include experiments/native_*3070ti.py
 include i2c/*.toml i2c/*.md
 
 # Only these public measurements belong in a distribution.
