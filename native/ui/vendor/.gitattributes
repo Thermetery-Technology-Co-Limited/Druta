@@ -1,0 +1,5 @@
+# Preserve the exact upstream bytes recorded in SHA256SUMS.txt on Windows too.
+imgui/** -text -whitespace linguist-vendored
+implot/** -text -whitespace linguist-vendored
+SHA256SUMS.txt text eol=lf
+README.md text eol=lf
