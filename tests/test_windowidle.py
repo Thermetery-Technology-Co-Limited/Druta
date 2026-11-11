@@ -6,6 +6,7 @@ import queue
 import threading
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from druta import windowidle
 
@@ -19,6 +20,7 @@ class FakeWindows:
         self.ui_thread = threading.get_ident()
         self.windows = {12: (123, self.ui_thread, "Druta test", "Druta test")}
         self.iconic = set()
+        self.client_sizes = {12: (420, 240)}
         self.messages = queue.Queue()
         self.hotkeys = queue.Queue()
         self.events = []
@@ -45,6 +47,9 @@ class FakeWindows:
 
     def minimized(self, hwnd):
         return hwnd in self.iconic
+
+    def client_size(self, hwnd):
+        return self.client_sizes.get(hwnd)
 
     def minimize(self, hwnd):
         self.events.append(("minimize", hwnd))
@@ -131,6 +136,62 @@ class WindowIdleTests(unittest.TestCase):
         self.native.iconic.clear()
         self.assertFalse(controller.poll())
         self.assertFalse(controller.closed)
+
+    def test_owned_input_changes_activity_immediately_without_rendering(self):
+        controller = self.attach()
+        self.assertEqual(controller.activity_serial, 0)
+        for kind in (0x0100, 0x0102, 0x0200, 0x0201, 0x020A, 0x020E,
+                     0x0006, 0x0007, 0x0008, 0x001C, 0x010F):
+            before = controller.activity_serial
+            self.native.messages.put(message(kind, hwnd=12))
+            self.assertFalse(controller.poll())
+            self.assertEqual(controller.activity_serial, before + 1)
+
+    def test_background_noise_and_other_windows_do_not_extend_activity(self):
+        controller = self.attach()
+        for item in (message(0, hwnd=12), message(0x000F, hwnd=12),
+                     message(windowidle._WM_TIMER, hwnd=12, key=2),
+                     message(0x0200, hwnd=999), message(0x0100, hwnd=None),
+                     message(0x0005, hwnd=12)):
+            self.native.messages.put(item)
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 0)
+        self.assertEqual(len(self.native.dispatched), 6)
+
+    def test_synchronous_size_and_minimize_transitions_are_observed(self):
+        controller = self.attach()
+        self.native.client_sizes[12] = (620, 400)
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 1)
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 1)
+        self.native.iconic.add(12)
+        self.assertTrue(controller.poll())
+        self.assertEqual(controller.activity_serial, 2)
+        self.native.iconic.clear()
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 3)
+
+    def test_unknown_size_preserves_last_valid_state_until_recovery(self):
+        controller = self.attach()
+        self.native.client_sizes[12] = None
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 0)
+        self.native.client_sizes[12] = (420, 240)
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 0)
+        self.native.client_sizes[12] = (620, 400)
+        self.assertFalse(controller.poll())
+        self.assertEqual(controller.activity_serial, 1)
+
+    def test_foreign_reused_handle_cannot_supply_activity(self):
+        controller = self.attach()
+        self.native.windows[12] = (999, self.native.ui_thread, "Druta test", "Druta test")
+        self.native.messages.put(message(0x0200, hwnd=12))
+        self.assertFalse(controller.poll())
+        self.assertTrue(controller.closed)
+        self.assertEqual(controller.activity_serial, 0)
+        self.assertEqual(self.native.dispatched, [])
 
     def test_hotkey_restores_minimized_window_once_and_does_not_toggle(self):
         controller = self.attach()
@@ -222,6 +283,16 @@ class WindowIdleTests(unittest.TestCase):
         controller._hotkey.resume.set()
         controller.wait(0.2)
         self.assertNotIn(("wait", 0.2), self.native.events)
+
+    def test_native_wait_rounds_positive_deadlines_up_and_preserves_nonblocking_zero(self):
+        native = windowidle._Windows.__new__(windowidle._Windows)
+        wait = Mock(return_value=0)
+        native.user = SimpleNamespace(MsgWaitForMultipleObjectsEx=wait)
+        for seconds, milliseconds in ((0, 0), (-0.1, 0), (0.000001, 1),
+                                      (0.0009, 1), (0.001, 1), (0.0011, 2), (10, 1000)):
+            with self.subTest(seconds=seconds):
+                native.wait(seconds)
+                self.assertEqual(wait.call_args.args[2], milliseconds)
 
     def test_wrong_thread_cannot_operate_viewport(self):
         controller = self.attach()

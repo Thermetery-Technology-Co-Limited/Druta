@@ -2,9 +2,20 @@ How to use Druta:
 
 Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can also denote a “rapid shift (of expressions)", which is perfect for what this project is. 
 
-## Pausing display and monitoring
+## Display refresh and pausing
 
-Click **Pause display + monitoring**, or minimize the main window, to stop
+**Always refresh** is off by default each time Druta starts. While visible,
+the window renders normally during interaction, then drops to a target of
+10 FPS after 0.75 seconds without activity. Telemetry keeps its usual cadence.
+Routine panel updates follow visible pages, including detached pages; hidden
+panels do not trigger their extra diagnostic reads. Clock evidence and an
+explicitly armed timing capture still process incoming telemetry.
+
+Turn **Always refresh** on to keep normal rendering and telemetry running
+at all times, including while minimized. This is a per-window display option,
+not a saved tuning setting. **Pause display + monitoring** overrides it.
+
+Click **Pause display + monitoring**, or minimize with **Always refresh** off, to stop
 rendering, panel/layout updates, routine GPU telemetry and capability retries.
 Restore the existing window from the taskbar or press **Ctrl+Shift+F11** to
 resume. The shortcut restores only; holding it does not toggle the pause.

@@ -93,7 +93,7 @@ import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
                timingprofiles, devicerecovery, nct3933_board, i2c_cache, policynames,
-               vfheadroom, realclock, windowidle)
+               vfheadroom, realclock, windowidle, refreshpolicy)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, is_admin,
                         same_slot,
@@ -326,6 +326,9 @@ class Druta:
         self._stop = threading.Event()
         self._poll_wake = threading.Event()
         self._monitoring_paused = False
+        self._always_refresh = False
+        self._manual_display_pause = False
+        self._window_minimized = False
         self._monitoring_epoch = 0
         self._maintenance_snap = None
         self._window_idle = None
@@ -610,11 +613,32 @@ class Druta:
             return
         try:
             if idle.pause():
+                self._manual_display_pause = True
+                self._window_minimized = True
                 self.set_monitoring_paused(True)
             else:
                 self.log("Windows did not minimize the display; monitoring continues.", False)
         except Exception as exc:
             self.log(f"Could not pause the display: {exc}", False)
+
+    def set_always_refresh(self, _sender, enabled, _user_data=None):
+        """A per-window display preference, never a saved tuning request."""
+        self._always_refresh = bool(enabled)
+        self.update_display_pause(getattr(self, "_window_minimized", False))
+        self.note_ui_activity()
+
+    def update_display_pause(self, minimized):
+        self._window_minimized = bool(minimized)
+        if not minimized:
+            self._manual_display_pause = False
+        self.set_monitoring_paused(minimized and (
+            getattr(self, "_manual_display_pause", False)
+            or not getattr(self, "_always_refresh", False)))
+
+    def note_ui_activity(self):
+        pacer = getattr(self, "_frame_pacer", None)
+        if pacer is not None:
+            pacer.note_activity()
 
     def idle_maintenance(self):
         """Finish owned work; do not run ordinary panels or start new probes."""
@@ -1123,11 +1147,13 @@ class Druta:
             tracker = self._real = realclock.ClockEvidence()
         return tracker
 
-    def refresh_real_clocks(self, d, now=None):
+    def refresh_real_clocks(self, d, now=None, *, paint=True):
         """Feed each DISTINCT snapshot once (the UI redraws one reading about
         four times a second) and draw the measured line of every clock tile.
-        Calls only dpg.set_value / configure_item: it runs on apps with no
-        widget tree in the tests, and inside refresh_monitor."""
+        With paint=False, retain the evidence while the Monitor is hidden;
+        the next paint still updates its colour from the last painted state.
+        Calls only dpg.set_value / configure_item when painting: it runs on
+        apps with no widget tree in the tests, and inside refresh_monitor."""
         now = time.monotonic() if now is None else now
         fresh = d is not getattr(self, "_real_last_d", None)
         self._real_last_d = d
@@ -1135,7 +1161,7 @@ class Druta:
         stale = getattr(self, "_stale", False)
         tracker = self.real_tracker()
         colours = getattr(self, "_real_col", None)
-        if colours is None:
+        if paint and colours is None:
             colours = self._real_col = {}
         if rows is not None and fresh:
             self._real_fed_t = now
@@ -1161,6 +1187,8 @@ class Druta:
                                  abs(row["prog_khz"] / 1000.0 / scale - tile)
                                  < self.REAL_PAIR_TOL_MHZ,
                                  now, bin_mhz, graded=key == "core")
+            if not paint:
+                continue
             reading = tracker.last(key) if (row is not None or failed) else None
             line, colour, tok, tip = self.real_clock_view(key, reading, row, tile, d, stale,
                                                           failed)
@@ -1171,6 +1199,8 @@ class Druta:
                 dpg.configure_item(f"r_{key}", color=self.REAL_COL[colour])
             if key == "core":
                 token = tok
+        if not paint:
+            return
         base = f"P{d.get('pstate', '?')}"
         self._real_sub_base = base
         dpg.set_value("s_core", base + token)
@@ -6734,7 +6764,7 @@ class Druta:
                 pass
         return None
 
-    def refresh_power_request_status(self, requested, enforced=None, native=None):
+    def refresh_power_request_status(self, requested, enforced=None, native=None, *, paint=True):
         """Keep configured readback, NVML and native effective status distinct."""
         valid = type(requested) is int and 0 < requested < (1 << 32)
         feedback = getattr(self, "_power_request_feedback", None)
@@ -6745,7 +6775,7 @@ class Druta:
             if feedback is not None and feedback[1] == "unverified":
                 self.show_power_request_mw(requested)
                 self._power_request_feedback = feedback = None
-        if not dpg.does_item_exist("power_request_status"):
+        if not paint or not dpg.does_item_exist("power_request_status"):
             return
         text = (f"Configured request: {requested / 1000:g} W."
                 if valid else "Configured power request unverified: readback unavailable.")
@@ -8488,7 +8518,7 @@ class Druta:
                 if cells and dpg.does_item_exist(f"vlim_txt{r}"):
                     dpg.set_value(f"vlim_txt{r}", cells[1])
 
-    def refresh_control(self, d):
+    def refresh_control(self, d, *, periodic=False):
         requested = d.get("pl_requested_mw")
         if requested is None and "pl" in getattr(self, "_slider_ranges", {}):
             try:
@@ -8503,7 +8533,8 @@ class Druta:
         m_t = self.mem_fmt(d.get("mem_p0max"))[0]
         self.refresh_rail_live()
         self.refresh_current_limits()
-        self.refresh_power_policies()
+        if not periodic:
+            self.refresh_power_policies()
         # Vcore is formatted on its own, exactly as Tk did: it needs NVAPI AND a
         # non-zero rail reading, and the app runs fine with NVAPI down. Folding
         # it into the conditional made ONE missing field blank the whole
@@ -11732,6 +11763,21 @@ deliberately does not put behind a button."""
                              +
                              "Required hold maintenance and work already in progress continue.",
                              tag="pause_display_hint")
+            dpg.add_checkbox(label="Always refresh", tag="always_refresh",
+                             default_value=getattr(self, "_always_refresh", False),
+                             callback=self.set_always_refresh)
+            with dpg.theme() as refresh_theme:
+                with dpg.theme_component(dpg.mvCheckbox):
+                    # The normal frame colour matches the menu bar: make the
+                    # unchecked state visible as a toggle, not just menu text.
+                    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (65, 70, 80))
+                    dpg.add_theme_color(dpg.mvThemeCol_Border, (105, 115, 130))
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
+            dpg.bind_item_theme("always_refresh", refresh_theme)
+            with dpg.tooltip("always_refresh"):
+                dpg.add_text("Keep rendering and telemetry running, even when minimized.\n"
+                             "Off by default: idle at 10 FPS; minimizing pauses both.\n"
+                             "Pause display + monitoring overrides this option.")
             with dpg.menu(label="File"):
                 dpg.add_menu_item(label="Exit",
                                   callback=lambda s, a, u: dpg.stop_dearpygui())
@@ -14103,23 +14149,59 @@ deliberately does not put behind a button."""
             self._tim_p0_in = False
 
     # ---- drawing ---------------------------------------------------------- #
-    def refresh_timings(self, d):
+    def refresh_timing_capture(self, snap=None, av=None):
+        """Reconcile a completed capture without consuming its pending paint.
+
+        Run before queued UI actions as well as the panel tick: a hidden tab
+        must retire confirmed assignments before Apply can inspect them.
+        The helper's field_table cache supplies each new capture; a failed
+        lookup is retried on the next capture, not every visible or hidden tick.
+        """
+        if snap is None:
+            with self._tim_lock:
+                if not self._tim_new:
+                    return
+                snap, av = self._tim, self._tim_avail
+        if snap is None or not snap.ok:
+            return
+        gpu = self.gpu
+        generation = (getattr(self, "_gpu_gen", 0), getattr(self, "_ui_gen", 0))
+        previous = getattr(self, "_tim_model_capture", None)
+        if (previous is not None and previous[0] is snap and previous[1] is gpu
+                and previous[2:] == generation):
+            return
+        exe = getattr(av, "exe", None)
+        try:
+            self._tim_ft = timings.field_table(exe=exe) if exe else timings.field_table()
+        except Exception:                                       # noqa: BLE001
+            self._tim_ft = None
+        self.tw_reconcile_capture(snap, self._tim_ft)
+        self._tim_model_capture = (snap, gpu, *generation)
+
+    def refresh_timings(self, d, *, paint=True):
         """Called on the 4 Hz panel tick like every other panel. Cheap unless
         a capture landed: the tables are rebuilt only when there is new data,
-        never per tick."""
+        never per tick. A hidden panel still watches an armed P0 capture, but
+        leaves new captures pending until their tables can be drawn."""
+        self.refresh_timing_capture()
         if not dpg.does_item_exist("tim_cap"):
             return
+        mem, ps = d.get("mem"), d.get("pstate")
         with self._tim_lock:
-            new, snap, av = self._tim_new, self._tim, self._tim_avail
-            busy, caps = self._tim_busy, dict(self._tim_caps)
-            note, what = self._tim_note, self._tim_what
-            self._tim_new = False
+            busy = self._tim_busy
+            if paint:
+                new, snap, av = self._tim_new, self._tim, self._tim_avail
+                caps = dict(self._tim_caps)
+                note, what = self._tim_note, self._tim_what
+                self._tim_new = False
+        if not paint:
+            self.timings_p0_watch(mem, ps, busy)
+            return
         for tag in ("tim_cap", "tim_read"):
             dpg.configure_item(tag, enabled=not busy)
         dpg.set_value("tim_busy", f"  {what}" if busy else "")
         # The live clock, so the user can see WHEN a state worth capturing is
         # available - and, when it is not, that the tab is waiting for one.
-        mem, ps = d.get("mem"), d.get("pstate")
         if mem is not None and not busy:
             div = self.gpu.static.get("mem_div")
             true = f" ({mem / div:.0f} MHz true)" if div else ""
@@ -14228,13 +14310,8 @@ deliberately does not put behind a button."""
             "DECODED TIMINGS  ·  IDLE STATE — NOT PERFORMANCE-RELEVANT"))
         dpg.configure_item("tim_title", color=ACCENT if band else BAD)
 
-        # The write panel's field list comes from the same nvtune build that
-        # just answered, so it can only offer fields this binary actually knows.
-        try:
-            self._tim_ft = timings.field_table()
-        except Exception:                                       # noqa: BLE001
-            self._tim_ft = None
-        self.tw_reconcile_capture(snap, self._tim_ft)
+        # Explicit draws share the same model update as a hidden capture.
+        self.refresh_timing_capture(snap, av)
 
         # ---- header ------------------------------------------------------- #
         dpg.set_value("tim_ident",
@@ -14954,11 +15031,91 @@ deliberately does not put behind a button."""
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, self.s(4))
         dpg.bind_item_theme("panic_pnp_reset", panic_theme)
 
+    def page_is_visible(self, page):
+        """DPG child windows have no 'visible' state; follow their container.
+
+        Tab labels are all visible, including unselected tabs. A detached
+        page instead follows its floating window, independently of the selector.
+        """
+        if not dpg.does_item_exist(page) or not dpg.is_item_shown(page):
+            return False
+        tab = next((tab for tab, tag, _ in self.TEAR_PAGES if tag == page), None)
+        if tab is None:
+            return False
+        if self._parent_is(page, tab):
+            selected = dpg.get_value("tabs")
+            if selected != tab:
+                selected = dpg.get_item_alias(selected) if selected else None
+            return selected == tab and dpg.is_item_shown(tab)
+        parent = dpg.get_item_info(page).get("parent")
+        return bool(parent and dpg.does_item_exist(parent) and dpg.is_item_shown(parent)
+                    and dpg.get_item_state(parent).get("visible", True))
+
+    def refresh_periodic(self, d, snap_t):
+        """Process telemetry independently; paint visible panels when due.
+
+        Unchanged panels refresh once per second; fresh data and edits refresh sooner.
+        Explicit write/readback refreshes continue to use the normal helpers.
+        """
+        def run(name, callback):
+            try:
+                callback()
+                self.clear_once(name)
+                return True
+            except Exception as exc:
+                self.log_once(name, f"{name}: {exc}")
+                return False
+
+        now = time.monotonic()
+        keys = getattr(self, "_panel_refresh_keys", None)
+        if keys is None:
+            keys = self._panel_refresh_keys = {}
+        # Keep the snapshot alive as long as its identity appears in the cache.
+        if d is not getattr(self, "_panel_snapshot", None):
+            self._panel_snapshot = d
+            keys.clear()
+        revision = (getattr(self, "_gpu_gen", 0), getattr(self, "_ui_gen", 0),
+                    getattr(self, "_refresh_revision", 0), getattr(self, "_stale", False))
+
+        def due(page):
+            tag = "page_" + page
+            if not self.page_is_visible(tag):
+                keys.pop(page, None)  # Paint immediately when it becomes visible.
+                return False
+            old = keys.get(page)
+            return old is None or old[0] != revision or now - old[1] >= 1.0
+
+        # These are model services, including an explicitly armed P0 capture;
+        # hiding Monitor/Timings must not stop them.
+        run("real_clocks", lambda: self.refresh_real_clocks(d, paint=False))
+        def power_state():
+            requested = d.get("pl_requested_mw")
+            if self.power_request_carryover(requested):
+                self.sync_slider_ranges(self._xoc_bounds)
+            self.refresh_power_request_status(requested, paint=False)
+        run("power_readback", power_state)
+        for page, callback in (
+                ("monitor", lambda: self.refresh_monitor(d)),
+                ("control", lambda: self.refresh_control(d, periodic=True)),
+                ("advanced", self.refresh_power_policies)):
+            if due(page) and run(page, callback):
+                keys[page] = (revision, now)
+        paint_timings = due("timings")
+        if self.page_is_visible("page_timings") and getattr(self, "_tim_new", False):
+            paint_timings = True
+        if run("timings", lambda: self.refresh_timings(d, paint=paint_timings)) and paint_timings:
+            keys["timings"] = (revision, now)
+        run("power_notes", self.save_power_policy_names)
+        run("clock_gap", lambda: self.check_clock_gap(d))
+        run("headroom_watch", lambda: self.watch_hold_headroom(d, snap_t))
+
     def dispatch_callbacks(self):
         """Discard outgoing-card jobs when a callback rebuilds the widget tree."""
         generation = getattr(self, "_gpu_gen", None)
         ui_generation = getattr(self, "_ui_gen", 0)
         for job in dpg.get_callback_queue() or ():
+            self.note_ui_activity()
+            self._refresh_revision = getattr(self, "_refresh_revision", 0) + 1
             dpg.run_callbacks([job])
             if (getattr(self, "_gpu_gen", None) != generation
                     or getattr(self, "_ui_gen", 0) != ui_generation
@@ -15062,6 +15219,8 @@ deliberately does not put behind a button."""
 
         last = 0.0
         idle_last = 0.0
+        self._frame_pacer = refreshpolicy.FramePacer()
+        activity_serial = 0
         capture = None
         capture_pending = bool(getattr(self, "_ui_capture_dir", None) or getattr(self, "_ui_pstates_trial_dir", None))
         # try/finally, not a bare loop: the tail below is what stops this app
@@ -15119,13 +15278,26 @@ deliberately does not put behind a button."""
                 idle = self._window_idle
                 if idle is not None:
                     was_paused = getattr(self, "_monitoring_paused", False)
-                    paused = idle.poll()
+                    minimized = idle.poll()
                     if idle.closed:
                         break
-                    self.set_monitoring_paused(paused)
-                    if was_paused and not paused:
+                    self.update_display_pause(minimized)
+                    if idle.activity_serial != activity_serial:
+                        activity_serial = idle.activity_serial
+                        self.note_ui_activity()
+                    if was_paused and not self._monitoring_paused:
                         last = 0.0
+                        self._panel_refresh_keys = {}
+                        self.note_ui_activity()
                 if capture is None or not capture.active:
+                    # A completed capture may confirm staged edits. Reconcile
+                    # before a queued Apply can see them, even with Timings hidden.
+                    if getattr(self, "_tim_new", False):
+                        try:
+                            self.refresh_timing_capture()
+                            self.clear_once("timing_capture_model")
+                        except Exception as exc:
+                            self.log_once("timing_capture_model", f"Timing capture: {exc}")
                     self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
                     break
@@ -15178,24 +15350,20 @@ deliberately does not put behind a button."""
                     # readout, the only confirmation that an applied offset
                     # took effect.
                     if d:
-                        for name, fn in (("monitor", self.refresh_monitor),
-                                         ("control", self.refresh_control),
-                                         ("timings", self.refresh_timings)):
-                            try:
-                                fn(d)
-                                self.clear_once(name)
-                            except Exception as e:
-                                self.log_once(name, f"{name} panel: {e}")
-                        try:
-                            self.check_clock_gap(d)
-                            self.clear_once("clock_gap")
-                        except Exception as e:
-                            self.log_once("clock_gap", f"clock check: {e}")
-                        try:
-                            self.watch_hold_headroom(d, snap_t)
-                            self.clear_once("headroom_watch")
-                        except Exception as e:
-                            self.log_once("headroom_watch", f"headroom watch: {e}")
+                        self.refresh_periodic(d, snap_t)
+                if not capture_pending:
+                    delay = self._frame_pacer.delay(
+                        continuous=getattr(self, "_always_refresh", False))
+                    if delay > 0:
+                        # Maintenance has its own 250 ms deadline; an idle
+                        # frame must not turn four supervision ticks into 1.4 s.
+                        service_wait = max(0.001, last + 0.25 - time.perf_counter())
+                        wait = min(delay, service_wait, 0.1)
+                        if idle is not None:
+                            idle.wait(wait)
+                        else:
+                            self._stop.wait(wait)
+                        continue
                 # per FRAME, not on the 4 Hz panel tick: this readout is pinned
                 # to a corner of the plot's view, and at 4 Hz it would visibly
                 # lag behind the user's own pan. Guarded like the panels above
@@ -15216,6 +15384,11 @@ deliberately does not put behind a button."""
                 except Exception as e:
                     self.log_once("corner", f"plot corner: {e}")
                 dpg.render_dearpygui_frame()
+                self._frame_pacer.rendered()
+                # DPG can consume input in its own message pump after our poll.
+                # Keep a held drag responsive even when it produces no callback.
+                if any(dpg.is_mouse_button_down(button) for button in (0, 1, 2)):
+                    self.note_ui_activity()
                 if capture_pending:
                     capture_pending = False
                     from .registry_ui_trial import RegistryUiTrial

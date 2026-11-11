@@ -8,6 +8,7 @@ This module has no GPU/backend dependency and never recreates the viewport.
 """
 
 import ctypes
+import math
 import os
 import sys
 import threading
@@ -24,6 +25,11 @@ _WM_TIMER = 0x0113
 
 class _Point(ctypes.Structure):
     _fields_ = [("x", ctypes.c_int32), ("y", ctypes.c_int32)]
+
+
+class _Rect(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_int32), ("top", ctypes.c_int32),
+                ("right", ctypes.c_int32), ("bottom", ctypes.c_int32)]
 
 
 class _Message(ctypes.Structure):
@@ -49,6 +55,7 @@ class _Windows:
             "GetWindowThreadProcessId": ([hwnd, ctypes.POINTER(dword)], dword),
             "GetWindowTextW": ([hwnd, ctypes.c_wchar_p, ctypes.c_int], ctypes.c_int),
             "GetClassNameW": ([hwnd, ctypes.c_wchar_p, ctypes.c_int], ctypes.c_int),
+            "GetClientRect": ([hwnd, ctypes.POINTER(_Rect)], ctypes.c_int),
             "IsWindow": ([hwnd], ctypes.c_int),
             "IsIconic": ([hwnd], ctypes.c_int),
             "ShowWindow": ([hwnd, ctypes.c_int], ctypes.c_int),
@@ -103,6 +110,12 @@ class _Windows:
     def minimized(self, hwnd):
         return bool(self.user.IsIconic(hwnd))
 
+    def client_size(self, hwnd):
+        rect = _Rect()
+        if self.user.GetClientRect(hwnd, ctypes.byref(rect)):
+            return rect.right - rect.left, rect.bottom - rect.top
+        return None  # Unknown now; preserve the last valid size and retry next poll.
+
     def minimize(self, hwnd):
         self.user.ShowWindow(hwnd, 6)  # SW_MINIMIZE
 
@@ -145,8 +158,10 @@ class _Windows:
 
     def wait(self, timeout):
         # MWMO_INPUTAVAILABLE also wakes for messages previously seen by PeekMessage.
+        # A frame deadline can be less than 1 ms away. Rounding down would turn
+        # that positive wait into repeated nonblocking calls until the deadline.
         result = self.user.MsgWaitForMultipleObjectsEx(
-            0, None, max(0, min(1000, int(timeout * 1000))), 0x04FF, 0x0004)
+            0, None, max(0, min(1000, math.ceil(timeout * 1000))), 0x04FF, 0x0004)
         if result == 0xFFFFFFFF:
             raise ctypes.WinError(ctypes.get_last_error())
 
@@ -218,8 +233,14 @@ class WindowIdle:
     """Pause by minimizing; resume via taskbar or the global restore shortcut.
 
     attach(), pause(), poll(), wait(), and close() belong to the viewport's UI
-    thread. poll() returns whether drawing should remain paused. The caller must
-    also check closed and perform its normal application cleanup on termination.
+    thread. poll() returns whether the viewport is minimized. The caller decides
+    whether that pauses drawing/monitoring or keeps an Always refresh override.
+    It must also check closed and perform normal application cleanup on termination.
+
+    activity_serial increases for owned input/focus messages consumed by this
+    pump and for observed size/minimize transitions. DPG also pumps messages
+    during rendering, so callers supplement it with their DPG input callbacks
+    and active interaction state. It is an activity hint, not an input log.
     """
 
     @classmethod
@@ -245,6 +266,9 @@ class WindowIdle:
         self._window_class = window_class
         self.closed = False
         self._released = False
+        self.activity_serial = 0
+        self._last_client_size = native.client_size(hwnd)
+        self._last_minimized = native.minimized(hwnd)
         self._hotkey = _ResumeHotkey(native, thread_id)
         try:
             self._hotkey.start()
@@ -270,17 +294,42 @@ class WindowIdle:
         pid, tid, window_class, _title = self._native.identity(self._hwnd)
         return (pid, tid, window_class) == (self._process_id, self._thread_id, self._window_class)
 
+    @staticmethod
+    def _input_message(kind):
+        return (0x0100 <= kind <= 0x0109  # Key, character, system-key and Unicode input.
+                or 0x0200 <= kind <= 0x020E  # Client mouse buttons, motion and wheels.
+                or 0x00A0 <= kind <= 0x00AD  # Non-client mouse input, e.g. title bar.
+                or kind in (0x0006, 0x0007, 0x0008, 0x001C,  # Activation/focus.
+                            0x010D, 0x010E, 0x010F, 0x0286,  # IME composition/character.
+                            0x0215,  # Capture change ends a drag even without button-up.
+                            0x02A0, 0x02A1, 0x02A2, 0x02A3))  # Mouse hover/leave.
+
+    def _observe_window_state(self):
+        size = self._native.client_size(self._hwnd)
+        minimized = self._native.minimized(self._hwnd)
+        changed = minimized != self._last_minimized
+        if size is not None and size != self._last_client_size:
+            self._last_client_size = size
+            changed = True
+        self._last_minimized = minimized
+        if changed:
+            self.activity_serial += 1
+        return minimized
+
     def pause(self):
         self._check_thread()
         if self.closed or self._released or not self._owned():
             self.closed = True
             raise RuntimeError("Druta viewport is no longer available")
         self._native.minimize(self._hwnd)
-        return self._native.minimized(self._hwnd)
+        return self._observe_window_state()
 
     def poll(self):
         self._check_thread()
         if self.closed or self._released:
+            return False
+        if not self._owned():
+            self.closed = True
             return False
         # Bound work so a flood of posted messages cannot starve active-control
         # maintenance. Remaining messages make wait() return immediately.
@@ -291,6 +340,8 @@ class WindowIdle:
             if message.message == _WM_QUIT:
                 self.closed = True
                 return False
+            if message.hwnd == self._hwnd and self._input_message(message.message):
+                self.activity_serial += 1
             # DPG 2.3.1's move/resize timer directly renders in its WndProc.
             # KillTimer on WM_EXITSIZEMOVE does not remove an already queued
             # WM_TIMER. Drop only that exact owned-window, callback-free timer
@@ -307,7 +358,7 @@ class WindowIdle:
             self._hotkey.resume.clear()
             if self._native.minimized(self._hwnd):
                 self._native.restore(self._hwnd)
-        return self._native.minimized(self._hwnd)
+        return self._observe_window_state()
 
     def wait(self, timeout=0.1):
         self._check_thread()

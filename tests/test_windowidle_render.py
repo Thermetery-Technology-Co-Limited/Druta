@@ -80,6 +80,38 @@ class WindowIdleRenderTests(unittest.TestCase):
                         controller.wait(0.01)
                     raise AssertionError('Native window state did not converge')
 
+                controller.poll()
+                activity_before = controller.activity_serial
+                post_window(0x0200, 0, (30 << 16) | 30)  # Owned WM_MOUSEMOVE.
+                wake_started = time.monotonic()
+                controller.wait(0.8)
+                report['input_wait_seconds'] = time.monotonic() - wake_started
+                controller.poll()
+                report['owned_input_activity'] = controller.activity_serial > activity_before
+                if not report['owned_input_activity'] or report['input_wait_seconds'] >= 0.5:
+                    raise AssertionError('Queued input did not wake and signal activity')
+                activity_before = controller.activity_serial
+                post_window(0)
+                controller.poll()
+                if controller.activity_serial != activity_before:
+                    raise AssertionError('WM_NULL was treated as user activity')
+                report['noise_does_not_signal_activity'] = True
+
+                # SetWindowPos delivers size messages synchronously, so input
+                # queue inspection alone cannot detect this geometry change.
+                user.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+                                             ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                             ctypes.c_int, ctypes.c_uint]
+                user.SetWindowPos.restype = ctypes.c_int
+                activity_before = controller.activity_serial
+                if not user.SetWindowPos(hwnd, None, 0, 0, 460, 280, 0x0016):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                controller.poll()
+                report['synchronous_resize_activity'] = controller.activity_serial > activity_before
+                if not report['synchronous_resize_activity']:
+                    raise AssertionError('Synchronous resize did not signal activity')
+                dpg.render_dearpygui_frame()
+
                 if not controller.pause() or not user.IsIconic(hwnd):
                     raise AssertionError('Window did not become minimized')
                 before = dpg.get_frame_count()
@@ -188,6 +220,9 @@ class WindowIdleRenderTests(unittest.TestCase):
         report = json.loads(result.stdout)
         print(json.dumps(report))
         self.assertEqual(report["minimized"]["before"], report["minimized"]["after"])
+        self.assertTrue(report["owned_input_activity"])
+        self.assertTrue(report["noise_does_not_signal_activity"])
+        self.assertTrue(report["synchronous_resize_activity"])
         self.assertGreaterEqual(report["minimized"]["seconds"], 0.6)
         self.assertEqual(report["queued_resize_timer_frames"], 0)
         self.assertTrue(report["other_timer_dispatched"])
