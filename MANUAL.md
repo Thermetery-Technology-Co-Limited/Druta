@@ -2,6 +2,27 @@ How to use Druta:
 
 Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can also denote a “rapid shift (of expressions)", which is perfect for what this project is. 
 
+## Pausing display and monitoring
+
+Click **Pause display + monitoring**, or minimize the main window, to stop
+rendering, panel/layout updates, routine GPU telemetry and capability retries.
+Restore the existing window from the taskbar or press **Ctrl+Shift+F11** to
+resume. The shortcut restores only; holding it does not toggle the pause.
+If another application owns the shortcut, Druta reports that it is unavailable
+and taskbar restoration remains available.
+
+The last readings remain marked stale after restoration until a fresh read
+arrives. An in-flight read may finish when pause begins, but its old result
+cannot overwrite the resumed session's readings. Pause does not apply, undo,
+save or replay tuning settings.
+
+Work already in progress, including verification and its restoration, finishes
+through its existing lifecycle. Required maintenance for an active hold also
+continues: Hold Headroom reads only its live rail and checks its owned lock,
+instead of running the full telemetry scan. The window still processes restore,
+close and shutdown messages while paused. Without active maintenance or an
+in-flight operation, it issues no recurring GPU telemetry reads.
+
 ## Native backend preview
 
 The C++ core is opt-in while hardware validation continues. Start

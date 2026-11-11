@@ -93,7 +93,7 @@ import dearpygui.dearpygui as dpg
 
 from . import (gpuload, paths, profiles, startup, shuntmod, timings, timingwrite,
                timingprofiles, devicerecovery, nct3933_board, i2c_cache, policynames,
-               vfheadroom, realclock)
+               vfheadroom, realclock, windowidle)
 from .nvbackend import (GPU, EVENT_REASONS, PERF_DECREASE_BITS, VF_STEP_KHZ, VF_LOCK_DOMAIN,
                         VFP_POINTS, below_cap, is_admin,
                         same_slot,
@@ -324,6 +324,11 @@ class Druta:
         self._stale = False
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._poll_wake = threading.Event()
+        self._monitoring_paused = False
+        self._monitoring_epoch = 0
+        self._maintenance_snap = None
+        self._window_idle = None
         self._fonts = {}
         self._once = {}            # log-dedup state, keyed per source
         self._ctl_widgets = []     # write widgets greyed out while locked
@@ -582,11 +587,87 @@ class Druta:
         return True
 
     # ---- telemetry thread ------------------------------------------------- #
+    def set_monitoring_paused(self, paused):
+        """Invalidate in-flight observations at both edges of a display pause."""
+        with self._lock:
+            if bool(paused) == getattr(self, "_monitoring_paused", False):
+                return
+            self._monitoring_paused = bool(paused)
+            self._monitoring_epoch = getattr(self, "_monitoring_epoch", 0) + 1
+            self._maintenance_snap = None
+            if not paused:
+                # Keep the last values, but do not present them as a new read.
+                self._snap_err = "Waiting for fresh telemetry after pause"
+        wake = getattr(self, "_poll_wake", None)
+        if wake is not None:
+            wake.set()
+
+    def pause_display(self, *_args):
+        """Minimizing keeps taskbar restore available even without the hotkey."""
+        idle = getattr(self, "_window_idle", None)
+        if idle is None:
+            self.log("Display pause is unavailable for this window.", False)
+            return
+        try:
+            if idle.pause():
+                self.set_monitoring_paused(True)
+            else:
+                self.log("Windows did not minimize the display; monitoring continues.", False)
+        except Exception as exc:
+            self.log(f"Could not pause the display: {exc}", False)
+
+    def idle_maintenance(self):
+        """Finish owned work; do not run ordinary panels or start new probes."""
+        if (getattr(self, "_profile_pending", None)
+                or getattr(self, "_i2c_ui_pending", False)):
+            self.poll_profile_load()
+        gpu = self.headroom_backend()
+        if not gpu or not isinstance(gpu.hold_headroom_record(), dict):
+            return
+        with self._lock:
+            snapshot = getattr(self, "_maintenance_snap", None)
+            current = (self._gpu_gen, self.gpu,
+                       getattr(self, "_monitoring_epoch", 0))
+        data, stamp = ({}, None)
+        if snapshot is not None and snapshot[:3] == current:
+            data, stamp = snapshot[3:]
+        # This watcher also retries unfinished raises when no record exists.
+        # Only its owned-record path belongs in paused maintenance.
+        self.watch_hold_headroom(data, stamp)
+
     def poll_loop(self):
         while not self._stop.is_set():
+            wake = getattr(self, "_poll_wake", self._stop)
+            if wake is not self._stop:
+                wake.clear()
             with self._lock:
                 gen, gpu = self._gpu_gen, self.gpu
                 recovery_token = getattr(self, "_clock_capability_recovery_token", 0)
+                epoch = getattr(self, "_monitoring_epoch", 0)
+                paused = getattr(self, "_monitoring_paused", False)
+            if paused:
+                # A hardware hold can require live-voltage supervision. Read
+                # only that rail, using the same API as the ordinary watcher;
+                # never replace the full telemetry snapshot with sparse data.
+                data, stamp = {}, time.monotonic()
+                try:
+                    owned = (gpu.hold_headroom_record()
+                             if callable(getattr(type(gpu), "apply_hold_headroom", None))
+                             else None)
+                    if isinstance(owned, dict):
+                        data["nvvdd_live_mv"] = gpu.read_rail_live_mv(owned.get("rail", 0))
+                        stamp = time.monotonic()
+                except Exception:
+                    # An unreadable live value is unknown, not zero. The
+                    # existing watcher still checks ownership and restoration.
+                    data = {}
+                with self._lock:
+                    if (gen == self._gpu_gen and gpu is self.gpu
+                            and epoch == getattr(self, "_monitoring_epoch", 0)):
+                        self._maintenance_snap = (gen, gpu, epoch, data, stamp)
+                if not self._stop.is_set():
+                    wake.wait(1.0)
+                continue
             try:
                 d = gpu.read()
                 with self._lock:
@@ -594,13 +675,15 @@ class Druta:
                     # display that card's measurements under the new card's
                     # name, or decode them with the new memory divisor.
                     if (gen == self._gpu_gen and gpu is self.gpu
-                            and not self._rebuilding):
+                            and not self._rebuilding
+                            and epoch == getattr(self, "_monitoring_epoch", 0)):
                         self._snap, self._snap_err = d, None
                         self._snap_t = time.monotonic()
             except Exception as e:
                 with self._lock:
                     if (gen == self._gpu_gen and gpu is self.gpu
-                            and not self._rebuilding):
+                            and not self._rebuilding
+                            and epoch == getattr(self, "_monitoring_epoch", 0)):
                         self._snap_err = str(e)
             # Startup capability probes can lose a transiently unavailable
             # XBAR/SYS domain.  The backend bounds this to its scheduled,
@@ -608,7 +691,8 @@ class Druta:
             # change for the UI thread.  It must never use the manual refresh,
             # which also rearms that bounded budget.
             retry = getattr(gpu, "retry_clock_capabilities", None)
-            if retry is not None:
+            if (retry is not None and not getattr(self, "_monitoring_paused", False)
+                    and epoch == getattr(self, "_monitoring_epoch", 0)):
                 try:
                     recovered = bool(retry())
                 except Exception:
@@ -616,10 +700,12 @@ class Druta:
                 if recovered:
                     with self._lock:
                         if (gen == self._gpu_gen and gpu is self.gpu
+                                and epoch == getattr(self, "_monitoring_epoch", 0)
                                 and recovery_token == getattr(
                                     self, "_clock_capability_recovery_token", 0)):
                             self._clock_capability_recovery = (gen, gpu, recovery_token)
-            self._stop.wait(1.0)
+            if not self._stop.is_set():
+                wake.wait(1.0)
 
     # ---- fonts ------------------------------------------------------------ #
     def load_fonts(self):
@@ -11635,6 +11721,17 @@ deliberately does not put behind a button."""
         gmin = st.get("gfx_min", 300)
         gmax = st.get("gfx_max", 2160)
         with dpg.viewport_menu_bar(tag="menubar"):
+            idle = getattr(self, "_window_idle", None)
+            dpg.add_button(label="Pause display + monitoring", tag="pause_display",
+                           callback=self.pause_display, enabled=idle is not None)
+            with dpg.tooltip("pause_display"):
+                dpg.add_text("Minimize to stop drawing and routine telemetry reads.\n"
+                             + ("Restore from the taskbar; Ctrl+Shift+F11 is unavailable.\n"
+                                if idle is not None and not idle.hotkey_available else
+                                "Restore from the taskbar or press Ctrl+Shift+F11.\n")
+                             +
+                             "Required hold maintenance and work already in progress continue.",
+                             tag="pause_display_hint")
             with dpg.menu(label="File"):
                 dpg.add_menu_item(label="Exit",
                                   callback=lambda s, a, u: dpg.stop_dearpygui())
@@ -14936,6 +15033,10 @@ deliberately does not put behind a button."""
         dpg.set_viewport_resize_callback(self.relayout)
         self.relayout()
 
+        self._window_idle = None
+        if not hasattr(self, "_poll_wake"):
+            self._poll_wake = threading.Event()
+
         threading.Thread(target=self.poll_loop, daemon=True,
                          name="Druta-poll").start()
         self.sync_lock_ui()          # the gate must LOOK like whatever it is
@@ -14960,6 +15061,7 @@ deliberately does not put behind a button."""
         self.timings_capture()
 
         last = 0.0
+        idle_last = 0.0
         capture = None
         capture_pending = bool(getattr(self, "_ui_capture_dir", None) or getattr(self, "_ui_pstates_trial_dir", None))
         # try/finally, not a bare loop: the tail below is what stops this app
@@ -14969,6 +15071,22 @@ deliberately does not put behind a button."""
         # skip it. Per-call guards inside the loop keep the app alive; this
         # keeps the promise even when one of them is missing.
         try:
+            # Keep the native message/hotkey lifetime inside the same cleanup
+            # boundary as callbacks and active-control ownership.
+            try:
+                self._window_idle = windowidle.WindowIdle.attach(title)
+                if not self._window_idle.hotkey_available:
+                    self.log("Restore shortcut unavailable; restore from the taskbar. "
+                             + self._window_idle.hotkey_error, False)
+            except Exception as exc:
+                self.log(f"Display pause unavailable: {exc}", False)
+            if dpg.does_item_exist("pause_display"):
+                dpg.configure_item("pause_display", enabled=self._window_idle is not None)
+                if self._window_idle is not None and not self._window_idle.hotkey_available:
+                    dpg.set_value("pause_display_hint",
+                                  "Minimize to stop drawing and routine telemetry reads.\n"
+                                  "Restore from the taskbar; Ctrl+Shift+F11 is unavailable.\n"
+                                  "Required hold maintenance and work already in progress continue.")
             # A startup profile may itself start verification. Protect that
             # dispatch with the same restore-before-exit finally as callbacks.
             if getattr(self, "_ui_capture_dir", None) and self._startup_request:
@@ -14998,12 +15116,32 @@ deliberately does not put behind a button."""
             while dpg.is_dearpygui_running():
                 if self._startup_manager and self._startup_manager.ending:
                     break
-                for diagnostic in gpu_backend.drain_diagnostics():
-                    self.log(diagnostic, False)
+                idle = self._window_idle
+                if idle is not None:
+                    was_paused = getattr(self, "_monitoring_paused", False)
+                    paused = idle.poll()
+                    if idle.closed:
+                        break
+                    self.set_monitoring_paused(paused)
+                    if was_paused and not paused:
+                        last = 0.0
                 if capture is None or not capture.active:
                     self.dispatch_callbacks()
                 if not dpg.is_dearpygui_running():
                     break
+                if getattr(self, "_monitoring_paused", False):
+                    now = time.perf_counter()
+                    if now - idle_last >= 0.25:
+                        idle_last = now
+                        try:
+                            self.idle_maintenance()
+                            self.clear_once("idle_maintenance")
+                        except Exception as exc:
+                            self.log_once("idle_maintenance", f"Paused maintenance: {exc}")
+                    idle.wait(0.1)
+                    continue
+                for diagnostic in gpu_backend.drain_diagnostics():
+                    self.log(diagnostic, False)
                 if capture is not None and capture.active:
                     try:
                         self.relayout()
@@ -15112,6 +15250,7 @@ deliberately does not put behind a button."""
             if capture is not None and capture.active:
                 capture._finish(RuntimeError("Capture interrupted before completion"))
             self._stop.set()
+            self._poll_wake.set()
             try:
                 self.save_power_policy_names(force=True)
             except Exception:                                           # noqa: BLE001
@@ -15126,7 +15265,11 @@ deliberately does not put behind a button."""
                     self.release_on_exit()
                 finally:
                     self._dpg_ready = False
-                    dpg.destroy_context()
+                    try:
+                        if self._window_idle is not None:
+                            self._window_idle.close()
+                    finally:
+                        dpg.destroy_context()
 
 
 def _tell(text):
