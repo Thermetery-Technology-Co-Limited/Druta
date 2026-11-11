@@ -105,6 +105,11 @@ class DistributionAssets(unittest.TestCase):
         self.assertTrue((source / "RELEASE-NOTES-1.9.0b.md").is_file())
         evidence = Path("experiments/ui-recovery-result-qualified-20261029.json")
         self.assertEqual((source / evidence).read_bytes(), (ROOT / evidence).read_bytes())
+        native_evidence = [Path("experiments/native-3070ti-live-validation-20261111.md"),
+                           Path("experiments/native-3070ti-live-evidence-20261111.json")]
+        native_evidence += [path.relative_to(ROOT) for path in (ROOT / "experiments").glob("native_*3070ti.py")]
+        for evidence in native_evidence:
+            self.assertEqual((source / evidence).read_bytes(), (ROOT / evidence).read_bytes(), str(evidence))
         self.run_build(source, "build_wheel")
         self.assert_wheel_assets(self.direct_wheel)
 

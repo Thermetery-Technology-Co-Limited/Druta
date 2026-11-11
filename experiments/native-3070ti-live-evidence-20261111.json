@@ -1,0 +1,640 @@
+{
+  "schema": 1,
+  "date": "2026-11-11",
+  "scope": "Single RTX 3070 Ti / Windows10x64 / driver595.97 request qualification; no load/performance sign-off.",
+  "baseline_commit": "015605d948e5caa6589700fe5f3235a8f0f3d395",
+  "production_fix_commit": "770ec4d",
+  "native_abi": 2,
+  "tested_dll_sha256": "4295cca1b2a13623a64b1298b50b2a603280e96d22954a09f1ef4cc4769bf860",
+  "raw_evidence_distribution": "Retained locally; raw packets, saved profiles, host paths and build products are not committed.",
+  "artifacts": [
+    {
+      "local_relative_path": "validation-20261111/native-live-smoke.json",
+      "bytes": 2724936,
+      "sha256": "d78500b5932cca7e21694345645ea260e7cbeaee46b9e3b7b601730ae21a3c96",
+      "interpretation": "Four ordinary write/readback/restores passed; interrupted soak retained separately.",
+      "original_status": "aborted",
+      "operations": [
+        {
+          "kind": "core",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "memory",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "power",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "fan",
+          "status": "passed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/native-soak.json",
+      "bytes": 2068230,
+      "sha256": "bff99bc6b3a71373468a7f103c8c2e236c7f1d2929974cc4a14438e2265f1a20",
+      "interpretation": "Replacement 180-second idle polling soak completed.",
+      "original_status": "completed",
+      "operations": []
+    },
+    {
+      "local_relative_path": "validation-20261111/restoration-audit.json",
+      "bytes": 32698,
+      "sha256": "156d17fc3ed442f90547e6322b99d412f0c31b85d06a7d7d1765cb71689f3f3a",
+      "interpretation": "Independent initial ordinary-control restoration audit."
+    },
+    {
+      "local_relative_path": "validation-20261111/memory-slider/callback-after-fix.json",
+      "bytes": 190219,
+      "sha256": "d8686d474bcd3316acd1075ebdac8a62ce9aef796bb42c88c71b7a8f46f9a5a2",
+      "interpretation": "Four real memory-row callback cases behaved as expected and restored baseline.",
+      "original_status": "completed",
+      "operations": [
+        {},
+        {},
+        {},
+        {}
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/memory-slider/restoration-audit.json",
+      "bytes": 7192,
+      "sha256": "74973bdafaad2fa4e610473ad060b037d5c3cefa568f5de62e2e507ede7d6119",
+      "interpretation": "Independent memory callback restoration audit.",
+      "operations": [
+        {
+          "index": 1,
+          "restoration_verified": true
+        },
+        {
+          "index": 2,
+          "restoration_verified": true
+        },
+        {
+          "index": 3,
+          "restoration_verified": true
+        },
+        {
+          "index": 4,
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/advanced-inventory.json",
+      "bytes": 72208,
+      "sha256": "c029e9860f8af96e758486a3f6f556fa1f3728dee5dac816af804e74df66babc",
+      "interpretation": "Read-only per-control capability inventory; unavailable reads are not write qualification.",
+      "original_status": "completed_inventory"
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/manual-profile.json",
+      "bytes": 189201,
+      "sha256": "af89c4badf80bfdbbec219a7cce5bd21760a648c6a1215ae44e22282d21bb1c3",
+      "interpretation": "Manual scoped save/load/Undo pass.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "name": "change",
+          "status": "passed"
+        },
+        {
+          "name": "load",
+          "status": "passed"
+        },
+        {
+          "name": "undo_load",
+          "status": "passed"
+        },
+        {
+          "name": "undo_undo",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/profile-i2c-soak-v2.json",
+      "bytes": 3491595,
+      "sha256": "0b4e155097ccb260ced91fa02bed4712eee35e29a2673ab753ee5ccf508e25bf",
+      "interpretation": "180 seconds, 326 samples, nine profile operations, scoped discovery, exact request restore.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "name": "change",
+          "status": "passed"
+        },
+        {
+          "name": "load",
+          "status": "passed"
+        },
+        {
+          "name": "undo_load",
+          "status": "passed"
+        },
+        {
+          "name": "undo_undo",
+          "status": "passed"
+        },
+        {
+          "name": "concurrent_profile_cycle",
+          "status": "passed"
+        },
+        {
+          "name": "concurrent_profile_cycle",
+          "status": "passed"
+        },
+        {
+          "name": "concurrent_profile_cycle",
+          "status": "passed"
+        },
+        {
+          "name": "concurrent_profile_cycle",
+          "status": "passed"
+        },
+        {
+          "name": "concurrent_profile_cycle",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/clocks-live.json",
+      "bytes": 4739475,
+      "sha256": "6c13815077b99c8139cc3367b3d9a38b956d04ce3c2dfe6e8b941726fc3606f4",
+      "interpretation": "Five private clock offsets, one V/F delta, point lock and frequency lock pass.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "domain",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "domain",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "domain",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "domain",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "domain",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "vf_delta",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "vf_lock",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "frequency_lock",
+          "status": "passed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/limits-live.json",
+      "bytes": 31330163,
+      "sha256": "79c50f31dcf75509227e045b4f15bcfdf0b2b15fcbcdb4e48a607d6c0368c6ae",
+      "interpretation": "Boost, current, three policies and REL pass; initial rail-offset eligibility skips superseded.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "boost",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "current",
+          "index": 13,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 1,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 3,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 8,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "rail_limit",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "nvvdd",
+          "index": null,
+          "status": "skipped"
+        },
+        {
+          "kind": "msvdd",
+          "index": null,
+          "status": "skipped"
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/rail-offsets-live.json",
+      "bytes": 10891115,
+      "sha256": "83767d5dc88e718f34c4641b2aed5d0b0d224bdac3a31b2a850f84591a92d4c3",
+      "interpretation": "Original strict failure retained: NVVDD derived-coordinate difference and MSVDD refusal.",
+      "original_status": "completed_with_failures",
+      "operations": [
+        {
+          "kind": "nvvdd",
+          "index": null,
+          "status": "failed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "msvdd",
+          "index": null,
+          "status": "failed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/rail-offset-audit.json",
+      "bytes": 5432,
+      "sha256": "392c7fdded0457b787c859f6d204fc0bab80ab7f32cbf115a56c4b6389a74d7d",
+      "interpretation": "NVVDD selected request/restoration pass; MSVDD driver refusal without request change."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/msvdd_python_check.json",
+      "bytes": 333008,
+      "sha256": "3c7b5042f3e53ecdcff7a0be99b3661ad1de3b14a8a5b5f7b2b6d24607644b73",
+      "interpretation": "Python returns identical MSVDD status -1, unchanged request and exact restoration.",
+      "original_status": "completed"
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/advanced-live.json",
+      "bytes": 1500629,
+      "sha256": "a7c8a57a1e23dcfe7c2b8a7d3cb03494f30a540c1bf14799e25f7176cd323485",
+      "interpretation": "All 13 runtime-controller request/lifecycle trials pass with restoration.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "elpg",
+          "name": "elpg_disable",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "elcg",
+          "name": "elcg_disable",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "blcg",
+          "name": "blcg_disable",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "slcg",
+          "name": "slcg_disable",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "individual",
+          "name": "individual_gr",
+          "index": 0,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "individual",
+          "name": "individual_ms",
+          "index": 4,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "vf_policies",
+          "name": "vf_monotonicity",
+          "index": "clock_vf.monotonicity",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "vf_policies",
+          "name": "vf_smoothening",
+          "index": "clock_vf.smoothening",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "voltage_request_gate",
+          "name": "voltage_request_gate",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "voltage_switch_delay",
+          "name": "switch_delay_0",
+          "index": 0,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "voltage_switch_delay",
+          "name": "switch_delay_1",
+          "index": 1,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "elcg",
+          "name": "elcg_enable",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "slcg",
+          "name": "slcg_enable",
+          "index": null,
+          "status": "passed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/headroom-live.json",
+      "bytes": 6615706,
+      "sha256": "9aafbaddce794288403026e973b6e96f4cbd5bb166dcc99954fe5cacaf1123ba",
+      "interpretation": "Original conservative failure retained due to derived non-GPU V/F coordinate.",
+      "original_status": "completed_with_failures",
+      "operations": [
+        {
+          "kind": "native_hold_headroom",
+          "status": "restoration_failed",
+          "restoration_verified": false
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/headroom-audit.json",
+      "bytes": 6953,
+      "sha256": "8a0bc930454cb8bd816840789a90dd2257fe1fe40066333eed3cb8cafff8df0e",
+      "interpretation": "Independent audit: all 29 request/ownership witnesses restored; derived row difference persists."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/headroom-marker-cleanup.json",
+      "bytes": 886533,
+      "sha256": "8a95e5c0929d6c29db216fb44906f2ba9e517d8584f12bccb3baa2bcdea61713",
+      "interpretation": "Exact marker archived and removed only after fresh restored-request and dead-owner checks."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/remaining-rails-live.json",
+      "bytes": 15451311,
+      "sha256": "b1b93a2a4d7d579dc6c05e3e78eb50580088ca76e66f540c9b2f5523e5c674d9",
+      "interpretation": "ALT-reliability, overvoltage and VMIN each pass and restore.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "rail_limit",
+          "index": "alt_reliability",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "rail_limit",
+          "index": "overvoltage",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "rail_limit",
+          "index": "vmin",
+          "status": "passed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/remaining-policies-live.json",
+      "bytes": 56481090,
+      "sha256": "ae89dc0487dcbc6b7048a75bffba6d3f29ad304a3f122f5aebfb4539ec0a611d",
+      "interpretation": "All 12 remaining eligible independent policy requests pass and restore.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "policy",
+          "index": 4,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 5,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 6,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 7,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 9,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 10,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 12,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 14,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 15,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 16,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 17,
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "policy",
+          "index": 18,
+          "status": "passed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/full-profile-reset-live.json",
+      "bytes": 3178500,
+      "sha256": "2292f044c7c93333164305be2207f2d986d31969f410131d80f37422dffb6d50",
+      "interpretation": "Full profile load/Undo and four-control staged Reset controls both pass and restore.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "named_profile_load_undo",
+          "status": "passed",
+          "restoration_verified": true
+        },
+        {
+          "kind": "reset_all",
+          "status": "passed",
+          "restoration_verified": true
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/full-profile-reset-audit.json",
+      "bytes": 6977,
+      "sha256": "0f477d8fdbb0b951ce964f687aaed2bea4b9cd113a556e3dd7e43db3d4c31fa6",
+      "interpretation": "Independent restoration audit: 19 configured sections plus entire Pstates20 equal.",
+      "original_status": "completed",
+      "operations": [
+        {
+          "kind": "named_profile_load_undo"
+        },
+        {
+          "kind": "reset_all"
+        }
+      ]
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/compare-final/comparison.json",
+      "bytes": 433,
+      "sha256": "7df5bc4acc642c1ccceb6e1505d43b279e31fd9d892091d7c07365f72142f2dc",
+      "interpretation": "Both read-only captures complete with zero errors; differing live fields reviewed."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/final-controls-audit.json",
+      "bytes": 8775,
+      "sha256": "d606664d8c30da8faaeeecd32e8354820ea4a4ee9eaee64bc2e0c9e9a80476cf",
+      "interpretation": "Independent remaining-rail/policy restoration and final backend-comparison audit."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/pr-regression-tests.log",
+      "bytes": 652,
+      "sha256": "ace0f94d51a426d5be24afc6f349c682427f17d3b1ace5fe0530318b423be955",
+      "interpretation": "72 pre-PR regression tests passed."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/pr-packaging-final.log",
+      "bytes": 408,
+      "sha256": "185f006508ae9283cb0e7749acd5d5e16b178a31121080e7d172a9fb2b168135",
+      "interpretation": "Nine final packaging tests passed with exact source/harness inclusion."
+    },
+    {
+      "local_relative_path": "validation-20261111/remaining-controls/two-native-windows.json",
+      "bytes": 693,
+      "sha256": "ddc0ddc17982a56f3b7f265ed219cbebc67d90d4cffca0570c08270bb492c8f0",
+      "interpretation": "Two native EXE windows responsive and loaded the qualified packaged DLL; no simultaneous tuning tested."
+    }
+  ],
+  "published_harnesses": [
+    {
+      "path": "experiments/native_advanced_inventory_3070ti.py",
+      "sha256": "7bf849f22980baaee09e6eee2c50ae11cdbb75503ebe0aa550d161514c8fe8f9"
+    },
+    {
+      "path": "experiments/native_advanced_live_3070ti.py",
+      "sha256": "fca5c6610a7d0d32dd7c6702584a24d37047ebe62aa255de63761a9d3a2177bd"
+    },
+    {
+      "path": "experiments/native_clock_live_3070ti.py",
+      "sha256": "f37ef1610d3b9f067ba59a61dc3b1c68bdb547d6430038fd7da2f100212b831b"
+    },
+    {
+      "path": "experiments/native_full_profile_reset_live_3070ti.py",
+      "sha256": "5c4cba8ef25ef67f136e426284ce6aed2eb963d1c9ef72e8a79a1fcd3f547dc2"
+    },
+    {
+      "path": "experiments/native_headroom_live_3070ti.py",
+      "sha256": "5db1524b9ecd3b02a5b1f9186ed0d8746852f906cee48633141475beda866853"
+    },
+    {
+      "path": "experiments/native_limits_live_3070ti.py",
+      "sha256": "3d94b8e290a2f5c9c7ece0034770508093ae7f69a14439c1f4bc729efe827098"
+    },
+    {
+      "path": "experiments/native_live_smoke_3070ti.py",
+      "sha256": "8bbf49d3066131724164577db08e6a29c5bb215a35e4e957924766b9a77ec6cd"
+    },
+    {
+      "path": "experiments/native_profile_live_3070ti.py",
+      "sha256": "c80676b6e4ae72d9ce8694ae4a625ea7a144cbda3013554c3c67dbb97dfaf3ad"
+    }
+  ],
+  "harness_provenance": "Some CLI coverage, safety and portability changes followed the recorded run. Artifacts retain their original status; source/data audits explain derived-read differences. No claim of a byte-identical replay environment is made."
+}
