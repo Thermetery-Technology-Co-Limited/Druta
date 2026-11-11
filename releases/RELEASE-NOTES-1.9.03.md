@@ -26,9 +26,9 @@ maximum. At 400 W the driver derived a 378 A core-current limit against a
 re-applied a 350 A pin on a repeated board request, and refused a new
 360.001 A current request. Each trial restored the full captured 350 W initial
 client/native state. A driver upgrade was not needed on this configuration.
-See the [mapping and validation record](experiments/turing-tu104-live-power-20261028.md).
+See the [mapping and validation record](../experiments/turing-tu104-live-power-20261028.md).
 
-An [offline review of the supplied 431.60 and 621.01 binaries](experiments/turing-driver-abi-review-20261028.md)
+An [offline review of the supplied 431.60 and 621.01 binaries](../experiments/turing-driver-abi-review-20261028.md)
 records their differing command/packet geometries. It is not a runtime driver
 qualification. The 431.60 wrapper's smaller `26xx` packets require separate
 mapping work; unknown geometry is refused before a live power SET. No display

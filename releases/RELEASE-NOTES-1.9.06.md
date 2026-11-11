@@ -103,9 +103,9 @@ or any increase in actual power draw; nothing was measured with a power meter.
 The inherited 1999 W XOC range remains a software request envelope, not a
 measured Pascal physical ceiling.
 
-Evidence: [report](experiments/pascal-gp106-live-power-20261102.md),
-[sanitized data](experiments/pascal-gp106-live-power-20261102.json) and
-[validation script](experiments/validate_pascal_live_power.py).
+Evidence: [report](../experiments/pascal-gp106-live-power-20261102.md),
+[sanitized data](../experiments/pascal-gp106-live-power-20261102.json) and
+[validation script](../experiments/validate_pascal_live_power.py).
 
 ## Unchanged
 
