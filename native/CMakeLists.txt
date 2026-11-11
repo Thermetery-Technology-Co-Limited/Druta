@@ -39,6 +39,7 @@ option(DRUTA_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitize
 option(DRUTA_WERROR "Treat warnings as errors" ON)
 option(DRUTA_FUZZ "Build the libFuzzer targets (clang only)" OFF)
 option(DRUTA_IMPORT_AUDIT "MinGW: fail the build when a Windows binary imports a DLL or function outside tools/xp-imports.txt (documented for XP) or its PE header asks for a newer Windows" ON)
+option(DRUTA_BUILD_UI "Build the Windows native UI preview (independent of the core XP target)" OFF)
 
 add_library(druta_options INTERFACE)
 if(MSVC)
@@ -227,6 +228,11 @@ if(MINGW)
   target_compile_definitions(druta-runtime-imports-test PRIVATE DRUTA_RUNTIME_IMPORTS_TEST=1)
   target_link_libraries(druta-runtime-imports-test PRIVATE druta_options)
   druta_import_audit(druta-runtime-imports-test)
+endif()
+
+# ---- optional native desktop preview (separate Windows UI requirements) ---------------------
+if(DRUTA_BUILD_UI)
+  add_subdirectory(ui)
 endif()
 
 # ---- fuzzers (clang + libFuzzer; run native/fuzz/run.sh) --------------------------------------
