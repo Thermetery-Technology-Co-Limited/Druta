@@ -127,7 +127,8 @@ class NativeBundle(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # native_binary returns resolved paths; Windows TEMP may use an 8.3 alias.
+        self.root = Path(temporary.name).resolve()
 
     def dll(self, relative, bits):
         path = self.root / relative

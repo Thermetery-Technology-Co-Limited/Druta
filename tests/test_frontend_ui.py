@@ -57,6 +57,67 @@ def test_power_apply_reads_enforced_limit_and_updates_status(kind):
 
 
 @pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("input_kind", ["drag", "typed"])
+@pytest.mark.parametrize("driver_behavior", ["accept", "quantize", "refuse"])
+@pytest.mark.parametrize("sign", [1, -1])
+def test_memory_apply_preserves_undo_and_mirrors_actual_on_failure(kind, input_kind, driver_behavior, sign):
+    class QuantizedOffset(dict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, int(value / 2) * 2 if key == "off" else value)
+
+    def flow(session):
+        app, gpu = session.app, session.gpu
+        clock = session.driver.parts["clock"]
+        scale = gpu.mem_offset_scale()[0]
+        assert scale == 8
+        original = sign * 96
+        clock.offsets[2]["off"] = original
+        if driver_behavior == "quantize":
+            clock.offsets[2] = QuantizedOffset(clock.offsets[2])
+        elif driver_behavior == "refuse":
+            clock.nvml_set_status = 4
+        app._slider_ranges["mem"] = druta.KnobRange("Memory", -250, 750, -250, 750)
+        session.values.update(sl_mem=original / scale, in_mem=original / scale)
+        if input_kind == "drag":
+            session.values["sl_mem"] = sign * 12.625
+            app.knob_dragged("mem")
+            requested = sign * 104
+        else:
+            session.values["in_mem"] = sign * 12.625
+            app.knob_typed("mem")
+            requested = sign * 101
+        assert session.values["sl_mem"] == requested / scale
+        assert session.values["in_mem"] == requested / scale
+        app.apply_mem(session.values["sl_mem"])
+        result = session.messages[-1]
+        expected_ok = driver_behavior == "accept" or (driver_behavior == "quantize" and input_kind == "drag")
+        actual = requested if expected_ok else sign * 100 if driver_behavior == "quantize" else original
+        assert result[0] is expected_ok
+        if driver_behavior == "quantize" and input_kind == "typed":
+            assert "requested" in result[1] and "reported" in result[1]
+        elif driver_behavior == "refuse":
+            assert "failed" in result[1]
+        assert clock.offsets[2]["off"] == actual
+        assert session.values["sl_mem"] == actual / scale
+        assert session.values["in_mem"] == actual / scale
+        assert len(session.saved) == 1
+        assert session.saved[0][1]["tuning_action"] == {
+            "kind": "memory", "index": None, "value": original, "scale": scale}
+        writes = [call for call in clock.calls if call[0] == "SetClockOffsets"]
+        assert len(writes) == 1
+        assert writes[0][2:] == (2, 0, requested)
+        # The mirrored configured value is already current; a second Apply
+        # neither replaces the original Undo record nor submits another SET.
+        app.apply_mem(session.values["sl_mem"])
+        assert session.messages[-1] == (True, "memory request already matches; nothing written")
+        assert len(session.saved) == 1
+        assert [call for call in clock.calls if call[0] == "SetClockOffsets"] == writes
+        return result, dict(session.values)
+
+    both(kind, flow)
+
+
+@pytest.mark.parametrize("kind", KINDS)
 def test_rail_refresh_and_first_read_reset_capture_real_fields(kind):
     def flow(session):
         app, gpu = session.app, session.gpu
