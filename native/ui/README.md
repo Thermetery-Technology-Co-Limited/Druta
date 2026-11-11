@@ -1,124 +1,217 @@
-# Native frontend preview
+# Native frontend
 
-This is the first C++ visual shell from [the UI/UX plan](../DESIGN-NATIVE-UI.md).
-Focused and Classic / Verbose share local draft state, with Daily, Advanced and
-Monitor views. All readings are labelled fixtures. The preview does not load
-`drutacore`, open a GPU tuning handle, read real telemetry or write GPU settings.
-Its sample counter exercises the future telemetry cadence only.
+The native Win32/D3D9 application now has a live Session, Daily tuning, a V/F
+point editor, Monitor and read-only Advanced details. **Focused** and
+**Classic / Verbose** share drafts, snapshots, command queue and Undo; changing
+presentation never opens another GPU or applies a draft. The original fixture
+shell remains available with `--preview`.
+
+This is an implemented development milestone in
+[the UI/UX plan](../DESIGN-NATIVE-UI.md), with Windows 10 evidence below. Full
+Python frontend parity and Vista/7 qualification remain open.
+
+## Live controls and profiles
+
+- Daily provides core/memory offsets, configured board-power request, fan
+  target/Auto and voltage boost. Each uses its own capabilities, fresh capture,
+  existing C ABI setter and independent readback. Missing unrelated telemetry
+  does not disable a qualified control. Stock/Auto can have a separate capability
+  from Apply; an explicit escape action can report that prior state was
+  unavailable for Undo.
+  Board-power requests currently use the normal reported bounds; native XOC,
+  Max it and Reset all workflows have not been ported.
+- Draft edits never write. Unlock controls, then use the selected row's Apply
+  or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
+  values in the adapter-reported scale. Configured requests remain separate from
+  live readings, enforced power and unavailable/stale values.
+- **Undo hardware write** restores captured state, including the full prior
+  V/F table for core-offset writes and understood peer policies/pins for coupled
+  power actions. Fan Undo restores requested levels and policies, not merely
+  observed RPM. Partial or uncertain outcomes remain in the operation log.
+- **V/F curve** has a separate workspace: select a point, enter its total delta
+  in physical MHz, then Stage. Current curve, draft prediction and a fresh
+  operating point are distinct. The current adapter's verified frequency divisor
+  converts physical MHz to raw delta units. Undo edit and Revert are local;
+  Apply/Reset carry a complete expected curve and divisor. A stale or changed
+  curve retains edits and requires a fresh read/explicit rebase. Holds, headroom
+  ownership/recovery and curve planners remain pending.
+- Global **Save profile...** and **Load profile...** use explicit Windows file
+  dialogs. Save reads qualified Daily settings and reports omissions. Load
+  requires unlock, validates target/units/current capabilities, captures aggregate
+  Undo and reports partial failure. Native `druta-native-daily` version 1 can
+  store scalar core/memory/boost, the board request and a representable fan
+  policy/target. **It does not save the core V/F point table.** A saved core
+  scalar cannot restore a sculpted curve; live core-write Undo is separate.
+- Import accepts only Python schema-2 `scope: tuning_action` profiles of kind
+  `memory` or `boost`. Other Python scopes/kinds, full-tune/combined profiles and
+  unknown native fields are refused. Broader existing-format import is pending.
+
+Profiles are UTF-8 JSON, limited to 1 MiB, with duplicate-key rejection and
+same-directory flushed temporary-file replacement. Save has no tuning side
+effect. No profile loads at startup or after driver reset. Ordinary tuning stays
+session-only; Reconnect closes/reopens without replay. Saving a file does not
+authorize automatic application.
+
+The typed CoreClient uses `drutacore`'s C ABI, including the fresh
+`dc_gpu_clock_offset_range_get` reader. Python's native facade and standalone
+experiment path remain available; no Python runtime is required by the EXE.
+Standalone Python and the UI own separate sessions, so a handle mutex is not
+cross-process tuning ownership.
 
 ## Build on Windows
 
 Run from the repository root with CMake 3.20+, Visual Studio 2022 C++ tools and
-a Windows SDK available. Python 3 is needed by the build's PE import audit;
-pytest is needed for the Python test suite. The resulting EXE needs no Python
-installation. Dear ImGui and ImPlot are pinned in [vendor/](vendor/README.md),
-with their license texts and byte checksums; configuration/build needs no downloads.
+a Windows SDK. Python 3 runs the PE import audit; pytest runs Python tests.
+Checked-in dependencies require no build-time downloads: Dear ImGui/ImPlot pins
+and licenses are in [vendor/README.md](vendor/README.md); nlohmann JSON's MIT
+license, pin and checksums are in [vendor/json/README.md](vendor/json/README.md).
 
-Standalone UI build, without building the tuning core:
+Build the current core and UI together:
 
 ```powershell
-cmake -S native/ui -B native/build/ui-msvc-x64 -G "Visual Studio 17 2022" -A x64
+cmake -S native -B native/build/ui-integrated -G "Visual Studio 17 2022" -A x64 -DDRUTA_BUILD_UI=ON
+cmake --build native/build/ui-integrated --config Release
+ctest --test-dir native/build/ui-integrated -C Release -R "^druta-ui-" --output-on-failure
+& ./native/build/ui-integrated/ui/Release/druta-ui.exe
+```
+
+The integrated `druta-ui-core-stage` target copies that build's `drutacore.dll`
+beside the EXE. Licenses are staged there too. `DRUTA_BUILD_UI` defaults to
+`OFF`; ordinary core builds and their separate XP policy remain unchanged.
+
+A standalone UI build can stage an explicitly selected DLL:
+
+```powershell
+cmake -S native/ui -B native/build/ui-msvc-x64 -G "Visual Studio 17 2022" -A x64 -DDRUTA_UI_CORE_LIBRARY=C:/absolute/path/drutacore.dll
 cmake --build native/build/ui-msvc-x64 --config Release
 ctest --test-dir native/build/ui-msvc-x64 -C Release --output-on-failure
 ```
 
-If CMake finds the wrong Python, configure with
-`-DPython3_EXECUTABLE=C:/path/to/python.exe`. The audit runs in the default build
-and writes `native/build/ui-msvc-x64/Release/imports.json`. To run it explicitly:
+Alternatively omit `DRUTA_UI_CORE_LIBRARY` and launch with
+`--core C:/absolute/path/drutacore.dll`, or use `--preview` without a core DLL.
+Live launch normally loads only `drutacore.dll` beside the EXE; it does not
+search the working directory for another same-named DLL. Missing DLLs or exports
+are reported as unavailable, without substituting fixture readings.
+
+If CMake selects the wrong Python, add
+`-DPython3_EXECUTABLE=C:/path/to/python.exe`. The default build runs the UI PE
+audit and writes `imports.json` beside the EXE. To run it explicitly:
 
 ```powershell
-python native/ui/tools/audit_imports.py native/build/ui-msvc-x64/Release/druta-ui.exe --report native/build/ui-msvc-x64/Release/imports.json
+python native/ui/tools/audit_imports.py native/build/ui-integrated/ui/Release/druta-ui.exe --report native/build/ui-integrated/ui/Release/imports.json
 python -m pytest -q native/ui/tests/test_audit_imports.py
 ```
-
-The parent `native/CMakeLists.txt` also supports `-DDRUTA_BUILD_UI=ON`; it defaults
-to `OFF`, leaving ordinary core builds unchanged. UI options/import policy stay
-separate from the core's XP policy.
 
 ## Run and capture
 
 ```powershell
-& ./native/build/ui-msvc-x64/Release/druta-ui.exe
-& ./native/build/ui-msvc-x64/Release/druta-ui.exe --classic --page monitor --width 1366 --height 768
-& ./native/build/ui-msvc-x64/Release/druta-ui.exe --scale 1.5 --capture C:/existing-folder/focused.bmp
+& ./native/build/ui-integrated/ui/Release/druta-ui.exe --page curve
+& ./native/build/ui-integrated/ui/Release/druta-ui.exe --classic --page monitor --width 1366 --height 768
+& ./native/build/ui-msvc-x64/Release/druta-ui.exe --core C:/absolute/path/drutacore.dll
+& ./native/build/ui-msvc-x64/Release/druta-ui.exe --preview --scale 1.5 --capture C:/existing-folder/focused.bmp
 ```
 
 | Option | Behavior |
 | --- | --- |
-| `--width N`, `--height N` | Initial client size in pixels; each accepts 640–7680. |
+| `--preview` | Fixture layout; opens no GPU handle and performs no tuning or telemetry reads. |
+| `--core ABSOLUTE_DLL` | Load the explicitly selected core DLL in live mode. |
+| `--gpu PCI_SLOT` | Select by PCI slot; the live adapter picker can change it later. |
+| `--width N`, `--height N` | Initial client pixels, each 640–7680. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
 | `--classic` | Start in Classic / Verbose instead of Focused. |
-| `--page daily\|advanced\|monitor` | Choose the initial page. |
-| `--capture FILE.bmp` | Save a rendered BMP and exit; the parent directory must exist. |
-| `--smoke-test EXISTING_DIRECTORY` | Exercise the real window/renderer loop, save BMPs and `smoke.json`, then exit. |
+| `--page daily\|curve\|advanced\|monitor` | Choose the initial page. |
+| `--capture FILE.bmp` | Save the rendered view and exit; parent directory must exist. Live mode reads the GPU. |
+| `--smoke-test EXISTING_DIRECTORY` | Fixture renderer smoke, BMPs and `smoke.json`, then exit. |
+| `--live-smoke-test EXISTING_DIRECTORY` | Same bounded phases with completed live reads; no tuning commands. |
 
-For a smoke run that waits for completion and exposes the exit code:
+For a live smoke run that waits and exposes the exit code:
 
 ```powershell
-New-Item -ItemType Directory -Force native/build/ui-smoke | Out-Null
-$outputDir = (Resolve-Path native/build/ui-smoke).Path
-$preview = Start-Process ./native/build/ui-msvc-x64/Release/druta-ui.exe -ArgumentList @('--smoke-test', ('"' + $outputDir + '"')) -Wait -PassThru
-$preview.ExitCode
+New-Item -ItemType Directory -Force native/build/ui-live-smoke | Out-Null
+$outputDir = (Resolve-Path native/build/ui-live-smoke).Path
+$run = Start-Process ./native/build/ui-integrated/ui/Release/druta-ui.exe -ArgumentList @('--live-smoke-test', ('"' + $outputDir + '"')) -Wait -PassThru
+$run.ExitCode
 ```
 
-The smoke sequence covers both presentations, page changes, retained drafts,
-ordinary/continuous minimized behavior, explicit Pause, restoration and resize.
-Counters are render calls, presents and fixture ticks, not GPU utilization or
-real sensor reads. Hotkey delivery is injected; it does not prove physical keys.
+Smoke counters separate completed live reads from fixture ticks. The sequence
+covers presentations/pages, retained drafts, resize/device resets, ordinary and
+continuous minimization, Pause and injected hotkey restoration. It does not
+prove physical keyboard/mouse input or GPU-engine utilization.
 
 ## Refresh and renderer behavior
 
 **Always refresh** starts off. Interaction targets 60 FPS; after 0.75 seconds
-without activity, visible rendering targets 10 FPS. Minimize with the toggle off
-to stop rendering and fixture sample ticks. Turn it on to keep both running when
-minimized. **Pause** overrides the toggle and minimizes the window.
+without activity, visible rendering targets 10 FPS. Ordinary minimization stops
+drawing, telemetry and ordinary capability retries. Always refresh keeps drawing
+and telemetry running while minimized. Explicit **Pause** takes precedence.
 
-Restore from the taskbar or use **Ctrl+Shift+F11**. If another process owns that
-shortcut, taskbar restoration remains available. The scheduler keeps required
-maintenance deadlines independent of frame pacing; this fixture preview owns
-no active hardware mode that requires such maintenance.
+Restore from the taskbar or **Ctrl+Shift+F11**; if another process owns the
+shortcut, taskbar restoration remains available. Restore requests fresh readings;
+last-good values are marked stale until replaced. Session reads/commands run on
+an ordered worker independently of drawing; polls coalesce, generation checks
+reject late results, and close drains work before closing the handle. Plot
+arrays are bounded. Required maintenance deadlines remain separate from frame
+pacing; owned hold modes are not enabled yet.
 
-Interactive waits use an optional high-resolution one-shot timer when the OS
-accepts it, falling back to an ordinary waitable timer. Idle windows use coarse
-waits; paused windows wait for messages. No `timeBeginPeriod` request is made.
-
-Rendering uses Direct3D 9. Its software vertex-processing fallback is still a
-D3D9 renderer, not a CPU rasterizer. Resize/device-reset handling lives in the
-main loop. The current Win32 move/size modal loop pauses frame submission during
-a border drag; smooth rendering inside that modal loop remains follow-up work.
+Interactive waits use an optional high-resolution one-shot timer with an
+ordinary waitable-timer fallback. Idle windows use coarse waits; paused windows
+wait for messages. No `timeBeginPeriod` request is made. Direct3D 9's software
+vertex-processing fallback is still a D3D9 renderer. Border dragging currently
+pauses submission inside the Win32 move/size modal loop.
 
 ## Qualification checkpoint
 
-- **2026-11-11, Windows 10 x64 build 19045, RTX 3070 Ti:** standalone and parent
-  opt-in Release builds passed with MSVC 19.44.35230 / SDK 10.0.26100.0. Both CTest
-  entries passed: 48 scheduler checks and 16 PE-policy tests. All 20 vendored
-  source files matched their recorded SHA256 hashes.
-- **Rendered review:** reviewed Focused, Classic, Advanced and Monitor;
-  1024×768 and 1366×768, with 100/125/150/200% scale captures. At short/high-DPI
-  sizes the workspace scrolls. This is visual review, not full accessibility
-  qualification or a physical multi-monitor DPI transition test.
-- **Window/device lifecycle:** all 11 two-second smoke phases passed, including
-  four successful D3D9 resets, retained draft through presentations/pages,
-  minimize, Pause and injected hotkey restoration. Ordinary minimized and
-  explicit Pause phases produced zero frames and zero fixture sample ticks;
-  Always refresh produced 115 frames/presents over two seconds while minimized.
-  This is not a GPU-utilization benchmark or real hardware telemetry test.
-- **Keyboard/mouse:** the Computer Use capture helper timed out twice, so
-  physical entry/click verification remains pending. Keyboard navigation is
-  enabled; smoke hotkey delivery is injected, not a physical shortcut test.
-- **Vista/7:** first-version targets, not qualified by this modern MSVC build.
-  A suitable legacy toolchain and actual launch/render/font/DPI/device-loss tests
-  on Vista SP2 and Windows 7 SP1 remain required.
-- **Import audit:** checks PE headers, expected DLLs and selected newer static
-  APIs. Passing does not certify every imported function, static CRT behavior or
-  actual legacy-OS execution. The broader platform audit remains open.
-- **XP/x86 UI:** not qualified or promised by selecting D3D9. Core support is
-  independent and must not be narrowed by this preview.
+**2026-11-12, Windows 10 x64 build 19045, RTX 3070 Ti:** integrated Release work
+uses MSVC 19.44.35230 / SDK 10.0.26100.0. These are configured-request/readback
+and restoration results for this adapter/configuration, not physical-effect
+qualification or constants for other boards or GPUs of the same generation.
+Each helper action reported successful Apply, exact request readback and Undo;
+the original scalar requests and full curve were checked afterward.
 
-Keep the existing Python application and its experiment facade available while
-native services and control parity are added. The next increment is the typed,
-read-only session boundary; hardware tuning follows verified commands, readback,
-scoped Undo and owned-control lifecycle work.
+| Action | Observed round trip |
+| --- | --- |
+| Memory offset | 32 → 33 → 32 MHz in the reported UI scale; curve unchanged. |
+| Core offset | 0 → 15 → 0 MHz; original full curve restored. |
+| Board request | 310 → 309 → 310 W; backend verified peer policies/pins. |
+| Fan target | 30 → 31 → 30%; captured fan policies restored. |
+| Voltage boost | 0 → 1 → 0%; no physical rail-voltage claim. |
+| Curve point 0 | Raw delta 0 → -15000 → 0; all 127 deltas and geometry checked. |
 
-Raw smoke results and the tested EXE hash are recorded in
-[validation/2026-11-11-smoke.json](validation/2026-11-11-smoke.json).
+- The manual native-profile exercise used raw memory **512 → 528**, with the
+  current adapter's reported scale **16**. Load and Undo restored captured
+  requests. These scale/raw values are evidence for this configuration only.
+- All 11 live renderer phases passed, including four D3D9 resets. Ordinary
+  minimized and explicit Pause phases produced **zero frames and zero completed
+  reads**; Always refresh while minimized produced **115 frames and 2 completed
+  reads over two seconds**. These are renderer resets, not GPU-driver
+  restart-persistence tests.
+- Release checks: **203 view, 171 client, 92 curve-model, 61 Session, 36 profile
+  I/O, 48 refresh-policy and 16 PE-policy checks**, plus **57 targeted Python
+  compatibility tests**. Fake-backend tests exercise alternate identities,
+  partial capabilities, stale/failed reads, failures and manual Undo.
+- Focused live Daily at 1280×800 was rendered with the real adapter identity
+  and all five rows visible. Headless checks cover the five rows at 1024×768,
+  both presentations and all four live pages. This does not establish physical
+  input or full accessibility qualification.
+- The independent desktop capture helper failed twice with
+  `window capture timed out: timed out waiting on channel`. No physical inputs
+  were issued through it. D3D9 BMP captures succeeded; physical numeric entry,
+  clicks and shortcut delivery remain unverified.
+- Vista SP2 x64 and Windows 7 SP1 x64 remain targets with no actual launch,
+  font/DPI, device-loss or shutdown qualification yet. The PE audit checks
+  selected imports/headers, not every CRT path or actual legacy execution.
+  XP/x86 UI support is not promised; core support remains independent.
+
+The first fixture shell's build, rendered scale review and smoke history remain
+in [validation/2026-11-11-smoke.json](validation/2026-11-11-smoke.json). Its sample
+ticks and captures are fixture evidence, separate from the live results above.
+The live evidence and final build hash are recorded in
+[validation/2026-11-12-live.json](validation/2026-11-12-live.json).
+
+Remaining replacement work includes owned holds/headroom/recovery, curve
+planners, XOC/Max it/Reset all workflows, broader existing-profile imports,
+configurable Monitor workflows and
+Advanced domain/rail/current/policy, I2C, registry/BIOS, power-saving and timing
+services. Keep the Python frontend and experiment facade available during that
+migration. See the [plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
+for the implementation boundary.

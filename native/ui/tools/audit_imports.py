@@ -28,7 +28,7 @@ _SPEC.loader.exec_module(pe)
 
 SYSTEM_DLLS = frozenset({
     "kernel32.dll", "user32.dll", "gdi32.dll", "d3d9.dll", "dwmapi.dll",
-    "imm32.dll", "shell32.dll", "advapi32.dll", "msvcrt.dll",
+    "imm32.dll", "shell32.dll", "comdlg32.dll", "advapi32.dll", "msvcrt.dll",
 })
 
 # Newer DPI conveniences must be bound conditionally by the Win32 backend.
