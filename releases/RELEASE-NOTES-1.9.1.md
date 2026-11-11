@@ -29,8 +29,8 @@ Stable release. Supersedes 1.8.1 and every 1.9 prerelease (1.9.0a through
   sections are indented and styled by level; the top strip is one row.
 
 Per-release detail is in the 1.9.0a–1.9.08 notes. Each control's tested scope
-and limits are in the [manual](MANUAL.md) and
-[technical documentation](TECHNICALDOCUMENTATION.md). Support is decided from
+and limits are in the [manual](../MANUAL.md) and
+[technical documentation](../TECHNICALDOCUMENTATION.md). Support is decided from
 the current adapter's capabilities; results from tested boards are not
 universal, and a verified readback is not a physical measurement.
 

@@ -73,9 +73,9 @@ had no NVML or V/F lock. These harness checks exercised production methods
 with rendering and persistence replaced by journal hooks; desktop screenshot
 capture was unavailable, so they are not a packaged visual UI walkthrough.
 
-See the [investigation and evidence](experiments/strix-3070ti-mp2888-20261015.md),
-[production journal](experiments/validate_strix_mp2888_production.json), and
-[meter journal](experiments/meter_strix_mp2888_production.json).
+See the [investigation and evidence](../experiments/strix-3070ti-mp2888-20261015.md),
+[production journal](../experiments/validate_strix_mp2888_production.json), and
+[meter journal](../experiments/meter_strix_mp2888_production.json).
 
 ## Package
 

@@ -92,8 +92,9 @@ class DistributionAssets(unittest.TestCase):
         self.assertTrue((source / "src/run_druta.py").is_file())
         self.assertTrue((source / "tests/__init__.py").is_file())
         self.assertTrue((source / "build.ps1").is_file())
-        self.assertTrue((source / "RELEASE-NOTES-1.9.0a.md").is_file())
-        self.assertTrue((source / "RELEASE-NOTES-1.9.0b.md").is_file())
+        self.assertFalse(list(source.glob("RELEASE-NOTES-*.md")))
+        for note in (ROOT / "releases").glob("*.md"):
+            self.assertEqual((source / "releases" / note.name).read_bytes(), note.read_bytes(), note.name)
         evidence = Path("experiments/ui-recovery-result-qualified-20261029.json")
         self.assertEqual((source / evidence).read_bytes(), (ROOT / evidence).read_bytes())
         self.run_build(source, "build_wheel")

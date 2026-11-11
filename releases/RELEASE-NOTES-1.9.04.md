@@ -46,16 +46,16 @@ the complete captured **250 W** client/native baseline and retained the
 1062.5 mV V/F hold with P0 verified. Driver replacement used no Windows reboot.
 These results apply to this shunt-modified board with its imperfect 16 GB
 VRAM modification. See the
-[live driver comparison](experiments/turing-driver-live-comparison-20261028.md),
-[431.60 report](experiments/turing-43160-live-power-20261028.json),
-[621.01 report](experiments/turing-62101-live-power-20261028.json), and
-[431.60 static evidence](experiments/turing-43160-static-layout-20261028.md).
+[live driver comparison](../experiments/turing-driver-live-comparison-20261028.md),
+[431.60 report](../experiments/turing-43160-live-power-20261028.json),
+[621.01 report](../experiments/turing-62101-live-power-20261028.json), and
+[431.60 static evidence](../experiments/turing-43160-static-layout-20261028.md).
 
-The earlier [offline ABI review](experiments/turing-driver-abi-review-20261028.md)
+The earlier [offline ABI review](../experiments/turing-driver-abi-review-20261028.md)
 and 1.9.03 notes describe the investigation before these installations. Their
 then-pending live comparisons are completed by the evidence linked above.
 
-The owner separately reported a [FurMark A/B response](experiments/turing-owner-furmark-ab-20261028.md)
+The owner separately reported a [FurMark A/B response](../experiments/turing-owner-furmark-ab-20261028.md)
 during the preceding 581.42 session: approximately 140% TDP with frequent power
 throttling before extension, then more than 150% TDP and a reported PSU OPP
 trip. This supports an operative limit increase on that board. The estimated

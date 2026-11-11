@@ -110,7 +110,7 @@ Accepting a request is not the same as the board enforcing it. On the
 measured GP106 the effective board limit settles at the firmware maximum
 regardless of the request, and under load the binding constraint was core
 current rather than board power — see the
-[472.12 under-load measurement](experiments/pascal-gp106-driver47212-20261102.md).
+[472.12 under-load measurement](../experiments/pascal-gp106-driver47212-20261102.md).
 
 ## Qualification
 
@@ -142,10 +142,10 @@ Pascal boards or other drivers, or any change in actual power draw — nothing
 was measured with a power meter. The 1999 W XOC range remains a software
 request envelope.
 
-Evidence: [572.83](experiments/pascal-gp106-driver57283-20261102.md) and
-[472.12](experiments/pascal-gp106-driver47212-20261102.md) reports with their
+Evidence: [572.83](../experiments/pascal-gp106-driver57283-20261102.md) and
+[472.12](../experiments/pascal-gp106-driver47212-20261102.md) reports with their
 sanitized data, alongside the
-[576.80 qualification](experiments/pascal-gp106-live-power-20261102.md).
+[576.80 qualification](../experiments/pascal-gp106-live-power-20261102.md).
 
 ## Unchanged
 

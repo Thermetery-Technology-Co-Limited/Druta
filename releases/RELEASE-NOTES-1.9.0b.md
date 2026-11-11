@@ -50,8 +50,8 @@ these tests. Original-BIOS-range coloring and detailed arbitration may be
 unavailable with the smaller layout. Other downstream limits can still apply.
 
 The broader controls and their remaining limitations are described in the
-[1.9.0a notes](RELEASE-NOTES-1.9.0a.md), [manual](MANUAL.md), and
-[technical documentation](TECHNICALDOCUMENTATION.md). Physical enforcement,
+[1.9.0a notes](RELEASE-NOTES-1.9.0a.md), [manual](../MANUAL.md), and
+[technical documentation](../TECHNICALDOCUMENTATION.md). Physical enforcement,
 remaining power-policy and low-power semantics, legacy six-word voltage-request replay,
 cross-generation validation, and the packaged UI walkthrough remain open. A
 successful request or configuration readback is not a physical measurement.
@@ -68,7 +68,7 @@ adjacent files together. Python and the NVIDIA App are not required.
 
 These notes describe the published 1.9.0b package. Later branch controls, manual
 profiles, Undo and relationship-weight editing are documented in the current
-[manual](MANUAL.md) and [technical documentation](TECHNICALDOCUMENTATION.md).
+[manual](../MANUAL.md) and [technical documentation](../TECHNICALDOCUMENTATION.md).
 The [draft PR #39](https://github.com/Thermetery-Technology-Co-Limited/Druta/pull/39)
 tracks current functionality, validation and unresolved work; later commits do
 not change the contents or qualification of the published prerelease.
