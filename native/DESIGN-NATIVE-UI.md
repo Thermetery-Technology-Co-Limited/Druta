@@ -1,6 +1,6 @@
 # Native UI/UX and Python compatibility plan
 
-Agreed direction and implementation checkpoint, 2026-11-11.
+Initial direction agreed 2026-11-11; live implementation checkpoint 2026-11-12.
 Base: `8ceb01896e5a4c20d8b3ba327db1ae16f367ac66`, [PR #83](https://github.com/Thermetery-Technology-Co-Limited/Druta/pull/83),
 stacked on the first RTX 3070 Ti qualification fixes in PR #82.
 This plan covers the new C++ desktop interface. [DESIGN-FRONTEND.md](DESIGN-FRONTEND.md)
@@ -8,12 +8,13 @@ records the existing Python-interface/C++-backend integration.
 
 ## Compact handoff
 
-- Start the native frontend with a functional, fixture-driven visual shell;
-  do not enable GPU tuning in that first increment.
+- The initial fixture shell remains available with `--preview`. A live Session,
+  complete Daily actions, scoped Undo, manual native profiles and a point-based
+  V/F workspace are now implemented; see the continuation checkpoint below.
 - Keep Windows Vista and Windows 7 in the first-version target, alongside
   modern Windows. Legacy compatibility is an acceptance requirement, not yet
   a demonstrated result for the new executable.
-- Default to **Focused**: daily tuning, Advanced and Monitor. Offer the existing
+- Default to **Focused**: Daily, V/F curve, Advanced and Monitor. Offer the existing
   dense organization as **Classic / Verbose**, using the same application state.
 - Preserve standalone Python experiments through the existing C ABI and Python
   compatibility facade. Attaching Python to the running UI session is undecided.
@@ -65,9 +66,10 @@ scaling, keyboard navigation, exact numeric entry, Unicode paths/text, unavailab
 
 ## Rendering and platform baseline
 
-Proposed stack: C++17, Win32, Dear ImGui and ImPlot, with the upstream Direct3D 9
-renderer as the common Vista/7/10/11 candidate. Pin dependency revisions during
-the compatibility spike. D3D11 can be evaluated later; the first version must
+Implemented stack: C++17, Win32, pinned Dear ImGui and ImPlot, with the upstream
+Direct3D 9 renderer as the common Vista/7/10/11 candidate. The manual-profile
+service also vendors pinned MIT-licensed nlohmann JSON. D3D11 can be evaluated
+later; the first version must
 not need Vista's D3D11 platform update merely to draw.
 
 Qualification targets are Vista SP2 x64, Windows 7 SP1 x64, Windows 10 x64 and
@@ -173,25 +175,34 @@ never a driver's version or a developer's device/VBIOS identity.
 
 ## Implementation increments and acceptance
 
-1. **Native visual shell — commence now.** Build a launchable Win32/D3D9 frontend
+1. **Native visual shell — implemented.** Build a launchable Win32/D3D9 frontend
    with Focused/Classic fixture views, navigation, draft retention, resize and
    refresh/Pause behavior. Label fixture data clearly; no GPU tuning calls.
    Pin dependencies, add model tests and an import audit. Record which OS/toolchain
    checks actually ran; untested Vista/7 launch/device-loss checks remain open.
-2. **Read-only session and interop.** Add typed CoreClient, handle lifetime,
+2. **Read-only session and interop — implemented on Windows 10.** Typed
+   CoreClient, handle lifetime,
    adapter selection, telemetry/history and last-good states. Verify Python
    contracts, stale-result rejection and responsiveness under stalled reads.
-3. **First complete action.** Memory offset: whole-MHz dragging, fractional
+3. **Daily actions — implemented, with scoped Windows 10 hardware evidence.**
+   Memory offset: whole-MHz dragging, fractional
    typing, Apply/Stock, scoped Undo and exact readback. Test accepted, quantized,
    refused and unreadable outcomes without assuming the 3070 Ti's step elsewhere.
-   Then core, board power and fans; recovery must be ready before live writes.
-4. **V/F and owned controls.** Curve workspace/planners, edit history, delta
-   writes, holds and headroom. Port marker/release/recovery before enabling holds;
+   Core, board power, fan and boost now use fresh capture/readback and scoped
+   Undo too. Owned hold modes remain disabled pending their recovery lifecycle.
+4. **V/F and owned controls — partial.** The point editor, local edit history,
+   delta Apply/Reset and hardware Undo are implemented with physical-MHz/raw-unit
+   divisor validation. Curve planners, holds and headroom remain pending.
+   Port marker/release/recovery before enabling holds;
    run the same command tests through both presentations.
-5. **Profiles and ordinary-control parity.** Existing-format import, manual
-   Load/Undo, named Reset results and remaining rails/current/policies. Exercise
+5. **Profiles and ordinary-control parity — partial.** Native Daily files,
+   manual Load/aggregate Undo and Python memory/boost tuning-action imports are
+   implemented. The full V/F table is not saved by native Daily profiles.
+   Broader existing-format import, named Reset workflows and remaining
+   rails/current/policies are pending. Exercise
    partial failures, close/switch during work and restart without replay.
-6. **Advanced parity.** Port remaining I2C, registry/BIOS, power-saving and timing
+6. **Advanced parity — pending.** Port remaining I2C, registry/BIOS,
+   power-saving and timing
    workflows incrementally with Python parity and scoped hardware evidence.
 
 The first shell is a reviewable development increment, not a feature-complete
@@ -199,17 +210,72 @@ replacement. The first useful tuning milestone combines qualified Vista/7
 behavior, a complete memory/Undo action and the preserved Python experiment path.
 Full replacement waits for the service/workflow parity matrix and OS qualification.
 
-## Continuation checkpoint: first shell implemented
+## Continuation checkpoint: live Daily actions and manual curve edits
 
-`codex/native-ui-shell` implements increment 1 as `native/ui/druta-ui`:
-Win32/D3D9, Focused/Classic views, local drafts, fixture plots, adaptive pacing,
-Always refresh and Pause/restore. The source and build instructions are in
-[ui/README.md](ui/README.md), with the measured Windows 10 validation scope.
-The shell opens no core GPU handle; Apply remains disabled. Vista/7 launch and
-physical input qualification remain open. Native border dragging temporarily
-stops frame submission. Existing Python tuning and its C ABI facade are intact.
+`native/ui/druta-ui` now implements increments 2/3 and part of 4/5 after the
+original fixture shell. [ui/README.md](ui/README.md) documents integrated and
+standalone builds, staged/explicit DLL loading, `--preview`, `--page curve` and
+the read-only `--live-smoke-test` harness. The original fixture evidence remains
+in [ui/validation/2026-11-11-smoke.json](ui/validation/2026-11-11-smoke.json).
 
-Next: implement increment 2's typed, read-only CoreClient/Session and snapshots,
-then a complete memory-offset action with fresh capture, readback and scoped
-Undo. Do not enable fixture controls merely by attaching a setter. I2C physical
-verification stays with the owner; no new tuning is replayed after driver reset.
+The typed CoreClient and ordered Session own one selected adapter, coalesce
+polls, publish immutable snapshots, preserve last-good state with stale markers
+and reject late generations. Commands and reads do not run in widget painting.
+The fresh `dc_gpu_clock_offset_range_get` C ABI reader is shared with the Python
+facade; Python experiments and the existing Python frontend remain usable.
+
+Daily core/memory offsets, board request, fan and boost have explicit
+Apply/Stock/Auto, capture/readback and scoped Undo. Core Undo includes the
+original curve; power Undo includes understood peer requests and session pins;
+fan Undo retains policy as well as level. Their independent capabilities keep
+partial/transient reads separate from unsupported operations. Focused uses
+compact rows; Classic expands provenance using the same drafts and commands.
+
+The separate curve workspace stages point deltas in physical MHz using the
+verified current layout divisor. It plots current and draft curves with fresh
+operating telemetry, keeps edit Undo distinct from hardware Undo, and carries
+the complete expected geometry/divisor into Apply/Reset. Ordinary telemetry
+publications do not replace edits; changed/stale full reads retain the draft
+until an explicit fresh rebase. Holds, headroom ownership/recovery, de-flatten,
+ramp and other planners are not enabled by this increment.
+
+Native Daily profiles save qualified scalar requests to an explicit path;
+Save is read-only and reports omissions. Load validates identity/units/current
+capabilities and captures aggregate Undo before changing requests. The native
+format does **not** save the V/F point table, so a saved core scalar does not
+restore a shaped curve. Python import currently supports only schema-2
+`tuning_action` memory and boost scopes; unsupported scopes/kinds are refused.
+No startup or post-reset tuning replay was added.
+
+Windows 10 x64 build 19045 / RTX 3070 Ti evidence on 2026-11-12 includes exact
+request/readback/Undo round trips: memory 32→33→32 in its reported MHz scale,
+core 0→15→0 MHz, board 310→309→310 W, fan 30→31→30% and boost 0→1→0%.
+Original scalar requests and the full curve were verified after each helper;
+power peer requests/pins and captured fan policies were checked by the backend.
+Curve point 0 raw delta 0→-15000→0 restored all 127 deltas/geometry. A native
+profile exercise captured raw memory 512/scale 16, changed to 528, then used
+manual Load/Undo to restore requests. These observations qualify only this
+adapter/configuration and do not establish physical rail effects or constants
+for another board.
+
+All 11 live renderer phases passed, including four D3D9 resets; ordinary
+minimization and explicit Pause produced zero frames/completed reads, while
+Always refresh produced 115 frames and two completed reads during two seconds
+minimized. These renderer resets do not test GPU-driver restart persistence.
+Release checks passed: 203 view, 171 client, 92 curve-model, 61 Session, 36
+profile I/O, 48 policy and 16 PE-policy checks, plus 57 targeted Python tests.
+The independent desktop helper timed out twice with
+`window capture timed out: timed out waiting on channel`; no physical inputs
+were issued through it. The [live evidence record](ui/validation/2026-11-12-live.json)
+contains the raw results and final build hash. D3D9 BMP review succeeded, but physical input, shortcut
+delivery and broader accessibility qualification remain open.
+
+The next replacement work is owned hold/headroom/recovery, curve planners,
+native XOC/Max it/Reset all workflows, broader existing-profile import and ordinary domain/rail/current/policy
+workflows, configurable Monitor features, then the remaining I2C,
+registry/BIOS, power-saving and timing services. Advanced currently exposes
+read-only session details rather than those complete workflows. GPU restart
+and other tool/lifecycle parity also remain on the service matrix. I2C physical
+verification stays parked for the owner. Vista/7 actual launch/render/DPI/
+device-loss/shutdown acceptance is still outstanding; XP/x86 UI support is not
+promised. This checkpoint is not full frontend parity.

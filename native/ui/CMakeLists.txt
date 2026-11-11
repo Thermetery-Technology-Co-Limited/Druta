@@ -11,6 +11,7 @@ endif()
 # UI requirements are deliberately separate from druta_options/core's XP audit.
 add_library(druta_ui_options INTERFACE)
 target_compile_features(druta_ui_options INTERFACE cxx_std_17)
+target_include_directories(druta_ui_options INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_compile_definitions(druta_ui_options INTERFACE
   _WIN32_WINNT=0x0600 WINVER=0x0600 WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
   IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
@@ -27,8 +28,15 @@ add_library(druta_ui_vendor STATIC
 target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/implot)
 target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
 
+add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp)
+add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
+target_link_libraries(druta_ui_curve_draft PUBLIC druta_ui_options)
+target_include_directories(druta_ui_curve_draft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(druta_ui_session PUBLIC druta_ui_options)
+target_include_directories(druta_ui_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(druta-ui WIN32 main.cpp ui_view.cpp)
-target_link_libraries(druta-ui PRIVATE druta_ui_vendor d3d9 user32 gdi32 dwmapi imm32 shell32)
+target_link_libraries(druta-ui PRIVATE druta_ui_session druta_ui_curve_draft)
+target_link_libraries(druta-ui PRIVATE druta_ui_vendor d3d9 user32 gdi32 dwmapi imm32 shell32 comdlg32)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/COPYING
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImGui-LICENSE.txt
@@ -36,10 +44,49 @@ file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImGui-LICENSE.txt
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImPlot-LICENSE.txt
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/implot/LICENSE)
 if(MSVC)
+  target_compile_options(druta_ui_session PRIVATE /W4 /WX)
   target_compile_options(druta-ui PRIVATE /W4 /WX)
   target_link_options(druta-ui PRIVATE /SUBSYSTEM:WINDOWS,6.00
     /MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/druta-ui.manifest)
 endif()
+
+# The shared C ABI stays the same boundary used by Python experiments.
+set(DRUTA_UI_CORE_LIBRARY "" CACHE FILEPATH "Standalone UI: explicit drutacore.dll to stage beside the EXE")
+if(TARGET drutacore)
+  add_custom_target(druta-ui-core-stage
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:drutacore> ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/drutacore.dll
+    DEPENDS drutacore VERBATIM)
+  add_dependencies(druta-ui druta-ui-core-stage)
+elseif(DRUTA_UI_CORE_LIBRARY)
+  add_custom_target(druta-ui-core-stage
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      ${DRUTA_UI_CORE_LIBRARY} ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/drutacore.dll VERBATIM)
+  add_dependencies(druta-ui druta-ui-core-stage)
+endif()
+
+add_executable(druta-ui-client-test tests/core_client_test.cpp)
+target_link_libraries(druta-ui-client-test PRIVATE druta_ui_session)
+add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
+add_executable(druta-ui-session-test tests/session_test.cpp)
+target_link_libraries(druta-ui-session-test PRIVATE druta_ui_session)
+add_test(NAME druta-ui-session COMMAND druta-ui-session-test)
+add_executable(druta-ui-view-test tests/ui_view_test.cpp ui_view.cpp)
+target_link_libraries(druta-ui-view-test PRIVATE druta_ui_vendor druta_ui_curve_draft)
+target_include_directories(druta-ui-view-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME druta-ui-view COMMAND druta-ui-view-test)
+add_executable(druta-ui-profile-test tests/profile_io_test.cpp)
+target_link_libraries(druta-ui-profile-test PRIVATE druta_ui_session)
+add_test(NAME druta-ui-profile COMMAND druta-ui-profile-test ${CMAKE_CURRENT_BINARY_DIR})
+add_executable(druta-ui-curve-test tests/curve_draft_test.cpp)
+target_link_libraries(druta-ui-curve-test PRIVATE druta_ui_curve_draft)
+add_test(NAME druta-ui-curve COMMAND druta-ui-curve-test)
+add_executable(druta-ui-live-check tools/live_check.cpp)
+target_link_libraries(druta-ui-live-check PRIVATE druta_ui_session)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/JSON-LICENSE.txt
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/json/LICENSE.MIT)
 
 add_executable(druta-ui-policy-test tests/refresh_policy_test.cpp)
 target_link_libraries(druta-ui-policy-test PRIVATE druta_ui_options)

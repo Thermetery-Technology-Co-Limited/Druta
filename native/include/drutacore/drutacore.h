@@ -369,6 +369,13 @@ typedef struct dc_offset_range {
     int32_t low, high, current;
 } dc_offset_range;
 
+/* Read the current offset range without using cached capabilities. Core values
+ * are MHz; divide memory values by dc_gpu_mem_offset_scale().scale to obtain
+ * that interface's labelled memory units (including MHz true where supported).
+ * ctype is 0 for core or 2 for memory. DC_E_UNAVAILABLE means the range could
+ * not be read; all failures leave out unchanged. On success present is 1. */
+DC_API dc_status DC_CALL dc_gpu_clock_offset_range_get(dc_gpu* gpu, uint32_t ctype, dc_offset_range* out);
+
 enum {
     DC_C_PL_MIN = 1u << 0, DC_C_PL_MAX = 1u << 1, DC_C_PL_DEF = 1u << 2, DC_C_GFX_MIN = 1u << 3, DC_C_GFX_MAX = 1u << 4,
     DC_C_FAN_MIN = 1u << 5, DC_C_FAN_MAX = 1u << 6, DC_C_MEM_TYPE_ID = 1u << 7, DC_C_MEM_DIV = 1u << 8,
