@@ -16,12 +16,13 @@ struct AdvancedViewState {
     uint64_t generation = 0;
     std::map<uint64_t, AdvancedDraft> drafts;
     std::string notice;
+    double rail_gate_flash_until = 0, xoc_gate_flash_until = 0;
 };
 RiskAssessment session_risk(const LiveData& data);
 void draw_mode_bar(const SessionSnapshot& snapshot, bool& unlocked, std::vector<Command>& commands,
-    bool classic = false, const std::function<void()>& i2c_gate = {});
+    bool classic = false, const std::function<void()>& i2c_gate = {}, AdvancedViewState* view = nullptr);
 void draw_advanced_controls(const SessionSnapshot& snapshot, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands);
+    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails = true);
 // Common row services reused by the original Control layout and Focused Daily.
 void draw_clock_domain_controls(const SessionSnapshot& snapshot, bool unlocked, bool classic,
     AdvancedViewState& state, std::vector<Command>& commands);

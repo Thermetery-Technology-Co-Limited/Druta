@@ -26,6 +26,7 @@ struct I2cCandidate {
     I2cRoute route{};
     double controller_vout_mv = 0;
     std::string description = "MP2888A candidate; fingerprint is not a unique model ID; physical rail unassigned";
+    uint32_t family = 5; // I2cFamily::mp2888; retained last for existing aggregate callers.
 };
 struct I2cStatus {
     bool request_eligible = false; // understood current context, independently of the user gate

@@ -15,9 +15,9 @@ namespace {
 dc_gpu_identity identity{};
 std::map<int,uint32_t> regs;
 std::vector<std::string> events;
-int reads=0, writes=0, lock_depth=0; uint32_t held=0; bool foreign_vf=false, fail_clamp=false, fail_restore=false;
+int reads=0, writes=0, lock_depth=0, identity_reads=0, fail_reads=0; uint32_t held=0; bool foreign_vf=false, fail_clamp=false, fail_restore=false;
 uint8_t wanted_port=3, wanted_addr=0x34; bool lose_clock_after_command=false, clock_unreadable=false;
-bool duplicate_route=false;
+bool duplicate_route=false, nct_mode=false; int typed_writes=0;
 void setup() {
     identity={}; identity.size=sizeof(identity); identity.nvapi_ok=identity.nvapi_selected=1;
     identity.nvapi_handle=1984; identity.nvapi_devid=0x12345678; identity.nvapi_subsys=0x87654321;
@@ -25,14 +25,15 @@ void setup() {
     std::memcpy(identity.uuid,"GPU-independent",sizeof("GPU-independent"));
     regs={{0x00,0},{0xbe,0xb4},{0x21,120},{0xe1,0x4200},{0x01,0x80},{0x45,0},{0x23,0},
           {0x2a,32},{0x2d,0},{0x1f,48},{0x24,208},{0x8b,850},{0x8c,0xe020},{0x8d,400},{0x44,0},{0x78,0}};
-    events.clear(); reads=writes=lock_depth=0; held=0; foreign_vf=fail_clamp=fail_restore=false; lose_clock_after_command=clock_unreadable=false;
-    duplicate_route=false;
+    events.clear(); reads=writes=lock_depth=identity_reads=fail_reads=0; held=0; foreign_vf=fail_clamp=fail_restore=false; lose_clock_after_command=clock_unreadable=false;
+    duplicate_route=false; nct_mode=false; typed_writes=0; wanted_port=3; wanted_addr=0x34;
 }
-dc_status DC_CALL get_identity(const dc_gpu*,dc_gpu_identity* out) { *out=identity; return DC_OK; }
+dc_status DC_CALL get_identity(const dc_gpu*,dc_gpu_identity* out) { ++identity_reads; *out=identity; return DC_OK; }
 dc_status DC_CALL gpu_lock(dc_gpu*) { ++lock_depth; return DC_OK; }
 dc_status DC_CALL gpu_unlock(dc_gpu*) { --lock_depth; return DC_OK; }
 dc_status DC_CALL bus_read(dc_gpu*,uint32_t port,uint32_t addr,uint32_t reg,uint32_t width,uint32_t* out,dc_error*) {
-    ++reads; if((port!=wanted_port && !(duplicate_route && port==4)) || addr!=wanted_addr || (width!=1 && width!=2)) return DC_E_UNAVAILABLE;
+    ++reads; if(fail_reads>0) { --fail_reads; return DC_E_UNAVAILABLE; }
+    if((port!=wanted_port && !(duplicate_route && port==4)) || addr!=wanted_addr || (width!=1 && width!=2)) return DC_E_UNAVAILABLE;
     auto it=regs.find(static_cast<int>(reg)); if(it==regs.end()) return DC_E_UNAVAILABLE;
     *out=(reg==0x8b && (regs[0xe1]&0x10)) ? static_cast<uint32_t>(regs[0x21]*6.25) : it->second; return DC_OK;
 }
@@ -44,6 +45,16 @@ dc_status DC_CALL bus_write(dc_gpu*,uint32_t port,uint32_t addr,uint32_t reg,uin
     regs[static_cast<int>(reg)]=value;
     if (reg==0x21 && lose_clock_after_command) { clock_unreadable=true; lose_clock_after_command=false; }
     return DC_OK;
+}
+dc_status DC_CALL block_read(dc_gpu* gpu,uint32_t port,uint32_t addr,uint32_t reg,uint8_t* out,uint32_t count,dc_error* error) {
+    if (!out || count<1 || count>4) return DC_E_UNAVAILABLE;
+    uint32_t value=0; auto status=bus_read(gpu,port,addr,reg,count,&value,error);
+    if(status==DC_OK) for(uint32_t i=0;i<count;++i) out[i]=static_cast<uint8_t>(value>>(8*i));
+    return status;
+}
+dc_status DC_CALL typed_write(dc_gpu*,uint32_t family,uint32_t port,uint32_t addr,uint32_t reg,const uint8_t* data,uint32_t count,dc_error*) {
+    CHECK(nct_mode && family==static_cast<uint32_t>(I2cFamily::nct3933) && port==wanted_port && addr==wanted_addr);
+    CHECK(reg>=1 && reg<=3 && data && count==1); ++typed_writes; regs[static_cast<int>(reg)]=data[0]; return DC_OK;
 }
 dc_status DC_CALL clock_table(dc_gpu*,dc_clock_row* rows,size_t capacity,size_t* count) {
     *count=2; if (!rows || capacity<2) return DC_E_BUFFER;
@@ -66,8 +77,9 @@ I2cApi api() {
 }
 Command command(Command::Operation op) { Command c; c.operation=op; return c; }
 void select_gate(I2cSession& s) {
-    auto scan=s.execute(command(Command::Operation::i2c_scan)); CHECK(scan.ok && s.data().candidates.size()==1);
-    auto select=command(Command::Operation::i2c_select); select.i2c_route=I2cRoute{wanted_port,wanted_addr}; CHECK(s.execute(select).ok);
+    auto scan_command=command(Command::Operation::i2c_scan); scan_command.i2c_family=I2cFamily::mp2888;
+    auto scan=s.execute(scan_command); CHECK(scan.ok && s.data().candidates.size()==1);
+    auto select=command(Command::Operation::i2c_select); select.i2c_route=I2cRoute{wanted_port,wanted_addr}; select.i2c_family=I2cFamily::mp2888; select.i2c_recipe="mp2888a-pmbus"; CHECK(s.execute(select).ok);
     auto gate=command(Command::Operation::i2c_gate); gate.enabled=true; const int before_gate_reads=reads;
     CHECK(s.execute(gate).ok && reads==before_gate_reads);
 }
@@ -75,11 +87,17 @@ void select_gate(I2cSession& s) {
 int main() {
     setup(); I2cSession s(api(),reinterpret_cast<dc_gpu*>(1),identity);
     CHECK(s.data().available && reads==0 && writes==0 && !s.owned());
-    CHECK(s.data().control_profile=="mp2888a-pmbus" && s.data().control_profiles.size()==1);
-    CHECK(s.data().control_profiles[0].available && s.data().control_profiles[0].presets_mv.empty());
+    CHECK(s.data().control_profiles.size()==2);
+    CHECK(s.data().control_profiles[1].available && s.data().control_profiles[1].presets_mv.empty());
     select_gate(s); CHECK(writes==0);
+    const auto selected_revision=s.data().selection_revision; const int before_reconnect=reads;
+    fail_reads=100; auto reconnect=command(Command::Operation::i2c_scan); reconnect.i2c_family=I2cFamily::mp2888;
+    CHECK(!s.execute(reconnect).ok);
     CHECK(s.data().selected && s.data().selected->port==wanted_port && s.data().selected->addr7==wanted_addr);
-    const auto& profile=s.data().control_profiles[0];
+    CHECK(s.data().control_profile=="mp2888a-pmbus" && s.data().selection_revision==selected_revision && reads-before_reconnect<100 && writes==0);
+    fail_reads=0; CHECK(s.execute(command(Command::Operation::i2c_read)).ok);
+    CHECK(s.data().selected && s.data().selected->port==wanted_port && s.data().selected->addr7==wanted_addr);
+    const auto& profile=s.data().control_profiles[1];
     CHECK(profile.step_mv==6.25 && !profile.presets_mv.empty());
     for(double value:profile.presets_mv) CHECK(value>=*s.data().status.min_mv && value<=*s.data().status.max_mv && std::floor(value/profile.step_mv)==value/profile.step_mv);
     foreign_vf=true; auto refused=s.execute(command(Command::Operation::i2c_verify));
@@ -128,18 +146,46 @@ int main() {
     CHECK(readonly.data().available && reads==0); select_gate(readonly);
     CHECK(readonly.execute(command(Command::Operation::i2c_read)).ok && readonly.data().status.readable);
     CHECK(!readonly.execute(command(Command::Operation::i2c_verify)).ok && writes==0 && held==0);
-    CHECK(!readonly.data().control_profiles[0].available);
+    CHECK(!readonly.data().control_profiles[1].available);
     CHECK(lock_depth==0);
     setup(); I2cSession discovered(api(),reinterpret_cast<dc_gpu*>(1),identity);
-    CHECK(discovered.execute(command(Command::Operation::i2c_scan)).ok);
+    auto mp_scan=command(Command::Operation::i2c_scan); mp_scan.i2c_family=I2cFamily::mp2888;
+    CHECK(discovered.execute(mp_scan).ok);
     CHECK(discovered.data().selected && !discovered.data().gate && !discovered.data().verified && writes==0 && held==0);
+    auto manual_recipe=command(Command::Operation::i2c_recipe); manual_recipe.i2c_recipe="mp2888a-pmbus";
+    CHECK(discovered.execute(manual_recipe).ok);
     auto one_click=command(Command::Operation::i2c_verify); one_click.enabled=true;
     one_click.i2c_route=I2cRoute{wanted_port,wanted_addr};
+    CHECK(!discovered.execute(one_click).ok && !discovered.data().gate && writes==0);
+    auto explicit_gate=command(Command::Operation::i2c_gate);explicit_gate.enabled=true;
+    CHECK(discovered.execute(explicit_gate).ok);
     CHECK(discovered.execute(one_click).ok && discovered.data().gate && discovered.data().verified && !discovered.owned() && held==0);
     CHECK(regs[0x21]==120 && regs[0xe1]==0x4200);
     setup(); duplicate_route=true; I2cSession ambiguous(api(),reinterpret_cast<dc_gpu*>(1),identity);
-    CHECK(ambiguous.execute(command(Command::Operation::i2c_scan)).ok);
+    CHECK(ambiguous.execute(mp_scan).ok);
     CHECK(ambiguous.data().candidates.size()==2 && !ambiguous.data().selected && writes==0 && held==0);
+    setup(); nct_mode=true; wanted_port=1; wanted_addr=0x15;
+    regs={{0x5d,0x39},{0x5e,0x33},{5,0},{1,0},{2,0},{3,0}};
+    auto typed_api=api(); typed_api.read_bytes=block_read; typed_api.controller_write=typed_write;
+    I2cSession typed(typed_api,reinterpret_cast<dc_gpu*>(1),identity);
+    auto early_gate=command(Command::Operation::i2c_gate); early_gate.enabled=true;
+    CHECK(typed.execute(early_gate).ok && reads==0 && writes==0 && typed_writes==0 && identity_reads==0 && lock_depth==0);
+    auto nct_select=command(Command::Operation::i2c_select); nct_select.i2c_route=I2cRoute{1,0x15}; nct_select.i2c_family=I2cFamily::nct3933;
+    CHECK(typed.execute(nct_select).ok && typed.data().family==I2cFamily::nct3933 && typed.data().gate);
+    auto nct_apply=command(Command::Operation::i2c_apply); nct_apply.i2c_field="out1"; nct_apply.value=20;
+    nct_apply.i2c_selection_revision=typed.data().selection_revision;
+    CHECK(typed.execute(nct_apply).ok && typed_writes==1 && regs[1]==0x82 && typed.owned());
+    CHECK(typed.execute(command(Command::Operation::i2c_release)).ok && typed_writes==2 && regs[1]==0 && !typed.owned());
+    auto stale=nct_apply; CHECK(typed.execute(nct_select).ok && typed.data().selection_revision!=stale.i2c_selection_revision);
+    const int stale_reads=reads, stale_writes=typed_writes;
+    CHECK(!typed.execute(stale).ok && reads==stale_reads && typed_writes==stale_writes && !typed.owned());
+    nct_apply.i2c_selection_revision=typed.data().selection_revision;
+    CHECK(typed.execute(nct_apply).ok && typed.owned());
+    auto stale_gate=command(Command::Operation::i2c_gate); stale_gate.enabled=false; stale_gate.i2c_selection_revision=stale.i2c_selection_revision;
+    const int before_stale_gate_reads=reads, before_stale_gate_writes=typed_writes;
+    CHECK(!typed.execute(stale_gate).ok && typed.data().gate && typed.owned());
+    CHECK(reads==before_stale_gate_reads && typed_writes==before_stale_gate_writes);
+    CHECK(typed.execute(command(Command::Operation::i2c_release)).ok && !typed.owned());
     CHECK(I2cControls::nominal_presets(900.1,906.24).empty());
     CHECK(I2cControls::nominal_presets(-1,1000).empty());
     CHECK(I2cControls::nominal_presets(0,4000).empty());

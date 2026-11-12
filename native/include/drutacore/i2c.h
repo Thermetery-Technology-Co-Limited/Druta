@@ -19,6 +19,13 @@ DC_API dc_status DC_CALL dc_i2c_read(dc_gpu* gpu, uint32_t port, uint32_t addr7,
                                      uint32_t width, uint32_t* value, dc_error* error);
 DC_API dc_status DC_CALL dc_i2c_write(dc_gpu* gpu, uint32_t port, uint32_t addr7, uint32_t reg,
                                       uint32_t width, uint32_t value, dc_error* error);
+/* Block read (1..32 bytes) and family-scoped volatile controller write.
+ * Family values: NCT3933=1, NCP4206=2, uP9512R=3, iCX=4,
+ * MP2888=5, MP29816=6. Identity and exact readback remain caller duties. */
+DC_API dc_status DC_CALL dc_i2c_read_bytes(dc_gpu*, uint32_t port, uint32_t addr7, uint32_t reg,
+                                            uint8_t* out, uint32_t count, dc_error* error);
+DC_API dc_status DC_CALL dc_i2c_controller_write(dc_gpu*, uint32_t family, uint32_t port, uint32_t addr7,
+                                                  uint32_t reg, const uint8_t* data, uint32_t count, dc_error* error);
 #ifdef __cplusplus
 }
 #endif

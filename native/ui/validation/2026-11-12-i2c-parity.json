@@ -1,0 +1,193 @@
+{
+  "date": "2026-11-12",
+  "scope": "Windows 10 x64; NVIDIA GeForce RTX 3070 Ti; PCI 0000:01:00.0; existing driver 595.97 and VBIOS 94.04.5a.00.56",
+  "reference": "Released 1.9.1 merge fa6ee83",
+  "exe_sha256": "3C7B577C33CF2C0A63D04B22C16D27BE76552E3F4CA129759B06B14486B063CD",
+  "core_sha256": "687DFF65557C785388D01887FF36FCC20E6C43FB2FF3D0E1D426D03F25012F64",
+  "ctest": {
+    "failed": 0,
+    "passed": 27
+  },
+  "ui_checks": {
+    "view": 812,
+    "advanced": 229
+  },
+  "discovery": [
+    "Ready. Commands: select PORT ADDR_DECIMAL [FAMILY], scan [FAMILY], recipe ID, gate 0|1, verify, apply VALUE [FIELD], read, release, quit",
+    "operation=scan ok=1 changed=0 message=One controller selected; read and verify this control method before Apply",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=0 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=read ok=1 changed=0 message=Controller read refreshed",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=0 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=recipe ok=1 changed=0 message=Control recipe selected; Verify this method before Apply",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 controller_mv=676 minimum_mv=300 maximum_mv=1200 family=5 recipe=mp2888a-pmbus capable=1 writable=0 status=Controller-reported voltage is not a physical measurement",
+    "operation=read ok=1 changed=0 message=Controller read refreshed",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 controller_mv=676 minimum_mv=300 maximum_mv=1200 family=5 recipe=mp2888a-pmbus capable=1 writable=0 status=Controller-reported voltage is not a physical measurement",
+    "operation=recipe ok=1 changed=0 message=Control recipe selected; Verify this method before Apply",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=0 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=read ok=1 changed=0 message=Controller read refreshed",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=0 status=Candidate fingerprint; electrical rail is unassigned",
+    "close ok=1 "
+  ],
+  "verification": [
+    "Ready. Commands: select PORT ADDR_DECIMAL [FAMILY], scan [FAMILY], recipe ID, gate 0|1, verify, apply VALUE [FIELD], read, release, quit",
+    "operation=select ok=1 changed=0 message=Controller selected; physical rail assignment is not inferred",
+    "gate=0 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=0 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=gate ok=1 changed=0 message=I2C enabled; choose an IC, then Connect / Scan",
+    "gate=1 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=0 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=verify ok=1 changed=1 message=Controller VOUT response and reversal verified at held operating point; entry restored",
+    "gate=1 verified=1 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=435 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=1 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=read ok=1 changed=0 message=Controller read refreshed",
+    "gate=1 verified=1 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=435 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=1 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=release ok=1 changed=0 message=No owned I2C request",
+    "gate=1 verified=1 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=435 family=5 recipe=mp2888a-offset offset=0 capable=1 writable=1 status=Candidate fingerprint; electrical rail is unassigned",
+    "operation=recipe ok=1 changed=0 message=Control recipe selected; Verify this method before Apply",
+    "gate=1 verified=0 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=390 controller_mv=676 minimum_mv=300 maximum_mv=1200 family=5 recipe=mp2888a-pmbus capable=1 writable=0 status=Controller-reported voltage is not a physical measurement",
+    "operation=verify ok=1 changed=1 message=A-B-A controller-reported response verified and entry restored; physical voltage requires independent measurement",
+    "gate=1 verified=1 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 controller_mv=676 minimum_mv=300 maximum_mv=1200 family=5 recipe=mp2888a-pmbus capable=1 writable=1 status=Controller-reported voltage is not a physical measurement",
+    "operation=read ok=1 changed=0 message=Controller read refreshed",
+    "gate=1 verified=1 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 controller_mv=675 minimum_mv=300 maximum_mv=1200 family=5 recipe=mp2888a-pmbus capable=1 writable=1 status=Controller-reported voltage is not a physical measurement",
+    "operation=release ok=1 changed=0 message=No owned I2C request",
+    "gate=1 verified=1 owned=0 recovery=0 clamp=0 clamp_mhz=0 core_mhz=210 controller_mv=675 minimum_mv=300 maximum_mv=1200 family=5 recipe=mp2888a-pmbus capable=1 writable=1 status=Controller-reported voltage is not a physical measurement",
+    "close ok=1 "
+  ],
+  "unchanged_surfaced_request_lines": {
+    "baseline": [
+      "memory.current=0",
+      "advanced.0.current=0",
+      "advanced.1.current=0",
+      "advanced.2.current=0",
+      "advanced.3.current=0",
+      "advanced.4.current=0",
+      "advanced.5.current=0",
+      "advanced.6.current=0",
+      "policy.0.current=5001",
+      "policy.1.current=1001",
+      "policy.2.current=1917.26",
+      "policy.3.current=5001",
+      "policy.4.current=5001",
+      "policy.5.current=167.511",
+      "policy.6.current=361.48099999999999",
+      "policy.7.current=361.48099999999999",
+      "policy.8.current=36.25",
+      "policy.9.current=40.261000000000003",
+      "policy.10.current=40.261000000000003",
+      "policy.11.current=150",
+      "policy.12.current=5001",
+      "policy.13.current=471.399",
+      "policy.14.current=5001",
+      "policy.15.current=5001",
+      "policy.16.current=150.982",
+      "policy.17.current=116.755",
+      "policy.18.current=5001",
+      "rail.0.current=0",
+      "rail.1.current=0",
+      "rail.2.current=0",
+      "rail.3.current=0"
+    ],
+    "count": 31,
+    "match": true
+  },
+  "window": {
+    "live_mode": true,
+    "phases": [
+      {
+        "phase": "visible_default",
+        "frames": 42,
+        "presents": 42,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.171875,
+        "passed": true
+      },
+      {
+        "phase": "always_visible",
+        "frames": 115,
+        "presents": 115,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.109375,
+        "passed": true
+      },
+      {
+        "phase": "always_minimized",
+        "frames": 113,
+        "presents": 113,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.15625,
+        "passed": true
+      },
+      {
+        "phase": "explicit_pause",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "hotkey_restore",
+        "frames": 114,
+        "presents": 114,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.3125,
+        "passed": true
+      },
+      {
+        "phase": "default_minimized",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "default_restored",
+        "frames": 53,
+        "presents": 53,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.25,
+        "passed": true
+      },
+      {
+        "phase": "classic",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.078125,
+        "passed": true
+      },
+      {
+        "phase": "advanced",
+        "frames": 19,
+        "presents": 19,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      },
+      {
+        "phase": "monitor",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.078125,
+        "passed": true
+      },
+      {
+        "phase": "resize_1024x768",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      }
+    ],
+    "device_resets": 3,
+    "hotkey_registered": true,
+    "passed": true
+  },
+  "limits": [
+    "No new independent multimeter reading",
+    "Other controller families tested with mocks, not physical hardware",
+    "No Vista/7 runtime qualification",
+    "Saved discovery hints and progress/cancel UI remain open",
+    "Full Python frontend parity remains open"
+  ]
+}

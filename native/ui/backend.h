@@ -4,6 +4,7 @@
 #include <drutacore/drutacore.h>
 #include "curve_planner.h"
 #include "i2c_controls.h"
+#include "i2c_driver.h"
 #include "tuning_actions.h"
 #include <array>
 #include <memory>
@@ -44,6 +45,13 @@ struct I2cViewData {
     std::string message;
     std::vector<I2cControlProfile> control_profiles;
     std::string control_profile;
+    I2cFamily family = I2cFamily::mp2888;
+    ControllerView controller;
+    uint64_t selection_revision = 0;
+    bool needs_clock_clamp = true;
+    bool captured_preset = false, pending_preset = false;
+    std::string preset_preview;
+    uint64_t prepared_preset_revision = 0;
 };
 struct LiveData {
     TuningState tuning;
@@ -78,7 +86,8 @@ struct LiveData {
 };
 struct Command {
     enum class Operation { apply, stock, undo, save_profile, load_profile, apply_curve, reset_curve, set_xoc, set_rail_mode,
-        i2c_scan, i2c_select, i2c_gate, i2c_read, i2c_verify, i2c_apply, i2c_release,
+        i2c_scan, i2c_select, i2c_gate, i2c_read, i2c_verify, i2c_apply,
+        i2c_recipe, i2c_reset, i2c_prepare_profile, i2c_save_profile, i2c_load_profile, i2c_stage_captured, i2c_apply_profile, i2c_release,
         timings_select_helper, timings_read, timings_preview, timings_apply, timings_undo,
         max_it, reset_controls, hold_curve_point, release_hold };
     Operation operation = Operation::apply;
@@ -86,6 +95,11 @@ struct Command {
     double value = 0;
     bool enabled = false;
     std::optional<I2cRoute> i2c_route;
+    I2cFamily i2c_family = I2cFamily::unknown;
+    std::string i2c_recipe, i2c_field;
+    bool i2c_full_scan = false;
+    uint64_t i2c_selection_revision = 0;
+    uint64_t i2c_preset_revision = 0;
     std::wstring profile_path;
     std::wstring timing_helper_path;
     std::string timing_field;

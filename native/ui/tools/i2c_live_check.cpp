@@ -13,7 +13,7 @@ int wmain(int argc,wchar_t** argv) {
     for (wchar_t ch:wide_slot) { if(ch>127) return 1; slot.push_back(static_cast<char>(ch)); }
     auto backend=create_core_backend(argv[1]); std::string error;
     if (!backend->open(slot,error)) { std::cerr<<error<<'\n'; return 2; }
-    std::cout<<"Ready. Commands: select PORT ADDR_DECIMAL, scan, gate 0|1, verify, apply MV, read, release, quit\n"<<std::flush;
+    std::cout<<"Ready. Commands: select PORT ADDR_DECIMAL [FAMILY], scan [FAMILY], recipe ID, gate 0|1, verify, apply VALUE [FIELD], read, release, quit\n"<<std::flush;
     std::string line;
     while (std::getline(std::cin,line)) {
         std::istringstream input(line); std::string op; input>>op; Command c;
@@ -23,11 +23,13 @@ int wmain(int argc,wchar_t** argv) {
         }
         if (op=="select") { int port=-1,addr=-1; input>>port>>addr; if(port<0 || port>7 || addr<8 || addr>0x77) continue;
             c.operation=Command::Operation::i2c_select; c.i2c_route=I2cRoute{static_cast<uint8_t>(port),static_cast<uint8_t>(addr)};
-        } else if(op=="scan") c.operation=Command::Operation::i2c_scan;
+            int family=5;if(input>>family){}if(family<1 || family>6)continue;c.i2c_family=static_cast<I2cFamily>(family);
+        } else if(op=="scan") {c.operation=Command::Operation::i2c_scan;int family=5;if(input>>family){}if(family<0 || family>6)continue;c.i2c_family=static_cast<I2cFamily>(family);}
+        else if(op=="recipe") {c.operation=Command::Operation::i2c_recipe;if(!(input>>c.i2c_recipe))continue;}
         else if(op=="read") c.operation=Command::Operation::i2c_read;
         else if(op=="gate") {c.operation=Command::Operation::i2c_gate;int gate=0;input>>gate;c.enabled=gate!=0;}
         else if(op=="verify") c.operation=Command::Operation::i2c_verify;
-        else if(op=="apply") {c.operation=Command::Operation::i2c_apply;if(!(input>>c.value))continue;}
+        else if(op=="apply") {c.operation=Command::Operation::i2c_apply;if(!(input>>c.value))continue;input>>c.i2c_field;}
         else if(op=="release") c.operation=Command::Operation::i2c_release;
         else continue;
         auto r=backend->execute(c); auto live=backend->read(false); const auto& d=live.i2c;
@@ -38,6 +40,8 @@ int wmain(int argc,wchar_t** argv) {
         if(d.status.requested_mv)std::cout<<" command_mv="<<*d.status.requested_mv;
         if(d.status.min_mv)std::cout<<" minimum_mv="<<*d.status.min_mv;
         if(d.status.max_mv)std::cout<<" maximum_mv="<<*d.status.max_mv;
+        std::cout<<" family="<<static_cast<unsigned>(d.family)<<" recipe="<<d.control_profile;
+        for(const auto& field:d.controller.fields)if(field.value)std::cout<<" "<<field.key<<"="<<*field.value;
         std::cout<<" capable="<<d.status.capable<<" writable="<<d.status.writable<<" status="<<d.status.message<<'\n'<<std::flush;
     }
     const auto released=backend->prepare_close(); std::cerr<<"EOF cleanup: "<<released.message<<'\n';

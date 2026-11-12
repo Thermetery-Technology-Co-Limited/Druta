@@ -21,5 +21,8 @@ using I2cExFn = int(DRUTA_CDECL*)(void*, I2cInfoV3*, std::uint32_t*);
 struct I2cResult { int status = 0; bool geometry_ok = false; std::uint32_t value = 0; };
 I2cResult i2c_exchange(I2cExFn fn, void* handle, std::uint32_t port, std::uint32_t address,
                        std::uint32_t reg, std::uint32_t width, std::uint32_t value, bool write);
+I2cResult i2c_exchange_bytes(I2cExFn fn, void* handle, std::uint32_t port, std::uint32_t address,
+    std::uint32_t reg, std::uint8_t* data, std::uint32_t count, bool write, bool indexed = false, bool check_extra = false);
+bool i2c_controller_payload(std::uint32_t family, std::uint32_t reg, const std::uint8_t* data, std::uint32_t count);
 bool i2c_forbidden_write(std::uint32_t reg);
 }

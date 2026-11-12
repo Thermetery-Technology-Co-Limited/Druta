@@ -35,7 +35,7 @@ bool table(const char* id, bool classic = false) {
 }
 void row(uint64_t key, const char* label, const ControlState& c, const char* stock_label,
     Command action, const SessionSnapshot& snapshot, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding, bool keep_slider = false) {
+    AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding, bool keep_slider = false, bool gate = true, bool xoc_gate = false) {
     auto& d = state.drafts[key];
     const auto current_binding = binding.empty() && (c.availability == Availability::transient || c.availability == Availability::unknown)
         ? d.binding : binding;
@@ -56,6 +56,8 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
         && *c.low < *c.high && (keep_slider || verbose || width > u(190));
     const bool stacked = slider && !verbose && width <= u(190);
     bool editing = false;
+    const auto flash_gate = [&] { if (!gate && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) (xoc_gate ? state.xoc_gate_flash_until : state.rail_gate_flash_until) = ImGui::GetTime() + 0.8; };
+    ImGui::BeginDisabled(!gate);
     if (slider) {
         ImGui::SetNextItemWidth(verbose || stacked ? -1 : width - u(92) - ImGui::GetStyle().ItemSpacing.x);
         if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &d.value, &*c.low, &*c.high, "%.6g", ImGuiSliderFlags_NoInput)) {
@@ -67,12 +69,13 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
             }
             d.dirty = true; d.initialized = true;
         }
-        editing = ImGui::IsItemActive(); if (!verbose && !stacked) ImGui::SameLine();
+        flash_gate(); editing = ImGui::IsItemActive(); if (!verbose && !stacked) ImGui::SameLine();
     }
     if (verbose) ImGui::TableNextColumn();
     ImGui::SetNextItemWidth(verbose || stacked ? -1 : slider ? u(92) : -1);
     if (ImGui::InputDouble("##value", &d.value, 0, 0, "%.9g")) { d.dirty = true; d.initialized = true; }
-    d.editing = editing || ImGui::IsItemActive();
+    flash_gate(); d.editing = editing || ImGui::IsItemActive();
+    ImGui::EndDisabled();
     hint("Draft only. Apply sends this selected request; polling preserves unfinished edits.");
     ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
     if (verbose) ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 14.0f / 16.0f);
@@ -83,12 +86,13 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     hint(c.detail);
     if (verbose) hint("Configured request, not an observed physical clock or rail measurement.");
     ImGui::TableNextColumn();
-    ImGui::BeginDisabled(!ready(snapshot) || !unlocked || !c.writable || !d.initialized || !std::isfinite(d.value));
+    ImGui::BeginDisabled(!ready(snapshot) || !unlocked || !c.writable || !gate || !d.initialized || !std::isfinite(d.value));
     if (ImGui::Button("Apply", ImVec2(verbose ? -1 : u(64), 0))) { action.operation = Command::Operation::apply; action.value = d.value; commands.push_back(action); }
-    ImGui::EndDisabled(); hint(c.detail);
+    flash_gate(); ImGui::EndDisabled(); hint(c.detail);
     if (verbose) ImGui::TableNextColumn(); else ImGui::SameLine();
-    ImGui::BeginDisabled(!ready(snapshot) || !unlocked || !c.stock_writable);
+    ImGui::BeginDisabled(!ready(snapshot) || !unlocked || (!gate && !xoc_gate) || !c.stock_writable);
     if (ImGui::Button(stock_label, ImVec2(verbose ? -1 : u(80), 0))) { action.operation = Command::Operation::stock; commands.push_back(action); }
+    if (!xoc_gate) flash_gate();
     ImGui::EndDisabled();
     hint(c.detail);
     ImGui::PopID();
@@ -113,7 +117,7 @@ void rail_row(const RailControl& r, const SessionSnapshot& s, bool unlocked, boo
         shown.detail += "; absolute estimate = captured base + stored delta, not a factory default";
     } else shown.detail += "; base estimate unavailable; request delta only";
     const auto before = commands.size();
-    row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, classic, state, commands, r.binding, true);
+    row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, classic, state, commands, r.binding, true, s.data.rail_mode_known && s.data.rail_mode_enabled);
     for (size_t i = before; i < commands.size(); ++i)
         if (commands[i].operation == Command::Operation::apply) commands[i].value -= base;
 }
@@ -130,12 +134,14 @@ RiskAssessment session_risk(const LiveData& data) {
     return assess_risk(gates);
 }
 void draw_mode_bar(const SessionSnapshot& s, bool& unlocked, std::vector<Command>& commands,
-    bool classic, const std::function<void()>& i2c_gate) {
+    bool classic, const std::function<void()>& i2c_gate, AdvancedViewState* view) {
     ImGui::Checkbox("Unlock controls", &unlocked); ImGui::SameLine();
     bool xoc = s.data.xoc_enabled;
+    const bool xoc_flashing = view && view->xoc_gate_flash_until > ImGui::GetTime();
+    if (xoc_flashing) { ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.95f,0.55f,0.08f,1)); ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(1,1,1,1)); }
     ImGui::BeginDisabled(!ready(s) || !s.data.xoc_known || (!unlocked && !xoc));
     if (ImGui::Checkbox("XOC", &xoc)) { Command c; c.operation = Command::Operation::set_xoc; c.enabled = xoc; commands.push_back(c); }
-    ImGui::EndDisabled(); hint("Expand software request ranges and enable experimental MSVDD/additional-memory requests. Firmware limits remain independent.");
+    ImGui::EndDisabled(); if (xoc_flashing) ImGui::PopStyleColor(2); hint("Expand software request ranges and enable experimental MSVDD/additional-memory requests. Firmware limits remain independent.");
     if (i2c_gate) { ImGui::SameLine(); i2c_gate(); }
     else if (classic) {
         ImGui::SameLine(); ImGui::BeginDisabled(); bool i2c = false;
@@ -143,9 +149,11 @@ void draw_mode_bar(const SessionSnapshot& s, bool& unlocked, std::vector<Command
         hint("Native I2C controller workflow pending.");
     }
     ImGui::SameLine(); bool rails = s.data.rail_mode_enabled;
+    const bool flashing = view && view->rail_gate_flash_until > ImGui::GetTime();
+    if (flashing) { ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.95f, 0.55f, 0.08f, 1)); ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(1, 1, 1, 1)); }
     ImGui::BeginDisabled(!ready(s) || !s.data.rail_mode_known || (!unlocked && !rails));
     if (ImGui::Checkbox("Rail limits", &rails)) { Command c; c.operation = Command::Operation::set_rail_mode; c.enabled = rails; commands.push_back(c); }
-    ImGui::EndDisabled(); hint("Enable explicit per-rail limit requests. Displayed absolute voltages are estimates from this adapter's captured reference.");
+    ImGui::EndDisabled(); if (flashing) ImGui::PopStyleColor(2); hint("Enable explicit per-rail limit requests. Displayed absolute voltages are estimates from this adapter's captured reference.");
     const auto risk = session_risk(s.data);
     if (risk.band != RiskBand::stock) {
         ImGui::SameLine(); ImGui::TextColored(color(risk.tint.text), "%s%s", risk.name.c_str(), risk.incomplete ? " / incomplete" : "");
@@ -153,7 +161,7 @@ void draw_mode_bar(const SessionSnapshot& s, bool& unlocked, std::vector<Command
     }
 }
 void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands) {
+    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails) {
     if (state.generation != s.generation) { state = {}; state.generation = s.generation; }
     if (!state.notice.empty()) ImGui::TextWrapped("%s", state.notice.c_str());
     if (!s.data.advanced_controls.empty()) {
@@ -162,7 +170,9 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
             for (const auto& c : s.data.advanced_controls) {
                 Command cmd; cmd.advanced = c.id;
                 const char* name = c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2 ? "Additional memory offset" : c.label.c_str();
-                row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, name, c.state, "Stock", cmd, s, unlocked, verbose, state, commands, c.binding);
+                const bool xoc_required = c.id.kind == AdvancedKind::msvdd || (c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2);
+                row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, name, c.state, "Stock", cmd, s, unlocked, verbose, state, commands, c.binding, false,
+                    !xoc_required || (s.data.xoc_known && s.data.xoc_enabled), xoc_required);
             }
             ImGui::EndTable();
         }
@@ -177,7 +187,7 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
             ImGui::EndTable();
         }
     }
-    if (!s.data.rail_controls.empty() && ImGui::CollapsingHeader("Rail limits", section_flags)) {
+    if (include_rails && !s.data.rail_controls.empty() && ImGui::CollapsingHeader("Rail limits", section_flags)) {
         ImGui::TextDisabled("Absolute limits are estimates. Initial restores the captured request.");
         const char* names[] = {"Reliability", "Alt reliability", "Overvoltage", "Minimum voltage"};
         if (table("rail-limits", verbose)) {
@@ -196,7 +206,7 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
                     shown.detail += "; shown absolute value = captured base + stored delta";
                 } else shown.detail += "; no base estimate, showing request delta only";
                 const auto before = commands.size();
-                row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, verbose, state, commands, r.binding, true);
+                row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, verbose, state, commands, r.binding, true, s.data.rail_mode_known && s.data.rail_mode_enabled);
                 for (size_t i = before; i < commands.size(); ++i)
                     if (commands[i].operation == Command::Operation::apply) commands[i].value -= base;
             }
@@ -218,7 +228,9 @@ void draw_clock_domain_controls(const SessionSnapshot& s, bool unlocked, bool cl
     for (const auto& c : s.data.advanced_controls) if (c.id.kind == AdvancedKind::clock_domain) {
         Command cmd; cmd.advanced = c.id;
         const auto name = c.id.domain == 2 ? "Additional Memory Clock Offset (MHz)" : c.label;
-        row(1000 + c.id.domain, name.c_str(), c.state, "Stock", cmd, s, unlocked, classic, state, commands, c.binding);
+        const bool xoc_required = c.id.domain == 2;
+        row(1000 + c.id.domain, name.c_str(), c.state, "Stock", cmd, s, unlocked, classic, state, commands, c.binding, false,
+            !xoc_required || (s.data.xoc_known && s.data.xoc_enabled), xoc_required);
     }
     ImGui::EndTable();
 }
@@ -247,7 +259,8 @@ void draw_daily_rail_controls(const SessionSnapshot& s, bool unlocked, bool clas
     for (const auto& c : s.data.advanced_controls) if (c.id.kind != AdvancedKind::clock_domain) {
         Command cmd; cmd.advanced = c.id;
         row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, c.label.c_str(), c.state,
-            c.id.kind == AdvancedKind::msvdd ? "Zero" : "Stock", cmd, s, unlocked, classic, state, commands, c.binding);
+            c.id.kind == AdvancedKind::msvdd ? "Zero" : "Stock", cmd, s, unlocked, classic, state, commands, c.binding, false,
+            c.id.kind != AdvancedKind::msvdd || (s.data.xoc_known && s.data.xoc_enabled), c.id.kind == AdvancedKind::msvdd);
     }
     ImGui::EndTable();
     if (s.data.rail_controls.empty()) ImGui::TextDisabled("Rail-limit requests unavailable");

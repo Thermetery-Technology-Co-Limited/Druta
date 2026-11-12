@@ -39,7 +39,7 @@ SessionSnapshot snapshot() {
     s.data.connected = true;
     s.data.xoc_known = true;
     s.data.rail_mode_known = s.data.rail_writable_known = true;
-    s.data.rail_writable = true;
+    s.data.rail_writable = true; s.data.rail_mode_enabled = true;
     s.data.advanced_controls = {
         {{AdvancedKind::clock_domain, 7}, "Video clock control with a long adapter-derived label", control(11.25, "MHz"), "clock-seven-layout"},
         {{AdvancedKind::clock_domain, 21}, "Independent secondary clock control", control(22.5, "MHz"), "clock-twenty-one-layout"},
@@ -79,7 +79,7 @@ struct Harness {
         ImGui::SetNextWindowSize({width, 1000});
         ImGui::Begin(window_name, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
         if (capture) ImGui::LogToBuffer();
-        draw_mode_bar(s, unlocked, commands);
+        draw_mode_bar(s, unlocked, commands, false, {}, &state);
         ImGui::BeginChild("advanced-body", {0, 0});
         auto* body = ImGui::GetCurrentWindow();
         // Focused normally collapses large groups. Tests explicitly expand
@@ -122,7 +122,7 @@ struct Harness {
 };
 
 void mode_intents_and_risk(bool verbose) {
-    Harness h;
+    Harness h; h.s.data.rail_mode_enabled=false;
     h.frame(verbose);
     h.activate("XOC", verbose);
     h.activate("Rail limits", verbose);
@@ -394,6 +394,47 @@ void transient_empty_binding(Availability availability) {
         "explicit retry retains the established binding guard instead of dispatching an unbound old target");
 }
 
+void rail_gate_blocks_and_flashes() {
+    Harness h; h.unlocked=true;
+    h.s.data.advanced_controls.clear(); h.s.data.power_policies.clear();
+    h.s.data.rail_controls={{{0,0},control(10,"mV"),1000.0,"gated-rail"}};
+    h.frame(false,true,900); auto* body=h.body_window();
+    const int key=3000; const auto seed=ImHashData(&key,sizeof(key),body->GetID("rail-limits"));
+    ImGui::ActivateItemByID(ImHashStr("##slider",0,seed)); h.frame(false,true,900);
+    const auto rect=body->NavRectRel[ImGuiNavLayer_Main]; ImGui::ClearActiveID();
+    h.s.data.rail_mode_enabled=false; h.frame(false,true,900);
+    auto& io=ImGui::GetIO();
+    io.AddMousePosEvent(body->Pos.x+rect.Min.x+rect.GetWidth()*0.7f,body->Pos.y+rect.GetCenter().y);
+    io.AddMouseButtonEvent(0,true); h.frame(false,true,900);
+    io.AddMouseButtonEvent(0,false); h.frame(false,true,900);
+    check(h.commands.empty() && !h.state.drafts[3000].dirty && h.state.rail_gate_flash_until>ImGui::GetTime(),
+        "disabled rail slider flashes its gate without editing or dispatching");
+    h.s.data.rail_mode_enabled=true; h.frame(false,true,900);
+    io.AddMouseButtonEvent(0,true); h.frame(false,true,900);
+    io.AddMouseButtonEvent(0,false); h.frame(false,true,900);
+    check(h.state.drafts[3000].dirty && h.commands.empty(),"enabled gate permits a local rail draft without dispatch");
+}
+
+void xoc_gate_blocks_and_flashes() {
+    Harness h; h.unlocked=true; h.s.data.xoc_enabled=true;
+    h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
+    h.s.data.advanced_controls={{{AdvancedKind::msvdd,4},"MSVDD offset",control(10,"mV"),"msvdd"}};
+    h.frame(false,true,900); auto* body=h.body_window();
+    const int key=1204; const auto seed=ImHashData(&key,sizeof(key),body->GetID("advanced-offsets"));
+    ImGui::ActivateItemByID(ImHashStr("##slider",0,seed)); h.frame(false,true,900);
+    const auto rect=body->NavRectRel[ImGuiNavLayer_Main]; ImGui::ClearActiveID();
+    h.s.data.xoc_enabled=false; h.frame(false,true,900);
+    auto& io=ImGui::GetIO();
+    io.AddMousePosEvent(body->Pos.x+rect.Min.x+rect.GetWidth()*0.7f,body->Pos.y+rect.GetCenter().y);
+    io.AddMouseButtonEvent(0,true); h.frame(false,true,900);
+    io.AddMouseButtonEvent(0,false); h.frame(false,true,900);
+    check(h.commands.empty() && !h.state.drafts[key].dirty && h.state.xoc_gate_flash_until>ImGui::GetTime(),
+        "XOC-gated MSVDD slider flashes XOC without editing or dispatching");
+    h.activate_row("advanced-offsets",key,"Stock");
+    check(h.commands.size()==1 && h.commands[0].operation==Command::Operation::stock,
+        "XOC-off MSVDD Stock escape remains available");
+}
+
 void rail_sliders_keep_live_grid(bool classic) {
     Harness h; h.unlocked=true;
     h.s.data.advanced_controls.clear(); h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
@@ -456,6 +497,8 @@ int main() {
         rail_conversion_and_binding_replacement(true);
         transient_empty_binding(Availability::transient);
         transient_empty_binding(Availability::unknown);
+        rail_gate_blocks_and_flashes();
+        xoc_gate_blocks_and_flashes();
         rail_sliders_keep_live_grid(false);
         rail_sliders_keep_live_grid(true);
     } catch (const std::exception& error) { check(false, error.what()); }

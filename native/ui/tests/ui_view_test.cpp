@@ -255,6 +255,14 @@ void daily_header_hover_conflict() {
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, true); frame(state, 1366, 900, false);
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false); frame(state, 1366, 900, false);
     check(state.commands.empty(), "clicking a table header cannot dispatch a fan Apply command");
+    ImGui::ActivateItemByID(control_button(ControlId::fan,"Apply")); frame(state,1366,900,false);
+    state.commands.clear();
+    const auto apply_rect=body->NavRectRel[ImGuiNavLayer_Main];
+    io.AddMousePosEvent(body->Pos.x+apply_rect.GetCenter().x,body->Pos.y+apply_rect.GetCenter().y);
+    for(int i=0;i<4;++i) frame(state,1366,900,false);
+    bool active_tooltip=false;
+    for(auto* window:ImGui::GetCurrentContext()->Windows) if(window->Active && (window->Flags&ImGuiWindowFlags_Tooltip)) active_tooltip=true;
+    check(!active_tooltip && state.commands.empty(),"hovering Apply with an empty detail opens no empty tooltip");
 }
 
 void original_classic_layout_and_daily_companions() {
@@ -314,8 +322,19 @@ void original_classic_layout_and_daily_companions() {
     state.drafts[static_cast<size_t>(ControlId::memory)].dirty = true;
     state.presentation = Presentation::focused;
     text = frame(state, 1366, 900);
-    check(contains(text, "NVVDD current limit") && contains(text, "Rail limits") && contains(text, "Board power"),
-        "Focused Daily retains board power, named NVVDD current and rail-limit controls");
+    check(contains(text, "NVVDD current limit") && contains(text, "Board power") && !contains(text, "NVVDD reliability"),
+        "Focused Daily retains board power and named NVVDD current while rail rows have their own page");
+    auto* navroot=ImGui::FindWindowByName("Druta workspace"); ImGuiWindow* nav=nullptr;
+    if(navroot) for(auto* child:ImGui::GetCurrentContext()->Windows)
+        if(child->ParentWindow==navroot && child->ChildId==navroot->GetID("navigation")) nav=child;
+    check(nav!=nullptr,"Focused navigation exists for dedicated control pages");
+    if(nav) ImGui::ActivateItemByID(nav->GetID("Rails"));
+    text=frame(state,1366,900);
+    check(state.page==Page::rails && contains(text,"NVVDD reliability") && !contains(text,"I2C regulator"),"Focused Rails tab opens its own controls");
+    if(nav) ImGui::ActivateItemByID(nav->GetID("I2C"));
+    text=frame(state,1366,900);
+    check(state.page==Page::i2c && contains(text,"I2C") && !contains(text,"NVVDD reliability"),"Focused I2C tab opens its own page");
+    state.page=Page::daily;
     check(near(state.advanced_view.drafts[2027].value, 201.125)
         && near(state.drafts[static_cast<size_t>(ControlId::memory)].value, 2.5) && state.commands.empty(),
         "switching actual layouts retains ordinary and named-current drafts without writing");
@@ -625,8 +644,8 @@ void i2c_panel_wiring(Presentation presentation) {
     ViewState state; state.preview = false; state.presentation = presentation;
     auto live = snapshot(); state.live = live;
     live->data.i2c.available = true;
-    live->data.i2c.control_profile = "test-live-pmbus";
-    live->data.i2c.control_profiles = {{"test-live-pmbus", "Adapter qualified manual PMBus",
+    live->data.i2c.control_profile = "mp2888a-pmbus";
+    live->data.i2c.control_profiles = {{"mp2888a-pmbus", "Adapter qualified manual PMBus",
         "Nominal requests only; not physical voltage", true, 6.25, {400, 875, 1125, 1700}}};
     state.i2c_port = 3; state.i2c_address = 0x42; state.i2c_target_mv = 1125;
     constexpr const char* panel_name = "I2C UI wiring contract";
@@ -661,18 +680,22 @@ void i2c_panel_wiring(Presentation presentation) {
     auto* choices = ImGui::FindWindowByName("##Combo_00");
     check(choices && choices->Active, "detected controller choices open as a friendly dropdown");
     if (choices) {
-        ImGui::ActivateItemByID(choices->GetID("MP2888A-compatible / port 3, 0x42 / 825 mV")); panel_frame();
+        ImGui::ActivateItemByID(choices->GetID("2: MPS MP2888A - port 3, 0x42")); panel_frame();
         check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_select
             && exact_route(state.commands[0]), "friendly candidate selection sends the selected detected route without Apply");
         state.commands.clear();
     }
     activate_panel("Probe route");
+    check(state.commands.empty(), "manual route requires an explicit controller family");
+    state.i2c_scan_scope=static_cast<int>(I2cFamily::mp2888);
+    activate_panel("Probe route");
     check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_select
         && exact_route(state.commands[0]), "Probe queues the exact edited route instead of a developer-board route");
     state.commands.clear();
-    live->data.i2c.selected = I2cRoute{3, 0x42};
+    live->data.i2c.selected = I2cRoute{3, 0x42}; live->data.i2c.family=I2cFamily::mp2888;
     live->data.i2c.status.min_mv = 500; live->data.i2c.status.max_mv = 1600;
     live->data.i2c.status.capable = true; live->data.i2c.status.writable = true;
+    state.controls_unlocked=true; live->data.i2c.gate=true;
     panel_frame();
     activate_panel("Nominal request preset");
     auto* presets = ImGui::FindWindowByName("##Combo_00");
@@ -687,6 +710,7 @@ void i2c_panel_wiring(Presentation presentation) {
             "preset draft survives layout changes and another snapshot render without automatic SET");
         state.presentation=presentation; state.i2c_target_mv=1125;
     }
+    live->data.i2c.gate=false;
     auto* window = ImGui::FindWindowByName(panel_name);
     live->data.xoc_known = live->data.rail_mode_known = true;
     live->data.xoc_enabled = live->data.rail_mode_enabled = true;
@@ -720,9 +744,7 @@ void i2c_panel_wiring(Presentation presentation) {
         && state.commands[0].enabled && exact_route(state.commands[0]), "I2C gate emits a route-bound explicit intent");
     state.commands.clear();
     activate_panel("Verify response");
-    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_verify
-        && state.commands[0].enabled && exact_route(state.commands[0]),
-        "explicit Verify can request arming and verification together without another gate click");
+    check(state.commands.empty(), "write verification remains disabled until the I2C gate is confirmed");
     check(!live->data.i2c.gate && !live->data.i2c.verified,
         "Verify click does not optimistically change the gate or verified response state");
     state.commands.clear();
@@ -736,7 +758,7 @@ void i2c_panel_wiring(Presentation presentation) {
     live->data.i2c.control_profiles[0].available = true;
     activate_panel("Verify response");
     check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_verify
-        && state.commands[0].enabled && exact_route(state.commands[0]), "Verify queues exactly the selected route without calling hardware in the renderer");
+        && !state.commands[0].enabled && exact_route(state.commands[0]), "Verify queues exactly the selected route without implicitly arming the gate");
     state.commands.clear();
     activate_panel("Apply");
     check(state.commands.empty(), "manual Apply is blocked until response verification is confirmed");

@@ -9,7 +9,7 @@
 
 namespace druta::ui {
 
-enum class Page { daily, advanced, monitor, curve, timings };
+enum class Page { daily, advanced, monitor, curve, timings, rails, i2c };
 enum class Presentation { focused, classic };
 struct SessionSnapshot;
 
@@ -76,6 +76,13 @@ struct ViewState {
     int i2c_port = 1, i2c_address = 0x20;
     double i2c_target_mv = 1100;
     int i2c_scan_scope = 0;
+    bool i2c_save_profile_requested = false, i2c_load_profile_requested = false;
+    std::vector<std::pair<std::string, ControlDraft>> i2c_field_drafts;
+    std::vector<I2cField> i2c_field_cache;
+    uint64_t i2c_draft_generation = 0, i2c_draft_selection_revision = 0;
+    bool i2c_draft_initialized = false;
+    int i2c_nct_mapping = 0; // Explicit session display choice; native drafts stay in nominal uA.
+    double i2c_gate_flash_until = 0;
 
     bool has_draft() const;
     void revert_draft();

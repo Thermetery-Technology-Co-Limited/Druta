@@ -251,6 +251,6 @@ endif()
 # Injected NVAPI packet and target checks; no driver or GPU access.
 add_executable(drutacore-i2c-test tests/i2c_test.cpp)
 target_include_directories(drutacore-i2c-test PRIVATE include src)
-target_link_libraries(drutacore-i2c-test PRIVATE drutacore druta_options)
+target_link_libraries(drutacore-i2c-test PRIVATE drutacore drutacore_impl druta_options)
 druta_windows_binary(drutacore-i2c-test)
 add_test(NAME drutacore-i2c COMMAND drutacore-i2c-test)

@@ -387,3 +387,50 @@ Monitor workflows, full profiles and Vista/7 launch/render/DPI/device-loss/
 shutdown qualification.
 The Python frontend and experiment facade remain available. This checkpoint is
 not full frontend parity.
+
+## Released interface parity checkpoint
+
+Classic / Verbose means the released 1.9.1 interface and workflow, not extra
+explanatory text. The reference is release merge `fa6ee83`; controller protocol
+sources are `src/druta/railctl.py`, `controllers/`, and `mp29816.py`.
+
+The native I2C catalog now includes NCT3933U, NCP4206, uP9512R, EVGA iCX,
+MP2888A and MP29816, with native controller implementations. MP2888A retains
+both named legacy recipes (ASUS Turing offset / ASUS Ampere PMBus); the labels
+do not gate support by board identity. Controller identity, transport geometry,
+understood fields, request readback and restoration decide eligibility.
+Connect reuses the current matching selection, with bounded read-only retries;
+Full scan bypasses the selected family/route. Discovery never chooses among
+multiple candidates. Saved-route caching across application launches is still
+open; no tuning setting is automatically replayed.
+
+NCT3933U defaults to nominal current offsets. Its optional GPU / memory /
+PEX-PLL display mapping is an explicit wiring choice with the released gains,
+not a measurement or an automatically inferred property of another board.
+iCX supports its independent rail/control fields and the released
+`druta.icx.preset.v1` file schema. Save captures fresh requests before opening
+the file picker; Load and Restore captured settings only stage a preset.
+Apply validates the current selection, skips unchanged fields and checks final
+readback. An incomplete connection capture cannot be filled with later writes.
+The iCX protocol has no established B2-disable command; restoring captured
+requests may leave that controller gate enabled and reports this limitation.
+
+Verification uses source-specific readback or response/reversal checks. Native
+CUDA warmup reproduces the released device-to-device copy workload where that
+method requires it. Temporary holds are checked exactly and released only
+after controller restoration; an existing user hold is preserved. Hardware
+qualification remains scoped to the tested controller/method, not the catalog.
+
+Focused mode now has separate Rails and I2C pages; power and core current stay
+in Daily tuning. Clicking a control whose opt-in is off briefly highlights its
+checkbox without editing or issuing a request. Enabled controls use the same
+write paths as Classic. The finite highlight keeps visible rendering active
+only while needed; explicit Pause still takes precedence. Empty details no
+longer open an empty Apply tooltip.
+
+Remaining faithful-port work: persistent discovery hints and progress/cancel
+UI; Advanced registry/relationship overrides, rail/policy diagnostics and power
+saving panels; expanded Monitor metrics; batch timing profiles/captures; V/F
+plot guides, legacy nudge buttons, Ctrl+H hold initiation and hard de-flatten.
+These are tracked gaps, not completed controls. The current update does not
+claim full Python interface parity or physical qualification of other I2C ICs.

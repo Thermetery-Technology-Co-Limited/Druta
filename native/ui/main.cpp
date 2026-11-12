@@ -116,6 +116,8 @@ bool parse_options(Options& o) {
                 else if (wcscmp(value, L"monitor") == 0) o.page = druta::ui::Page::monitor;
                 else if (wcscmp(value, L"curve") == 0) o.page = druta::ui::Page::curve;
                 else if (wcscmp(value, L"timings") == 0) o.page = druta::ui::Page::timings;
+                else if (wcscmp(value, L"rails") == 0) o.page = druta::ui::Page::rails;
+                else if (wcscmp(value, L"i2c") == 0) o.page = druta::ui::Page::i2c;
                 else if (wcscmp(value, L"daily") != 0) valid = false;
             } else valid = false;
         }
@@ -136,6 +138,28 @@ struct App {
     float pending_scale = 0, scale = 1;
     double device_retry_at = 0;
     unsigned long long frames = 0, presents = 0, fixture_sample_ticks = 0, resets = 0;
+    bool i2c_save_waiting = false;
+    uint64_t i2c_save_generation = 0, i2c_save_selection = 0, i2c_save_action = 0;
+
+    void i2c_profile_dialog(bool save, const druta::ui::SessionSnapshot& snapshot) {
+        const auto& data=snapshot.data.i2c;
+        wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog);
+        dialog.hwndOwner=window;dialog.lpstrFile=path;dialog.nMaxFile=static_cast<DWORD>(std::size(path));
+        dialog.lpstrFilter=L"Druta iCX preset (*.json)\0*.json\0All files\0*.*\0\0";dialog.lpstrDefExt=L"json";
+        dialog.lpstrTitle=save?L"Save captured iCX settings":L"Stage iCX preset";
+        dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
+        const BOOL selected=save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog);
+        if(selected) {
+            druta::ui::Command c;c.operation=save?druta::ui::Command::Operation::i2c_save_profile:druta::ui::Command::Operation::i2c_load_profile;
+            c.profile_path=path;c.i2c_route=data.selected;c.i2c_family=data.family;
+            c.i2c_selection_revision=data.selection_revision;c.i2c_preset_revision=data.prepared_preset_revision;
+            session->submit(c,snapshot.generation);
+        } else if(const auto error=CommDlgExtendedError()) {
+            const auto message=L"The iCX preset dialog could not open (Windows error "+std::to_wstring(error)+L").";
+            MessageBoxW(window,message.c_str(),L"Druta",MB_OK|MB_ICONERROR);
+        }
+        policy.note_activity(now_seconds());
+    }
 
     void pause() {
         policy.set_explicit_pause(true, now_seconds());
@@ -166,6 +190,27 @@ struct App {
             session->select_device(snapshot->selected_slot);
         }
         if (view.refresh_requested) { session->request_poll(true); view.refresh_requested = false; }
+        if(i2c_save_waiting) {
+            const auto snap=session->snapshot();
+            if(snap->generation!=i2c_save_generation || snap->data.i2c.selection_revision!=i2c_save_selection) i2c_save_waiting=false;
+            else if(!snap->busy && snap->completed_actions>i2c_save_action) {
+                i2c_save_waiting=false;
+                if(snap->last_action_operation==druta::ui::Command::Operation::i2c_prepare_profile && snap->last_action_ok)
+                    i2c_profile_dialog(true,*snap);
+            }
+        }
+        if(view.i2c_save_profile_requested || view.i2c_load_profile_requested) {
+            const bool save=view.i2c_save_profile_requested;
+            view.i2c_save_profile_requested=view.i2c_load_profile_requested=false;
+            if(view.live && !i2c_save_waiting) {
+                if(save) {
+                    const auto& snap=*view.live;druta::ui::Command c;c.operation=druta::ui::Command::Operation::i2c_prepare_profile;
+                    c.i2c_route=snap.data.i2c.selected;c.i2c_family=snap.data.i2c.family;c.i2c_selection_revision=snap.data.i2c.selection_revision;
+                    i2c_save_generation=snap.generation;i2c_save_selection=c.i2c_selection_revision;i2c_save_action=snap.completed_actions;
+                    i2c_save_waiting=session->submit(c,snap.generation);
+                } else i2c_profile_dialog(false,*view.live);
+            }
+        }
         if (view.timing_helper_requested) {
             view.timing_helper_requested=false;
             wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog);
@@ -499,6 +544,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             if (smoke.finished) { success = smoke.passed; break; }
         }
         const double now = now_seconds();
+        if(app.view.advanced_view.rail_gate_flash_until>ImGui::GetTime() || app.view.advanced_view.xoc_gate_flash_until>ImGui::GetTime() || app.view.i2c_gate_flash_until>ImGui::GetTime())
+            app.policy.note_activity(now);
         if (app.policy.telemetry_due(now)) {
             if (app.session && !app.closing) app.session->request_poll();
             else if (options.preview) ++app.fixture_sample_ticks;

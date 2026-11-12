@@ -911,6 +911,17 @@ public:
         LOAD(tuning.headroom_overwritten, dc_rails_hold_overwritten);
         LOAD(cpc_live_read, dc_cpc_live_read);
         LOAD(i2c.identity, dc_gpu_identity_get); LOAD(i2c.read, dc_i2c_read); LOAD(i2c.write, dc_i2c_write);
+        LOAD(i2c.read_bytes,dc_i2c_read_bytes); LOAD(i2c.controller_write,dc_i2c_controller_write);
+        LOAD(i2c.verify_hold.architecture,dc_gpu_architecture);
+        LOAD(i2c.verify_hold.vf_status,dc_gpu_vf_lock_status);LOAD(i2c.verify_hold.clock_status,dc_gpu_clk_lock_status);
+        LOAD(i2c.verify_hold.vf_entry,dc_gpu_vf_lock_entry_get);LOAD(i2c.verify_hold.vf_set,dc_gpu_vf_lock_set);
+        LOAD(i2c.verify_hold.vf_pending,dc_gpu_vf_lock_recovery_pending);LOAD(i2c.verify_hold.vf_recovery_get,dc_gpu_vf_lock_recovery_get);
+        LOAD(i2c.verify_hold.vf_recovery_set,dc_gpu_vf_lock_recovery_set);LOAD(i2c.verify_hold.vf_recover,dc_gpu_vf_lock_recover);
+        LOAD(i2c.verify_hold.curve,dc_gpu_vf_curve_read);LOAD(i2c.verify_hold.vcore,dc_gpu_read_vcore_mv);
+        LOAD(i2c.verify_hold.legacy_supported,dc_legacy_p0_supported);LOAD(i2c.verify_hold.legacy_owned,dc_legacy_p0_owned);
+        LOAD(i2c.verify_hold.legacy_request,dc_legacy_p0_request);LOAD(i2c.verify_hold.legacy_release,dc_legacy_p0_release);
+        LOAD(i2c.verify_hold.telemetry,dc_gpu_read_telemetry);
+        LOAD(i2c.architecture,dc_gpu_architecture); LOAD(i2c.flags,dc_gpu_clkdom_flags_get);
         LOAD(i2c.lock, dc_gpu_lock); LOAD(i2c.unlock, dc_gpu_unlock); LOAD(i2c.clocks, dc_gpu_lockable_clocks);
         LOAD(i2c.clamp, dc_gpu_clocks_lock); LOAD(i2c.release, dc_gpu_clocks_reset);
         LOAD(i2c.clock_status, dc_gpu_clk_lock_status); LOAD(i2c.vf_status, dc_gpu_vf_lock_status); LOAD(i2c.telemetry, dc_gpu_read_telemetry);
@@ -1093,7 +1104,8 @@ public:
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
         if (cmd.operation >= Command::Operation::i2c_scan && cmd.operation <= Command::Operation::i2c_release) {
             if (!i2c_session_) { result.message="I2C session unavailable"; return result; }
-            if ((cmd.operation==Command::Operation::i2c_verify || cmd.operation==Command::Operation::i2c_apply) && maintenance_needed()) { result=release_hold(); if (!result.ok) return result; }
+            // I2C validates the selected controller and owns its own temporary
+            // hold. It must never release an unrelated/user-owned V/F request.
             result=i2c_session_->execute(cmd); last_.i2c=i2c_session_->data(); return result;
         }
         if (cmd.operation == Command::Operation::set_rail_mode) {

@@ -27,7 +27,7 @@ float u(float value) { return value * ImGui::GetFontSize() / 18.0f; }
 bool short_view() { return ImGui::GetIO().DisplaySize.y < u(840); }
 
 void hint(const char* text) {
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    if (text && *text && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(u(360));
         ImGui::TextUnformatted(text);
@@ -67,7 +67,7 @@ void title(const char* text, const char* description) {
 void navigation(ViewState& state, bool horizontal) {
     struct Entry { Page page; const char* label; };
     constexpr Entry entries[] = {
-        {Page::daily, "Daily tuning"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::timings, "Timings"}
+        {Page::daily, "Daily tuning"}, {Page::rails, "Rails"}, {Page::i2c, "I2C"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::timings, "Timings"}
     };
     const int count = static_cast<int>(std::size(entries)); // V/F opens in its own window from Daily.
     const float width = horizontal ? (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * (count - 1)) / count : 0.0f;
@@ -799,9 +799,11 @@ void live_daily(ViewState& state, bool verbose) {
     }
     ImGui::SeparatorText("NVVDD current limit");
     draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
-    if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
-        draw_daily_rail_controls(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
-    if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
+    if (verbose) {
+        if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
+            draw_daily_rail_controls(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
+        if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
+    }
     if (!verbose && ImGui::CollapsingHeader("Control details")) {
         for (size_t i = 0; i < snapshot.data.controls.size(); ++i) {
             const auto& control = snapshot.data.controls[i];
@@ -1006,7 +1008,7 @@ void live_advanced(ViewState& state, bool verbose) {
     ImGui::SameLine();
     if (ImGui::Button("Reconnect")) state.reconnect_requested = true;
     ImGui::EndDisabled();
-    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands);
+    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
     if (ImGui::CollapsingHeader("Control capabilities", flags)) {
@@ -1407,6 +1409,7 @@ void draw(ViewState& state) {
     }
     if (!state.preview) { sync_live_drafts(state); observe_curve(state); }
     const bool classic = state.presentation == Presentation::classic;
+    if (classic && (state.page == Page::rails || state.page == Page::i2c)) state.page = Page::daily;
     unsigned classic_colors = 0;
     if (classic) {
         classic_colors = push_classic_palette();
@@ -1448,7 +1451,7 @@ void draw(ViewState& state) {
     ImGui::Begin("Druta workspace", nullptr, flags);
     if (classic) classic_header(state); else top_bar(state);
     if (!state.preview && state.live) {
-        draw_mode_bar(*state.live, state.controls_unlocked, state.commands, classic, [&] { draw_i2c_gate(state); });
+        draw_mode_bar(*state.live, state.controls_unlocked, state.commands, classic, [&] { draw_i2c_gate(state); }, &state.advanced_view);
         {
             const auto& s=*state.live;
             if (classic) ImGui::SameLine(0, u(16));
@@ -1503,6 +1506,11 @@ void draw(ViewState& state) {
         if (!state.live) ImGui::TextUnformatted("Waiting for the first session snapshot...");
         else if (state.page == Page::daily) { if (classic) classic_daily(state); else live_daily(state, false); }
         else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
+        else if (state.page == Page::rails) {
+            title("Rails", "Rail limits are estimated requests; enable Rail limits to edit them.");
+            draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands);
+        }
+        else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
         else if (state.page == Page::timings) {
             const auto& s=*state.live;
             auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy || !s.data.connected,state.controls_unlocked);
