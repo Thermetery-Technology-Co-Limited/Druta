@@ -17,17 +17,19 @@ static unsigned checks = 0;
 struct Fake : IBackend {
     HANDLE entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     HANDLE release = CreateEventW(nullptr, TRUE, TRUE, nullptr);
+    HANDLE maintenance_entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HANDLE maintenance_release = CreateEventW(nullptr, TRUE, TRUE, nullptr);
     CRITICAL_SECTION lock{};
     std::vector<std::string> calls;
     std::atomic<bool> partial{false}, disconnected{false}, hold_read{false}, hold_action{false};
     std::atomic<bool> telemetry_failure{false}, throw_action{false}, undo_available{false};
     std::atomic<bool> throw_reads{false}, throw_after_action{false}, fail_gate{false};
     std::atomic<bool> i2c_owned{false}, fail_cleanup{false}, missing_i2c_state{false};
-    std::atomic<bool> tuning_owned{false}, missing_tuning{false}, maintenance_fail{false};
+    std::atomic<bool> tuning_owned{false}, missing_tuning{false}, maintenance_fail{false}, hold_maintenance{false};
     std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
     bool xoc = false, rails = false;
     Fake() { InitializeCriticalSection(&lock); }
-    ~Fake() override { CloseHandle(entered); CloseHandle(release); DeleteCriticalSection(&lock); }
+    ~Fake() override { CloseHandle(entered); CloseHandle(release); CloseHandle(maintenance_entered); CloseHandle(maintenance_release); DeleteCriticalSection(&lock); }
     void record(const std::string& s) { EnterCriticalSection(&lock); calls.push_back(s); LeaveCriticalSection(&lock); }
     void block() { SetEvent(entered); WaitForSingleObject(release, INFINITE); }
     void stall_read() { ResetEvent(entered); ResetEvent(release); hold_read = true; }
@@ -45,7 +47,9 @@ struct Fake : IBackend {
         if (missing_tuning.load()) return {}; TuningState state; state.owned=tuning_owned.load(); return state;
     }
     ActionResult maintain() override {
-        ++maintenance_count; ActionResult r; r.ok=!maintenance_fail.load(); r.message=r.ok ? "" : "hold needs attention"; return r;
+        ++maintenance_count;
+        if (hold_maintenance.exchange(false)) { SetEvent(maintenance_entered); WaitForSingleObject(maintenance_release, INFINITE); }
+        ActionResult r; r.ok=!maintenance_fail.load(); r.message=r.ok ? "" : "hold needs attention"; return r;
     }
     std::optional<I2cViewData> i2c_state() const override {
         if (missing_i2c_state.load()) return {};
@@ -262,14 +266,25 @@ int main() {
     CHECK(fourth->total_reads.load()==before_power_reads+1 && fourth->detail_reads.load()==before_power_details+1);
     CHECK(maintained.snapshot()->data.power_policies.size()==1 && maintained.snapshot()->data.power_policies[0].state.current==87);
     fourth->maintenance_fail=true; fourth->throw_after_action=true;
+    ResetEvent(fourth->maintenance_release); fourth->hold_maintenance=true;
     Command hold{}; hold.operation=Command::Operation::hold_curve_point;
     CHECK(maintained.submit(hold,maintained.snapshot()->generation));
     CHECK(until([&] { auto p=maintained.snapshot(); return !p->busy && !p->data.connected && p->data.tuning.owned; }));
     CHECK(!maintained.select_device("b"));
     const int reads_after_hold=fourth->total_reads.load();
-    CHECK(until([&] { return fourth->maintenance_count.load()>=1; }));
+    CHECK(WaitForSingleObject(fourth->maintenance_entered, 2000)==WAIT_OBJECT_0);
+    const auto has_maintenance_error = [](const auto& snapshot) {
+        return std::any_of(snapshot->log.begin(), snapshot->log.end(), [](const auto& entry) {
+            return entry.message == "hold needs attention";
+        });
+    };
+    CHECK(fourth->maintenance_count.load()==1 && !has_maintenance_error(maintained.snapshot()));
+    SetEvent(fourth->maintenance_release);
+    CHECK(until([&] { return has_maintenance_error(maintained.snapshot()); }));
     const auto log_size=maintained.snapshot()->log.size();
-    CHECK(until([&] { return fourth->maintenance_count.load()>=2; }));
+    // The worker is serial: entry into the third pass proves the second pass
+    // finished and had its opportunity to publish a duplicate error.
+    CHECK(until([&] { return fourth->maintenance_count.load()>=3; }));
     CHECK(fourth->total_reads.load()==reads_after_hold && maintained.snapshot()->log.size()==log_size);
     Command release_hold{}; release_hold.operation=Command::Operation::release_hold;
     CHECK(maintained.submit(release_hold,maintained.snapshot()->generation));

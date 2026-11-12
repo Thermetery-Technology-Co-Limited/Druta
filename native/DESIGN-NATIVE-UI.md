@@ -265,9 +265,9 @@ requested ramp and holds its selected voltage point. Reset reports per-control
 outcomes and uncaptured Undo scope. Implementation does not establish that every
 restoration path is hardware-qualified; the Reset curve retest below is open.
 
-Qualified clock-domain, NVVDD and MSVDD offsets are available in Focused Daily
-tuning. Individual power-policy requests remain in Advanced; rail-limit fields
-have their own Focused page. Rail
+Qualified Crossbar, SYS, Video and LTC offsets are available in Focused Daily
+tuning. Additional memory offset and individual power-policy requests are in
+Advanced; NVVDD/MSVDD offsets and rail-limit fields have their own Focused page. Rail
 controls present the base-plus-delta absolute estimate of the signed request;
 Initial is a captured request, not a verified factory default. Rail limits have
 a separate session gate and selected-field Undo. Risk scoring is additive:
@@ -424,8 +424,9 @@ method requires it. Temporary holds are checked exactly and released only
 after controller restoration; an existing user hold is preserved. Hardware
 qualification remains scoped to the tested controller/method, not the catalog.
 
-Focused mode now has separate Rails and I2C pages; power, core current and all
-seven clock/voltage offsets are in Daily tuning. Classic keeps its released
+Focused mode has separate Rails and I2C pages. Power, core current, Crossbar,
+SYS, Video and LTC are in Daily tuning; additional memory offset is in
+Advanced, and NVVDD/MSVDD offsets are in Rails. Classic keeps its released
 grouping. Clicking a control whose opt-in is off briefly highlights its
 checkbox without editing or issuing a request. Enabled controls use the same
 write paths as Classic. The finite highlight keeps visible rendering active
@@ -438,7 +439,9 @@ fields. Original/effective resistances and connector layout are user inputs;
 the initial slot + two 8-pin / 5 mOhm layout is an editable template. A uniform
 ratio corrects displayed watts under that resistance model. Mixed ratios use
 the released capacity-weighted estimate and are labeled as estimates. The
-parallel-resistor helper is independent. Corrected board draw and power history
+parallel-resistor helper can copy its numeric result or explicitly fill every
+understood rail's effective resistance, retaining original values and unknown
+entries. Neither button saves or writes hardware. Corrected board draw and power history
 retain raw readings; the power slider and every hardware request remain in
 driver watts. Saving this display preference never saves or reapplies tuning.
 
@@ -448,3 +451,11 @@ saving panels; expanded Monitor metrics; batch timing profiles/captures; V/F
 plot guides, legacy nudge buttons, Ctrl+H hold initiation and hard de-flatten.
 These are tracked gaps, not completed controls. The current update does not
 claim full Python interface parity or physical qualification of other I2C ICs.
+
+The detailed source comparisons are recorded separately in the
+[Classic / Verbose review](ui/validation/2026-11-12-verbose-parity-review.md)
+and [Focused port inventory](ui/validation/2026-11-12-focused-port-inventory.md).
+They compare released Python `fa6ee83` with native `d5034e8`, distinguish
+missing UI bindings from missing semantic services, and list bounded follow-up
+work. Classic geometry/fonts and the missing monitoring displays are the main
+visual gaps; the reports are an inventory, not a claim those gaps are fixed.

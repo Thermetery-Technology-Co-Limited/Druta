@@ -163,12 +163,18 @@ void draw_mode_bar(const SessionSnapshot& s, bool& unlocked, std::vector<Command
         "The score describes enabled control modes, not measured hardware safety. Locking edits does not release an active controller request.");
 }
 void draw_clock_voltage_offsets(const SessionSnapshot& s, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands) {
+    AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group) {
     ensure_generation(s,state);
-    if (!s.data.advanced_controls.empty()) {
-        ImGui::SeparatorText("Clock and voltage offsets");
+    const auto included = [group](const AdvancedControl& c) {
+        if (group == OffsetGroup::all) return true;
+        if (c.id.kind != AdvancedKind::clock_domain) return false;
+        return group == OffsetGroup::additional_memory ? c.id.domain == 2 : c.id.domain != 2;
+    };
+    if (std::any_of(s.data.advanced_controls.begin(), s.data.advanced_controls.end(), included)) {
+        ImGui::SeparatorText(group == OffsetGroup::all ? "Clock and voltage offsets" : "Clock offsets");
         if (table("advanced-offsets", verbose)) {
             for (const auto& c : s.data.advanced_controls) {
+                if (!included(c)) continue;
                 Command cmd; cmd.advanced = c.id;
                 const char* name = c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2 ? "Additional memory offset" : c.label.c_str();
                 const bool xoc_required = c.id.kind == AdvancedKind::msvdd || (c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2);

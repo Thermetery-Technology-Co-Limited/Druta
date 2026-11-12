@@ -72,9 +72,10 @@ Python frontend parity and Vista/7 qualification remain open.
   scopes/kinds, full-tune/combined profiles and unknown native fields are
   refused. Broader existing-format import is pending.
 
-**Focused Daily** exposes independently qualified clock-domain, NVVDD and
-MSVDD offsets with an explicit XOC session gate where required. **Advanced**
-retains available power-policy and current-request rows. Rail-limit fields show an absolute estimate
+**Focused Daily** exposes independently qualified Crossbar, SYS, Video and LTC
+offsets. **Advanced** contains additional memory offset and available
+power-policy/current-request rows; **Rails** contains NVVDD/MSVDD offsets and
+rail-limit fields. XOC gates remain explicit where required. Rail-limit fields show an absolute estimate
 from the signed request plus captured first-read base; Initial restores the
 captured request, not a verified factory default. A separate Rail limits session
 mode gates writes; selected-field Undo does not replay opaque rail packets.
@@ -89,10 +90,12 @@ The indicator uses the established session gate and
 controller state; it does not probe the bus to choose a color. Drafts and active
 session gates are distinct.
 
-Focused Daily includes Crossbar, additional memory, SYS, Video, LTC, NVVDD and
-MSVDD offsets with the same drafts and write gates as Classic. The **Shunt mod**
+Focused offsets retain the same drafts and write gates as Classic when
+navigating Daily, Advanced and Rails. The **Shunt mod**
 button beside Board power opens the released resistance-based display
-correction and independent parallel-resistor calculator. Explicit Save uses
+correction and parallel-resistor calculator. **Use for all rails** fills the
+effective resistances; **Copy value** copies the numeric mOhm result. Original
+resistances stay unchanged, and neither button saves. Explicit Save uses
 `%LOCALAPPDATA%/Thermetery/Druta/shuntmod.json`, compatible with Python.
 Connector layout and starting resistances are templates, not detected values.
 Uniform ratios show corrected watts; mixed ratios show a capacity-weighted

@@ -820,7 +820,7 @@ void live_daily(ViewState& state, bool verbose) {
     }
     ImGui::SeparatorText("NVVDD current limit");
     draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
-    draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands);
+    draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::daily_clocks);
     if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s", state.advanced_view.notice.c_str());
     if (verbose) {
         if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1031,6 +1031,7 @@ void live_advanced(ViewState& state, bool verbose) {
     ImGui::SameLine();
     if (ImGui::Button("Reconnect")) state.reconnect_requested = true;
     ImGui::EndDisabled();
+    if (!verbose) draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::additional_memory);
     draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
@@ -1535,8 +1536,9 @@ void draw(ViewState& state) {
         else if (state.page == Page::daily) { if (classic) classic_daily(state); else live_daily(state, false); }
         else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
         else if (state.page == Page::rails) {
-            title("Rails", "Rail limits are estimated requests; enable Rail limits to edit them.");
-            draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands,false);
+            title("Rails", "Rail limits and voltage offsets.");
+            draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands);
+            if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s",state.advanced_view.notice.c_str());
         }
         else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
         else if (state.page == Page::timings) {

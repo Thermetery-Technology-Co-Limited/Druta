@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <utility>
 
 namespace druta::ui {
@@ -147,7 +148,7 @@ void draw_shunt_window(ShuntViewState& state) {
         ImGui::TextWrapped("Every configured rail has the same multiplier; correction is exact under the entered resistance model, not an independent power measurement.");
     ImGui::Separator();
     ImGui::TextUnformatted("Parallel-resistance helper");
-    ImGui::TextWrapped("Independent, unsaved calculator. Its result never changes a rail; enter it above yourself if appropriate.");
+    ImGui::TextWrapped("Calculate a resistance, then optionally copy it or use it for all effective rail values. Save changes explicitly.");
     std::size_t remove_resistor = state.parallel_resistors.size();
     for (std::size_t i = 0; i < state.parallel_resistors.size(); ++i) {
         ImGui::PushID(static_cast<int>(i));
@@ -160,8 +161,30 @@ void draw_shunt_window(ShuntViewState& state) {
         state.parallel_resistors.erase(state.parallel_resistors.begin() + static_cast<std::ptrdiff_t>(remove_resistor));
     if (ImGui::Button("Add resistor")) state.parallel_resistors.push_back(5.0);
     ImGui::SameLine();
-    if (const auto equivalent = shunt_parallel_resistance(state.parallel_resistors)) ImGui::Text("Equivalent: %.4g mOhm", *equivalent);
+    const auto equivalent = shunt_parallel_resistance(state.parallel_resistors);
+    if (equivalent) ImGui::Text("Equivalent: %.4g mOhm", *equivalent);
     else ImGui::TextUnformatted("Enter positive, finite resistance values.");
+    const bool has_known_rail = std::any_of(state.config.rails.begin(), state.config.rails.end(),
+        [](const ShuntRail& rail) { return known_kind(rail.kind); });
+    ImGui::BeginDisabled(!equivalent || !has_known_rail);
+    if (ImGui::Button("Use for all rails")) {
+        bool modified = false;
+        for (auto& rail : state.config.rails) {
+            if (known_kind(rail.kind) && rail.mod != *equivalent) {
+                rail.mod = *equivalent;
+                modified = true;
+            }
+        }
+        if (modified) changed(state);
+    }
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled(!equivalent);
+    if (ImGui::Button("Copy value")) {
+        char value[64];
+        std::snprintf(value, sizeof(value), "%.9g", *equivalent);
+        ImGui::SetClipboardText(value);
+    }
+    ImGui::EndDisabled();
     if (!state.config.load_error.empty()) ImGui::TextWrapped("Save unavailable: %s", state.config.load_error.c_str());
     if (!state.status.empty()) ImGui::TextWrapped("%s", state.status.c_str());
     ImGui::EndChild();

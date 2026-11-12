@@ -7,6 +7,7 @@
 #include <functional>
 namespace druta::ui {
 struct SessionSnapshot;
+enum class OffsetGroup { all, daily_clocks, additional_memory };
 struct AdvancedDraft {
     double value = 0;
     bool initialized = false, dirty = false, editing = false;
@@ -24,7 +25,7 @@ void draw_mode_bar(const SessionSnapshot& snapshot, bool& unlocked, std::vector<
 void draw_advanced_controls(const SessionSnapshot& snapshot, bool unlocked, bool verbose,
     AdvancedViewState& state, std::vector<Command>& commands, bool include_rails = true, bool include_offsets = true);
 void draw_clock_voltage_offsets(const SessionSnapshot& snapshot, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands);
+    AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group = OffsetGroup::all);
 // Common row services reused by the original Control layout and Focused Daily.
 void draw_clock_domain_controls(const SessionSnapshot& snapshot, bool unlocked, bool classic,
     AdvancedViewState& state, std::vector<Command>& commands);

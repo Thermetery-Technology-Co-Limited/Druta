@@ -38,7 +38,8 @@ ImGuiID offset_button(AdvancedId id, const char* name) {
     if (root) for (auto* window : ImGui::GetCurrentContext()->Windows)
         if (window->ParentWindow == root && window->ChildId == root->GetID("workspace")) {
             const int key = static_cast<int>(1000 + static_cast<uint64_t>(id.kind) * 100 + id.domain);
-            return ImHashStr(name, 0, ImHashData(&key, sizeof(key), window->GetID("advanced-offsets")));
+            const char* table = id.kind == AdvancedKind::clock_domain ? "advanced-offsets" : "daily-rail-controls";
+            return ImHashStr(name, 0, ImHashData(&key, sizeof(key), window->GetID(table)));
         }
     check(false, "offset workspace exists for stable-ID activation");
     return 0;
@@ -356,7 +357,7 @@ void original_classic_layout_and_daily_companions() {
         "switching actual layouts retains ordinary and named-current drafts without writing");
 }
 
-void daily_offsets_navigation_and_gates() {
+void offset_page_routing_and_gates() {
     ViewState state; state.preview = false;
     auto live = snapshot(); state.live = live;
     live->data.xoc_known = true;
@@ -375,9 +376,14 @@ void daily_offsets_navigation_and_gates() {
     };
     const char* labels[] = {"Video offset", "Secondary offset", "ROP offset", "Processor offset",
         "Additional memory offset", "NVVDD request offset", "MSVDD request offset"};
-    auto text = frame(state, 1920, 1400);
-    for (const auto* label : labels)
-        check(occurrences(text, label) == 1, "Daily shows each of seven clock/voltage offset rows exactly once");
+    const Page pages[] = {Page::daily,Page::daily,Page::daily,Page::daily,Page::advanced,Page::rails,Page::rails};
+    std::string text;
+    for (auto page : {Page::daily,Page::advanced,Page::rails}) {
+        state.page = page; text = frame(state,1920,1400);
+        for (size_t i = 0; i < std::size(labels); ++i)
+            check(occurrences(text,labels[i]) == (page == pages[i] ? 1u : 0u),
+                "each offset appears exactly once on its assigned Focused page");
+    }
     for (const auto& c : live->data.advanced_controls) {
         auto& draft = state.advanced_view.drafts[1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain];
         draft.value = 17.25; draft.dirty = true;
@@ -385,14 +391,16 @@ void daily_offsets_navigation_and_gates() {
     const AdvancedId additional_memory{AdvancedKind::clock_domain, 2};
     const AdvancedId msvdd{AdvancedKind::msvdd, 4};
     for (auto id : {additional_memory, msvdd}) {
+        state.page = id.kind == AdvancedKind::clock_domain ? Page::advanced : Page::rails;
+        frame(state,1920,1400);
         ImGui::ActivateItemByID(offset_button(id, "Apply")); frame(state, 1920, 1400);
-        check(state.commands.empty(), "Daily XOC-gated Apply is disabled while XOC is off");
+        check(state.commands.empty(), "relocated XOC-gated Apply stays disabled while XOC is off");
     }
     for (auto page : {Page::advanced, Page::rails, Page::monitor, Page::daily}) {
         state.page = page; text = frame(state, 1920, 1400);
-        for (const auto* label : labels)
-            check(occurrences(text, label) == (page == Page::daily ? 1u : 0u),
-                "offset rows belong only to Focused Daily across page navigation");
+        for (size_t i = 0; i < std::size(labels); ++i)
+            check(occurrences(text, labels[i]) == (page == pages[i] ? 1u : 0u),
+                "offset rows retain their assigned page across navigation");
     }
     for (const auto& c : live->data.advanced_controls) {
         const auto& draft = state.advanced_view.drafts[1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain];
@@ -403,16 +411,18 @@ void daily_offsets_navigation_and_gates() {
     live->data.xoc_enabled = true;
     frame(state, 1920, 1400);
     for (auto id : {additional_memory, msvdd}) {
+        state.page = id.kind == AdvancedKind::clock_domain ? Page::advanced : Page::rails;
+        frame(state,1920,1400);
         ImGui::ActivateItemByID(offset_button(id, "Apply")); frame(state, 1920, 1400);
         check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::apply
             && state.commands[0].advanced && state.commands[0].advanced->kind == id.kind
             && state.commands[0].advanced->domain == id.domain && near(state.commands[0].value, 17.25),
-            "Daily explicitly applies the retained selected request after XOC enables its gate");
+            "relocated offset applies the retained request after XOC enables its gate");
         state.commands.clear();
     }
     state.controls_unlocked = false;
     ImGui::ActivateItemByID(offset_button(msvdd, "Apply")); frame(state, 1920, 1400);
-    check(state.commands.empty(), "Daily offset Apply still respects the global tuning lock");
+    check(state.commands.empty(), "relocated offset Apply still respects the global tuning lock");
 }
 
 void shunt_display_and_raw_power_apply() {
@@ -1315,7 +1325,7 @@ int main() {
     compact_layout();
     daily_header_hover_conflict();
     original_classic_layout_and_daily_companions();
-    daily_offsets_navigation_and_gates();
+    offset_page_routing_and_gates();
     shunt_display_and_raw_power_apply();
     weighted_workspace_risk_tint();
     compact_curve_layout();

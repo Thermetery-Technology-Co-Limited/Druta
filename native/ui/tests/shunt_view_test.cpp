@@ -13,7 +13,7 @@ namespace {
 unsigned checks = 0;
 #define CHECK(expr) do { ++checks; if (!(expr)) { std::fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); std::abort(); } } while (false)
 std::string frame(ShuntViewState& state, bool stale = false, bool activate_save = false,
-    ImVec2 display = {1400, 1200}, float font_scale = 1.0f) {
+    ImVec2 display = {1400, 1200}, float font_scale = 1.0f, const char* activate_helper = nullptr) {
     ImGui::GetIO().DisplaySize = display;
     ImGui::GetIO().FontGlobalScale = font_scale;
     ImGui::NewFrame();
@@ -25,6 +25,17 @@ std::string frame(ShuntViewState& state, bool stale = false, bool activate_save 
         CHECK(window != nullptr);
         auto& context = *ImGui::GetCurrentContext();
         context.NavActivateId = context.NavActivateDownId = context.NavActivatePressedId = window->GetID("Save");
+    }
+    if (activate_helper) {
+        auto* popup = ImGui::FindWindowByName("Shunt mod");
+        CHECK(popup != nullptr);
+        ImGuiWindow* body = nullptr;
+        for (auto* window : ImGui::GetCurrentContext()->Windows)
+            if (window->ParentWindow == popup && window->ChildId == popup->GetID("shunt-body")) body = window;
+        CHECK(body != nullptr);
+        body->Scroll.y = body->ScrollMax.y;
+        auto& context = *ImGui::GetCurrentContext();
+        context.NavActivateId = context.NavActivateDownId = context.NavActivatePressedId = body->GetID(activate_helper);
     }
     draw_shunt_window(state);
     const std::string result = ImGui::GetCurrentContext()->LogBuffer.c_str();
@@ -130,6 +141,42 @@ int main() {
     CHECK(edit_shunt_rail(state, 1, 5, 5));
     state.config.load_error = "unknown document read failure";
     CHECK(!request_shunt_save(state));
+    ShuntConfig mixed;
+    mixed.rails = {{"slot", 4, 4}, {"pin6", 6, 6}, {"pin8", 8, 8}, {"future", 9, 7}};
+    mixed.rails[0].extra["known-extra"] = "keep";
+    mixed.rails[3].extra["opaque"] = "preserve";
+    mixed.document["future"] = "document";
+    set_shunt_config(state, mixed);
+    state.parallel_resistors = {5, 8};
+    std::string clipboard = "unchanged";
+    io.SetClipboardTextFn = [](void* user, const char* value) { *static_cast<std::string*>(user) = value; };
+    io.ClipboardUserData = &clipboard;
+    frame(state);
+    frame(state, false, false, {1400, 1200}, 1.0f, "Copy value");
+    CHECK(clipboard == "3.07692308" && !state.dirty && !take_shunt_save_request(state));
+    frame(state, false, false, {1400, 1200}, 1.0f, "Use for all rails");
+    CHECK(state.dirty && !take_shunt_save_request(state));
+    for (std::size_t i = 0; i < 3; ++i) {
+        CHECK(std::abs(state.config.rails[i].mod - 40.0 / 13.0) < 1e-12);
+        CHECK(state.config.rails[i].orig == mixed.rails[i].orig && state.config.rails[i].kind == mixed.rails[i].kind);
+    }
+    CHECK(state.config.rails[0].extra["known-extra"] == "keep");
+    CHECK(state.config.rails[3].mod == 7 && state.config.rails[3].orig == 9 && state.config.rails[3].extra["opaque"] == "preserve");
+    CHECK(state.config.document["future"] == "document");
+    state.dirty = false;
+    frame(state, false, false, {1400, 1200}, 1.0f, "Use for all rails");
+    CHECK(!state.dirty && !take_shunt_save_request(state));
+    state.parallel_resistors = {5, 0};
+    clipboard = "unchanged";
+    frame(state, false, false, {1400, 1200}, 1.0f, "Copy value");
+    frame(state, false, false, {1400, 1200}, 1.0f, "Use for all rails");
+    CHECK(clipboard == "unchanged" && !state.dirty && !take_shunt_save_request(state));
+    CHECK(std::abs(state.config.rails[0].mod - 40.0 / 13.0) < 1e-12);
+    ShuntConfig only_unknown; only_unknown.rails = {{"future", 5, 5}};
+    set_shunt_config(state, only_unknown);
+    state.parallel_resistors = {5, 8};
+    frame(state, false, false, {1400, 1200}, 1.0f, "Use for all rails");
+    CHECK(!state.dirty && state.config.rails[0].mod == 5 && !take_shunt_save_request(state));
     set_shunt_config(state, ShuntConfig{});
     CHECK(!request_shunt_save(state));
     ImGui::DestroyContext();
