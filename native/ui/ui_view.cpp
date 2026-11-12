@@ -528,7 +528,17 @@ void measured_value(const SessionSnapshot& snapshot, const char* name, uint64_t 
     ImGui::TextColored(stale ? amber : secondary, "%s%s", text.c_str(), stale ? " (stale)" : "");
 }
 
-void live_summary(const SessionSnapshot& snapshot) {
+std::string board_power_text(const SessionSnapshot& snapshot, const ShuntCorrection& correction) {
+    const auto raw=telemetry_value(snapshot,DC_T_POWER_W,snapshot.data.telemetry.power_w);
+    const auto raw_text=number_text(raw,"W");
+    if(!correction.valid || !correction.active)return raw_text;
+    return number_text(correction.apply(raw),"W")+(correction.exact?" corrected":" estimate")+" ("+raw_text+" raw)";
+}
+void board_power_reading(const SessionSnapshot& snapshot,const ShuntCorrection& correction) {
+    const bool stale=snapshot.paused || (snapshot.telemetry_stale_mask&DC_T_POWER_W);
+    ImGui::TextColored(stale?amber:secondary,"%s%s",board_power_text(snapshot,correction).c_str(),stale?" (stale)":"");
+}
+void live_summary(const SessionSnapshot& snapshot,const ShuntCorrection& correction) {
     const auto& telemetry = snapshot.data.telemetry;
     if (ImGui::BeginTable("live_summary", 3, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();
@@ -536,7 +546,7 @@ void live_summary(const SessionSnapshot& snapshot) {
         ImGui::TableNextColumn();
         measured_value(snapshot, "GPU", DC_T_TEMP_EDGE, telemetry.temp_edge, "C", 0);
         ImGui::TableNextColumn();
-        measured_value(snapshot, "Board", DC_T_POWER_W, telemetry.power_w, "W", 1);
+        ImGui::TextUnformatted("Board");ImGui::SameLine();board_power_reading(snapshot,correction);
         ImGui::EndTable();
     }
     if (snapshot.paused) ImGui::TextColored(amber, "Telemetry paused; displayed readings are last known.");
@@ -570,6 +580,13 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
     ImGui::Text("%s%s%s", name, draft.dirty ? " *" : "",
         control.availability == Availability::transient ? " (last read)" : "");
     hint(control.detail.c_str());
+    if(id==ControlId::power) {
+        if(ImGui::Button("Shunt mod..."))state.shunt.open=true;
+        hint("Correct displayed watts using your shunt resistances. The board-power slider stays in driver-reported watts.");
+        const auto& correction=state.shunt.correction;
+        if(!correction.valid || !state.shunt.config.load_error.empty()) ImGui::TextColored(amber,"Check shunt config");
+        else if(correction.active) ImGui::TextColored(amber,"x%.4g %s",correction.factor,correction.exact?"uniform":"estimate");
+    }
     ImGui::TableNextColumn();
     const bool editable = control.writable && draft.initialized && snapshot.data.connected && !snapshot.opening && !snapshot.busy;
     const bool ranged = control.low && control.high && std::isfinite(*control.low) && std::isfinite(*control.high) && *control.low < *control.high;
@@ -579,6 +596,8 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
         ImGui::TextColored(control.availability == Availability::transient ? amber : secondary, "%s",
             number_text(control.current, control.unit.c_str()).c_str());
         hint(control.detail.empty() ? availability_text(control.availability) : control.detail.c_str());
+        if(id==ControlId::power && state.shunt.correction.valid && state.shunt.correction.active)
+            ImGui::TextWrapped("%s %s",number_text(state.shunt.correction.apply(control.current),"W").c_str(),state.shunt.correction.exact?"corrected":"estimate");
         ImGui::TableNextColumn();
     }
     ImGui::BeginDisabled(!editable);
@@ -608,7 +627,9 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
     if (classic) {
         ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
         ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 14.0f / 16.0f);
-        ImGui::TextUnformatted(classic_live_reading(snapshot, id).c_str());
+        auto reading = id == ControlId::power ? board_power_text(snapshot,state.shunt.correction) : classic_live_reading(snapshot,id);
+        if (id == ControlId::power && (snapshot.paused || (snapshot.telemetry_stale_mask & DC_T_POWER_W))) reading += " (stale)";
+        ImGui::TextWrapped("%s",reading.c_str());
         ImGui::PopFont();
         hint(("Configured request: " + number_text(control.current, control.unit.c_str()) + ". Live reading is separate.").c_str());
     }
@@ -781,7 +802,7 @@ void interactive_curve_plot(ViewState& state) {
 void live_daily(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
     if (!short_view()) title(verbose ? "Control" : "Daily tuning", "Stage a request, then Apply. Undo restores the recorded request.");
-    live_summary(snapshot);
+    live_summary(snapshot,state.shunt.correction);
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh readings")) state.refresh_requested = true;
     ImGui::EndDisabled();
@@ -799,6 +820,8 @@ void live_daily(ViewState& state, bool verbose) {
     }
     ImGui::SeparatorText("NVVDD current limit");
     draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
+    draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands);
+    if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s", state.advanced_view.notice.c_str());
     if (verbose) {
         if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
             draw_daily_rail_controls(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
@@ -1008,7 +1031,7 @@ void live_advanced(ViewState& state, bool verbose) {
     ImGui::SameLine();
     if (ImGui::Button("Reconnect")) state.reconnect_requested = true;
     ImGui::EndDisabled();
-    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose);
+    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
     if (ImGui::CollapsingHeader("Control capabilities", flags)) {
@@ -1035,7 +1058,7 @@ void live_advanced(ViewState& state, bool verbose) {
 }
 
 void live_history_plot(const SessionSnapshot& snapshot, const char* id, const char* unit, int channel,
-                       const ImVec4& color) {
+                       const ImVec4& color,const ShuntCorrection* correction=nullptr) {
     if (snapshot.history.empty()) { ImGui::TextColored(muted, "No observed history yet."); return; }
     std::array<double, 360> time{}, values{};
     // Bound view work as well as the session's history storage. NaN leaves a gap for a missing sample.
@@ -1043,7 +1066,8 @@ void live_history_plot(const SessionSnapshot& snapshot, const char* id, const ch
     const size_t start = snapshot.history.size() - count;
     for (size_t i = 0; i < count; ++i) {
         const auto& sample = snapshot.history[start + i];
-        const auto value = channel == 0 ? sample.core_mhz : channel == 1 ? sample.temp_c : sample.power_w;
+        auto value = channel == 0 ? sample.core_mhz : channel == 1 ? sample.temp_c : sample.power_w;
+        if(channel==2 && correction && correction->valid && correction->active)value=correction->apply(value);
         time[i] = sample.time - snapshot.history.back().time;
         values[i] = value.value_or(std::numeric_limits<double>::quiet_NaN());
     }
@@ -1057,15 +1081,18 @@ void live_history_plot(const SessionSnapshot& snapshot, const char* id, const ch
     }
 }
 
-void live_monitor(const SessionSnapshot& snapshot, bool verbose) {
+void live_monitor(const SessionSnapshot& snapshot, bool verbose,const ShuntViewState& shunt) {
     title("Monitor", "Observed telemetry; unavailable readings remain empty.");
-    live_summary(snapshot);
+    live_summary(snapshot,shunt.correction);
     label("CORE CLOCK");
     live_history_plot(snapshot, "##live_clock_history", "MHz", 0, accent);
     label("TEMPERATURE");
     live_history_plot(snapshot, "##live_temp_history", "C", 1, teal);
-    label("BOARD POWER");
-    live_history_plot(snapshot, "##live_power_history", "W", 2, amber);
+    const bool corrected=shunt.correction.valid && shunt.correction.active;
+    label(corrected?(shunt.correction.exact?"BOARD POWER — CORRECTED":"BOARD POWER — ESTIMATE"):"BOARD POWER");
+    live_history_plot(snapshot, "##live_power_history", corrected?(shunt.correction.exact?"W corrected":"W estimate"):"W", 2, amber,&shunt.correction);
+    if(corrected || !shunt.correction.valid || !shunt.config.load_error.empty())
+        draw_shunt_power_summary(shunt,telemetry_value(snapshot,DC_T_POWER_W,snapshot.data.telemetry.power_w),snapshot.data.controls[static_cast<size_t>(ControlId::power)].current,snapshot.data.enforced_power_w,snapshot.paused || (snapshot.telemetry_stale_mask&DC_T_POWER_W));
     if (ImGui::CollapsingHeader("Sensor readings", verbose ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         const auto& t = snapshot.data.telemetry;
         measured_value(snapshot, "Memory clock (driver)", DC_T_MEM, t.mem, "MHz");
@@ -1287,7 +1314,7 @@ void classic_advanced(ViewState& state) {
     }
 }
 
-void classic_monitor(const SessionSnapshot& s) {
+void classic_monitor(const SessionSnapshot& s,const ShuntViewState& shunt) {
     const auto& t = s.data.telemetry;
     if (!s.log.empty()) ImGui::TextColored(s.log.back().ok ? secondary : amber, "%s", s.log.back().message.c_str());
     if (ImGui::BeginTable("classic-sensor-tiles", 6, ImGuiTableFlags_SizingStretchSame)) {
@@ -1297,7 +1324,8 @@ void classic_monitor(const SessionSnapshot& s) {
         const char* units[] = {"MHz", "MHz driver", "MHz", "C", "W", "mV"};
         for (size_t i = 0; i < std::size(labels); ++i) {
             ImGui::TableNextColumn(); ImGui::TextDisabled("%s", labels[i]);
-            measured_value(s, "", bits[i], values[i], units[i]);
+            if(i==4)board_power_reading(s,shunt.correction);
+            else measured_value(s, "", bits[i], values[i], units[i]);
         }
         ImGui::EndTable();
     }
@@ -1319,7 +1347,7 @@ void classic_monitor(const SessionSnapshot& s) {
                 number_text(t.fans[i].has_rpm ? std::optional<double>(t.fans[i].rpm) : std::nullopt, "RPM").c_str(),
                 s.fan_readings_stale || s.paused ? " (stale)" : "");
     }
-    if (ImGui::CollapsingHeader("History")) live_monitor(s, false);
+    if (ImGui::CollapsingHeader("History")) live_monitor(s, false,shunt);
 }
 
 void classic_log(const SessionSnapshot& s) {
@@ -1428,7 +1456,7 @@ void draw(ViewState& state) {
     unsigned risk_colors = 0;
     if (!state.preview && state.live) {
         const auto risk = session_risk(state.live->data);
-        if (risk.score) {
+        if (risk.score || (state.controls_unlocked && risk.band == RiskBand::green)) {
             auto tint = [](RiskColor c) { return ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1); };
             ImGui::PushStyleColor(ImGuiCol_WindowBg, tint(risk.tint.background));
             ImGui::PushStyleColor(ImGuiCol_ChildBg, tint(risk.tint.background));
@@ -1508,7 +1536,7 @@ void draw(ViewState& state) {
         else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
         else if (state.page == Page::rails) {
             title("Rails", "Rail limits are estimated requests; enable Rail limits to edit them.");
-            draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands);
+            draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands,false);
         }
         else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
         else if (state.page == Page::timings) {
@@ -1517,7 +1545,7 @@ void draw(ViewState& state) {
             state.timing_helper_requested|=output.choose_helper;
             state.commands.insert(state.commands.end(),output.commands.begin(),output.commands.end());
         }
-        else { if (classic) classic_monitor(*state.live); else live_monitor(*state.live, false); }
+        else { if (classic) classic_monitor(*state.live,state.shunt); else live_monitor(*state.live, false,state.shunt); }
         if (classic && state.live && state.page == Page::daily) classic_log(*state.live);
     } else if (state.page == Page::daily) daily(state, verbose);
     else if (state.page == Page::advanced) advanced(verbose);
@@ -1530,6 +1558,7 @@ void draw(ViewState& state) {
     ImGui::PopTextWrapPos();
     ImGui::End();
     draw_curve_window(state);
+    draw_shunt_window(state.shunt);
     if (compact && !classic) ImGui::PopStyleVar(3);
     if (risk_colors) ImGui::PopStyleColor(static_cast<int>(risk_colors));
     if (classic) { ImGui::PopStyleVar(10); ImGui::PopFont(); ImGui::PopStyleColor(static_cast<int>(classic_colors)); }

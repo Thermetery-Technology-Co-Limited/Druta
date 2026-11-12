@@ -27,6 +27,22 @@ void check(bool condition, const char* message) {
 }
 bool near(double value, double expected) { return std::abs(value - expected) < 1e-9; }
 bool contains(const std::string& value, const char* text) { return value.find(text) != std::string::npos; }
+size_t occurrences(const std::string& value, const char* text) {
+    size_t count = 0, start = 0;
+    while ((start = value.find(text, start)) != std::string::npos) { ++count; ++start; }
+    return count;
+}
+
+ImGuiID offset_button(AdvancedId id, const char* name) {
+    auto* root = ImGui::FindWindowByName("Druta workspace");
+    if (root) for (auto* window : ImGui::GetCurrentContext()->Windows)
+        if (window->ParentWindow == root && window->ChildId == root->GetID("workspace")) {
+            const int key = static_cast<int>(1000 + static_cast<uint64_t>(id.kind) * 100 + id.domain);
+            return ImHashStr(name, 0, ImHashData(&key, sizeof(key), window->GetID("advanced-offsets")));
+        }
+    check(false, "offset workspace exists for stable-ID activation");
+    return 0;
+}
 
 ImGuiID header_button(const char* name) {
     auto* window = ImGui::FindWindowByName("Druta workspace");
@@ -338,6 +354,149 @@ void original_classic_layout_and_daily_companions() {
     check(near(state.advanced_view.drafts[2027].value, 201.125)
         && near(state.drafts[static_cast<size_t>(ControlId::memory)].value, 2.5) && state.commands.empty(),
         "switching actual layouts retains ordinary and named-current drafts without writing");
+}
+
+void daily_offsets_navigation_and_gates() {
+    ViewState state; state.preview = false;
+    auto live = snapshot(); state.live = live;
+    live->data.xoc_known = true;
+    ControlState control;
+    control.availability = Availability::available;
+    control.writable = control.stock_writable = true;
+    control.current = 10; control.stock = 0; control.low = -100; control.high = 100; control.unit = "MHz";
+    live->data.advanced_controls = {
+        {{AdvancedKind::clock_domain, 7}, "Video offset", control, "video-binding"},
+        {{AdvancedKind::clock_domain, 21}, "Secondary offset", control, "secondary-binding"},
+        {{AdvancedKind::clock_domain, 8}, "ROP offset", control, "rop-binding"},
+        {{AdvancedKind::clock_domain, 11}, "Processor offset", control, "processor-binding"},
+        {{AdvancedKind::clock_domain, 2}, "Memory domain request", control, "additional-memory-binding"},
+        {{AdvancedKind::nvvdd, 3}, "NVVDD request offset", control, "nvvdd-binding"},
+        {{AdvancedKind::msvdd, 4}, "MSVDD request offset", control, "msvdd-binding"},
+    };
+    const char* labels[] = {"Video offset", "Secondary offset", "ROP offset", "Processor offset",
+        "Additional memory offset", "NVVDD request offset", "MSVDD request offset"};
+    auto text = frame(state, 1920, 1400);
+    for (const auto* label : labels)
+        check(occurrences(text, label) == 1, "Daily shows each of seven clock/voltage offset rows exactly once");
+    for (const auto& c : live->data.advanced_controls) {
+        auto& draft = state.advanced_view.drafts[1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain];
+        draft.value = 17.25; draft.dirty = true;
+    }
+    const AdvancedId additional_memory{AdvancedKind::clock_domain, 2};
+    const AdvancedId msvdd{AdvancedKind::msvdd, 4};
+    for (auto id : {additional_memory, msvdd}) {
+        ImGui::ActivateItemByID(offset_button(id, "Apply")); frame(state, 1920, 1400);
+        check(state.commands.empty(), "Daily XOC-gated Apply is disabled while XOC is off");
+    }
+    for (auto page : {Page::advanced, Page::rails, Page::monitor, Page::daily}) {
+        state.page = page; text = frame(state, 1920, 1400);
+        for (const auto* label : labels)
+            check(occurrences(text, label) == (page == Page::daily ? 1u : 0u),
+                "offset rows belong only to Focused Daily across page navigation");
+    }
+    for (const auto& c : live->data.advanced_controls) {
+        const auto& draft = state.advanced_view.drafts[1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain];
+        check(draft.initialized && draft.dirty && near(draft.value, 17.25) && draft.binding == c.binding,
+            "navigation retains each fractional offset draft and adapter binding");
+    }
+    check(!live->data.xoc_enabled && state.commands.empty(), "page navigation cannot enable XOC or apply pending offsets");
+    live->data.xoc_enabled = true;
+    frame(state, 1920, 1400);
+    for (auto id : {additional_memory, msvdd}) {
+        ImGui::ActivateItemByID(offset_button(id, "Apply")); frame(state, 1920, 1400);
+        check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::apply
+            && state.commands[0].advanced && state.commands[0].advanced->kind == id.kind
+            && state.commands[0].advanced->domain == id.domain && near(state.commands[0].value, 17.25),
+            "Daily explicitly applies the retained selected request after XOC enables its gate");
+        state.commands.clear();
+    }
+    state.controls_unlocked = false;
+    ImGui::ActivateItemByID(offset_button(msvdd, "Apply")); frame(state, 1920, 1400);
+    check(state.commands.empty(), "Daily offset Apply still respects the global tuning lock");
+}
+
+void shunt_display_and_raw_power_apply() {
+    ViewState state; state.preview = false;
+    auto live = snapshot(); state.live = live;
+    auto& power = live->data.controls[static_cast<size_t>(ControlId::power)];
+    power.availability = Availability::available; power.writable = true;
+    power.current = 150; power.low = 100; power.high = 300; power.unit = "W";
+    live->data.telemetry_valid = true;
+    live->data.telemetry.present = DC_T_POWER_W;
+    live->data.telemetry.power_w = 120;
+    frame(state, 1920, 1400);
+    ImGui::ActivateItemByID(control_button(ControlId::power, "Shunt mod..."));
+    auto text = frame(state, 1920, 1400);
+    check(state.shunt.open && state.commands.empty(), "Board power Shunt mod button opens its display editor without a hardware command");
+    for (size_t i = 0; i < state.shunt.config.rails.size(); ++i)
+        check(edit_shunt_rail(state.shunt, i, 5, 2.5), "editing each shunt rail updates display correction");
+    state.shunt.open = false;
+    auto& draft = state.drafts[static_cast<size_t>(ControlId::power)];
+    draft.value = 175; draft.dirty = true;
+    text = frame(state, 1920, 1400);
+    check(state.shunt.correction.exact && near(state.shunt.correction.factor, 2)
+        && contains(text, "240 W corrected (120 W raw)") && contains(text, "300 W corrected"),
+        "Daily shows corrected measured watts and configured watts with the raw reading retained");
+    state.page = Page::monitor; text = frame(state, 1920, 1400);
+    check(contains(text, "BOARD POWER") && contains(text, "CORRECTED"), "monitor identifies corrected power history");
+    state.page = Page::daily; frame(state, 1920, 1400);
+    check(state.commands.empty() && !state.shunt.save_requested && !state.save_profile_requested
+        && !state.load_profile_requested && !state.refresh_requested && !state.reconnect_requested,
+        "shunt display edits and navigation never request saving, hardware writes or reconnects");
+    ImGui::ActivateItemByID(control_button(ControlId::power, "Apply")); frame(state, 1920, 1400);
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::apply
+        && state.commands[0].control == ControlId::power && near(state.commands[0].value, 175),
+        "Board power Apply dispatches the raw requested watts independently of display correction");
+    state.commands.clear();
+    edit_shunt_rail(state.shunt, 0, 5, 5);
+    text = frame(state, 1920, 1400);
+    check(!state.shunt.correction.exact && contains(text, "estimate (120 W raw)"),
+        "mixed shunt ratios label the main power reading as an estimate and retain raw watts");
+    check(state.commands.empty() && !state.shunt.save_requested, "mixed display correction cannot save or dispatch hardware actions");
+}
+
+bool workspace_has_background(RiskColor color) {
+    auto* window = ImGui::FindWindowByName("Druta workspace");
+    if (!window) return false;
+    const auto packed = IM_COL32(color.r, color.g, color.b, 255);
+    for (const auto& vertex : window->DrawList->VtxBuffer)
+        if (vertex.col == packed) return true;
+    return false;
+}
+
+void weighted_workspace_risk_tint() {
+    ViewState state; state.preview = false;
+    auto live = snapshot(); state.live = live;
+    live->data.xoc_known = live->data.rail_mode_known = live->data.rail_writable_known = true;
+    live->data.rail_writable = true;
+    const auto base_background = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+    for (auto presentation : {Presentation::focused, Presentation::classic}) {
+        state.presentation = presentation;
+        live->data.i2c.status = {};
+        state.controls_unlocked = true;
+        auto text = frame(state, 1920, 1400);
+        const auto green = session_risk(live->data);
+        check(contains(text, "GREEN / 0 pts") && workspace_has_background(green.tint.background),
+            "known zero-risk unlocked workspace displays GREEN and renders its green background");
+        state.controls_unlocked = false;
+        text = frame(state, 1920, 1400);
+        check(contains(text, "LOCKED") && !workspace_has_background(green.tint.background),
+            "locking known zero-risk workspace restores a neutral background");
+        live->data.i2c.status.recovery_pending = true;
+        live->data.i2c.status.stale = true;
+        live->data.telemetry_valid = false;
+        live->data.telemetry_error = "Temporary read failure";
+        text = frame(state, 1920, 1400);
+        const auto red = session_risk(live->data);
+        check(contains(text, "RED / 3 pts") && workspace_has_background(red.tint.background),
+            "locked workspace retains RED background for recovery-pending I2C despite transient reads");
+        check(state.commands.empty() && !state.reconnect_requested && !state.refresh_requested,
+            "risk rendering and tuning lock changes never release or replay a hardware request");
+    }
+    const auto restored = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+    check(near(restored.x, base_background.x) && near(restored.y, base_background.y)
+        && near(restored.z, base_background.z) && near(restored.w, base_background.w),
+        "workspace risk tint remains scoped and restores the shared style");
 }
 
 void compact_curve_layout() {
@@ -1156,6 +1315,9 @@ int main() {
     compact_layout();
     daily_header_hover_conflict();
     original_classic_layout_and_daily_companions();
+    daily_offsets_navigation_and_gates();
+    shunt_display_and_raw_power_apply();
+    weighted_workspace_risk_tint();
     compact_curve_layout();
     draft_behavior();
     explicit_profile_intents_and_stock();

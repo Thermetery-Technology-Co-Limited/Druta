@@ -265,14 +265,17 @@ requested ramp and holds its selected voltage point. Reset reports per-control
 outcomes and uncaptured Undo scope. Implementation does not establish that every
 restoration path is hardware-qualified; the Reset curve retest below is open.
 
-Qualified clock-domain, NVVDD and MSVDD offsets, explicit XOC, individual power
-policy/current requests and rail-limit fields are available in Advanced. Rail
+Qualified clock-domain, NVVDD and MSVDD offsets are available in Focused Daily
+tuning. Individual power-policy requests remain in Advanced; rail-limit fields
+have their own Focused page. Rail
 controls present the base-plus-delta absolute estimate of the signed request;
 Initial is a captured request, not a verified factory default. Rail limits have
-a separate session gate and selected-field Undo. Risk scoring follows the
-existing palette: XOC and writable armed rail limits score 1 each, and an armed
-identified writable I2C controller scores 2; stock is neutral, 1 amber, 2 red,
-and 3 or more crimson. Unknown states stay distinct; color selection does not
+a separate session gate and selected-field Undo. Risk scoring is additive:
+XOC adds 1, writable armed rail limits add 2, and an armed identified writable
+I2C controller adds 3. An unlocked zero-score session is green; 1 is yellow,
+2 amber, 3 red and 4 or more crimson. A locked zero-score session is neutral;
+locking edits does not hide already-armed modes or owned controller requests.
+Unknown states stay distinct; color selection does not
 probe the bus. The native I2C path is explicit and on demand: Ex transport on
 64-bit processes, MP2888A candidate fingerprinting, and the manual `0x21`/`0xE1`
 command/mode path. The fingerprint is not a unique model ID or physical rail
@@ -421,12 +424,23 @@ method requires it. Temporary holds are checked exactly and released only
 after controller restoration; an existing user hold is preserved. Hardware
 qualification remains scoped to the tested controller/method, not the catalog.
 
-Focused mode now has separate Rails and I2C pages; power and core current stay
-in Daily tuning. Clicking a control whose opt-in is off briefly highlights its
+Focused mode now has separate Rails and I2C pages; power, core current and all
+seven clock/voltage offsets are in Daily tuning. Classic keeps its released
+grouping. Clicking a control whose opt-in is off briefly highlights its
 checkbox without editing or issuing a request. Enabled controls use the same
 write paths as Classic. The finite highlight keeps visible rendering active
 only while needed; explicit Pause still takes precedence. Empty details no
 longer open an empty Apply tooltip.
+
+The shunt-mod display editor is beside Board power in both layouts. It imports
+and explicitly saves the Python `shuntmod.json` rail schema, preserving unknown
+fields. Original/effective resistances and connector layout are user inputs;
+the initial slot + two 8-pin / 5 mOhm layout is an editable template. A uniform
+ratio corrects displayed watts under that resistance model. Mixed ratios use
+the released capacity-weighted estimate and are labeled as estimates. The
+parallel-resistor helper is independent. Corrected board draw and power history
+retain raw readings; the power slider and every hardware request remain in
+driver watts. Saving this display preference never saves or reapplies tuning.
 
 Remaining faithful-port work: persistent discovery hints and progress/cancel
 UI; Advanced registry/relationship overrides, rail/policy diagnostics and power

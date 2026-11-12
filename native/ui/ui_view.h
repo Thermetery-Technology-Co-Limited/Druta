@@ -5,6 +5,7 @@
 #include "curve_draft.h"
 #include "advanced_view.h"
 #include "timings_view.h"
+#include "shunt_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -44,6 +45,7 @@ struct ViewState {
     bool load_profile_requested = false;
     bool timing_helper_requested = false;
     TimingsViewState timings_view;
+    ShuntViewState shunt;
     bool hold_headroom = true;
     double headroom_margin_mv = 25;
     std::optional<std::string> select_slot;

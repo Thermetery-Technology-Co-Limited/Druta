@@ -155,15 +155,16 @@ void draw_mode_bar(const SessionSnapshot& s, bool& unlocked, std::vector<Command
     if (ImGui::Checkbox("Rail limits", &rails)) { Command c; c.operation = Command::Operation::set_rail_mode; c.enabled = rails; commands.push_back(c); }
     ImGui::EndDisabled(); if (flashing) ImGui::PopStyleColor(2); hint("Enable explicit per-rail limit requests. Displayed absolute voltages are estimates from this adapter's captured reference.");
     const auto risk = session_risk(s.data);
-    if (risk.band != RiskBand::stock) {
-        ImGui::SameLine(); ImGui::TextColored(color(risk.tint.text), "%s%s", risk.name.c_str(), risk.incomplete ? " / incomplete" : "");
-        hint(risk.reason);
-    }
+    ImGui::SameLine();
+    if (!unlocked && risk.band == RiskBand::green) ImGui::TextDisabled("LOCKED");
+    else ImGui::TextColored(color(risk.tint.text), "%s / %u %s%s", risk.name.c_str(), risk.score,
+        risk.score == 1 ? "pt" : "pts", risk.incomplete ? " / incomplete" : "");
+    hint(risk.reason + ". XOC +1; Rail limits +2; I2C +3. Green 0, yellow 1, amber 2, red 3, crimson 4+. "
+        "The score describes enabled control modes, not measured hardware safety. Locking edits does not release an active controller request.");
 }
-void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails) {
-    if (state.generation != s.generation) { state = {}; state.generation = s.generation; }
-    if (!state.notice.empty()) ImGui::TextWrapped("%s", state.notice.c_str());
+void draw_clock_voltage_offsets(const SessionSnapshot& s, bool unlocked, bool verbose,
+    AdvancedViewState& state, std::vector<Command>& commands) {
+    ensure_generation(s,state);
     if (!s.data.advanced_controls.empty()) {
         ImGui::SeparatorText("Clock and voltage offsets");
         if (table("advanced-offsets", verbose)) {
@@ -177,6 +178,12 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
             ImGui::EndTable();
         }
     }
+}
+void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbose,
+    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails, bool include_offsets) {
+    ensure_generation(s,state);
+    if (!state.notice.empty()) ImGui::TextWrapped("%s", state.notice.c_str());
+    if (include_offsets) draw_clock_voltage_offsets(s,unlocked,verbose,state,commands);
     const auto section_flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     if (!s.data.power_policies.empty() && ImGui::CollapsingHeader("Current and power policies", section_flags)) {
         if (table("power-policies", verbose)) {
@@ -252,11 +259,11 @@ void draw_core_current_limit(const SessionSnapshot& s, bool unlocked, bool class
 }
 
 void draw_daily_rail_controls(const SessionSnapshot& s, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands) {
+    AdvancedViewState& state, std::vector<Command>& commands, bool include_offsets) {
     ensure_generation(s, state);
     if (!table("daily-rail-controls", classic)) return;
     for (const auto& r : s.data.rail_controls) rail_row(r, s, unlocked, classic, state, commands);
-    for (const auto& c : s.data.advanced_controls) if (c.id.kind != AdvancedKind::clock_domain) {
+    for (const auto& c : s.data.advanced_controls) if (include_offsets && c.id.kind != AdvancedKind::clock_domain) {
         Command cmd; cmd.advanced = c.id;
         row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, c.label.c_str(), c.state,
             c.id.kind == AdvancedKind::msvdd ? "Zero" : "Stock", cmd, s, unlocked, classic, state, commands, c.binding, false,

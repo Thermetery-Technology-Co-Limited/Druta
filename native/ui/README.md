@@ -17,9 +17,10 @@ Python frontend parity and Vista/7 qualification remain open.
 
 ## Live controls and profiles
 
-- Daily provides core/memory offsets, configured board-power request, fan
-  target/Auto, voltage boost, the independently identified NVVDD core-current
-  request and qualified rail-limit fields. Each uses its own capabilities,
+- Daily provides core/memory and additional clock/voltage offsets, configured
+  board-power request, fan target/Auto, voltage boost and the independently
+  identified NVVDD core-current request. Qualified rail limits have a separate
+  Focused page and remain beside the limits in Classic. Each uses its own capabilities,
   fresh capture, existing C ABI setter and independent readback. Missing unrelated telemetry
   does not disable a qualified control. Stock/Auto can have a separate capability
   from Apply; an explicit escape action can report that prior state was
@@ -71,20 +72,31 @@ Python frontend parity and Vista/7 qualification remain open.
   scopes/kinds, full-tune/combined profiles and unknown native fields are
   refused. Broader existing-format import is pending.
 
-**Advanced** exposes independently qualified clock-domain, NVVDD and MSVDD
-offsets, with an explicit XOC session gate where required, plus available power
-policy and current-request rows. Rail-limit fields show an absolute estimate
+**Focused Daily** exposes independently qualified clock-domain, NVVDD and
+MSVDD offsets with an explicit XOC session gate where required. **Advanced**
+retains available power-policy and current-request rows. Rail-limit fields show an absolute estimate
 from the signed request plus captured first-read base; Initial restores the
 captured request, not a verified factory default. A separate Rail limits session
 mode gates writes; selected-field Undo does not replay opaque rail packets.
 Missing fields and transient reads remain distinct from unsupported controls.
 
-The risk indicator follows the existing combined score: XOC adds 1, an enabled
-writable rail-limit path adds 1, and an enabled identified writable I2C path
-adds 2. Stock is neutral, 1 amber, 2 red and 3 or more crimson; unknown state
-is shown separately. The indicator uses the established session gate and
+The risk indicator uses an additive score: XOC adds 1, an enabled writable
+rail-limit path adds 2, and an enabled identified writable I2C path adds 3.
+With controls unlocked, 0 is green, 1 yellow, 2 amber, 3 red and 4+ crimson.
+A locked zero-score session is neutral; locking editing does not release or
+hide an active controller request. Unknown state is shown separately.
+The indicator uses the established session gate and
 controller state; it does not probe the bus to choose a color. Drafts and active
 session gates are distinct.
+
+Focused Daily includes Crossbar, additional memory, SYS, Video, LTC, NVVDD and
+MSVDD offsets with the same drafts and write gates as Classic. The **Shunt mod**
+button beside Board power opens the released resistance-based display
+correction and independent parallel-resistor calculator. Explicit Save uses
+`%LOCALAPPDATA%/Thermetery/Druta/shuntmod.json`, compatible with Python.
+Connector layout and starting resistances are templates, not detected values.
+Uniform ratios show corrected watts; mixed ratios show a capacity-weighted
+estimate. Raw driver watts remain visible and are always used for power Apply.
 
 ## Native I2C controller path
 

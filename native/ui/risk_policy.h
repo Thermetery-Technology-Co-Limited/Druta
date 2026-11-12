@@ -8,7 +8,7 @@ namespace druta::ui {
 // Unknown is distinct from off; use established session gate state, never a
 // momentary telemetry read, to report an already-armed direct write path.
 enum class RiskFlag { inactive, active, unknown };
-enum class RiskBand { unknown, stock, amber, red, crimson };
+enum class RiskBand { unknown, green, yellow, amber, red, crimson };
 struct RiskGates {
     RiskFlag xoc_enabled = RiskFlag::unknown;
     RiskFlag rail_limits_enabled = RiskFlag::unknown;

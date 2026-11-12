@@ -11,13 +11,16 @@ RiskFlag both(RiskFlag a, RiskFlag b) {
     return RiskFlag::unknown;
 }
 RiskBand band(unsigned score) {
-    if (!score) return RiskBand::stock;
-    if (score == 1) return RiskBand::amber;
-    if (score == 2) return RiskBand::red;
+    if (!score) return RiskBand::green;
+    if (score == 1) return RiskBand::yellow;
+    if (score == 2) return RiskBand::amber;
+    if (score == 3) return RiskBand::red;
     return RiskBand::crimson;
 }
 RiskTint tint(RiskBand b) {
     switch (b) {
+    case RiskBand::green: return {{10,32,20}, {45,110,68}, {160,225,179}};
+    case RiskBand::yellow: return {{48,43,10}, {180,157,36}, {245,220,105}};
     case RiskBand::amber: return {{58,34,10}, {196,108,24}, {255,176,64}};
     case RiskBand::red: return {{60,16,16}, {208,56,56}, {255,120,120}};
     case RiskBand::crimson: return {{72,6,26}, {220,20,60}, {255,96,140}};
@@ -26,7 +29,8 @@ RiskTint tint(RiskBand b) {
 }
 const char* name(RiskBand b) {
     switch (b) {
-    case RiskBand::stock: return "STOCK";
+    case RiskBand::green: return "GREEN";
+    case RiskBand::yellow: return "YELLOW";
     case RiskBand::amber: return "AMBER";
     case RiskBand::red: return "RED";
     case RiskBand::crimson: return "CRIMSON";
@@ -40,11 +44,11 @@ RiskAssessment assess_risk(const RiskGates& gates) {
     result.rail_limits = both(gates.rail_limits_enabled, gates.rail_limits_writable);
     result.i2c = both(gates.i2c_enabled, gates.i2c_controller_writable);
     struct Feature { RiskFlag state; unsigned weight; const char* reason; };
-    // Descending weights, matching the existing UI's feature ordering.
+    // Direct controller access carries the highest user-selected weight.
     const std::array<Feature, 3> features{{
-        {result.i2c, 2, "Direct board-controller writes bypass GPU voltage request limits"},
+        {result.i2c, 3, "Direct board-controller writes bypass GPU voltage request limits"},
+        {result.rail_limits, 2, "Rail voltage limits can be written directly"},
         {result.xoc, 1, "XOC expands software request ranges"},
-        {result.rail_limits, 1, "Rail voltage limits can be written directly"},
     }};
     result.incomplete = false;
     for (const auto& feature : features) {
@@ -58,7 +62,7 @@ RiskAssessment assess_risk(const RiskGates& gates) {
         }
     }
     result.possible_score += result.score;
-    result.band = result.score ? band(result.score) : result.incomplete ? RiskBand::unknown : RiskBand::stock;
+    result.band = result.score ? band(result.score) : result.incomplete ? RiskBand::unknown : RiskBand::green;
     result.tint = tint(result.band);
     result.name = name(result.band);
     if (result.incomplete) {

@@ -183,6 +183,12 @@ struct App {
     }
     void consume_actions() {
         if (!session || closing) { view.commands.clear(); return; }
+        if(druta::ui::take_shunt_save_request(view.shunt)) {
+            try {
+                view.shunt.config.save();view.shunt.dirty=false;
+                view.shunt.status="Shunt display configuration saved; board-power requests are unchanged.";
+            } catch(const std::exception& error) { view.shunt.status=error.what(); }
+        }
         if (view.select_slot) { session->select_device(*view.select_slot); view.select_slot.reset(); }
         if (view.reconnect_requested) {
             view.reconnect_requested = false;
@@ -408,11 +414,11 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[11] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    const wchar_t* captures[12] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp"};
-    const char* names[11] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp"};
+    const char* names[12] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -440,12 +446,13 @@ struct Smoke {
             ok = ok && (live ? (draft.dirty && draft.value == 26.875) : app.view.memory_offset_mhz == 26.875f);
         }
         if (phase == 10) ok = ok && app.width == 1024 && app.height == 768 && app.resets > 0;
+        if (phase == 11) ok = ok && app.view.shunt.open && !app.view.shunt.dirty && !app.view.shunt.save_requested;
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 10 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 11 ? "" : ",");
         report += row;
-        if (++phase == 11) {
+        if (++phase == 12) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -468,6 +475,7 @@ struct Smoke {
         if (phase == 8) app.view.page = druta::ui::Page::advanced;
         if (phase == 9) { app.view.presentation = druta::ui::Presentation::focused; app.view.page = druta::ui::Page::monitor; }
         if (phase == 10) { app.view.page = druta::ui::Page::daily; app.client_size(1024, 768); }
+        if (phase == 11) app.view.shunt.open = true;
         begin(app);
     }
 };
@@ -502,6 +510,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_Init(app.window); ImGui_ImplDX9_Init(app.device); app.initialized = true;
     app.view.page = options.page;
     app.view.preview = options.preview;
+    if(!options.preview)druta::ui::set_shunt_config(app.view.shunt,druta::ui::ShuntConfig::load());
     app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     app.view.hotkey_available = RegisterHotKey(app.window, restore_hotkey, MOD_CONTROL | MOD_SHIFT, VK_F11) != FALSE;
     if (!options.preview) {

@@ -160,11 +160,61 @@ void mode_intents_and_risk(bool verbose) {
     check(session_risk(h.s.data).band == RiskBand::red, "unconfirmed OFF intent cannot remove the reported armed state");
     h.s.data.rail_writable_known = false;
     risk = session_risk(h.s.data);
-    check(risk.incomplete && risk.band != RiskBand::stock, "unknown direct-writer capability remains uncertainty rather than stock");
+    check(risk.incomplete && risk.band != RiskBand::green, "unknown direct-writer capability remains uncertainty rather than GREEN");
     h.s.data.xoc_known = false;
     h.unlocked = true;
     h.activate("XOC", verbose);
     check(h.commands.empty(), "never-established XOC state cannot be toggled speculatively");
+}
+
+void weighted_mode_labels_and_lock(bool verbose) {
+    Harness h;
+    struct Case { bool xoc, rails, i2c; const char* label; unsigned score; };
+    const Case cases[] = {
+        {false, false, false, "GREEN / 0 pts", 0},
+        {true, false, false, "YELLOW / 1 pt", 1},
+        {false, true, false, "AMBER / 2 pts", 2},
+        {true, true, false, "RED / 3 pts", 3},
+        {false, false, true, "RED / 3 pts", 3},
+        {true, false, true, "CRIMSON / 4 pts", 4},
+        {false, true, true, "CRIMSON / 5 pts", 5},
+        {true, true, true, "CRIMSON / 6 pts", 6},
+    };
+    for (const auto& c : cases) {
+        h.s.data.xoc_enabled = c.xoc;
+        h.s.data.rail_mode_enabled = c.rails;
+        h.s.data.i2c.gate = c.i2c;
+        h.s.data.i2c.status.capable = c.i2c;
+        h.unlocked = true;
+        auto text = h.frame(verbose);
+        check(text.find(c.label) != std::string::npos && session_risk(h.s.data).score == c.score,
+            "unlocked mode bar displays weighted COLOR / points for each feature combination");
+        h.unlocked = false;
+        text = h.frame(verbose);
+        check(text.find(c.score ? c.label : "LOCKED") != std::string::npos,
+            "locking shows neutral LOCKED only at zero and preserves active feature risk labels");
+    }
+    h.s.data.xoc_enabled = h.s.data.rail_mode_enabled = h.s.data.i2c.gate = false;
+    h.s.data.i2c.status = {};
+    h.s.data.i2c.status.recovery_pending = true;
+    h.s.data.i2c.status.stale = true;
+    h.s.data.telemetry_valid = false;
+    h.s.data.telemetry_error = "Temporary telemetry read failure";
+    auto text = h.frame(verbose);
+    check(text.find("RED / 3 pts") != std::string::npos && session_risk(h.s.data).score == 3,
+        "locked recovery-pending I2C ownership retains RED despite gate off, stale reads and missing capability");
+    h.s.data.i2c.status.recovery_pending = false;
+    h.s.data.i2c.status.owned = true;
+    text = h.frame(verbose);
+    check(text.find("RED / 3 pts") != std::string::npos,
+        "owned I2C request keeps its risk visible while controls are locked");
+    h.s.data.i2c.status = {};
+    h.s.data.xoc_known = false;
+    h.unlocked = true;
+    text = h.frame(verbose);
+    check(text.find("UNKNOWN") != std::string::npos && text.find("GREEN / 0 pts") == std::string::npos,
+        "incomplete zero score displays UNKNOWN instead of implying established GREEN");
+    check(h.commands.empty(), "rendering weighted mode and lock states dispatches no commands");
 }
 
 void exact_row_commands(bool verbose) {
@@ -489,6 +539,8 @@ int main() {
     try {
         mode_intents_and_risk(false);
         mode_intents_and_risk(true);
+        weighted_mode_labels_and_lock(false);
+        weighted_mode_labels_and_lock(true);
         exact_row_commands(false);
         exact_row_commands(true);
         draft_lifetime_and_layout();
