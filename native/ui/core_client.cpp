@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core_client.h"
 #include "profile_io.h"
+#include "timing_model.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -36,13 +37,18 @@ class Client final : public IBackend {
     dc_gpu* gpu_ = nullptr;
     dc_gpu_identity opened_{};
     LiveData last_{};
-    struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; };
-    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_fan_snapshot fan{}; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; };
+    struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; std::optional<uint32_t> selected_policy; };
+    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; };
     std::vector<Undo> undo_;
     bool suppress_undo_ = false;
     bool rail_mode_ = false;
     std::unique_ptr<RailControls> rail_service_;
     std::unique_ptr<I2cSession> i2c_session_;
+    std::unique_ptr<TuningActions> tuning_;
+    std::unique_ptr<TimingTransport> timing_transport_;
+    std::unique_ptr<TimingsService> timings_;
+    TimingViewData timing_data_;
+    std::optional<TimingPlan> timing_undo_;
     void remember(const Undo& u) { if (suppress_undo_) return; if (undo_.size() == 32) undo_.erase(undo_.begin()); undo_.push_back(u); }
     const char* label(ControlId c) const { switch (c) { case ControlId::core: return "core offset"; case ControlId::memory: return "memory offset"; case ControlId::fan: return "fan"; case ControlId::boost: return "voltage boost"; case ControlId::power: return "board power"; default: return "profile"; } }
     bool capture_fan(dc_fan_snapshot& snap) {
@@ -87,6 +93,17 @@ class Client final : public IBackend {
         return st;
     }
     struct PolicyInputs { Client* client; dc_cl_statics statics; };
+    static int32_t DC_CALL confirm_clamp(void* context, uint32_t, uint32_t, uint32_t, const uint32_t* info, uint32_t info_count, const uint32_t* control, uint32_t control_count) {
+        auto* self = static_cast<Client*>(context);
+        if (!self || !self->api_.cpc_live_read || !info || !control || info_count > DC_CPC_NATIVE_INFO_MAX / 4 || control_count > DC_CPC_NATIVE_CONTROL_MAX / 4) return 0;
+        dc_cpc_observation observation{}; observation.size = sizeof(observation); observation.metadata.size = sizeof(observation.metadata); observation.arbitration.size = sizeof(observation.arbitration);
+        dc_error error{}; error.size = sizeof(error);
+        if (self->api_.cpc_live_read(self->gpu_, &observation, &error) != DC_OK) return 0;
+        const auto& metadata = observation.metadata;
+        return metadata.role_info_size > 4 && metadata.role_info[4] == 0x30 && observation.requested_mw > metadata.maximum_mw &&
+            metadata.native_info_size == info_count * 4 && observation.native_control_size == control_count * 4 &&
+            std::memcmp(metadata.native_info, info, metadata.native_info_size) == 0 && std::memcmp(observation.native_control, control, observation.native_control_size) == 0;
+    }
     static int32_t DC_CALL policy_inputs(void* context, int32_t* has, int64_t* mw, dc_cl_statics* st) {
         auto* in = static_cast<PolicyInputs*>(context); uint32_t value = 0; dc_error err{}; err.size = sizeof(err);
         *st = in->statics; if (in->client->api_.power(in->client->gpu_, st, has, &value, &err) != DC_OK) return 1;
@@ -101,13 +118,11 @@ class Client final : public IBackend {
         if (api_.pins_get(gpu_, ids, values, 32, &pins) != DC_OK || pins > 32) { why = "Power policy pins unavailable"; return false; }
         dc_policy_row rows[32]{}; for (auto& row : rows) row.size = sizeof(row);
         uint32_t count = 0; PolicyInputs inputs{this, st}; error = {}; error.size = sizeof(error);
-        // A null confirmation refuses a derived clamp needing external confirmation.
-        if (retry(api_.policy_read, gpu_, static_cast<dc_cl_confirm_fn>(nullptr), static_cast<void*>(nullptr), policy_inputs, static_cast<void*>(&inputs), rows, 32u, &count, &error) != DC_OK || !count || count > 32) { why = "Power policy table unavailable or needs clamp confirmation; board-only route is not established"; return false; }
+        if (retry(api_.policy_read, gpu_, confirm_clamp, static_cast<void*>(this), policy_inputs, static_cast<void*>(&inputs), rows, 32u, &count, &error) != DC_OK || !count || count > 32) { why = "Power policy table unavailable or needs clamp confirmation; board-only route is not established"; return false; }
         for (uint32_t i = 0; i < count; ++i) {
             const auto& r = rows[i];
             if (r.policy >= 32 || r.type > 255 || r.channel > 255 || (r.unit != -1 && r.unit != 0 && r.unit != 1) || r.minimum < 0 || r.maximum > UINT32_MAX || r.minimum > r.maximum || r.requested < 0 || r.requested > UINT32_MAX) { why = "Power policy geometry invalid"; return false; }
             for (uint32_t j = 0; j < i; ++j) if (rows[j].policy == r.policy) { why = "Duplicate power policy"; return false; }
-            if (!r.board && (r.writable || r.named_current) && (r.requested < r.minimum || r.requested > r.maximum)) { why = "A peer policy request cannot be restored in its current range"; return false; }
         }
         for (uint32_t i = 0; i < pins; ++i) { bool found = false; for (uint32_t j = 0; j < count; ++j) if (rows[j].policy == ids[i]) found = true; if (!found || ids[i] >= 32 || values[i] < 0 || values[i] >= UINT32_MAX) { why = "Power policy pin cannot be restored"; return false; } for (uint32_t j = 0; j < i; ++j) if (ids[j] == ids[i]) { why = "Duplicate power policy pin"; return false; } }
         out.board = board; out.rows.assign(rows, rows + count); out.pin_ids.assign(ids, ids + pins); out.pin_values.assign(values, values + pins);
@@ -115,7 +130,7 @@ class Client final : public IBackend {
     }
     bool power_geometry(const PowerSnapshot& saved, const PowerSnapshot& now) {
         if (saved.rows.size() != now.rows.size()) return false;
-        for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& a = saved.rows[i]; const auto& b = now.rows[i]; if (a.policy != b.policy || a.type != b.type || a.channel != b.channel || a.unit != b.unit || a.minimum != b.minimum || a.maximum != b.maximum || a.board != b.board || a.named_current != b.named_current) return false; }
+        for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& a = saved.rows[i]; const auto& b = now.rows[i]; if (a.policy != b.policy || a.type != b.type || a.channel != b.channel || a.unit != b.unit || a.board != b.board) return false; }
         return true;
     }
     std::string power_write_message(bool policy, char* initial, size_t needed, size_t capacity) {
@@ -131,9 +146,9 @@ class Client final : public IBackend {
         bool xoc = false; if (!effective_xoc(xoc)) { message = "XOC session state unreadable; no power write issued"; return false; } dc_status status = api_.power_set(gpu_, &st, mw, xoc ? 1 : 0, &ok, text, sizeof(text), &needed);
         message = power_write_message(false, text, needed, sizeof(text)); return status == DC_OK && ok;
     }
-    bool set_policy(const dc_policy_row& row, std::string& message) {
+    bool set_policy(const dc_policy_row& row, std::string& message, bool pin = false) {
         PolicyInputs inputs{this, power_statics()}; int32_t ok = 0; char text[4096]{}; size_t needed = 0;
-        dc_status status = api_.policy_set(gpu_, nullptr, nullptr, policy_inputs, &inputs, row.policy, 1, row.requested, 0, row.named_current, &ok, text, sizeof(text), &needed);
+        dc_status status = api_.policy_set(gpu_, confirm_clamp, this, policy_inputs, &inputs, row.policy, 1, row.requested, pin ? 1 : 0, row.named_current, &ok, text, sizeof(text), &needed);
         message = power_write_message(true, text, needed, sizeof(text)); return status == DC_OK && ok;
     }
     static bool binding_matches(const Command& cmd, const std::string& actual) { return !cmd.expected_binding || cmd.expected_binding->empty() || *cmd.expected_binding == actual; }
@@ -163,15 +178,26 @@ class Client final : public IBackend {
         const double raw = cmd.operation == Command::Operation::stock ? static_cast<double>(it->default_value) : cmd.value * 1000.0;
         if (!std::isfinite(raw) || std::abs(raw - std::nearbyint(raw)) > 0.000001 || raw < it->minimum || raw > it->maximum) { result.message = "Policy request is outside its current range or precision"; return result; }
         const int64_t target = static_cast<int64_t>(std::nearbyint(raw)); result.requested = target / 1000.0;
-        if (it->requested == target) { result.ok = true; result.readback = target / 1000.0; result.message = "Policy request already matches"; return result; }
-        Undo saved{}; saved.control = ControlId::power; saved.power = before; remember(saved);
-        dc_policy_row desired = *it; desired.requested = target; std::string message; const bool wrote = set_policy(desired, message); result.may_have_changed = true;
+        const auto old_pin = std::find(before.pin_ids.begin(), before.pin_ids.end(), *cmd.power_policy);
+        const bool stock = cmd.operation == Command::Operation::stock;
+        if (it->requested == target && ((stock && old_pin == before.pin_ids.end()) || (!stock && old_pin != before.pin_ids.end() && before.pin_values[static_cast<size_t>(old_pin - before.pin_ids.begin())] == target))) { result.ok = true; result.readback = target / 1000.0; result.message = "Policy request and pin already match"; return result; }
+        Undo saved{}; saved.control = ControlId::power; saved.power = before; saved.power.selected_policy = *cmd.power_policy; remember(saved);
+        if (stock && old_pin != before.pin_ids.end()) {
+            const size_t pos = static_cast<size_t>(old_pin - before.pin_ids.begin());
+            auto ids = before.pin_ids; auto values = before.pin_values; ids.erase(ids.begin() + pos); values.erase(values.begin() + pos);
+            if (api_.pins_set(gpu_, ids.data(), values.data(), static_cast<uint32_t>(ids.size())) != DC_OK) { result.message = "Could not remove selected policy pin; Undo retained"; return result; }
+            result.may_have_changed = true;
+        }
+        dc_policy_row desired = *it; desired.requested = target; std::string message; const bool wrote = set_policy(desired, message, !stock); result.may_have_changed = true;
         PowerSnapshot after;
         if (!power_capture(after, why) || !power_geometry(before, after)) { result.message = "Policy readback or geometry unavailable; Undo retained"; return result; }
         auto selected = std::find_if(after.rows.begin(), after.rows.end(), [&](const dc_policy_row& r) { return r.policy == *cmd.power_policy; });
         result.readback = selected->requested / 1000.0;
-        bool pins_same = before.pin_ids.size() == after.pin_ids.size();
-        for (size_t i = 0; pins_same && i < before.pin_ids.size(); ++i) { auto p = std::find(after.pin_ids.begin(), after.pin_ids.end(), before.pin_ids[i]); if (p == after.pin_ids.end() || after.pin_values[static_cast<size_t>(p - after.pin_ids.begin())] != before.pin_values[i]) pins_same = false; }
+        bool pins_same = true;
+        for (size_t i = 0; i < before.pin_ids.size(); ++i) if (before.pin_ids[i] != *cmd.power_policy) { auto p = std::find(after.pin_ids.begin(), after.pin_ids.end(), before.pin_ids[i]); if (p == after.pin_ids.end() || after.pin_values[static_cast<size_t>(p - after.pin_ids.begin())] != before.pin_values[i]) pins_same = false; }
+        for (auto id : after.pin_ids) if (id != *cmd.power_policy && std::find(before.pin_ids.begin(), before.pin_ids.end(), id) == before.pin_ids.end()) pins_same = false;
+        auto selected_pin = std::find(after.pin_ids.begin(), after.pin_ids.end(), *cmd.power_policy);
+        if (stock ? selected_pin != after.pin_ids.end() : (selected_pin == after.pin_ids.end() || after.pin_values[static_cast<size_t>(selected_pin - after.pin_ids.begin())] != target)) pins_same = false;
         bool peers_changed = after.board != before.board;
         for (size_t i = 0; i < before.rows.size(); ++i) if (before.rows[i].policy != *cmd.power_policy && before.rows[i].requested != after.rows[i].requested) peers_changed = true;
         result.ok = wrote && selected->requested == target && pins_same;
@@ -195,19 +221,20 @@ class Client final : public IBackend {
             for (const auto& row : saved.rows) {
                 PowerSnapshot fresh; if (!power_capture(fresh, why) || !power_geometry(saved, fresh)) { ok = false; message += "; policy geometry or readback changed"; break; }
                 const auto it = std::find_if(fresh.rows.begin(), fresh.rows.end(), [&](const dc_policy_row& r) { return r.policy == row.policy; });
-                if (row.board || it->requested == row.requested) continue;
-                if (!(it->writable || it->named_current) || !it->consistent) { ok = false; message += "; peer policy not restorable"; continue; }
+                const bool pinned = std::find(saved.pin_ids.begin(), saved.pin_ids.end(), row.policy) != saved.pin_ids.end();
+                if (row.board || (!pinned && (!saved.selected_policy || *saved.selected_policy != row.policy)) || it->requested == row.requested) continue;
+                if (!(it->writable || it->named_current) || !it->consistent || row.requested < it->minimum || row.requested > it->maximum) { ok = false; message += "; selected policy no longer restorable in fresh bounds"; continue; }
                 result.may_have_changed = true; std::string note; if (!set_policy(row, note)) { ok = false; message += "; " + note; }
             }
             PowerSnapshot final; bool verified = power_capture(final, why) && power_geometry(saved, final);
             std::vector<uint32_t> verified_ids; std::vector<int64_t> verified_values;
             if (verified) {
                 if (final.board != saved.board) ok = false;
-                for (size_t i = 0; i < saved.rows.size(); ++i) if (saved.rows[i].requested != final.rows[i].requested) ok = false;
+                for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& row = saved.rows[i]; const bool pinned = std::find(saved.pin_ids.begin(), saved.pin_ids.end(), row.policy) != saved.pin_ids.end(); if (!row.board && (pinned || (saved.selected_policy && *saved.selected_policy == row.policy)) && row.requested != final.rows[i].requested) ok = false; }
                 for (size_t i = 0; i < saved.pin_ids.size(); ++i) for (size_t j = 0; j < saved.rows.size(); ++j) if (saved.rows[j].policy == saved.pin_ids[i] && final.rows[j].requested == saved.rows[j].requested) { verified_ids.push_back(saved.pin_ids[i]); verified_values.push_back(saved.pin_values[i]); }
                 if (api_.pins_set(gpu_, verified_ids.data(), verified_values.data(), static_cast<uint32_t>(verified_ids.size())) != DC_OK || verified_ids.size() != saved.pin_ids.size()) ok = false;
             } else ok = false;
-            result.ok = ok; result.message = ok ? "Board power and peer policy requests restored" : "Power restoration incomplete or unverified; Undo retained" + message;
+            result.ok = ok; result.message = ok ? "Board power and captured explicit policy requests restored; unpinned peers left to the driver" : "Power restoration incomplete or unverified; Undo retained" + message;
             if (ok) undo_.pop_back(); return result;
         }
         const bool stock = cmd.operation == Command::Operation::stock;
@@ -382,12 +409,17 @@ class Client final : public IBackend {
             const auto& f = rows[rail].fields[field]; if (!f.established || !f.requested_uv || !rows[rail].type) continue;
             RailControl c{}; c.id = {rail, field}; if (f.estimated_base_mv) c.binding = rail_binding(rail, field, *rows[rail].type, *f.estimated_base_mv); c.state.availability = f.stale ? Availability::transient : Availability::available; c.state.current = *f.requested_uv / 1000.0; c.state.unit = "mV"; c.state.step = 0.001;
             if (f.initial_uv) c.state.stock = *f.initial_uv / 1000.0; c.estimated_base_mv = f.estimated_base_mv;
+            if (f.estimated_base_mv && last_.xoc_known) {
+                c.state.low = std::min(DC_RAILS_LIMIT_MIN_MV - *f.estimated_base_mv, *c.state.current);
+                c.state.high = std::max((last_.xoc_enabled ? DC_RAILS_LIMIT_XOC_MAX_MV : DC_RAILS_LIMIT_MAX_MV) - *f.estimated_base_mv, *c.state.current);
+            }
             const bool held = hold_known && hold.present && hold.rail == static_cast<int>(rail);
             rail_established[rail] = true;
             if (hold_known && writer_available && !held) any_writable = true;
             c.state.writable = rail_mode_ && writer_available && hold_known && !held;
             c.state.stock_writable = api_.rails.reset && f.initial_uv && hold_known && !held;
             c.state.detail = f.stale ? "Last request retained; fresh read unavailable" : held ? "A hold owns this rail" : "Stored request; initial value is captured, base voltage is estimated";
+            c.state.detail += "; slider bounds are software request limits, not measured voltage limits";
             if (f.stale || !hold_known) { auto old = std::find_if(last_.rail_controls.begin(), last_.rail_controls.end(), [&](const RailControl& p) { return p.id.rail == rail && p.id.field == field; }); if (old != last_.rail_controls.end()) { c.state.writable = rail_mode_ && !held && old->state.writable; c.state.stock_writable = !held && old->state.stock_writable; } }
             updated.push_back(std::move(c));
         }
@@ -430,19 +462,25 @@ class Client final : public IBackend {
         return result;
     }
 
-    bool curve_table(dc_vf_delta_snapshot& snap, std::vector<dc_vf_point>& points, std::string& why) {
+    bool curve_table(dc_vf_delta_snapshot& snap, std::vector<dc_vf_point>& points, std::string& why, dc_vf_layout* captured_layout = nullptr) {
         if (!api_.curve_layout || !api_.curve || !api_.snapshot) { why = "Curve interfaces unavailable"; return false; }
         dc_vf_layout layout{}; layout.size = sizeof(layout); dc_vf_curve curve{}; curve.size = sizeof(curve);
-        if (retry(api_.curve_layout, gpu_, 1, &layout) != DC_OK || !layout.gpu_count || layout.gpu_count > DC_VFP_POINTS || layout.freq_div == 0 || retry(api_.curve, gpu_, &curve) != DC_OK || curve.count != layout.gpu_count || !capture_curve(snap) || snap.count != layout.gpu_count || snap.freq_div != layout.freq_div) { why = "Complete V/F table unavailable"; return false; }
+        if (retry(api_.curve_layout, gpu_, 1, &layout) != DC_OK || !layout.n_entries || layout.n_entries > DC_VFP_POINTS || !layout.gpu_count || layout.gpu_count > layout.n_entries || layout.other_count > layout.n_entries || layout.freq_div == 0 || retry(api_.curve, gpu_, &curve) != DC_OK || curve.count != layout.gpu_count || !capture_curve(snap) || snap.count != layout.gpu_count || snap.freq_div != layout.freq_div) { why = "Complete V/F table unavailable"; return false; }
+        for (uint32_t i = 0; i < layout.other_count; ++i) { if (layout.other_idx[i] >= layout.n_entries) { why = "Invalid trailing V/F geometry"; return false; } for (uint32_t j = 0; j < i; ++j) if (layout.other_idx[j] == layout.other_idx[i]) { why = "Duplicate trailing V/F geometry"; return false; } }
         for (uint32_t i = 0; i < layout.gpu_count; ++i) {
             const uint32_t idx = layout.gpu_idx[i]; bool point = false, delta = false;
+            if (idx >= layout.n_entries || std::find(layout.other_idx, layout.other_idx + layout.other_count, idx) != layout.other_idx + layout.other_count) { why = "Invalid GPU V/F geometry"; return false; }
             for (uint32_t j = 0; j < i; ++j) if (layout.gpu_idx[j] == idx) { why = "Duplicate V/F geometry"; return false; }
             for (uint32_t j = 0; j < curve.count; ++j) if (curve.points[j].idx == idx) { if (point || !std::isfinite(curve.points[j].volt_mv) || !std::isfinite(curve.points[j].freq_mhz)) { why = "Invalid V/F point"; return false; } point = true; }
             for (uint32_t j = 0; j < snap.count; ++j) if (snap.deltas[j].idx == idx) delta = true;
             if (!point || !delta) { why = "Incomplete V/F point geometry"; return false; }
         }
         for (uint32_t i = 0; i < curve.count; ++i) { auto it = std::find_if(snap.deltas, snap.deltas + snap.count, [&](const dc_vf_delta& d) { return d.idx == curve.points[i].idx; }); if (it == snap.deltas + snap.count || it->delta_khz != curve.points[i].delta_khz) { why = "V/F reads disagree"; return false; } }
-        points.assign(curve.points, curve.points + curve.count); return true;
+        points.assign(curve.points, curve.points + curve.count); if (captured_layout) *captured_layout = layout; return true;
+    }
+    static bool same_curve_layout(const dc_vf_layout& a, const dc_vf_layout& b) {
+        if (!a.n_entries || a.n_entries != b.n_entries || a.gpu_count != b.gpu_count || a.other_count != b.other_count || a.freq_div != b.freq_div) return false;
+        return std::equal(a.gpu_idx, a.gpu_idx + a.gpu_count, b.gpu_idx) && std::equal(a.other_idx, a.other_idx + a.other_count, b.other_idx);
     }
     bool same_curve_geometry(const dc_vf_delta_snapshot& a, const dc_vf_delta_snapshot& b) {
         if (a.freq_div != b.freq_div || a.count != b.count) return false;
@@ -451,10 +489,11 @@ class Client final : public IBackend {
     }
     bool same_curve_mapping(const std::vector<dc_vf_point>& saved, const std::vector<dc_vf_point>& now, uint32_t div) {
         if (!div || saved.size() != now.size()) return false;
-        auto base = [div](const dc_vf_point& p) { return std::llround(p.freq_mhz * 1000.0 * div) - static_cast<int64_t>(p.delta_khz); };
+        // Evaluated curve frequencies include driver propagation and are not
+        // the per-row base plus that row's boost-table request.
         for (const auto& p : saved) {
             auto it = std::find_if(now.begin(), now.end(), [&](const dc_vf_point& q) { return q.idx == p.idx; });
-            if (it == now.end() || !std::isfinite(p.volt_mv) || !std::isfinite(p.freq_mhz) || !std::isfinite(it->volt_mv) || !std::isfinite(it->freq_mhz) || p.freq_mhz < 0 || it->freq_mhz < 0 || p.freq_mhz * 1000.0 * div > UINT32_MAX || it->freq_mhz * 1000.0 * div > UINT32_MAX || p.volt_mv != it->volt_mv || base(p) != base(*it)) return false;
+            if (it == now.end() || !std::isfinite(p.volt_mv) || !std::isfinite(p.freq_mhz) || !std::isfinite(it->volt_mv) || !std::isfinite(it->freq_mhz) || p.volt_mv <= 0 || p.freq_mhz <= 0 || it->freq_mhz <= 0 || p.volt_mv != it->volt_mv) return false;
         }
         return true;
     }
@@ -463,12 +502,12 @@ class Client final : public IBackend {
         if (!api_.lock || !api_.unlock || !api_.apply_deltas || (!undoing && reset && !api_.reset_curve) || (!undoing && !reset && !api_.envelopes)) { result.message = "V/F write interfaces unavailable"; return result; }
         if (api_.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU for V/F write"; return result; }
         struct Unlock { CoreApi& api; dc_gpu* gpu; ~Unlock() { api.unlock(gpu); } } unlock{api_, gpu_};
-        dc_gpu_identity id{}; dc_vf_delta_snapshot before{}; std::vector<dc_vf_point> points; std::string why;
-        if (!identity(id) || !curve_table(before, points, why)) { result.message = "V/F read failed or identity changed: " + why; return result; }
+        dc_gpu_identity id{}; dc_vf_delta_snapshot before{}; dc_vf_layout before_layout{}; std::vector<dc_vf_point> points; std::string why;
+        if (!identity(id) || !curve_table(before, points, why, &before_layout)) { result.message = "V/F read failed or identity changed: " + why; return result; }
         dc_vf_delta_snapshot desired = before;
         if (undoing) {
             desired = undo_.back().curve;
-            if (!same_curve_geometry(before, desired) || !same_curve_mapping(undo_.back().curve_points, points, desired.freq_div)) { result.message = "V/F geometry changed; Undo retained"; return result; }
+            if (!same_curve_geometry(before, desired) || !same_curve_layout(undo_.back().curve_layout, before_layout) || !same_curve_mapping(undo_.back().curve_points, points, desired.freq_div)) { result.message = "V/F geometry changed; Undo retained"; return result; }
         } else {
             if (cmd.expected_curve_freq_div != before.freq_div || cmd.expected_curve.size() != points.size()) { result.message = "V/F baseline changed; refresh the curve"; return result; }
             for (const auto& point : points) {
@@ -487,16 +526,16 @@ class Client final : public IBackend {
             }
         }
         if (same_curve(before, desired)) { result.ok = true; result.message = "V/F curve already matches"; if (undoing) undo_.pop_back(); return result; }
-        if (!undoing) { Undo saved{}; saved.control = ControlId::count; saved.curve_entry = true; saved.curve = before; saved.curve_points = points; remember(saved); }
+        if (!undoing) { Undo saved{}; saved.control = ControlId::count; saved.curve_entry = true; saved.curve = before; saved.curve_layout = before_layout; saved.curve_points = points; remember(saved); }
         const auto before_points = points; dc_outcome out{}; dc_status status;
         if (undoing) status = api_.apply_deltas(gpu_, desired.deltas, desired.count, &out);
         else if (reset) status = api_.reset_curve(gpu_, &out);
         else status = api_.apply_deltas(gpu_, cmd.curve_deltas.data(), cmd.curve_deltas.size(), &out);
-        result.may_have_changed = true; dc_vf_delta_snapshot after{}; points.clear();
-        if (!identity(id) || !curve_table(after, points, why)) { result.message = "V/F readback unavailable; Undo retained"; return result; }
-        result.ok = status == DC_OK && out.ok && same_curve(after, desired) && same_curve_mapping(before_points, points, before.freq_div);
+        result.may_have_changed = true; dc_vf_delta_snapshot after{}; dc_vf_layout after_layout{}; points.clear();
+        if (!identity(id) || !curve_table(after, points, why, &after_layout)) { result.message = "V/F readback unavailable; Undo retained"; return result; }
+        result.ok = status == DC_OK && out.ok && same_curve(after, desired) && same_curve_layout(before_layout, after_layout) && same_curve_mapping(before_points, points, before.freq_div);
         result.message = out.message[0] ? out.message : (result.ok ? "V/F curve applied" : "V/F write failed");
-        if (!same_curve(after, desired) || !same_curve_mapping(before_points, points, before.freq_div)) result.message += "; point readback or geometry differs; Undo retained";
+        if (!same_curve(after, desired) || !same_curve_layout(before_layout, after_layout) || !same_curve_mapping(before_points, points, before.freq_div)) result.message += "; point readback or geometry differs; Undo retained";
         if (undoing && result.ok) undo_.pop_back(); return result;
     }
 
@@ -514,7 +553,7 @@ class Client final : public IBackend {
             if (!api_.set_offset || !api_.range || retry(api_.range, gpu_, memory ? 2u : 0u, &r) != DC_OK || !r.present) { why = "offset range unavailable"; return false; }
             uint32_t step = 1, grid = 0; int32_t measured = 0;
             if (memory) { if (!api_.scale || !api_.step || retry(api_.scale, gpu_, &scale) != DC_OK || !scale.scale || !(step = api_.step(gpu_))) { why = "memory scale or step unavailable"; return false; } }
-            else if (!api_.snapshot || !api_.apply_deltas || !api_.clock_step || retry(api_.clock_step, gpu_, &grid, &measured) != DC_OK || !grid || !curve_table(item.undo.curve, item.undo.curve_points, why)) { why = "core curve or grid unavailable"; return false; }
+            else if (!api_.snapshot || !api_.apply_deltas || !api_.clock_step || retry(api_.clock_step, gpu_, &grid, &measured) != DC_OK || !grid || !curve_table(item.undo.curve, item.undo.curve_points, why, &item.undo.curve_layout)) { why = "core curve or grid unavailable"; return false; }
             auto encoded = [grid](double value) { const double whole = std::trunc(value); const double want = std::nearbyint(whole / (grid / 1000.0)) * (grid / 1000.0); return std::ceil(want); };
             if (r.current < r.low || r.current > r.high || (memory ? (static_cast<int64_t>(r.current) % step != 0 || (static_cast<double>(r.current) / scale.scale) * scale.scale != r.current) : encoded(r.current) != r.current)) { why = "prior offset cannot be restored"; return false; }
             item.undo.value = r.current; item.undo.scale = scale.scale;
@@ -668,6 +707,191 @@ class Client final : public IBackend {
         } catch (const std::exception& e) { result.message = std::string("Profile failed: ") + e.what() + (aggregate_stored ? "; aggregate Undo retained" : ""); result.may_have_changed = aggregate_stored; return result; }
     }
 
+    ActionResult release_hold() {
+        ActionResult out; out.ok=true;
+        if (!tuning_ || !maintenance_needed()) { out.message="No owned V/F hold"; return out; }
+        const auto r=tuning_->release(); last_.tuning=tuning_->state();
+        out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
+    }
+    bool locks_clear(std::string& why) {
+        dc_vf_lock_status vf{}; dc_clk_lock_status clock{};
+        if (!api_.tuning.vf_status || !api_.tuning.clock_status || retry(api_.tuning.vf_status,gpu_,0,0u,&vf)!=DC_OK || vf.error[0] ||
+            retry(api_.tuning.clock_status,gpu_,&clock)!=DC_OK || clock.error[0]) { why="Clock/V/F hold status unavailable"; return false; }
+        if (vf.locked || clock.locked) { why="A clock or V/F hold is already active; release its owner first"; return false; }
+        return true;
+    }
+    ActionResult hold_action(const Command& cmd) {
+        ActionResult out; dc_gpu_identity id{}; dc_vf_delta_snapshot snap{}; std::vector<dc_vf_point> points; std::string why;
+        if (!tuning_ || !identity(id) || !curve_table(snap,points,why)) { out.message="Fresh curve or GPU identity unavailable: "+why; return out; }
+        if (!same_curve_mapping(cmd.expected_curve,points,snap.freq_div) || cmd.expected_curve_freq_div!=snap.freq_div) { out.message="Curve geometry changed; refresh before holding a point"; return out; }
+        for (const auto& p:points) { auto old=std::find_if(cmd.expected_curve.begin(),cmd.expected_curve.end(),[&](const auto& q){return q.idx==p.idx;});
+            if (old==cmd.expected_curve.end() || old->delta_khz!=p.delta_khz) { out.message="Curve request changed; refresh before holding a point"; return out; } }
+        const auto point=std::find_if(points.begin(),points.end(),[&](const auto& p){return p.idx==cmd.hold_point_index;});
+        if (point==points.end() || !std::isfinite(point->volt_mv) || point->volt_mv<=0 || point->volt_mv*1000>UINT32_MAX) { out.message="Selected curve voltage unavailable"; return out; }
+        bool xoc=false; if (!effective_xoc(xoc)) { out.message="XOC state unreadable"; return out; }
+        if (maintenance_needed()) { out=release_hold(); if (!out.ok) return out; }
+        const auto r=tuning_->hold(6,static_cast<uint32_t>(std::llround(point->volt_mv*1000)),cmd.hold_headroom,cmd.headroom_margin_mv,xoc);
+        last_.tuning=tuning_->state(); out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
+    }
+    ActionResult max_action(const Command& cmd) {
+        ActionResult result; dc_gpu_identity id{}; std::string why;
+        if (!tuning_ || !api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK) { result.message="Max it interfaces unavailable"; return result; }
+        struct Unlock { CoreApi& a; dc_gpu* g; ~Unlock(){a.unlock(g);} } lock{api_,gpu_};
+        if (!identity(id)) { result.message="GPU identity changed"; return result; }
+        const auto fresh=read(true);
+        if (!fresh.max_it_available || !fresh.curve_writable || fresh.curve.empty() || cmd.expected_curve_freq_div!=fresh.curve_freq_div ||
+            !same_curve_mapping(cmd.expected_curve,fresh.curve,fresh.curve_freq_div)) { result.message="Max it needs the current complete curve"; return result; }
+        for (const auto& p:fresh.curve) { auto previous=std::find_if(cmd.expected_curve.begin(),cmd.expected_curve.end(),[&](const auto& q){return p.idx==q.idx;});
+            if (previous==cmd.expected_curve.end() || previous->delta_khz!=p.delta_khz) { result.message="Curve changed since Max it was requested"; return result; } }
+        CurvePlanRequest request; request.kind=CurvePlanKind::ramp; request.points=fresh.curve; request.freq_div=fresh.curve_freq_div;
+        request.step_khz=fresh.curve_step_khz; request.max_abs_delta_khz=fresh.curve_max_abs_delta_khz;
+        request.max_rise_khz=fresh.curve_model_max_rise_khz; request.cap_mv=cmd.curve_cap_mv; request.floor_mv=cmd.curve_floor_mv;
+        const auto plan=tuning_->prepare_max(api_.planner,request);
+        if (!plan.ok) { result.message="Max it plan refused before writes: "+plan.message; return result; }
+        const dc_vf_point* selected=nullptr;
+        for (const auto& p:fresh.curve) if (p.volt_mv<=cmd.curve_cap_mv && (!selected || p.volt_mv>selected->volt_mv)) selected=&p;
+        if (!selected) { result.message="No curve point at or below the cap; no writes issued"; return result; }
+        dc_capabilities caps{}; caps.size=sizeof(caps);
+        if (retry(api_.capabilities,gpu_,&caps)!=DC_OK || !(caps.present&DC_C_PL_MAX) || !caps.pl_max_mw || caps.pl_max_mw==UINT32_MAX) { result.message="Normal board power maximum unavailable"; return result; }
+        std::vector<ProfileItem> items;
+        const ProfileJson targets[]={{{"mode","manual"},{"value",100},{"unit","%"}},{{"value",caps.pl_max_mw},{"unit","mW"}},{{"value",100},{"unit","%"}}};
+        const ControlId controls[]={ControlId::fan,ControlId::power,ControlId::boost};
+        for (size_t i=0;i<3;++i) { ProfileItem item; if (!profile_item(controls[i],&targets[i],item,why)) { result.message="Max it capture failed before writes: "+why; return result; } items.push_back(std::move(item)); }
+        Undo curve_before{}; curve_before.control=ControlId::count; curve_before.curve_entry=true;
+        if (!curve_table(curve_before.curve,curve_before.curve_points,why,&curve_before.curve_layout)) { result.message="Max it curve capture failed: "+why; return result; }
+        if (maintenance_needed()) { result=release_hold(); if (!result.ok) return result; }
+        if (!locks_clear(why)) { result.message=why; return result; }
+        Undo group{}; group.control=ControlId::count; remember(group); suppress_undo_=true;
+        struct Unsuppress { bool& flag; ~Unsuppress(){flag=false;} } unsuppress{suppress_undo_};
+        auto step=[&](const Command& action,const Undo& before) {
+            undo_.back().group.push_back(before); const auto r=execute(action);
+            if (!r.may_have_changed) undo_.back().group.pop_back(); result.may_have_changed|=r.may_have_changed;
+            if (!result.message.empty()) result.message+="\n"; result.message+=r.message; return r.ok;
+        };
+        bool okay=true;
+        for (const auto& item:items) if (item.changed && !step(item.command,item.undo)) { okay=false; break; }
+        if (okay && !plan.changes.empty()) { Command curve=cmd; curve.operation=Command::Operation::apply_curve; curve.curve_deltas=plan.changes; okay=step(curve,curve_before); }
+        if (okay) {
+            if (selected) { Command hold=cmd; hold.operation=Command::Operation::hold_curve_point; hold.hold_point_index=selected->idx;
+                dc_vf_delta_snapshot updated{}; std::string capture_error;
+                if (!curve_table(updated,hold.expected_curve,capture_error)) { result.message+="\nHold skipped: "+capture_error; okay=false; }
+                hold.expected_curve_freq_div=updated.freq_div;
+                if (okay) {
+                const auto r=hold_action(hold); okay=r.ok; result.may_have_changed|=r.may_have_changed; result.message+="\n"+r.message;
+                }
+            } else { okay=false; result.message+="\nNo curve point at or below the cap"; }
+        }
+        if (undo_.back().group.empty()) undo_.pop_back();
+        result.ok=okay; result.message=(okay?"Max it applied: ":"Max it incomplete; captured Undo retained: ")+result.message; return result;
+    }
+    static int32_t DC_CALL reset_statics(void* context,const dc_cl_statics*,dc_cl_statics* out) {
+        *out=static_cast<Client*>(context)->power_statics(); return 0;
+    }
+    ActionResult reset_action() {
+        ActionResult out; std::string why;
+        if (!api_.reset_all || !api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK) { out.message="Reset interfaces unavailable"; return out; }
+        struct Unlock { CoreApi& a; dc_gpu* g; ~Unlock(){a.unlock(g);} } lock{api_,gpu_};
+        dc_gpu_identity id{}; if (!identity(id)) { out.message="GPU identity unavailable"; return out; }
+        if (i2c_session_ && i2c_session_->owned()) { out=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!out.ok) return out; }
+        if (maintenance_needed()) { out=release_hold(); if (!out.ok) return out; }
+        if (!locks_clear(why)) { out.message=why; return out; }
+        bool xoc=false; if (!effective_xoc(xoc)) { out.message="XOC state unavailable"; return out; }
+        const auto fresh=read(true); Undo saved{}; saved.control=ControlId::count; std::string omitted;
+        bool core_captured=false;
+        for (auto c:{ControlId::core,ControlId::memory,ControlId::power,ControlId::fan,ControlId::boost}) {
+            ProfileItem item; if (profile_item(c,nullptr,item,why)) saved.group.push_back(item.undo);
+            else { if (!omitted.empty()) omitted+=", "; omitted+=label(c); }
+            if (c==ControlId::core) core_captured=!saved.group.empty();
+        }
+        Undo curve{}; curve.control=ControlId::count; curve.curve_entry=true;
+        if (!core_captured) { if (curve_table(curve.curve,curve.curve_points,why,&curve.curve_layout)) saved.group.push_back(curve); else omitted+=", V/F curve"; }
+        for (const auto& a:fresh.advanced_controls) { Undo u{}; if (advanced_capture(a.id,u,why) && advanced_preflight(a.id,u.value,u,why)) saved.group.push_back(u); else omitted+=", "+a.label; }
+        if (rail_service_) { const auto rows=rail_service_->read();
+            for (uint32_t rail=0;rail<DC_RAILS_COUNT;++rail) for (uint32_t field=0;field<DC_RAILS_LIMIT_FIELDS;++field) {
+                const auto& r=rows[rail]; if (!r.type || !r.fields[field].requested_uv || r.fields[field].stale) continue;
+                Undo u{}; u.control=ControlId::count; u.rail_entry=true; u.rail={static_cast<int>(rail),field,*r.type,*r.fields[field].requested_uv}; saved.group.push_back(u);
+            }
+        }
+        if (!saved.group.empty()) remember(saved);
+        std::vector<dc_reset_step> steps(DC_RESET_STEPS_MAX); for (auto& s:steps) s.size=sizeof(s);
+        uint32_t count=0; dc_rails_setter_writes writes{}; writes.size=sizeof(writes); dc_error error{}; error.size=sizeof(error);
+        PolicyInputs inputs{this,power_statics()}; out.may_have_changed=true;
+        dc_status status=DC_E_FAILED;
+        try { status=api_.reset_all(gpu_,confirm_clamp,this,policy_inputs,&inputs,reset_statics,this,xoc?1:0,steps.data(),static_cast<uint32_t>(steps.size()),&count,&writes,&error); }
+        catch (...) { count=0; }
+        out.ok=status==DC_OK && count<=steps.size(); out.message.clear();
+        if (count<=steps.size()) for (uint32_t i=0;i<count;++i) { out.ok=out.ok && steps[i].ok!=0; out.message+="\n"+std::string(steps[i].name)+": "+steps[i].message; }
+        // Keep only changed or unreadable requests. An untouched field does not
+        // become ours to replay merely because Reset inspected it.
+        if (!saved.group.empty() && !undo_.empty()) {
+            const auto rail_now=rail_service_ ? rail_service_->read() : std::array<RailRow,DC_RAILS_COUNT>{};
+            auto unchanged=[&](const Undo& before) {
+                if (before.rail_entry) { const auto& row=rail_now[before.rail.rail]; const auto& f=row.fields[before.rail.field];
+                    return row.type && *row.type==before.rail.type && !f.stale && f.requested_uv && *f.requested_uv==before.rail.requested_uv; }
+                if (before.advanced_entry) { Undo after{}; return advanced_capture(before.advanced,after,why) && layout_equal(before.advanced_layout,after.advanced_layout) && before.value==after.value; }
+                if (before.curve_entry) { dc_vf_delta_snapshot after{}; std::vector<dc_vf_point> points;
+                    dc_vf_layout layout{}; return curve_table(after,points,why,&layout) && same_curve(before.curve,after) && same_curve_layout(before.curve_layout,layout) && same_curve_mapping(before.curve_points,points,after.freq_div); }
+                ProfileItem after; if (!profile_item(before.control,nullptr,after,why)) return false;
+                if (before.control==ControlId::power) return before.power.board==after.undo.power.board && before.power.pin_ids==after.undo.power.pin_ids && before.power.pin_values==after.undo.power.pin_values;
+                if (before.control==ControlId::fan) return std::memcmp(&before.fan,&after.undo.fan,sizeof(before.fan))==0;
+                if (before.control==ControlId::core) return before.value==after.undo.value && same_curve(before.curve,after.undo.curve) && same_curve_mapping(before.curve_points,after.undo.curve_points,after.undo.curve.freq_div);
+                return before.value==after.undo.value && before.scale==after.undo.scale;
+            };
+            auto& group=undo_.back().group;
+            group.erase(std::remove_if(group.begin(),group.end(),unchanged),group.end());
+            if (group.empty()) undo_.pop_back();
+        }
+        if (!omitted.empty()) out.message+="\nUndo unavailable for uncaptured controls: "+omitted;
+        if (error.message[0]) out.message+="\n"+std::string(error.message);
+        out.message=(out.ok?"Reset controls completed":"Reset incomplete")+out.message;
+        return out;
+    }
+    ActionResult timing_action(const Command& cmd) {
+        ActionResult out;
+        auto publish = [&] { timing_data_.undo_available = timing_undo_.has_value(); last_.timings = std::make_shared<TimingViewData>(timing_data_); };
+        if (cmd.operation == Command::Operation::timings_select_helper) {
+            if (timing_undo_) { out.message = "Undo the selected timing edit before changing helpers"; return out; }
+            if (cmd.timing_helper_path.empty()) { out.message = "Select an absolute nvtune helper path"; return out; }
+            auto transport = make_timing_transport(cmd.timing_helper_path);
+            std::string why;
+            if (!transport || !transport->pin(why)) { out.message = why.empty() ? "Helper could not be opened" : why; return out; }
+            transport->unpin();
+            timings_.reset(); timing_transport_ = std::move(transport); timing_data_ = {};
+            timing_data_.helper_path = cmd.timing_helper_path;
+            TimingsApi a; a.identity=api_.identity; a.telemetry=api_.telemetry; a.capabilities=api_.capabilities; a.lock=api_.lock; a.unlock=api_.unlock;
+            timings_ = std::make_unique<TimingsService>(a,gpu_,opened_,*timing_transport_);
+            out.ok=true; out.message="Timing helper selected; Read fields captures this adapter";
+        } else if (!timings_) { out.message="Choose the nvtune helper first";
+        } else if (cmd.operation == Command::Operation::timings_read) {
+            timing_data_.preview.reset();
+            auto fresh=timings_->capture(); out.ok=fresh.ok; out.message=fresh.message;
+            if (fresh.ok) timing_data_.snapshot=std::move(fresh);
+            else { timing_data_.snapshot.ok=false; timing_data_.snapshot.message=out.message; }
+        } else if (cmd.operation == Command::Operation::timings_preview) {
+            timing_data_.preview=timings_->preview(cmd.timing_field,cmd.timing_value);
+            out.ok=timing_data_.preview->ok; out.message=timing_data_.preview->message;
+        } else if (cmd.operation == Command::Operation::timings_apply) {
+            if (!timing_data_.preview || !timing_data_.preview->ok || timing_data_.preview->field!=cmd.timing_field || timing_data_.preview->value!=cmd.timing_value) {
+                out.message="Preview the selected field and value before Apply";
+            } else if (timing_undo_) { out.message="Undo the previous timing edit before applying another";
+            } else {
+                const auto r=timings_->apply(*timing_data_.preview,[&](const TimingPlan& p) { timing_undo_=p; publish(); });
+                out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
+                if (!r.may_have_changed) timing_undo_.reset();
+                timing_data_.preview.reset();
+                if (r.may_have_changed) timing_data_.snapshot=timings_->capture();
+            }
+        } else if (cmd.operation == Command::Operation::timings_undo) {
+            if (!timing_undo_) { out.message="No timing edit to undo";
+            } else {
+                const auto r=timings_->restore(*timing_undo_);
+                out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
+                if (r.ok) timing_undo_.reset();
+                timing_data_.preview.reset(); timing_data_.snapshot=timings_->capture();
+            }
+        }
+        timing_data_.message=out.message; publish(); return out;
+    }
 public:
     explicit Client(CoreApi api) : api_(api) {}
 #ifdef _WIN32
@@ -677,6 +901,15 @@ public:
         module_ = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (!module_) return;
 #define LOAD(member, name) api_.member = reinterpret_cast<decltype(api_.member)>(GetProcAddress(module_, #name))
+        LOAD(reset_all, dc_gpu_reset_all);
+        LOAD(tuning.lock, dc_gpu_lock); LOAD(tuning.unlock, dc_gpu_unlock); LOAD(tuning.identity, dc_gpu_identity_get);
+        LOAD(tuning.vf_status, dc_gpu_vf_lock_status); LOAD(tuning.clock_status, dc_gpu_clk_lock_status);
+        LOAD(tuning.vf_set, dc_gpu_vf_lock_set); LOAD(tuning.vf_clear, dc_gpu_vf_lock_clear);
+        LOAD(tuning.recovery_pending, dc_gpu_vf_lock_recovery_pending); LOAD(tuning.recover, dc_gpu_vf_lock_recover);
+        LOAD(tuning.headroom_record, dc_rails_hold_record_get); LOAD(tuning.headroom_apply, dc_rails_hold_apply);
+        LOAD(tuning.headroom_restore, dc_rails_hold_restore); LOAD(tuning.headroom_live, dc_rails_hold_live_ok);
+        LOAD(tuning.headroom_overwritten, dc_rails_hold_overwritten);
+        LOAD(cpc_live_read, dc_cpc_live_read);
         LOAD(i2c.identity, dc_gpu_identity_get); LOAD(i2c.read, dc_i2c_read); LOAD(i2c.write, dc_i2c_write);
         LOAD(i2c.lock, dc_gpu_lock); LOAD(i2c.unlock, dc_gpu_unlock); LOAD(i2c.clocks, dc_gpu_lockable_clocks);
         LOAD(i2c.clamp, dc_gpu_clocks_lock); LOAD(i2c.release, dc_gpu_clocks_reset);
@@ -713,11 +946,26 @@ public:
         last_.identity = opened_; last_.connected = true; rail_mode_ = false; last_.rail_mode_known = true; last_.rail_mode_enabled = false; rail_service_ = std::make_unique<RailControls>(api_.rails, gpu_, opened_);
         if (api_.clkdom_flags_set && api_.clkdom_flags && api_.clkdom_flags_set(gpu_, 0, 0) == DC_OK) { bool xoc = true; if (current_xoc(xoc) && !xoc) { last_.xoc_known = true; last_.xoc_enabled = false; } }
         i2c_session_ = std::make_unique<I2cSession>(api_.i2c, gpu_, opened_);
+        tuning_ = std::make_unique<TuningActions>(api_.tuning, gpu_, opened_);
         error.clear(); return true;
     }
     ActionResult prepare_close() override {
-        if (i2c_session_ && i2c_session_->owned()) { auto result=i2c_session_->release(); last_.i2c=i2c_session_->data(); return result; }
+        if (timings_ && timings_->pending()) { ActionResult r; r.message="Timing helper is still running; keeping the session open until its exit is confirmed"; return r; }
+        if (i2c_session_ && i2c_session_->owned()) { auto result=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!result.ok) return result; }
+        if (maintenance_needed()) return release_hold();
         ActionResult result; result.ok=true; return result;
+    }
+    bool maintenance_needed() const override {
+        if (timings_ && timings_->pending()) return true;
+        if (!tuning_) return false;
+        const auto s=tuning_->state(); return s.owned || s.headroom || s.recovery;
+    }
+    std::optional<TuningState> tuning_state() const override { return tuning_ ? tuning_->state() : TuningState{}; }
+    ActionResult maintain() override {
+        ActionResult out; out.ok=true; if (!maintenance_needed()) return out;
+        if (timings_ && timings_->pending()) { out.ok=false; out.message="Waiting for timing helper exit; further operations are blocked"; return out; }
+        const auto r=tuning_->maintain(); last_.tuning=tuning_->state();
+        out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
     }
     std::optional<I2cViewData> i2c_state() const override {
         if (!i2c_session_) return I2cViewData{};
@@ -727,9 +975,16 @@ public:
     }
     void close() override {
         if (!prepare_close().ok) return;
+        timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_data_={};
+        tuning_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
     }
     LiveData read(bool details) override {
+        if (tuning_) last_.tuning=tuning_->state();
+        last_.hold_available=api_.tuning.lock && api_.tuning.unlock && api_.tuning.identity && api_.tuning.vf_set && api_.tuning.vf_clear && api_.tuning.vf_status && api_.tuning.clock_status && api_.tuning.recovery_pending && api_.tuning.recover;
+        last_.reset_controls_available=api_.reset_all && api_.tuning.vf_status && api_.tuning.clock_status;
+        last_.max_it_available=last_.hold_available && api_.planner.ramp && api_.planner.predict && api_.fan_set && api_.fan_restore && api_.boost_set && power_api() && api_.apply_deltas;
+        last_.timings=std::make_shared<TimingViewData>(timing_data_);
         if (i2c_session_) last_.i2c=i2c_session_->data();
         if (!gpu_) { last_.status = valid() ? "No GPU selected" : "Core DLL unavailable or incompatible"; return last_; }
         dc_gpu_identity id{}; if (!identity(id)) { last_.connected = false; last_.status = "GPU identity read failed or changed"; return last_; }
@@ -780,7 +1035,7 @@ public:
                     captured_ok = power_capture(captured, reason);
                     if (captured_ok && api_.current_limits) {
                         for (int attempt = 0; attempt < 2; ++attempt) { for (auto& row : currents) { row = {}; row.size = sizeof(row); } current_count = 0;
-                            if (api_.current_limits(gpu_, nullptr, nullptr, currents, 32, &current_count) == DC_OK && current_count > 0 && current_count <= 32) { current_answered = true; break; }
+                            if (api_.current_limits(gpu_, confirm_clamp, this, currents, 32, &current_count) == DC_OK && current_count > 0 && current_count <= 32) { current_answered = true; break; }
                         }
                     }
                     api_.unlock(gpu_);
@@ -810,7 +1065,13 @@ public:
                 }
             } else if (power.availability == Availability::available && power.detail.find("XOC software envelope;") == 0) power.detail = "Configured request";
             if (st.pl_def_state == DC_CL_STATIC_VALUE) power.stock = st.pl_def_mw / 1000.0;
-        } else failure(power, !api_.power, "Configured power request unavailable");
+        } else {
+            failure(power, !api_.power, "Configured power request unavailable");
+            if (details) for (auto& policy:last_.power_policies) {
+                policy.state.availability=Availability::transient;
+                policy.state.detail="Coupled power/current readback unavailable; showing last request";
+            }
+        }
         has = 0; mw = 0; if (retry(api_.enforced_power, gpu_, &has, &mw) == DC_OK && has) last_.enforced_power_w = mw / 1000.0; else last_.enforced_power_w.reset();
         read_advanced(details); if (details) read_rails();
         if (details) {
@@ -829,11 +1090,12 @@ public:
     ActionResult execute(const Command& cmd) override {
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
+        if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
         if (cmd.operation >= Command::Operation::i2c_scan && cmd.operation <= Command::Operation::i2c_release) {
             if (!i2c_session_) { result.message="I2C session unavailable"; return result; }
+            if ((cmd.operation==Command::Operation::i2c_verify || cmd.operation==Command::Operation::i2c_apply) && maintenance_needed()) { result=release_hold(); if (!result.ok) return result; }
             result=i2c_session_->execute(cmd); last_.i2c=i2c_session_->data(); return result;
         }
-        if (i2c_session_ && i2c_session_->owned()) { result.message="Release the owned I2C request and clock clamp before other tuning writes"; return result; }
         if (cmd.operation == Command::Operation::set_rail_mode) {
             dc_gpu_identity id{}; if (!identity(id)) { result.message = "GPU identity unavailable; rail mode unchanged"; return result; }
             rail_mode_ = cmd.enabled; last_.rail_mode_known = true; last_.rail_mode_enabled = rail_mode_; result.ok = true; result.message = rail_mode_ ? "Rail limits session mode enabled" : "Rail limits session mode disabled"; return result;
@@ -844,6 +1106,16 @@ public:
             bool actual = false; if (!current_xoc(actual) || actual != cmd.enabled) { last_.xoc_known = false; result.message = "XOC session gate readback unavailable or mismatched"; return result; }
             last_.xoc_known = true; last_.xoc_enabled = actual; result.ok = true; result.message = actual ? "XOC session mode enabled" : "XOC session mode disabled"; return result;
         }
+        if (cmd.operation==Command::Operation::release_hold) return release_hold();
+        if (cmd.operation==Command::Operation::reset_controls) return reset_action();
+        if (i2c_session_ && i2c_session_->owned()) { result.message="Release the owned I2C request and clock clamp before other tuning writes"; return result; }
+        if (cmd.operation==Command::Operation::max_it) return max_action(cmd);
+        if (cmd.operation==Command::Operation::hold_curve_point) return hold_action(cmd);
+        if (cmd.operation==Command::Operation::undo && maintenance_needed()) { result=release_hold(); if (!result.ok) return result; }
+        if (maintenance_needed() && cmd.operation!=Command::Operation::save_profile && !(cmd.operation>=Command::Operation::timings_select_helper && cmd.operation<=Command::Operation::timings_undo)) {
+            result.message="Release the owned V/F hold before changing tuning requests"; return result;
+        }
+        if (cmd.operation >= Command::Operation::timings_select_helper && cmd.operation <= Command::Operation::timings_undo) return timing_action(cmd);
         if (cmd.operation == Command::Operation::save_profile || cmd.operation == Command::Operation::load_profile) return profile_action(cmd);
         if (cmd.operation == Command::Operation::apply_curve || cmd.operation == Command::Operation::reset_curve) return curve_action(cmd, false);
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().curve_entry) return curve_action(cmd, true);
@@ -871,7 +1143,13 @@ public:
         if (undoing && undo_.empty()) { result.message = "Nothing to undo"; return result; }
         const ControlId control = undoing ? undo_.back().control : cmd.control;
         dc_gpu_identity id{}; if (!identity(id)) { result.message = "GPU identity read failed or changed; no write issued"; return result; }
-        if (control == ControlId::power) return execute_power(cmd, undoing);
+        if (control == ControlId::power) {
+            result=execute_power(cmd,undoing);
+            // Explicit power operations refresh their coupled policies even without
+            // ordinary telemetry polling (including paused/minimized sessions).
+            if (result.may_have_changed || result.ok) read(true);
+            return result;
+        }
         if (control == ControlId::fan) {
             if ((undoing && !api_.fan_restore) || (!undoing && !(cmd.operation == Command::Operation::stock ? api_.fan_reset != nullptr : (api_.fan_set && api_.fan_restore)))) { result.message = "Fan control interface unavailable"; return result; }
             Undo prior{}; prior.control = control; const bool captured = capture_fan(prior.fan);
@@ -924,8 +1202,8 @@ public:
         Undo prior{}; prior.control = control; prior.value = before.current; prior.scale = scale.scale;
         if (undoing && memory && undo_.back().scale != scale.scale) { result.message = "Memory offset scale changed; Undo retained with no write issued"; return result; }
         if (!memory) {
-            std::string why; if (!curve_table(prior.curve, prior.curve_points, why)) { result.message = "Complete V/F curve snapshot unavailable; no write issued"; return result; }
-            if (undoing && (!same_curve_geometry(prior.curve, undo_.back().curve) || !same_curve_mapping(undo_.back().curve_points, prior.curve_points, prior.curve.freq_div))) { result.message = "V/F geometry changed; core Undo retained with no write issued"; return result; }
+            std::string why; if (!curve_table(prior.curve, prior.curve_points, why, &prior.curve_layout)) { result.message = "Complete V/F curve snapshot unavailable; no write issued"; return result; }
+            if (undoing && (!same_curve_geometry(prior.curve, undo_.back().curve) || !same_curve_layout(prior.curve_layout, undo_.back().curve_layout) || !same_curve_mapping(undo_.back().curve_points, prior.curve_points, prior.curve.freq_div))) { result.message = "V/F geometry changed; core Undo retained with no write issued"; return result; }
         }
         double target = undoing ? static_cast<double>(undo_.back().value) / scale.scale : (cmd.operation == Command::Operation::stock ? 0.0 : cmd.value);
         double scaled = target * scale.scale;
@@ -947,8 +1225,8 @@ public:
         if (undoing && !memory && result.ok) {
             const auto& saved = undo_.back().curve; dc_outcome curve_out{};
             const auto curve_status = api_.apply_deltas(gpu_, saved.deltas, saved.count, &curve_out); result.may_have_changed = true;
-            dc_vf_delta_snapshot got{}; std::vector<dc_vf_point> got_points; std::string why;
-            result.ok = curve_status == DC_OK && curve_out.ok && identity(check) && curve_table(got, got_points, why) && same_curve(saved, got) && same_curve_mapping(undo_.back().curve_points, got_points, saved.freq_div);
+            dc_vf_delta_snapshot got{}; dc_vf_layout got_layout{}; std::vector<dc_vf_point> got_points; std::string why;
+            result.ok = curve_status == DC_OK && curve_out.ok && identity(check) && curve_table(got, got_points, why, &got_layout) && same_curve(saved, got) && same_curve_layout(undo_.back().curve_layout, got_layout) && same_curve_mapping(undo_.back().curve_points, got_points, saved.freq_div);
             if (!result.ok) result.message += "; V/F delta restoration was incomplete or unreadable; Undo retained";
         }
         if (undoing && result.ok) undo_.pop_back(); return result;

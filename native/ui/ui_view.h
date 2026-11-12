@@ -4,11 +4,12 @@
 #include "backend.h"
 #include "curve_draft.h"
 #include "advanced_view.h"
+#include "timings_view.h"
 #include <cstdint>
 
 namespace druta::ui {
 
-enum class Page { daily, advanced, monitor, curve };
+enum class Page { daily, advanced, monitor, curve, timings };
 enum class Presentation { focused, classic };
 struct SessionSnapshot;
 
@@ -41,6 +42,10 @@ struct ViewState {
     bool reconnect_requested = false;
     bool save_profile_requested = false;
     bool load_profile_requested = false;
+    bool timing_helper_requested = false;
+    TimingsViewState timings_view;
+    bool hold_headroom = true;
+    double headroom_margin_mv = 25;
     std::optional<std::string> select_slot;
     std::vector<Command> commands;
     std::array<ControlDraft, static_cast<size_t>(ControlId::count)> drafts{};
@@ -69,6 +74,7 @@ struct ViewState {
     // Editable route/target hints only. No automatic controller probing or SET.
     int i2c_port = 1, i2c_address = 0x20;
     double i2c_target_mv = 1100;
+    int i2c_scan_scope = 0;
 
     bool has_draft() const;
     void revert_draft();

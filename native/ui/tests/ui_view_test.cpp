@@ -285,7 +285,7 @@ void original_classic_layout_and_daily_companions() {
     check(contains(text, "Thermetery Druta 1.9.1") && contains(text, "card") && contains(text, "driver") && contains(text, "vbios"),
         "Classic restores the original version/card metadata header");
     check(contains(text, "Clock offsets") && contains(text, "Limits") && contains(text, "Rails")
-        && contains(text, "Timings (needs nvtune)") && !contains(text, "WORKSPACE"),
+        && contains(text, "Timings (nvtune)") && !contains(text, "WORKSPACE"),
         "Classic has original Control grouping and Timings tab rather than the modern workspace sidebar");
     size_t unlock_count = 0, start = 0;
     while ((start = text.find("Unlock controls", start)) != std::string::npos) { ++unlock_count; ++start; }
@@ -552,13 +552,20 @@ void i2c_panel_wiring(Presentation presentation) {
     ViewState state; state.preview = false; state.presentation = presentation;
     auto live = snapshot(); state.live = live;
     live->data.i2c.available = true;
+    live->data.i2c.control_profile = "test-live-pmbus";
+    live->data.i2c.control_profiles = {{"test-live-pmbus", "Adapter qualified manual PMBus",
+        "Nominal requests only; not physical voltage", true, 6.25, {400, 875, 1125, 1700}}};
     state.i2c_port = 3; state.i2c_address = 0x42; state.i2c_target_mv = 1125;
     constexpr const char* panel_name = "I2C UI wiring contract";
     auto panel_frame = [&] {
         ImGui::GetIO().DisplaySize = {1200, 900}; ImGui::NewFrame();
         ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 900});
         ImGui::Begin(panel_name, nullptr, ImGuiWindowFlags_NoSavedSettings);
-        draw_i2c_gate(state); draw_i2c_panel(state);
+        draw_mode_bar(*live, state.controls_unlocked, state.commands, presentation == Presentation::classic,
+            [&] { draw_i2c_gate(state); });
+        auto* body = ImGui::GetCurrentWindow();
+        body->StateStorage.SetInt(ImHashStr("Advanced routing", 0, body->GetID("i2c-controller")), 1);
+        draw_i2c_panel(state);
         ImGui::End(); ImGui::Render();
         check(ImGui::GetDrawData()->CmdListsCount > 0, "I2C panel renders from snapshot without a backend");
     };
@@ -572,6 +579,20 @@ void i2c_panel_wiring(Presentation presentation) {
     };
     panel_frame(); panel_frame();
     check(state.commands.empty(), "showing the I2C panel does not probe or write automatically");
+    activate_panel("Connect / Scan");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_scan,
+        "legacy Connect / Scan is an explicit discovery intent without a voltage request");
+    state.commands.clear();
+    live->data.i2c.candidates = {{I2cRoute{2, 0x31}, 710}, {I2cRoute{3, 0x42}, 825}};
+    activate_panel("##controller-candidate");
+    auto* choices = ImGui::FindWindowByName("##Combo_00");
+    check(choices && choices->Active, "detected controller choices open as a friendly dropdown");
+    if (choices) {
+        ImGui::ActivateItemByID(choices->GetID("MP2888A-compatible / port 3, 0x42 / 825 mV")); panel_frame();
+        check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_select
+            && exact_route(state.commands[0]), "friendly candidate selection sends the selected detected route without Apply");
+        state.commands.clear();
+    }
     activate_panel("Probe route");
     check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_select
         && exact_route(state.commands[0]), "Probe queues the exact edited route instead of a developer-board route");
@@ -580,7 +601,44 @@ void i2c_panel_wiring(Presentation presentation) {
     live->data.i2c.status.min_mv = 500; live->data.i2c.status.max_mv = 1600;
     live->data.i2c.status.capable = true; live->data.i2c.status.writable = true;
     panel_frame();
+    activate_panel("Nominal request preset");
+    auto* presets = ImGui::FindWindowByName("##Combo_00");
+    check(presets && presets->Active, "qualified nominal request presets are available without manual route entry");
+    if (presets) {
+        ImGui::ActivateItemByID(presets->GetID("875.00 mV nominal")); panel_frame();
+        check(near(state.i2c_target_mv,875) && state.commands.empty(),
+            "selecting a nominal preset stages its target without Verify, Apply or gate commands");
+        state.presentation = presentation == Presentation::classic ? Presentation::focused : Presentation::classic;
+        panel_frame();
+        check(near(state.i2c_target_mv,875) && state.commands.empty(),
+            "preset draft survives layout changes and another snapshot render without automatic SET");
+        state.presentation=presentation; state.i2c_target_mv=1125;
+    }
     auto* window = ImGui::FindWindowByName(panel_name);
+    live->data.xoc_known = live->data.rail_mode_known = true;
+    live->data.xoc_enabled = live->data.rail_mode_enabled = true;
+    state.controls_unlocked = true;
+    live->data.i2c.status.owned = true;
+    activate_panel("Read controller");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_read,
+        "Read controller emits only its own explicit intent even with both global modes enabled");
+    check(live->data.xoc_enabled && live->data.rail_mode_enabled,
+        "rendering an I2C read leaves the established XOC and Rail modes intact");
+    check(panel_id("Read controller") != window->GetID("XOC")
+        && panel_id("Read controller") != window->GetID("Rail limits"),
+        "I2C Read and both global mode controls have independent widget identities");
+    state.commands.clear(); live->busy = true;
+    ImGui::ActivateItemByID(window->GetID("XOC")); panel_frame();
+    check(state.commands.empty(), "an in-flight read temporarily disables global mode submission");
+    live->busy = false;
+    ImGui::ActivateItemByID(window->GetID("XOC")); panel_frame();
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::set_xoc
+        && !state.commands[0].enabled, "XOC remains clickable after Read completes even while I2C owns a request");
+    state.commands.clear();
+    ImGui::ActivateItemByID(window->GetID("Rail limits")); panel_frame();
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::set_rail_mode
+        && !state.commands[0].enabled, "Rail limits remains clickable after Read completes even while I2C owns a request");
+    state.commands.clear(); live->data.i2c.status.owned = false; state.controls_unlocked = false;
     ImGui::ActivateItemByID(window->GetID("I2C rail")); panel_frame();
     check(state.commands.empty(), "locked I2C gate cannot arm a controller");
     state.controls_unlocked = true;
@@ -589,14 +647,23 @@ void i2c_panel_wiring(Presentation presentation) {
         && state.commands[0].enabled && exact_route(state.commands[0]), "I2C gate emits a route-bound explicit intent");
     state.commands.clear();
     activate_panel("Verify response");
-    check(state.commands.empty(), "an unconfirmed gate intent does not immediately authorize Verify");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_verify
+        && state.commands[0].enabled && exact_route(state.commands[0]),
+        "explicit Verify can request arming and verification together without another gate click");
+    check(!live->data.i2c.gate && !live->data.i2c.verified,
+        "Verify click does not optimistically change the gate or verified response state");
+    state.commands.clear();
     live->data.i2c.gate = true; live->data.i2c.status.capable = false;
     activate_panel("Verify response");
     check(state.commands.empty(), "Verify requires the reported controller capability");
     live->data.i2c.status.capable = true;
+    live->data.i2c.control_profiles[0].available = false;
+    activate_panel("Verify response");
+    check(state.commands.empty(), "read-only transport retains inspection but cannot offer response Verify writes");
+    live->data.i2c.control_profiles[0].available = true;
     activate_panel("Verify response");
     check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_verify
-        && exact_route(state.commands[0]), "Verify queues exactly the selected route without calling hardware in the renderer");
+        && state.commands[0].enabled && exact_route(state.commands[0]), "Verify queues exactly the selected route without calling hardware in the renderer");
     state.commands.clear();
     activate_panel("Apply");
     check(state.commands.empty(), "manual Apply is blocked until response verification is confirmed");
@@ -607,6 +674,11 @@ void i2c_panel_wiring(Presentation presentation) {
     activate_panel("Apply");
     check(state.commands.empty(), "manual Apply still requires the I2C gate");
     live->data.i2c.gate = true; state.controls_unlocked = false;
+    ImGui::ActivateItemByID(window->GetID("I2C rail")); panel_frame();
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_gate
+        && !state.commands[0].enabled && exact_route(state.commands[0]),
+        "an already armed I2C gate can be explicitly disabled while controls are locked");
+    state.commands.clear();
     activate_panel("Apply");
     check(state.commands.empty(), "manual Apply still requires unlock");
     state.controls_unlocked = true;
@@ -638,6 +710,116 @@ void i2c_panel_wiring(Presentation presentation) {
     activate_panel("Release / restore captured state");
     check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_release,
         "uncertain restoration retains an explicit Release recovery action");
+}
+
+void explicit_hold_and_global_actions(Presentation presentation) {
+    ViewState state; state.preview=false; state.presentation=presentation;
+    auto live=snapshot(); state.live=live;
+    frame(state,1920,1280); state.controls_unlocked=true;
+    for(const char* label:{"Reset controls","Max it (fan + power + volts + curve)"}) {
+        ImGui::ActivateItemByID(header_button(label)); frame(state,1920,1280);
+    }
+    check(state.commands.empty(),"unavailable Reset and Max it buttons cannot emit placeholder actions");
+    state.curve_window_open=true; frame(state,1920,1280);
+    ImGui::ActivateItemByID(workspace_button("Hold selected point")); frame(state,1920,1280);
+    check(state.commands.empty(),"unavailable Hold cannot emit a placeholder lock command");
+    state.curve_window_open=false;
+    live->data.reset_controls_available=live->data.max_it_available=live->data.hold_available=true;
+    state.curve_cap_mv=1050; state.curve_floor_mv=925; state.hold_headroom=false; state.headroom_margin_mv=37.5;
+    ImGui::ActivateItemByID(header_button("Reset controls")); frame(state,1920,1280);
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::reset_controls,
+        "Reset controls queues its explicit operation only after capability and unlock are established");
+    state.commands.clear();
+    ImGui::ActivateItemByID(header_button("Max it (fan + power + volts + curve)")); frame(state,1920,1280);
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::max_it
+        && state.commands[0].expected_curve.size()==live->data.curve.size()
+        && state.commands[0].expected_curve_freq_div==live->data.curve_freq_div
+        && near(state.commands[0].curve_cap_mv,1050) && near(state.commands[0].curve_floor_mv,925)
+        && !state.commands[0].hold_headroom && near(state.commands[0].headroom_margin_mv,37.5),
+        "Max it carries the visible planner settings and complete captured curve guard");
+    state.commands.clear(); state.curve_window_open=true; state.selected_curve_point=1;
+    frame(state,1920,1280);
+    ImGui::ActivateItemByID(workspace_button("Hold selected point")); frame(state,1920,1280);
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::hold_curve_point
+        && state.commands[0].hold_point_index==1 && !state.commands[0].hold_headroom
+        && near(state.commands[0].headroom_margin_mv,37.5)
+        && state.commands[0].expected_curve_freq_div==live->data.curve_freq_div,
+        "Hold selects the visible point and exact headroom settings through the command queue");
+    state.commands.clear(); check(state.curve_draft.stage_mhz(0,15),"hold fixture creates a real local curve edit");
+    ImGui::ActivateItemByID(workspace_button("Hold selected point")); frame(state,1920,1280);
+    ImGui::ActivateItemByID(header_button("Max it (fan + power + volts + curve)")); frame(state,1920,1280);
+    check(state.commands.empty(),"pending local curve edits block Hold and Max it rather than applying unseen drafts");
+    state.curve_window_open=false; live->data.tuning.owned=true; live->data.tuning.recovery=true;
+    live->data.connected=false; state.controls_unlocked=false;
+    frame(state,1920,1280);
+    ImGui::ActivateItemByID(header_button("Release hold (Ctrl+H)")); frame(state,1920,1280);
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::release_hold,
+        "owned hold release remains reachable when disconnected, locked and an unapplied draft exists");
+    state.commands.clear(); live->busy=true;
+    ImGui::ActivateItemByID(header_button("Release hold (Ctrl+H)")); frame(state,1920,1280);
+    check(state.commands.empty(),"busy owned hold cannot queue overlapping releases");
+}
+
+void timings_navigation_and_commands(Presentation presentation) {
+    ViewState state; state.preview=false; state.presentation=presentation;
+    auto live=snapshot(); state.live=live;
+    frame(state,1024,1000);
+    auto* root=ImGui::FindWindowByName("Druta workspace");
+    ImGuiID nav_id=0;
+    if(presentation==Presentation::classic) nav_id=ImHashStr("Timings (nvtune)",0,root->GetID("legacy-tabs"));
+    else {
+        auto* nav=root;
+        for(auto* candidate:ImGui::GetCurrentContext()->Windows)
+            if(candidate->ParentWindow==root && candidate->ChildId==root->GetID("navigation")) nav=candidate;
+        nav_id=nav->GetID("Timings");
+    }
+    ImGui::ActivateItemByID(nav_id); const auto text=frame(state,1024,1000);
+    check(state.page==Page::timings && contains(text,"Memory timings") && state.commands.empty(),
+        "both presentations expose a real Timings tab without dispatching a helper or tuning command");
+    // Continue independently so a navigation regression does not hide the command tests.
+    state.page=Page::timings; frame(state,1024,1000);
+    auto body=[&]() -> ImGuiWindow* {
+        for(auto* candidate:ImGui::GetCurrentContext()->Windows)
+            if(candidate->ParentWindow==root && candidate->ChildId==root->GetID("workspace")) return candidate;
+        return nullptr;
+    };
+    auto activate=[&](const char* label) {
+        auto* window=body(); check(window!=nullptr,"timings body exists for actual widget activation");
+        if(window) ImGui::ActivateItemByID(window->GetID(label)); frame(state,1024,1000);
+    };
+    activate("Locate nvtune...");
+    check(state.timing_helper_requested && state.commands.empty(),"Locate requests the native helper dialog without executing a helper in render");
+    state.timing_helper_requested=false;
+    auto timing=std::make_shared<TimingViewData>(); timing->helper_path=L"C:\\fixture-only\\nvtune.exe";
+    live->data.timings=timing; frame(state,1024,1000);
+    activate("Read timings");
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::timings_read,
+        "Read timings is an explicit read command and requires no tuning unlock");
+    state.commands.clear(); timing->snapshot.ok=timing->snapshot.top_band=true;
+    timing->snapshot.broadcast={{"REG", "DOCUMENTED", 16, 5}};
+    timing->snapshot.fields={{"tRCD", "REG", "Documented field",0,3,15}};
+    frame(state,1024,1000);
+    auto* window=body(); const auto table_id=window->GetID("timing_fields");
+    ImGui::ActivateItemByID(ImHashStr("tRCD",0,table_id)); frame(state,1024,1000);
+    check(state.timings_view.field=="tRCD" && state.timings_view.value==5 && state.commands.empty(),
+        "clicking a captured timing field stages only that field and its captured cycles");
+    state.controls_unlocked=true; state.timings_view.value=7;
+    activate("Preview timing");
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::timings_preview
+        && state.commands[0].timing_field=="tRCD" && state.commands[0].timing_value==7,
+        "Preview timing carries the selected field and staged value");
+    state.commands.clear(); activate("Apply timing");
+    check(state.commands.empty(),"timing Apply requires a canonical backend preview");
+    TimingPlan plan; plan.ok=true; plan.field="tRCD"; plan.value=7; plan.prior=5; timing->preview=plan;
+    activate("Apply timing");
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::timings_apply
+        && state.commands[0].timing_field=="tRCD" && state.commands[0].timing_value==7,
+        "Apply timing dispatches only the matching backend-previewed field and value");
+    state.commands.clear(); state.timings_view.field.clear(); activate("Apply timing");
+    check(state.commands.empty(),"cleared timing selection cannot replay a previous preview");
+    timing->snapshot.ok=false; timing->undo_available=true; activate("Undo timing write");
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::timings_undo,
+        "timing Undo remains visible after capture failure rather than losing a retained recovery action");
 }
 
 void draft_behavior() {
@@ -793,7 +975,7 @@ void rendering_and_uncertainty() {
     // Smaller and larger layouts exercise clipping, child windows and plots in both presentations.
     for (auto presentation : {Presentation::focused, Presentation::classic}) {
         state.presentation = presentation;
-        for (auto page : {Page::daily, Page::advanced, Page::monitor, Page::curve}) {
+        for (auto page : {Page::daily, Page::advanced, Page::monitor, Page::curve, Page::timings}) {
             state.page = page;
             frame(state, 1024, 768);
             frame(state, 1366, 768);
@@ -837,13 +1019,13 @@ void rendering_and_uncertainty() {
     live->data.telemetry_valid = false;
     live->data.telemetry_error = "Read temporarily unavailable";
     live->paused = true;
-    for (auto page : {Page::daily, Page::advanced, Page::monitor, Page::curve}) {
+    for (auto page : {Page::daily, Page::advanced, Page::monitor, Page::curve, Page::timings}) {
         state.page = page;
         frame(state, 1024, 768);
     }
     check(state.commands.empty(), "missing/stale/paused displays never dispatch a write");
     state.preview = true;
-    for (auto page : {Page::daily, Page::advanced, Page::monitor, Page::curve}) {
+    for (auto page : {Page::daily, Page::advanced, Page::monitor, Page::curve, Page::timings}) {
         state.page = page;
         frame(state, 1024, 768);
     }
@@ -878,6 +1060,10 @@ int main() {
     curve_apply_acknowledgement(Presentation::classic);
     i2c_panel_wiring(Presentation::focused);
     i2c_panel_wiring(Presentation::classic);
+    explicit_hold_and_global_actions(Presentation::focused);
+    explicit_hold_and_global_actions(Presentation::classic);
+    timings_navigation_and_commands(Presentation::focused);
+    timings_navigation_and_commands(Presentation::classic);
     rendering_and_uncertainty();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();

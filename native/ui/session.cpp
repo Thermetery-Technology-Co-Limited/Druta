@@ -90,6 +90,9 @@ struct Session::Impl {
     bool started = false, stopping = false, done = false, switch_pending = false;
     bool poll_pending = false, details_pending = false, command_pending = false;
     bool backend_opened = false;
+    bool maintenance_active = false, maintenance_inflight = false;
+    ULONGLONG maintenance_due = 0;
+    std::string maintenance_error;
     unsigned read_retries = 0;
     Command command{};
     std::uint64_t next_log = 0;
@@ -112,6 +115,9 @@ struct Session::Impl {
         bool failed = false;
         try { fresh = backend->read(details); }
         catch (...) { failed = true; }
+        std::optional<TuningState> tuning;
+        std::optional<bool> needs_maintenance;
+        try { tuning = backend->tuning_state(); needs_maintenance = backend->maintenance_needed(); } catch (...) {}
         Guard guard(lock);
         if (stopping || generation != state.generation) return false;
         ++state.completed_reads;
@@ -138,6 +144,15 @@ struct Session::Impl {
             for (auto& row : fresh.rail_controls)
                 if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
             if (details && fresh.curve_error.empty()) fresh.curve_error = "Read unavailable";
+        }
+        if (tuning) {
+            fresh.tuning = *tuning;
+            if (needs_maintenance) state.tuning_ownership_uncertain = *needs_maintenance && !tuning->maintenance_needed();
+        }
+        else fresh.tuning=state.data.tuning;
+        if ((needs_maintenance && *needs_maintenance) || fresh.tuning.maintenance_needed() || state.tuning_ownership_uncertain) {
+            maintenance_active = true;
+            if (!maintenance_due) maintenance_due = GetTickCount64() + 1000;
         }
         const auto raw = fresh.telemetry;
         const bool valid = fresh.telemetry_valid;
@@ -173,17 +188,23 @@ struct Session::Impl {
     }
     void run() noexcept {
         for (;;) {
-            enum class Work { none, change, poll, action, stop } work = Work::none;
+            enum class Work { none, change, poll, action, maintain, stop } work = Work::none;
             std::uint64_t generation = 0;
             std::string slot;
             bool details = false;
+            DWORD wait_ms = INFINITE;
             Command task;
             {
                 Guard guard(lock);
                 if (stopping) work = Work::stop;
                 else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; generation = state.generation; }
                 else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot; }
+                else if (maintenance_active && GetTickCount64() >= maintenance_due) { work = Work::maintain; generation = state.generation; maintenance_inflight = true; maintenance_due = GetTickCount64() + 1000; }
                 else if (poll_pending && !state.paused) { work = Work::poll; poll_pending = false; details = details_pending; details_pending = false; generation = state.generation; }
+                if (work == Work::none && maintenance_active) {
+                    const auto now = GetTickCount64();
+                    wait_ms = maintenance_due <= now ? 0 : static_cast<DWORD>(std::min<ULONGLONG>(maintenance_due - now, 1000));
+                }
             }
             if (work == Work::stop) {
                 ActionResult cleanup;
@@ -196,7 +217,7 @@ struct Session::Impl {
                 }
                 announce(); continue;
             }
-            if (work == Work::none) { WaitForSingleObject(wake, INFINITE); continue; }
+            if (work == Work::none) { WaitForSingleObject(wake, wait_ms); continue; }
             if (work == Work::change) {
                 std::vector<Device> devices; std::string error; bool opened = false;
                 try {
@@ -222,9 +243,35 @@ struct Session::Impl {
                 if (current) { announce(); if (opened) { if (read_and_publish(generation, true, true)) announce(); } }
             } else if (work == Work::poll) {
                 if (read_and_publish(generation, details)) announce();
+            } else if (work == Work::maintain) {
+                ActionResult result;
+                try { result = backend->maintain(); } catch (...) { result.message = "Owned control maintenance failed"; }
+                std::optional<TuningState> tuning; bool needed = true;
+                try { tuning = backend->tuning_state(); needed = backend->maintenance_needed(); } catch (...) {}
+                bool changed = false;
+                {
+                    Guard guard(lock); maintenance_inflight = false;
+                    if (generation == state.generation) {
+                        const auto old = state.data.tuning;
+                        const bool old_uncertain = state.tuning_ownership_uncertain;
+                        if (tuning) { state.data.tuning = *tuning; state.tuning_ownership_uncertain = needed && !tuning->maintenance_needed(); }
+                        else state.tuning_ownership_uncertain = true;
+                        maintenance_active = needed || state.data.tuning.maintenance_needed() || state.tuning_ownership_uncertain;
+                        if (!maintenance_active) maintenance_due = 0;
+                        const auto& now = state.data.tuning;
+                        const std::string next_error = result.ok ? "" : (result.message.empty() ? "Owned control maintenance failed" : result.message);
+                        if (next_error != maintenance_error) { maintenance_error = next_error; if (!next_error.empty()) log_locked(false, next_error); changed = true; }
+                        if (old_uncertain != state.tuning_ownership_uncertain || old.owned != now.owned || old.confirmed != now.confirmed || old.headroom != now.headroom || old.recovery != now.recovery || old.tripped != now.tripped || old.domain != now.domain || old.voltage_uv != now.voltage_uv) changed = true;
+                        if (changed) publish_locked();
+                    }
+                }
+                if (changed) announce();
             } else {
                 ActionResult result;
                 try { result = backend->execute(task); } catch (...) { result.message = "Action failed; state is uncertain, checking readback and Undo availability"; result.may_have_changed = true; }
+                std::optional<TuningState> owned_tuning; bool needed=false, needed_known=false;
+                try { owned_tuning=backend->tuning_state(); needed=backend->maintenance_needed(); needed_known=true; } catch (...) {}
+                const bool tuning_action=task.operation==Command::Operation::max_it || task.operation==Command::Operation::reset_controls || task.operation==Command::Operation::hold_curve_point || task.operation==Command::Operation::release_hold;
                 const bool i2c_action=task.operation>=Command::Operation::i2c_scan && task.operation<=Command::Operation::i2c_release;
                 std::optional<I2cViewData> owned_i2c;
                 if (i2c_action) { try { owned_i2c=backend->i2c_state(); } catch (...) {} }
@@ -235,6 +282,15 @@ struct Session::Impl {
                     if (stopping && generation == state.generation) state.busy = false;
                     ++state.completed_actions;
                     if (generation == state.generation) {
+                        if (owned_tuning) {
+                            state.data.tuning = *owned_tuning;
+                            state.tuning_ownership_uncertain = needed_known && needed && !owned_tuning->maintenance_needed();
+                        } else if (tuning_action || state.data.tuning.maintenance_needed() || (needed_known && needed)) {
+                            state.tuning_ownership_uncertain = true;
+                        }
+                        maintenance_active = (needed_known && needed) || state.data.tuning.maintenance_needed() || state.tuning_ownership_uncertain;
+                        if (maintenance_active && !maintenance_due) maintenance_due = GetTickCount64() + 1000;
+                        if (!maintenance_active) { maintenance_due = 0; maintenance_error.clear(); }
                         if (i2c_action) {
                             if (owned_i2c) { state.data.i2c=*owned_i2c; state.i2c_ownership_uncertain=false; }
                             else if (task.operation==Command::Operation::i2c_apply || task.operation==Command::Operation::i2c_verify || task.operation==Command::Operation::i2c_release)
@@ -280,9 +336,10 @@ bool Session::select_device(const std::string& slot) {
     { Guard guard(impl_->lock);
       if (!impl_->started || impl_->stopping || impl_->done) return false;
       const auto& i2c=impl_->state.data.i2c;
+      const bool tuning_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::max_it || impl_->command.operation==Command::Operation::reset_controls || impl_->command.operation==Command::Operation::hold_curve_point || impl_->command.operation==Command::Operation::release_hold);
       const bool i2c_busy=impl_->state.busy && impl_->command.operation>=Command::Operation::i2c_scan && impl_->command.operation<=Command::Operation::i2c_release;
-      if (i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain) {
-          impl_->log_locked(false,"Release the active I2C session before switching GPUs"); impl_->publish_locked(); return false;
+      if (i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
+          impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
       }
       impl_->backend_opened = false; impl_->read_retries = 0;
       ++impl_->state.generation; impl_->desired_slot = slot; impl_->switch_pending = true;
@@ -316,7 +373,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       const char* reason = nullptr;
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
-      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read)))) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }

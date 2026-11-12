@@ -41,5 +41,6 @@ private:
     bool clock_request() const;
     std::optional<double> observed_clock() const;
     void refresh();
+    void publish_control_profiles();
 };
 }

@@ -393,6 +393,48 @@ void transient_empty_binding(Availability availability) {
         && h.commands[0].expected_binding == "established-rail-binding",
         "explicit retry retains the established binding guard instead of dispatching an unbound old target");
 }
+
+void rail_sliders_keep_live_grid(bool classic) {
+    Harness h; h.unlocked=true;
+    h.s.data.advanced_controls.clear(); h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
+    for(uint32_t field=0;field<4;++field) {
+        auto c=control(10.125+field,"mV"); c.low=-349.875; c.high=200.125; c.step=0.001;
+        h.s.data.rail_controls.push_back({{0,field},c,1000.0,"live-rail-grid"});
+    }
+    const float width=classic?1024.0f:650.0f;
+    h.frame(classic,true,width);
+    auto* body=h.body_window();
+    check(body!=nullptr,"rail grid test body exists");
+    if(!body) return;
+    for(int field=0;field<4;++field) {
+        const int key=3000+field;
+        const auto seed=ImHashData(&key,sizeof(key),body->GetID("rail-limits"));
+        const auto slider=ImHashStr("##slider",0,seed);
+        ImGui::ActivateItemByID(slider); h.frame(classic,true,width);
+        check(body->NavLastIds[ImGuiNavLayer_Main]==slider,
+            "every live-bounded NVVDD field retains a real slider in compact and Classic layouts");
+    }
+    // Use the actual slider navigation rectangle, avoiding fixed screen coordinates.
+    const int first_key=3000;
+    const auto first_seed=ImHashData(&first_key,sizeof(first_key),body->GetID("rail-limits"));
+    ImGui::ActivateItemByID(ImHashStr("##slider",0,first_seed)); h.frame(classic,true,width);
+    const auto rect=body->NavRectRel[ImGuiNavLayer_Main];
+    ImGui::ClearActiveID();
+    auto& io=ImGui::GetIO();
+    io.AddMousePosEvent(body->Pos.x+rect.Min.x+rect.GetWidth()*0.713f,body->Pos.y+rect.GetCenter().y);
+    io.AddMouseButtonEvent(0,true); h.frame(classic,true,width);
+    io.AddMouseButtonEvent(0,false); h.frame(classic,true,width);
+    const auto& draft=h.state.drafts[3000];
+    check(draft.dirty && draft.value>=650.125 && draft.value<=1200.125,
+        "dragging a rail slider stages an in-range absolute estimate without applying");
+    check(near((draft.value-650.125)/0.001,std::round((draft.value-650.125)/0.001)),
+        "rail slider preserves the supplied microvolt command grid instead of forcing whole millivolts");
+    const double retained=draft.value;
+    for(auto& rail:h.s.data.rail_controls) rail.state.availability=Availability::transient;
+    h.frame(classic,true,width);
+    check(near(h.state.drafts[3000].value,retained) && h.state.drafts[3000].dirty && h.commands.empty(),
+        "transient rail reads preserve the established grid and dirty draft without implicit commands");
+}
 }
 
 int main() {
@@ -414,6 +456,8 @@ int main() {
         rail_conversion_and_binding_replacement(true);
         transient_empty_binding(Availability::transient);
         transient_empty_binding(Availability::unknown);
+        rail_sliders_keep_live_grid(false);
+        rail_sliders_keep_live_grid(true);
     } catch (const std::exception& error) { check(false, error.what()); }
     ImGui::DestroyContext();
     std::printf("%u advanced view checks, %u failures\n", checks, failures);

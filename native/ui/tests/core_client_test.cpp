@@ -14,7 +14,7 @@ using namespace druta::ui;
 namespace {
 int current = 40, writes = 0, mode = 0, range_fail = 0;
 int core_low = -1000, core_high = 2000, mem_low = -1000, mem_high = 2000, telemetry_fail = 0; uint32_t memory_p0 = 8000, memory_clock = 0; bool changed_id = false, no_device = false;
-int curve_div = 1, voltage_shift = 0, base_shift = 0;
+int curve_div = 1, voltage_shift = 0, base_shift = 0, layout_shift = 0; bool nonlinear_curve = false;
 int core_value = 30, boost_value = 10, delta = 123, delta2 = 456, curve_failure = 0, curve_writes = 0, fan_mode = 0, fan_level = 40; bool fan_auto = false, fan_refuse = false, fan_post_fail = false, curve_corrupt = false, curve_geometry_corrupt = false; int fan_read_fail = 0;
 dc_gpu* handle = reinterpret_cast<dc_gpu*>(1);
 uint32_t DC_CALL version() { return DC_ABI_VERSION; }
@@ -42,36 +42,39 @@ dc_status DC_CALL setter(dc_gpu*, uint32_t type, double value, int32_t preserve,
 }
 dc_status DC_CALL clock_step(dc_gpu*, uint32_t* v, int32_t* m) { *v = 1000; *m = 1; return DC_OK; }
 dc_status DC_CALL snapshot(dc_gpu*, dc_vf_delta_snapshot* o) { o->freq_div = curve_div; o->count = 2; o->deltas[0] = {3, delta}; o->deltas[1] = {4, delta2}; return DC_OK; }
-dc_status DC_CALL deltas(dc_gpu*, const dc_vf_delta* d, size_t n, dc_outcome* o) { ++curve_writes; if (!curve_failure) { for (size_t i = 0; i < n; ++i) { if (d[i].idx == 3) delta = static_cast<int>(d[i].delta_khz); else if (d[i].idx == 4) delta2 = static_cast<int>(d[i].delta_khz); } if (curve_corrupt) ++delta2; if (curve_geometry_corrupt) ++base_shift; } o->ok = !curve_failure; return DC_OK; }
-dc_status DC_CALL curve_layout(dc_gpu*, int32_t, dc_vf_layout* l) { l->gpu_count = 2; l->gpu_idx[0] = 3; l->gpu_idx[1] = 4; l->freq_div = curve_div; return DC_OK; }
-dc_status DC_CALL curve_read(dc_gpu*, dc_vf_curve* c) { c->count = 2; c->points[0] = {3, 900.0 + voltage_shift, 1500.0 + base_shift + delta / (1000.0 * curve_div), delta}; c->points[1] = {4, 950, 1600.0 + delta2 / (1000.0 * curve_div), delta2}; return DC_OK; }
+dc_status DC_CALL deltas(dc_gpu*, const dc_vf_delta* d, size_t n, dc_outcome* o) { ++curve_writes; if (!curve_failure) { for (size_t i = 0; i < n; ++i) { if (d[i].idx == 3) delta = static_cast<int>(d[i].delta_khz); else if (d[i].idx == 4) delta2 = static_cast<int>(d[i].delta_khz); } if (curve_corrupt) ++delta2; if (curve_geometry_corrupt) ++voltage_shift; } o->ok = !curve_failure; return DC_OK; }
+dc_status DC_CALL curve_layout(dc_gpu*, int32_t, dc_vf_layout* l) { l->n_entries = 7; l->gpu_count = 2; l->gpu_idx[0] = 3; l->gpu_idx[1] = 4; l->other_count = 1; l->other_idx[0] = 5 + layout_shift; l->freq_div = curve_div; return DC_OK; }
+dc_status DC_CALL curve_read(dc_gpu*, dc_vf_curve* c) { c->count = 2; c->points[0] = {3, 900.0 + voltage_shift, (nonlinear_curve ? 2010.0 : 1500.0) + base_shift + delta / (1000.0 * curve_div), delta}; c->points[1] = {4, 950, (nonlinear_curve ? 2010.0 : 1600.0) + delta2 / (1000.0 * curve_div) + (nonlinear_curve ? delta / (1000.0 * curve_div) : 0), delta2}; return DC_OK; }
 dc_status DC_CALL envelopes(dc_request_envelopes* e) { e->max_abs_delta_khz = 1000000; e->rail_offset_max_mv = 100; e->rail_offset_xoc_max_mv = 500; e->power_limit_xoc_max_mw = 1999000; return DC_OK; }
 dc_status DC_CALL curve_reset(dc_gpu*, dc_outcome* o) { ++curve_writes; delta = delta2 = 0; o->ok = 1; return DC_OK; }
 dc_status DC_CALL fan_get(dc_gpu*, dc_fan_state* s) { if (fan_mode == 2 || fan_read_fail > 0) { if (fan_read_fail > 0) --fan_read_fail; return DC_E_UNAVAILABLE; } std::memcpy(s->source, "nvml", 5); s->count = 2; for (int i = 0; i < 2; ++i) { s->fans[i].id = i; s->fans[i].level = fan_level + (fan_mode == 1 ? i : 0); s->fans[i].policy = 1; s->fans[i].manual = !fan_auto; } return DC_OK; }
 dc_status DC_CALL fan_caps(dc_gpu*, dc_fan_capabilities* c) { c->manual = 1; c->automatic = 1; c->max = 100; return DC_OK; }
 dc_status DC_CALL fan_set(dc_gpu*, int32_t x, dc_outcome* o) { if (!fan_refuse) { fan_level = x; fan_mode = 0; fan_auto = false; } if (fan_post_fail) fan_read_fail = 2; o->ok = 1; return DC_OK; }
 dc_status DC_CALL fan_reset(dc_gpu*, dc_outcome* o) { fan_level = 20; fan_auto = true; if (fan_mode == 2) fan_mode = 0; o->ok = 1; return DC_OK; }
-dc_status DC_CALL fan_restore(dc_gpu*, const dc_fan_snapshot* s, dc_outcome* o) { CHECK(s->count == 2 && s->fans[1].level == s->fans[0].level + 1); fan_level = s->fans[0].level; fan_mode = s->fans[1].level != s->fans[0].level ? 1 : 0; fan_auto = !s->fans[0].manual; o->ok = 1; return DC_OK; }
+dc_status DC_CALL fan_restore(dc_gpu*, const dc_fan_snapshot* s, dc_outcome* o) { CHECK(s->count == 2); fan_level = s->fans[0].level; fan_mode = s->fans[1].level != s->fans[0].level ? 1 : 0; fan_auto = !s->fans[0].manual; o->ok = 1; return DC_OK; }
 dc_status DC_CALL boost_get(dc_gpu*, int32_t* v) { *v = boost_value; return DC_OK; }
 dc_status DC_CALL boost_set(dc_gpu*, int64_t v, dc_outcome* o) { ++boost_writes; boost_value = static_cast<int>(v); o->ok = 1; return DC_OK; }
-uint32_t board = 200000; int64_t peer = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
+uint32_t board = 200000; int64_t peer = 100, pinned_value = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
+bool derived_test = false, callback_matches = true, callback_answer = false, mutable_bounds = false, power_throw = false;
+dc_status DC_CALL cpc_live(dc_gpu*, dc_cpc_observation* out, dc_error*) { CHECK(out->size == sizeof(*out) && out->metadata.size == sizeof(out->metadata) && out->arbitration.size == sizeof(out->arbitration)); out->metadata.role_info_size = 5; out->metadata.role_info[4] = 0x30; out->metadata.maximum_mw = 500000; out->requested_mw = 600000; out->metadata.native_info_size = 4; out->native_control_size = 4; uint32_t a = callback_matches ? 42u : 43u, b = 56; std::memcpy(out->metadata.native_info, &a, 4); std::memcpy(out->native_control, &b, 4); return DC_OK; }
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL unlock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL capabilities(dc_gpu*, dc_capabilities* c) { c->present = DC_C_PL_MIN | DC_C_PL_MAX | DC_C_PL_DEF; c->pl_min_mw = 100000; c->pl_max_mw = 500000; c->pl_def_mw = 200000; return DC_OK; }
 dc_status DC_CALL power_read(dc_gpu*, dc_cl_statics*, int32_t* has, uint32_t* value, dc_error*) { *has = 1; *value = board; return DC_OK; }
 dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error*) { *low = 100000; *high = xoc && xoc_live ? 1999000 : 500000; if (board > *high) *high = board; return DC_OK; }
-dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = 200; *ok = 1; *needed = 1; return DC_OK; }
+dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = derived_test ? 700 : 200; if (power_throw) throw std::runtime_error("post-dispatch power failure"); *ok = 1; *needed = 1; return DC_OK; }
 dc_status DC_CALL message(dc_gpu*, char* out, size_t, size_t* n) { out[0] = 0; *n = 1; return DC_OK; }
-dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = 100; } return DC_OK; }
-dc_status DC_CALL pins_set(dc_gpu*, const uint32_t* ids, const int64_t* values, uint32_t n) { if (n) { CHECK(n == 1 && ids[0] == 1 && values[0] == 100); } pin_present = n != 0; return DC_OK; }
-dc_status DC_CALL policies(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_cl_policy_inputs_fn input, void* context, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
-    ++policy_reads; CHECK(confirm == nullptr); if (table_fail) return DC_E_FAILED;
+dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = pinned_value; } return DC_OK; }
+dc_status DC_CALL pins_set(dc_gpu*, const uint32_t* ids, const int64_t* values, uint32_t n) { if (n) { CHECK(n == 1 && ids[0] == 1); pinned_value = values[0]; } pin_present = n != 0; return DC_OK; }
+dc_status DC_CALL policies(dc_gpu*, dc_cl_confirm_fn confirm, void* confirm_context, dc_cl_policy_inputs_fn input, void* context, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
+    ++policy_reads; CHECK(confirm != nullptr); if (table_fail) return DC_E_FAILED;
+    if (derived_test) { uint32_t info = 42, control = 56; callback_answer = confirm(confirm_context, 1, 700, 500, &info, 1, &control, 1) != 0; }
     dc_cl_statics st{}; st.size = sizeof(st); int32_t has = 0; int64_t mw = 0; CHECK(input(context, &has, &mw, &st) == 0 && has && mw == board);
     *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 350000; rows[0].requested = board;
-    rows[1].policy = 1; rows[1].unit = 1; rows[1].minimum = 0; rows[1].maximum = geometry_change ? 501 : 500; rows[1].requested = peer; rows[1].writable = 1; rows[1].consistent = 1; return DC_OK;
+    rows[1].policy = 1; rows[1].unit = 1; rows[1].type = geometry_change ? 1 : 0; rows[1].minimum = 0; rows[1].maximum = geometry_change || (mutable_bounds && board != 200000) ? 501 : 500; rows[1].requested = peer; rows[1].writable = 1; rows[1].named_current = derived_test; rows[1].consistent = 1; return DC_OK;
 }
 dc_status DC_CALL policy_set(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_cl_policy_inputs_fn, void*, int64_t id, int32_t whole, int64_t value, int32_t pin, int32_t, int32_t* ok, char*, size_t, size_t* needed) {
-    CHECK(!confirm && id == 1 && whole && !pin && (policy_external_test || !pin_present)); ++policy_writes; *ok = !peer_fail; if (!peer_fail) { peer = value; if (policy_change_board) board += 1000; if (policy_drop_pin) pin_present = false; } *needed = 1; return DC_OK;
+    CHECK(confirm && id == 1 && whole && (policy_external_test || !pin_present)); ++policy_writes; *ok = !peer_fail; if (!peer_fail) { peer = value; if (pin) { pin_present = true; pinned_value = value; } if (policy_change_board) board += 1000; if (policy_drop_pin) pin_present = false; } *needed = 1; return DC_OK;
 }
 int domain_raw[32]{}, rail_raw[2]{}, advanced_writes = 0, xoc_flag = 0, advanced_fail_reads = 0, layout_version = 4; bool has_msvdd = false, advanced_refuse = false, flags_fail = false;
 int32_t DC_CALL dom_ok(dc_gpu*) { return 1; }
@@ -97,14 +100,31 @@ dc_status DC_CALL rail_raw_set(dc_gpu*, int32_t rail, const dc_rails_raw_request
 dc_status DC_CALL rail_initial_set(dc_gpu*, int32_t, int32_t rail, const dc_rails_reset_request* request, dc_outcome* out, dc_rails_setter_writes* write_info) { for (int i = 0; i < 4; ++i) if (request->field_mask & (1u << i)) raw_limits[rail][i] = (rail * 4 + i + 1) * 100; write_info->calls = 1; out->ok = 1; return DC_OK; }
 uint32_t current_index = 7; bool current_read_fails = false, current_generic_label = false;
 dc_status DC_CALL alternate_policies(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_cl_policy_inputs_fn, void*, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
-    CHECK(!confirm); *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 500000; rows[0].requested = board;
+    CHECK(confirm); *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 500000; rows[0].requested = board;
     rows[1].policy = current_index; rows[1].channel = 17; rows[1].unit = 1; rows[1].minimum = 1000; rows[1].maximum = 500000; rows[1].default_value = 150000; rows[1].requested = 120000; rows[1].named_current = 1; rows[1].consistent = 1; return DC_OK;
 }
 dc_status DC_CALL core_current(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_current_row* rows, uint32_t, uint32_t* n) {
-    CHECK(!confirm); if (current_read_fails) return DC_E_FAILED; *n = 1; rows[0].policy = current_index; rows[0].channel = 17; rows[0].minimum_ma = 1000; rows[0].maximum_ma = 500000; rows[0].requested_ma = 120000;
+    CHECK(confirm); if (current_read_fails) return DC_E_FAILED; *n = 1; rows[0].policy = current_index; rows[0].channel = 17; rows[0].minimum_ma = 1000; rows[0].maximum_ma = 500000; rows[0].requested_ma = 120000;
     if (current_generic_label) std::memcpy(rows[0].label, "Other current", sizeof("Other current")); else std::memcpy(rows[0].label, "Core current", sizeof("Core current")); return DC_OK;
 }
 dc_status DC_CALL no_pins(dc_gpu*, uint32_t*, int64_t*, uint32_t, uint32_t* n) { *n = 0; return DC_OK; }
+bool test_vf_held = false, test_foreign_clock = false, reset_step_failure = false, reset_api_failure = false; uint32_t test_vf_uv = 0, test_vf_domain = 0; int reset_calls = 0;
+dc_status DC_CALL tuning_vf_status(dc_gpu*, int32_t, int64_t, dc_vf_lock_status* s) { *s = {}; s->locked = test_vf_held; s->lock = {test_vf_domain, 3, test_vf_uv, 1}; return DC_OK; }
+dc_status DC_CALL tuning_clock_status(dc_gpu*, dc_clk_lock_status* s) { *s = {}; s->locked = test_foreign_clock; return DC_OK; }
+dc_status DC_CALL tuning_vf_set(dc_gpu*, int64_t v, int32_t, int64_t d, dc_outcome* o) { test_vf_held = true; test_vf_uv = static_cast<uint32_t>(v); test_vf_domain = static_cast<uint32_t>(d); o->ok = 1; return DC_OK; }
+dc_status DC_CALL tuning_vf_clear(dc_gpu*, int32_t, int64_t, int32_t, int64_t, dc_outcome* o) { test_vf_held = false; o->ok = 1; return DC_OK; }
+int32_t DC_CALL tuning_recovery(const dc_gpu*) { return 0; }
+dc_status DC_CALL tuning_recover(dc_gpu*, dc_outcome* o) { o->ok = 1; return DC_OK; }
+dc_status DC_CALL tuning_record(dc_gpu*, dc_rails_hold_record* r) { r->present = 0; return DC_OK; }
+dc_status DC_CALL model_rise(dc_gpu*, uint32_t* out) { *out = 300000; return DC_OK; }
+dc_status DC_CALL test_ramp(const dc_vf_point*, size_t, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, dc_vfp_ramp* out) { out->change_count = 0; return DC_OK; }
+dc_status DC_CALL test_predict(const dc_vf_point*, size_t n, const dc_vfp_num* values, const dc_vfp_num*, int64_t* actual, uint32_t* order, size_t capacity) { if (capacity < n) return DC_E_BUFFER; for (size_t i = 0; i < n; ++i) { order[i] = static_cast<uint32_t>(i); actual[i] = values[i].i; } return DC_OK; }
+dc_status DC_CALL test_reset(dc_gpu*, dc_cl_confirm_fn, void*, dc_cl_policy_inputs_fn, void*, dc_reset_statics_fn, void*, int32_t, dc_reset_step* steps, uint32_t cap, uint32_t* count, dc_rails_setter_writes*, dc_error*) {
+    ++reset_calls; CHECK(cap >= DC_RESET_STEPS_MAX); core_value = 0; delta = 0; delta2 = 0;
+    if (reset_api_failure) { *count = 0; return DC_E_FAILED; }
+    *count = 2; std::memcpy(steps[0].name, "core offset", sizeof("core offset")); steps[0].ok = 1;
+    std::memcpy(steps[1].name, "fan", sizeof("fan")); steps[1].ok = reset_step_failure ? 0 : 1; return DC_OK;
+}
 CoreApi api() { CoreApi a{}; a.abi_version = version; a.enumerate = enumerate; a.open = open_gpu; a.close = close_gpu; a.identity = identity; a.range = range; a.scale = scale; a.step = step; a.set_offset = setter; a.clock_step = clock_step; a.snapshot = snapshot; a.apply_deltas = deltas; a.curve_layout = curve_layout; a.curve = curve_read; a.envelopes = envelopes; a.reset_curve = curve_reset; a.fan_state = fan_get; a.fan_caps = fan_caps; a.fan_set = fan_set; a.fan_reset = fan_reset; a.fan_restore = fan_restore; a.boost = boost_get; a.boost_set = boost_set; return a; }
 Command command(Command::Operation op, double value = 0) { return {op, ControlId::memory, value}; }
 }
@@ -234,13 +254,16 @@ int main() {
     curve.curve_deltas.push_back({3, 300}); CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.curve_deltas.pop_back();
     CHECK(pb->execute(curve).ok && delta == 200 && delta2 == 456 && curve_writes == before_curve + 1);
     int changed_writes = curve_writes; voltage_shift = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); voltage_shift = 0;
-    base_shift = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); base_shift = 0;
+    layout_shift = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); layout_shift = 0;
+    curve_div = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); curve_div = 2;
     CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
     fresh = pb->read(true); curve.expected_curve = fresh.curve; curve_corrupt = true; CHECK(!pb->execute(curve).ok && pb->read(false).undo_label == "Undo V/F curve"); curve_corrupt = false; CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
     Command core_again{Command::Operation::apply, ControlId::core, 60}; CHECK(pb->execute(core_again).ok); changed_writes = writes; voltage_shift = 1; CHECK(!pb->execute(undo).ok && writes == changed_writes); voltage_shift = 0; CHECK(pb->execute(undo).ok);
     fresh = pb->read(true); curve.expected_curve = fresh.curve; curve_geometry_corrupt = true;
     auto geometry_write = pb->execute(curve); CHECK(!geometry_write.ok && geometry_write.may_have_changed && pb->read(false).undo_label == "Undo V/F curve");
-    curve_geometry_corrupt = false; base_shift = 0; CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
+    curve_geometry_corrupt = false; voltage_shift = 0; CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
+    nonlinear_curve = true; curve_div = 1; delta = 0; delta2 = 0; fresh = pb->read(true); curve.expected_curve = fresh.curve; curve.expected_curve_freq_div = 1; curve.curve_deltas = {{3,150000}};
+    CHECK(pb->execute(curve).ok && delta == 150000 && pb->read(true).curve[1].freq_mhz == 2160); CHECK(pb->execute(undo).ok && delta == 0 && delta2 == 0); nonlinear_curve = false; curve_div = 2; curve.expected_curve_freq_div = 2; delta = 123; delta2 = 456;
     CoreApi no_layout = pa; no_layout.curve_layout = nullptr; auto without_layout = create_core_backend_for_test(no_layout); CHECK(without_layout->open("0000:02:00.0", error)); auto layout_state = without_layout->read(false); CHECK(!layout_state.controls[0].writable && layout_state.controls[1].writable);
     CoreApi no_curve = pa; no_curve.curve = nullptr; auto without_curve = create_core_backend_for_test(no_curve); CHECK(without_curve->open("0000:02:00.0", error)); auto no_curve_state = without_curve->read(false); CHECK(!no_curve_state.controls[0].writable && no_curve_state.controls[1].writable);
     CoreApi no_reset = pa; no_reset.reset_curve = nullptr; auto partial_curve = create_core_backend_for_test(no_reset); CHECK(partial_curve->open("0000:02:00.0", error)); auto partial_state = partial_curve->read(true); CHECK(partial_state.curve_writable && !partial_state.curve_reset_writable);
@@ -254,6 +277,39 @@ int main() {
     Command xoc_power{}; xoc_power.operation = Command::Operation::apply; xoc_power.control = ControlId::power; xoc_power.value = 1999; int writes_before = power_writes; CHECK(!xp->execute(xoc_power).ok && power_writes == writes_before && board == 200000);
     xoc_live = true; CHECK(xp->execute(xoc_power).ok && power_writes == writes_before + 1 && board == 1999000); mode_on.enabled = false; CHECK(xp->execute(mode_on).ok); auto carry = xp->read(false); CHECK(carry.controls[2].high == 1999.0 && carry.controls[2].current == 1999.0);
     xoc_power.value = 200; CHECK(xp->execute(xoc_power).ok && board == 200000); CHECK(xp->read(false).controls[2].high == 500.0);
+    CoreApi derived_api = pa; derived_api.cpc_live_read = cpc_live; auto derived = create_core_backend_for_test(derived_api); CHECK(derived->open("0000:02:00.0", error));
+    derived_test = true; mutable_bounds = true; pin_present = false; board = 200000; peer = 700; callback_matches = true;
+    auto derived_before = derived->read(true); CHECK(callback_answer && derived_before.power_policies[1].state.current == 0.7);
+    callback_matches = false; derived->read(true); CHECK(!callback_answer); callback_matches = true;
+    int prior_peer_writes = policy_writes; power.operation = Command::Operation::apply; power.value = 250; CHECK(derived->execute(power).ok && board == 250000 && peer == 700);
+    CHECK(derived->execute(undo).ok && board == 200000 && peer == 700 && policy_writes == prior_peer_writes);
+    derived_test = false; mutable_bounds = false;
+    peer = 100; pin_present = false; policy_external_test = true; policy_cmd.power_policy = 1; policy_cmd.expected_binding.reset(); policy_cmd.value = 0.1;
+    CHECK(derived->execute(policy_cmd).ok && pin_present && pinned_value == 100);
+    policy_cmd.operation = Command::Operation::stock; CHECK(derived->execute(policy_cmd).ok && !pin_present && peer == 0);
+    CHECK(derived->execute(undo).ok && pin_present && pinned_value == 100 && peer == 100); policy_external_test = false;
+    CoreApi actions = pa; actions.max_rise = model_rise; actions.planner.ramp = test_ramp; actions.planner.predict = test_predict; actions.reset_all = test_reset;
+    actions.clkdom_flags = flags_get; actions.tuning.lock = lock_gpu; actions.tuning.unlock = unlock_gpu; actions.tuning.identity = identity;
+    actions.tuning.vf_status = tuning_vf_status; actions.tuning.clock_status = tuning_clock_status; actions.tuning.vf_set = tuning_vf_set; actions.tuning.vf_clear = tuning_vf_clear;
+    actions.tuning.recovery_pending = tuning_recovery; actions.tuning.recover = tuning_recover; actions.tuning.headroom_record = tuning_record;
+    auto action_client = create_core_backend_for_test(actions); CHECK(action_client->open("0000:02:00.0", error));
+    board = 200000; peer = 100; pin_present = false; fan_mode = 0; fan_level = 40; fan_auto = false; boost_value = 10; core_value = 30; delta = 123; delta2 = 456; xoc_flag = 0;
+    auto action_view = action_client->read(true); Command max_cmd{}; max_cmd.operation = Command::Operation::max_it; max_cmd.expected_curve = action_view.curve; max_cmd.expected_curve_freq_div = action_view.curve_freq_div; max_cmd.hold_headroom = false;
+    max_cmd.curve_floor_mv = 800; max_cmd.curve_cap_mv = 850; int before_max_power = power_writes, before_max_boost = boost_writes; CHECK(!action_client->execute(max_cmd).ok && power_writes == before_max_power && boost_writes == before_max_boost && fan_level == 40);
+    max_cmd.curve_cap_mv = 950; test_foreign_clock = true; CHECK(!action_client->execute(max_cmd).ok && power_writes == before_max_power && fan_level == 40); test_foreign_clock = false;
+    fan_refuse = true; auto partial_max = action_client->execute(max_cmd); CHECK(!partial_max.ok && power_writes == before_max_power && action_client->read(false).undo_available); fan_refuse = false;
+    CHECK(action_client->execute(undo).ok && fan_level == 40);
+    board = 1000000; xoc_flag = 1; xoc_live = true; auto max_result = action_client->execute(max_cmd); CHECK(max_result.ok && board == 500000 && boost_value == 100 && test_vf_held); CHECK(action_client->execute(undo).ok && !test_vf_held && board == 1000000 && boost_value == 10 && fan_level == 40);
+    power_throw = true; bool caught_max = false; try { action_client->execute(max_cmd); } catch (const std::exception&) { caught_max = true; } power_throw = false;
+    CHECK(caught_max && board == 500000 && action_client->read(false).undo_available); CHECK(action_client->execute(undo).ok && board == 1000000 && fan_level == 40);
+    Command reset_command{}; reset_command.operation = Command::Operation::reset_controls; test_foreign_clock = true; int old_reset_calls = reset_calls; CHECK(!action_client->execute(reset_command).ok && reset_calls == old_reset_calls); test_foreign_clock = false;
+    nonlinear_curve = true; reset_step_failure = true; core_value = 30; delta = 123; delta2 = 456; auto reset_failed = action_client->execute(reset_command); CHECK(!reset_failed.ok && reset_failed.may_have_changed && action_client->read(false).undo_available); reset_step_failure = false;
+    CHECK(action_client->execute(undo).ok && core_value == 30 && delta == 123 && delta2 == 456); nonlinear_curve = false;
+    reset_api_failure = true; reset_failed = action_client->execute(reset_command); CHECK(!reset_failed.ok && reset_failed.may_have_changed && action_client->read(false).undo_available); reset_api_failure = false;
+    board = 200000; peer = 100; pin_present = false; action_client->read(true); const int policy_before_power = policy_reads;
+    Command refresh_power{}; refresh_power.operation = Command::Operation::apply; refresh_power.control = ControlId::power; refresh_power.value = 250;
+    CHECK(action_client->execute(refresh_power).ok && policy_reads > policy_before_power); const auto refreshed_power = action_client->read(false);
+    CHECK(refreshed_power.power_policies.size() == 2 && refreshed_power.power_policies[1].state.current == 0.2);
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

@@ -115,6 +115,7 @@ bool parse_options(Options& o) {
                 if (wcscmp(value, L"advanced") == 0) o.page = druta::ui::Page::advanced;
                 else if (wcscmp(value, L"monitor") == 0) o.page = druta::ui::Page::monitor;
                 else if (wcscmp(value, L"curve") == 0) o.page = druta::ui::Page::curve;
+                else if (wcscmp(value, L"timings") == 0) o.page = druta::ui::Page::timings;
                 else if (wcscmp(value, L"daily") != 0) valid = false;
             } else valid = false;
         }
@@ -165,6 +166,15 @@ struct App {
             session->select_device(snapshot->selected_slot);
         }
         if (view.refresh_requested) { session->request_poll(true); view.refresh_requested = false; }
+        if (view.timing_helper_requested) {
+            view.timing_helper_requested=false;
+            wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog);
+            dialog.hwndOwner=window; dialog.lpstrFile=path; dialog.nMaxFile=static_cast<DWORD>(std::size(path));
+            dialog.lpstrFilter=L"nvtune helper (*.exe)\0*.exe\0\0"; dialog.lpstrTitle=L"Select nvtune helper";
+            dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST;
+            if (GetOpenFileNameW(&dialog) && view.live) { druta::ui::Command c; c.operation=druta::ui::Command::Operation::timings_select_helper; c.timing_helper_path=path; session->submit(c,view.live->generation); }
+            policy.note_activity(now_seconds());
+        }
         if (view.save_profile_requested || view.load_profile_requested) {
             const bool save = view.save_profile_requested;
             view.save_profile_requested = view.load_profile_requested = false;
@@ -421,7 +431,7 @@ struct Smoke {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     Options options;
     if (!parse_options(options)) {
-        MessageBoxW(nullptr, L"Options: --width N --height N --scale 1..3 --classic --page daily|curve|advanced|monitor\n"
+        MessageBoxW(nullptr, L"Options: --width N --height N --scale 1..3 --classic --page daily|curve|advanced|monitor|timings\n"
             L"--preview --gpu PCI_SLOT --core ABSOLUTE_DLL\n--capture FILE.bmp (save and exit)\n--smoke-test DIR (fixtures) or --live-smoke-test DIR (reads only)", L"Druta", MB_ICONERROR); return 2;
     }
     ImGui_ImplWin32_EnableDpiAwareness();

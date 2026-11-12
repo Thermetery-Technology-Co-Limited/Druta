@@ -22,6 +22,7 @@ I2cSession::I2cSession(I2cApi api, dc_gpu* gpu, dc_gpu_identity id)
 #endif
     };
     data_.available=api_.read && api_.identity && api_.lock && api_.unlock && identity_.nvapi_ok && identity_.nvapi_selected && !identity_.pairing_error[0];
+    publish_control_profiles();
 }
 bool I2cSession::bound() const {
     dc_gpu_identity id{}; id.size=sizeof(id);
@@ -87,7 +88,18 @@ bool I2cSession::clamp(std::string& reason) {
     }
     reason="Observed clocks did not settle at the driver-enumerated floor; clamp retained"; return false;
 }
-void I2cSession::refresh() { if (data_.selected) data_.status=service_.status(); }
+void I2cSession::publish_control_profiles() {
+    I2cControlProfile manual;
+    manual.id = "mp2888a-pmbus"; manual.label = "MP2888A manual PMBus";
+    manual.description = "Nominal voltage requests, not measured voltage. Verify checks response at the driver's lowest clock; Release restores captured state.";
+    manual.available = data_.available && api_.write;
+    manual.step_mv = I2cControls::nominal_step_mv;
+    if (data_.status.capable && data_.status.min_mv && data_.status.max_mv)
+        manual.presets_mv = I2cControls::nominal_presets(*data_.status.min_mv, *data_.status.max_mv);
+    data_.control_profile = manual.id;
+    data_.control_profiles = {std::move(manual)};
+}
+void I2cSession::refresh() { if (data_.selected) data_.status=service_.status(); publish_control_profiles(); }
 ActionResult I2cSession::release() {
     if (!owned()) { ActionResult r; r.ok=true; r.message="No owned I2C request"; return r; }
     if (!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK) return failure("Could not lock GPU for I2C restoration");
@@ -125,7 +137,12 @@ ActionResult I2cSession::execute(const Command& cmd) {
     switch(cmd.operation) {
     case Command::Operation::i2c_scan:
         if (owned()) return failure("Release the owned I2C session before scanning");
-        data_.candidates=service_.scan(); action.ok=true; action.message=std::to_string(data_.candidates.size())+" controller candidate(s); select a route to inspect"; break;
+        data_.candidates=service_.scan(); action.ok=true;
+        if (data_.candidates.size() == 1 && service_.select(data_.candidates.front().route)) {
+            data_.selected = data_.candidates.front().route; data_.gate = data_.verified = false;
+            action.message = "One compatible controller selected; press Verify response";
+        } else action.message=std::to_string(data_.candidates.size())+" controller candidate(s); select a route to inspect";
+        break;
     case Command::Operation::i2c_select:
         if (owned() || !cmd.i2c_route || !service_.select(*cmd.i2c_route)) return failure("Candidate selection failed; no writes issued");
         data_.selected=cmd.i2c_route; data_.gate=data_.verified=false; action.ok=true; action.message="Controller candidate selected; physical rail unassigned"; break;
@@ -137,6 +154,9 @@ ActionResult I2cSession::execute(const Command& cmd) {
     case Command::Operation::i2c_release: return release();
     case Command::Operation::i2c_apply:
     case Command::Operation::i2c_verify: {
+        if (cmd.operation == Command::Operation::i2c_verify && cmd.enabled && data_.selected) {
+            service_.set_gate(true); data_.gate = true;
+        }
         if (!data_.selected || !data_.gate) return failure("Select a controller and enable I2C first");
         if (!api_.write) return failure("I2C writes unavailable; read-only inspection remains available");
         if (cmd.operation==Command::Operation::i2c_apply && !data_.verified) return failure("Verify controller response before Apply");

@@ -26,6 +26,7 @@ struct SessionSnapshot {
     bool busy = false, opening = false, paused = false;
     bool close_refused = false;
     bool i2c_ownership_uncertain = false;
+    bool tuning_ownership_uncertain = false;
     std::uint64_t telemetry_stale_mask = 0;
     bool curve_stale = false;
     std::uint64_t curve_revision = 0;

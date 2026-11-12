@@ -67,9 +67,9 @@ void title(const char* text, const char* description) {
 void navigation(ViewState& state, bool horizontal) {
     struct Entry { Page page; const char* label; };
     constexpr Entry entries[] = {
-        {Page::daily, "Daily tuning"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::curve, "V/F curve"}
+        {Page::daily, "Daily tuning"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::timings, "Timings"}
     };
-    const int count = 3; // The V/F editor is a large independent window from Daily.
+    const int count = static_cast<int>(std::size(entries)); // V/F opens in its own window from Daily.
     const float width = horizontal ? (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * (count - 1)) / count : 0.0f;
     for (int i = 0; i < count; ++i) {
         if (horizontal && i != 0) ImGui::SameLine();
@@ -93,7 +93,7 @@ void navigation(ViewState& state, bool horizontal) {
         ImGui::TextColored(muted, "%s", state.preview ? "Preview only" : "Session only");
         ImGui::PushStyleColor(ImGuiCol_Text, muted);
         ImGui::TextWrapped("%s", state.preview ? "GPU controls are not connected yet."
-            : "Apply is explicit. A driver reset starts a fresh session.");
+            : "Apply is explicit. Saved settings apply only when you load them.");
         ImGui::PopStyleColor();
     }
 }
@@ -936,13 +936,21 @@ void live_curve_workspace(ViewState& state, bool verbose) {
         if (!state.curve_plan_message.empty()) ImGui::TextWrapped("%s", state.curve_plan_message.c_str());
     }
     curve_keyboard(state);
+    ImGui::BeginDisabled(!state.controls_unlocked || snapshot.busy || snapshot.curve_stale || !snapshot.data.connected || !snapshot.data.hold_available || editor.dirty());
+    if (ImGui::Button("Hold selected point")) {
+        Command c; c.operation=Command::Operation::hold_curve_point; c.hold_point_index=state.selected_curve_point;
+        c.expected_curve=snapshot.data.curve; c.expected_curve_freq_div=snapshot.data.curve_freq_div;
+        c.hold_headroom=state.hold_headroom; c.headroom_margin_mv=state.headroom_margin_mv; state.commands.push_back(c);
+    }
+    ImGui::EndDisabled(); ImGui::SameLine(); ImGui::Checkbox("Hold headroom",&state.hold_headroom);
+    ImGui::SameLine(); ImGui::SetNextItemWidth(u(85)); ImGui::InputDouble("Margin (mV)",&state.headroom_margin_mv,0,0,"%.3f");
     const char* status = snapshot.curve_stale ? "Curve stale; edits retained" : editor.status().c_str();
     ImGui::TextColored(editor.dirty() ? amber : secondary, "%s", status);
     ImGui::TextColored(muted, "Drag dots | A/D select | W/S +/- %.9g MHz | Shift x3 | Ctrl+Z / Y",
         snapshot.data.curve_step_khz / 1000.0);
     if (ImGui::CollapsingHeader("Curve details")) {
         ImGui::TextWrapped("Set MHz floors onto the captured point's clock phase. Drag snaps half up; voltage stays fixed. Empty left-drag pans; wheel zooms. Ctrl+Shift+Z also redoes local edits (64 deep). Closing keeps the draft. Apply and hardware Undo are separate explicit commands.");
-        ImGui::TextWrapped("Current card grid: %.9g MHz. Request divisor: %u. Draft frequency predicts a request, not a measurement. Holds/planners remain pending.",
+        ImGui::TextWrapped("Current card grid: %.9g MHz. Request divisor: %u. Draft frequency predicts a request, not a measurement.",
             snapshot.data.curve_step_khz / 1000.0, editor.freq_div());
         if (verbose) ImGui::TextWrapped("%s", snapshot.data.curve_error.c_str());
     }
@@ -1163,9 +1171,8 @@ void classic_tabs(ViewState& state) {
         if (ImGui::Button(tabs[i].second, ImVec2(u(80), 0))) state.page = tabs[i].first;
         if (selected) ImGui::PopStyleColor();
     }
-    ImGui::SameLine(0, u(3)); ImGui::BeginDisabled();
-    ImGui::Button("Timings (needs nvtune)"); ImGui::EndDisabled();
-    hint("Native timing workflow pending.");
+    ImGui::SameLine(0, u(3));
+    if (ImGui::Button("Timings (nvtune)")) state.page=Page::timings;
     ImGui::PopID();
     ImGui::PushStyleColor(ImGuiCol_Separator, {0.07f, 0.37f, 0.53f, 1});
     ImGui::Separator(); ImGui::PopStyleColor();
@@ -1426,13 +1433,29 @@ void draw(ViewState& state) {
     if (classic) classic_header(state); else top_bar(state);
     if (!state.preview && state.live) {
         draw_mode_bar(*state.live, state.controls_unlocked, state.commands, classic, [&] { draw_i2c_gate(state); });
-        if (classic) {
-            ImGui::SameLine(0, u(16)); ImGui::BeginDisabled();
-            ImGui::Button("Reset controls (pending)"); ImGui::EndDisabled();
+        {
+            const auto& s=*state.live;
+            if (classic) ImGui::SameLine(0, u(16));
+            ImGui::BeginDisabled(!s.data.connected || s.busy || !state.controls_unlocked || !s.data.reset_controls_available);
+            if (ImGui::Button("Reset controls")) { Command c; c.operation=Command::Operation::reset_controls; state.commands.push_back(c); }
+            ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button, {168.0f/255, 88.0f/255, 16.0f/255, 1});
-            ImGui::BeginDisabled(); ImGui::Button("Max it (pending)"); ImGui::EndDisabled();
+            ImGui::BeginDisabled(!s.data.connected || s.busy || s.curve_stale || !state.controls_unlocked || !s.data.max_it_available || state.curve_draft.dirty());
+            if (ImGui::Button("Max it (fan + power + volts + curve)")) {
+                Command c; c.operation=Command::Operation::max_it; c.expected_curve=s.data.curve; c.expected_curve_freq_div=s.data.curve_freq_div;
+                c.curve_cap_mv=state.curve_cap_mv; c.curve_floor_mv=state.curve_floor_mv;
+                c.hold_headroom=state.hold_headroom; c.headroom_margin_mv=state.headroom_margin_mv; state.commands.push_back(c);
+            }
+            ImGui::EndDisabled(); hint("Uses the normal board maximum, 100% fan/boost, the selected ramp floor/cap, and a V/F hold. Apply or revert curve drafts first.");
             ImGui::PopStyleColor();
+            if (s.data.tuning.maintenance_needed()) {
+                ImGui::SameLine(); ImGui::BeginDisabled(s.busy);
+                if (ImGui::Button("Release hold (Ctrl+H)")) { Command c; c.operation=Command::Operation::release_hold; state.commands.push_back(c); }
+                ImGui::EndDisabled();
+                ImGui::TextColored(s.data.tuning.confirmed?secondary:amber,"V/F hold %.3f mV%s%s",s.data.tuning.voltage_uv/1000.0,s.data.tuning.confirmed?"":" / unconfirmed",s.data.tuning.headroom?" + headroom":"");
+                if (!s.busy && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_H,false)) { Command c; c.operation=Command::Operation::release_hold; state.commands.push_back(c); }
+            }
         }
         ImGui::Separator();
     }
@@ -1464,6 +1487,12 @@ void draw(ViewState& state) {
         if (!state.live) ImGui::TextUnformatted("Waiting for the first session snapshot...");
         else if (state.page == Page::daily) { if (classic) classic_daily(state); else live_daily(state, false); }
         else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
+        else if (state.page == Page::timings) {
+            const auto& s=*state.live;
+            auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy || !s.data.connected,state.controls_unlocked);
+            state.timing_helper_requested|=output.choose_helper;
+            state.commands.insert(state.commands.end(),output.commands.begin(),output.commands.end());
+        }
         else { if (classic) classic_monitor(*state.live); else live_monitor(*state.live, false); }
         if (classic && state.live && state.page == Page::daily) classic_log(*state.live);
     } else if (state.page == Page::daily) daily(state, verbose);

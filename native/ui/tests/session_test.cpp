@@ -23,6 +23,8 @@ struct Fake : IBackend {
     std::atomic<bool> telemetry_failure{false}, throw_action{false}, undo_available{false};
     std::atomic<bool> throw_reads{false}, throw_after_action{false}, fail_gate{false};
     std::atomic<bool> i2c_owned{false}, fail_cleanup{false}, missing_i2c_state{false};
+    std::atomic<bool> tuning_owned{false}, missing_tuning{false}, maintenance_fail{false};
+    std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
     bool xoc = false, rails = false;
     Fake() { InitializeCriticalSection(&lock); }
     ~Fake() override { CloseHandle(entered); CloseHandle(release); DeleteCriticalSection(&lock); }
@@ -38,17 +40,26 @@ struct Fake : IBackend {
         r.message=r.ok ? "released" : "recovery required";
         if (r.ok) i2c_owned=false; return r;
     }
+    bool maintenance_needed() const override { return tuning_owned.load(); }
+    std::optional<TuningState> tuning_state() const override {
+        if (missing_tuning.load()) return {}; TuningState state; state.owned=tuning_owned.load(); return state;
+    }
+    ActionResult maintain() override {
+        ++maintenance_count; ActionResult r; r.ok=!maintenance_fail.load(); r.message=r.ok ? "" : "hold needs attention"; return r;
+    }
     std::optional<I2cViewData> i2c_state() const override {
         if (missing_i2c_state.load()) return {};
         I2cViewData d; d.clock_owned=i2c_owned.load(); return d;
     }
     LiveData read(bool details) override {
-        record(details ? "details" : "read");
+        record(details ? "details" : "read"); ++total_reads; if (details) ++detail_reads;
         if (hold_read.exchange(false)) block();
         if (throw_reads.load()) throw 1;
         const bool is_partial = partial.load();
         LiveData d; d.connected = !disconnected.load(); d.telemetry_valid = !telemetry_failure.load(); d.status = "ok";
         d.undo_available = undo_available.load(); d.i2c.clock_owned = i2c_owned.load();
+        d.tuning.owned=tuning_owned.load(); d.controls[2].current=board_w.load();
+        PowerPolicy policy; policy.id=3; policy.state.current=core_ma.load(); d.power_policies.push_back(policy);
         d.xoc_known = d.rail_mode_known = true; d.xoc_enabled = xoc; d.rail_mode_enabled = rails;
         if (d.telemetry_valid) { d.telemetry.fan_count = 1; d.telemetry.fans[0].has_duty = 1; d.telemetry.fans[0].duty = 40; }
         d.telemetry.present = DC_T_CORE | (is_partial ? 0 : DC_T_POWER_W);
@@ -65,6 +76,9 @@ struct Fake : IBackend {
     ActionResult execute(const Command& cmd) override {
         record("execute"); if (hold_action.exchange(false)) block();
         if (throw_action.exchange(false)) { undo_available = true; throw 1; }
+        if (cmd.operation == Command::Operation::hold_curve_point) tuning_owned=true;
+        if (cmd.operation == Command::Operation::release_hold) tuning_owned=false;
+        if (cmd.operation == Command::Operation::apply && cmd.control == ControlId::power) {board_w=199;core_ma=87;}
         if (cmd.operation == Command::Operation::i2c_apply) i2c_owned=true;
         if (cmd.operation == Command::Operation::i2c_release) i2c_owned=false;
         if (cmd.operation == Command::Operation::set_xoc) xoc = cmd.enabled;
@@ -235,5 +249,46 @@ int main() {
     CHECK(!recovery.select_device("b"));
     third->missing_i2c_state=false; CHECK(recovery.submit(release_i2c,recovery.snapshot()->generation));
     CHECK(until([&] { auto p=recovery.snapshot(); return !p->busy && !p->i2c_ownership_uncertain; }));
-    recovery.begin_shutdown(); CHECK(until([&] { return recovery.finished(); }));    std::printf("session_test: %u checks passed\n", checks);
+    recovery.begin_shutdown(); CHECK(until([&] { return recovery.finished(); }));    auto fourth_owned=std::make_unique<Fake>(); auto* fourth=fourth_owned.get();
+    Session maintained(std::move(fourth_owned), [] {}); maintained.start("a");
+    CHECK(until([&] { return !maintained.snapshot()->history.empty(); }));
+    maintained.set_paused(true);
+    const int initial_maintenance=fourth->maintenance_count.load(); Sleep(1100);
+    CHECK(fourth->maintenance_count.load()==initial_maintenance); // no owned state, no timer work
+    const int before_power_reads=fourth->total_reads.load(), before_power_details=fourth->detail_reads.load();
+    Command power{}; power.control=ControlId::power; power.operation=Command::Operation::apply;
+    CHECK(maintained.submit(power,maintained.snapshot()->generation));
+    CHECK(until([&] { auto p=maintained.snapshot(); return !p->busy && p->data.controls[2].current==199; }));
+    CHECK(fourth->total_reads.load()==before_power_reads+1 && fourth->detail_reads.load()==before_power_details+1);
+    CHECK(maintained.snapshot()->data.power_policies.size()==1 && maintained.snapshot()->data.power_policies[0].state.current==87);
+    fourth->maintenance_fail=true; fourth->throw_after_action=true;
+    Command hold{}; hold.operation=Command::Operation::hold_curve_point;
+    CHECK(maintained.submit(hold,maintained.snapshot()->generation));
+    CHECK(until([&] { auto p=maintained.snapshot(); return !p->busy && !p->data.connected && p->data.tuning.owned; }));
+    CHECK(!maintained.select_device("b"));
+    const int reads_after_hold=fourth->total_reads.load();
+    CHECK(until([&] { return fourth->maintenance_count.load()>=1; }));
+    const auto log_size=maintained.snapshot()->log.size();
+    CHECK(until([&] { return fourth->maintenance_count.load()>=2; }));
+    CHECK(fourth->total_reads.load()==reads_after_hold && maintained.snapshot()->log.size()==log_size);
+    Command release_hold{}; release_hold.operation=Command::Operation::release_hold;
+    CHECK(maintained.submit(release_hold,maintained.snapshot()->generation));
+    CHECK(until([&] { auto p=maintained.snapshot(); return !p->busy && !p->data.tuning.owned; }));
+    const int count_after_release=fourth->maintenance_count.load(); Sleep(1100);
+    CHECK(fourth->maintenance_count.load()==count_after_release);
+    maintained.begin_shutdown(); CHECK(until([&] {return maintained.finished();}));    auto fifth_owned=std::make_unique<Fake>(); auto* fifth=fifth_owned.get();
+    Session uncertain(std::move(fifth_owned), [] {}); uncertain.start("a");
+    CHECK(until([&] { return !uncertain.snapshot()->history.empty(); }));
+    fifth->missing_tuning=true; fifth->throw_after_action=true;
+    CHECK(uncertain.submit(hold,uncertain.snapshot()->generation));
+    CHECK(until([&] { auto p=uncertain.snapshot(); return !p->busy && p->tuning_ownership_uncertain; }));
+    CHECK(!uncertain.select_device("b"));
+    CHECK(until([&] { return fifth->maintenance_count.load()>=1; }));
+    CHECK(uncertain.submit(release_hold,uncertain.snapshot()->generation));
+    CHECK(until([&] { return !uncertain.snapshot()->busy; }));
+    CHECK(uncertain.snapshot()->tuning_ownership_uncertain && !uncertain.select_device("b"));
+    fifth->missing_tuning=false;
+    CHECK(uncertain.submit(release_hold,uncertain.snapshot()->generation));
+    CHECK(until([&] { auto p=uncertain.snapshot(); return !p->busy && !p->tuning_ownership_uncertain; }));
+    uncertain.begin_shutdown(); CHECK(until([&] { return uncertain.finished(); }));    std::printf("session_test: %u checks passed\n", checks);
 }

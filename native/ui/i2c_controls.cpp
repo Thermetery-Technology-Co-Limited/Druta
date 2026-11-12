@@ -43,6 +43,18 @@ bool bounds(const Mp2888Control& s, int64_t& low, int64_t& high) {
 I2cResult error(const char* why, bool changed = false) { I2cResult r; r.message = why; r.may_have_changed = changed; r.recovery_pending = changed; return r; }
 }
 I2cControls::I2cControls(I2cTransport& transport) : transport_(transport) {}
+std::vector<double> I2cControls::nominal_presets(double low_mv, double high_mv) {
+    if (!std::isfinite(low_mv) || !std::isfinite(high_mv) || low_mv < 0 || high_mv > 511 * nominal_step_mv || low_mv > high_mv) return {};
+    const int first = static_cast<int>(std::ceil(low_mv / nominal_step_mv));
+    const int last = static_cast<int>(std::floor(high_mv / nominal_step_mv));
+    if (first > last) return {};
+    std::vector<double> values{first * nominal_step_mv};
+    // Sixteen command bins give readable 100 mV intervals without implying
+    // a measured response. Include both live-range endpoints as well.
+    for (int bin = ((first / 16) + 1) * 16; bin < last; bin += 16) values.push_back(bin * nominal_step_mv);
+    if (last != first) values.push_back(last * nominal_step_mv);
+    return values;
+}
 bool I2cControls::read(uint8_t reg, uint8_t width, uint32_t& value) {
     if (!route_ || !transport_.bound()) return false;
     for (int i=0;i<3;++i) {

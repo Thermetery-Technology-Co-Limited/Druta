@@ -35,7 +35,7 @@ bool table(const char* id, bool classic = false) {
 }
 void row(uint64_t key, const char* label, const ControlState& c, const char* stock_label,
     Command action, const SessionSnapshot& snapshot, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding) {
+    AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding, bool keep_slider = false) {
     auto& d = state.drafts[key];
     const auto current_binding = binding.empty() && (c.availability == Availability::transient || c.availability == Availability::unknown)
         ? d.binding : binding;
@@ -52,19 +52,25 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     ImGui::TextUnformatted(label); hint(c.detail);
     ImGui::TableNextColumn();
     const float width = ImGui::GetContentRegionAvail().x;
-    const bool slider = c.low && c.high && *c.low < *c.high && (verbose || width > u(190));
+    const bool slider = c.low && c.high && std::isfinite(*c.low) && std::isfinite(*c.high)
+        && *c.low < *c.high && (keep_slider || verbose || width > u(190));
+    const bool stacked = slider && !verbose && width <= u(190);
     bool editing = false;
     if (slider) {
-        ImGui::SetNextItemWidth(verbose ? -1 : width - u(92) - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::SetNextItemWidth(verbose || stacked ? -1 : width - u(92) - ImGui::GetStyle().ItemSpacing.x);
         if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &d.value, &*c.low, &*c.high, "%.6g", ImGuiSliderFlags_NoInput)) {
-            const double step = std::max(c.step.value_or(1.0), c.unit == "mV" || c.unit == "MHz" ? 1.0 : 0.001);
-            d.value = std::max(*c.low, std::min(*c.high, std::floor(d.value / step + 0.5) * step));
+            const double step = keep_slider ? c.step.value_or(0.0)
+                : std::max(c.step.value_or(1.0), c.unit == "mV" || c.unit == "MHz" ? 1.0 : 0.001);
+            if (std::isfinite(step) && step > 0) {
+                const double origin = keep_slider ? *c.low : 0.0;
+                d.value = std::max(*c.low, std::min(*c.high, origin + std::floor((d.value - origin) / step + 0.5) * step));
+            }
             d.dirty = true; d.initialized = true;
         }
-        editing = ImGui::IsItemActive(); if (!verbose) ImGui::SameLine();
+        editing = ImGui::IsItemActive(); if (!verbose && !stacked) ImGui::SameLine();
     }
     if (verbose) ImGui::TableNextColumn();
-    ImGui::SetNextItemWidth(verbose ? -1 : slider ? u(92) : -1);
+    ImGui::SetNextItemWidth(verbose || stacked ? -1 : slider ? u(92) : -1);
     if (ImGui::InputDouble("##value", &d.value, 0, 0, "%.9g")) { d.dirty = true; d.initialized = true; }
     d.editing = editing || ImGui::IsItemActive();
     hint("Draft only. Apply sends this selected request; polling preserves unfinished edits.");
@@ -107,7 +113,7 @@ void rail_row(const RailControl& r, const SessionSnapshot& s, bool unlocked, boo
         shown.detail += "; absolute estimate = captured base + stored delta, not a factory default";
     } else shown.detail += "; base estimate unavailable; request delta only";
     const auto before = commands.size();
-    row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, classic, state, commands, r.binding);
+    row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, classic, state, commands, r.binding, true);
     for (size_t i = before; i < commands.size(); ++i)
         if (commands[i].operation == Command::Operation::apply) commands[i].value -= base;
 }
@@ -190,7 +196,7 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
                     shown.detail += "; shown absolute value = captured base + stored delta";
                 } else shown.detail += "; no base estimate, showing request delta only";
                 const auto before = commands.size();
-                row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, verbose, state, commands, r.binding);
+                row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, verbose, state, commands, r.binding, true);
                 for (size_t i = before; i < commands.size(); ++i)
                     if (commands[i].operation == Command::Operation::apply) commands[i].value -= base;
             }

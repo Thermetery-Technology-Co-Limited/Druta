@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 #include <map>
 #include <string>
 #include <vector>
@@ -16,6 +17,7 @@ std::map<int,uint32_t> regs;
 std::vector<std::string> events;
 int reads=0, writes=0, lock_depth=0; uint32_t held=0; bool foreign_vf=false, fail_clamp=false, fail_restore=false;
 uint8_t wanted_port=3, wanted_addr=0x34; bool lose_clock_after_command=false, clock_unreadable=false;
+bool duplicate_route=false;
 void setup() {
     identity={}; identity.size=sizeof(identity); identity.nvapi_ok=identity.nvapi_selected=1;
     identity.nvapi_handle=1984; identity.nvapi_devid=0x12345678; identity.nvapi_subsys=0x87654321;
@@ -24,12 +26,13 @@ void setup() {
     regs={{0x00,0},{0xbe,0xb4},{0x21,120},{0xe1,0x4200},{0x01,0x80},{0x45,0},{0x23,0},
           {0x2a,32},{0x2d,0},{0x1f,48},{0x24,208},{0x8b,850},{0x8c,0xe020},{0x8d,400},{0x44,0},{0x78,0}};
     events.clear(); reads=writes=lock_depth=0; held=0; foreign_vf=fail_clamp=fail_restore=false; lose_clock_after_command=clock_unreadable=false;
+    duplicate_route=false;
 }
 dc_status DC_CALL get_identity(const dc_gpu*,dc_gpu_identity* out) { *out=identity; return DC_OK; }
 dc_status DC_CALL gpu_lock(dc_gpu*) { ++lock_depth; return DC_OK; }
 dc_status DC_CALL gpu_unlock(dc_gpu*) { --lock_depth; return DC_OK; }
 dc_status DC_CALL bus_read(dc_gpu*,uint32_t port,uint32_t addr,uint32_t reg,uint32_t width,uint32_t* out,dc_error*) {
-    ++reads; if(port!=wanted_port || addr!=wanted_addr || (width!=1 && width!=2)) return DC_E_UNAVAILABLE;
+    ++reads; if((port!=wanted_port && !(duplicate_route && port==4)) || addr!=wanted_addr || (width!=1 && width!=2)) return DC_E_UNAVAILABLE;
     auto it=regs.find(static_cast<int>(reg)); if(it==regs.end()) return DC_E_UNAVAILABLE;
     *out=(reg==0x8b && (regs[0xe1]&0x10)) ? static_cast<uint32_t>(regs[0x21]*6.25) : it->second; return DC_OK;
 }
@@ -72,7 +75,13 @@ void select_gate(I2cSession& s) {
 int main() {
     setup(); I2cSession s(api(),reinterpret_cast<dc_gpu*>(1),identity);
     CHECK(s.data().available && reads==0 && writes==0 && !s.owned());
+    CHECK(s.data().control_profile=="mp2888a-pmbus" && s.data().control_profiles.size()==1);
+    CHECK(s.data().control_profiles[0].available && s.data().control_profiles[0].presets_mv.empty());
     select_gate(s); CHECK(writes==0);
+    CHECK(s.data().selected && s.data().selected->port==wanted_port && s.data().selected->addr7==wanted_addr);
+    const auto& profile=s.data().control_profiles[0];
+    CHECK(profile.step_mv==6.25 && !profile.presets_mv.empty());
+    for(double value:profile.presets_mv) CHECK(value>=*s.data().status.min_mv && value<=*s.data().status.max_mv && std::floor(value/profile.step_mv)==value/profile.step_mv);
     foreign_vf=true; auto refused=s.execute(command(Command::Operation::i2c_verify));
     CHECK(!refused.ok && writes==0 && held==0); foreign_vf=false;
     auto verified=s.execute(command(Command::Operation::i2c_verify));
@@ -119,5 +128,22 @@ int main() {
     CHECK(readonly.data().available && reads==0); select_gate(readonly);
     CHECK(readonly.execute(command(Command::Operation::i2c_read)).ok && readonly.data().status.readable);
     CHECK(!readonly.execute(command(Command::Operation::i2c_verify)).ok && writes==0 && held==0);
-    CHECK(lock_depth==0);    std::printf("i2c_session_test: %u checks passed\n",checks);
+    CHECK(!readonly.data().control_profiles[0].available);
+    CHECK(lock_depth==0);
+    setup(); I2cSession discovered(api(),reinterpret_cast<dc_gpu*>(1),identity);
+    CHECK(discovered.execute(command(Command::Operation::i2c_scan)).ok);
+    CHECK(discovered.data().selected && !discovered.data().gate && !discovered.data().verified && writes==0 && held==0);
+    auto one_click=command(Command::Operation::i2c_verify); one_click.enabled=true;
+    one_click.i2c_route=I2cRoute{wanted_port,wanted_addr};
+    CHECK(discovered.execute(one_click).ok && discovered.data().gate && discovered.data().verified && !discovered.owned() && held==0);
+    CHECK(regs[0x21]==120 && regs[0xe1]==0x4200);
+    setup(); duplicate_route=true; I2cSession ambiguous(api(),reinterpret_cast<dc_gpu*>(1),identity);
+    CHECK(ambiguous.execute(command(Command::Operation::i2c_scan)).ok);
+    CHECK(ambiguous.data().candidates.size()==2 && !ambiguous.data().selected && writes==0 && held==0);
+    CHECK(I2cControls::nominal_presets(900.1,906.24).empty());
+    CHECK(I2cControls::nominal_presets(-1,1000).empty());
+    CHECK(I2cControls::nominal_presets(0,4000).empty());
+    const auto narrow=I2cControls::nominal_presets(901,913);
+    CHECK(narrow.size()==2 && narrow[0]==906.25 && narrow[1]==912.5);
+    CHECK(lock_depth==0); std::printf("i2c_session_test: %u checks passed\n",checks);
 }

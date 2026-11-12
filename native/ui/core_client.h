@@ -7,6 +7,8 @@
 namespace druta::ui {
 // Injected table also permits deterministic tests without loading a driver.
 struct CoreApi {
+    TuningApi tuning{};
+    decltype(&dc_gpu_reset_all) reset_all = nullptr;
     I2cApi i2c{};
     PlannerApi planner{};
     RailApi rails{};
@@ -56,6 +58,7 @@ struct CoreApi {
     decltype(&dc_pl_set) power_set = nullptr;
     decltype(&dc_pl_message_get) power_message = nullptr;
     decltype(&dc_cl_get_current_limits) current_limits = nullptr;
+    decltype(&dc_cpc_live_read) cpc_live_read = nullptr;
     decltype(&dc_cl_power_policies_read) policy_read = nullptr;
     decltype(&dc_cl_set_power_policy) policy_set = nullptr;
     decltype(&dc_cl_policy_message_get) policy_message = nullptr;

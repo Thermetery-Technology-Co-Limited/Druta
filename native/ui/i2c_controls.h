@@ -45,6 +45,10 @@ struct I2cVerifyCallbacks {
 class I2cControls {
 public:
     explicit I2cControls(I2cTransport& transport);
+    static constexpr double nominal_step_mv = 6.25;
+    // Presentation proposals on the existing 9-bit nominal-command grid;
+    // these are not measured voltages or device defaults.
+    static std::vector<double> nominal_presets(double low_mv, double high_mv);
     std::vector<I2cCandidate> scan();
     bool select(I2cRoute route);
     void set_gate(bool enabled) { gate_ = enabled; }

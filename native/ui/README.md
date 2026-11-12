@@ -1,7 +1,8 @@
 # Native frontend
 
 The native Win32/D3D9 application now has a live Session, Daily tuning, a V/F
-point editor, Monitor and qualified Advanced controls. **Focused** and
+point editor and owned holds, Monitor, qualified Advanced controls, native I2C
+manual commands and a Timings helper workflow. **Focused** and
 **Classic** share drafts, snapshots, command queue and Undo. Classic uses a
 composition based on Druta 1.9.1; it is more than a verbose-text option. Both
 presentations retain the resizable V/F editor popup. Changing presentation never
@@ -24,15 +25,18 @@ Python frontend parity and Vista/7 qualification remain open.
   XOC is an explicit session mode. Its power slider can show the core's
   published **1,999 W software request envelope**; each Apply still checks the
   adapter's fresh validated power route and bounds, which can be narrower. The
-  GUI's Max it and Reset all actions remain pending. The existing Python Max it
-  path with the C++ backend was used for the multimeter baseline.
+  GUI now also exposes explicit Max it and Reset controls actions. Max it captures
+  Undo before applying the normal board maximum, fan/boost targets, a planned
+  ramp and an owned V/F hold. Reset reports individual outcomes and any state it
+  could not capture. The live Reset/Undo retest restored all 127 curve requests
+  and all 19 power-policy requests on the tested adapter.
 - Draft edits never write. Unlock controls, then use the selected row's Apply
   or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
   values in the adapter-reported scale. Configured requests remain separate from
   live readings, enforced power and unavailable/stale values.
 - **Undo hardware write** restores captured state, including the full prior
-  V/F table for core-offset writes and understood peer policies/pins for coupled
-  power actions. Fan Undo restores requested levels and policies, not merely
+  V/F table for core-offset writes and explicitly pinned policies for coupled
+  power actions. Unpinned peer requests remain driver-derived. Fan Undo restores requested levels and policies, not merely
   observed RPM. Partial or uncertain outcomes remain in the operation log.
 - **V/F curve** opens a large resizable popup: drag a point or type its absolute
   physical frequency and use Set MHz. Current curve, draft and a fresh
@@ -44,6 +48,11 @@ Python frontend parity and Vista/7 qualification remain open.
   moves three steps and Ctrl+Z/Ctrl+Y undo or redo local edits. De-flatten, ramp
   and rephase stage plans through the pure C ABI. Prediction uses the core's
   software model and reported grid-derived bound; it is not a measurement.
+- **Hold selected point** owns a V/F hold, optionally with maintained headroom.
+  Release restores owned state; uncertain restoration retains recovery. Release
+  stays reachable while locked or disconnected, and required maintenance runs
+  independently of ordinary drawing/telemetry Pause. Draft edits are not applied
+  by Hold or Max it.
 - Global **Save profile...** and **Load profile...** use explicit Windows file
   dialogs. Save reads qualified Daily settings and reports omissions. Load
   requires unlock, validates target/units/current capabilities, captures aggregate
@@ -80,11 +89,20 @@ controller discovery and reads. The current native writer supports the MP2888A
 candidate's manual PMBus command (`0x21`) and its mode bit in `0xE1`; a
 fingerprint is a candidate, not a unique model identification or a physical
 rail assignment. Scan and Read are user actions, not ordinary telemetry polls.
-The transport refuses the existing nonvolatile and password command blocklist.
+The panel offers IC discovery, friendly candidate selection and the compiled
+manual PMBus recipe; manual port/address entry is under Advanced routing. An
+explicit scan selects a sole candidate; ambiguous results require selection.
+Nominal request presets come from the qualified live command range/grid and
+only stage a target. They are neither measured voltages nor factory defaults.
+Other legacy controller families and the MP2888A VID-offset method remain
+unimplemented in the native UI. The transport refuses the existing nonvolatile and password command blocklist.
 The 32-bit Ex packet path is not qualified and declines these I2C operations;
 that limitation does not disable the rest of the core.
 
-Writing requires the I2C session gate and a successful response Verify. Verify
+Writing requires the I2C session gate and a successful response Verify. The
+explicit Verify button can arm the selected controller and verify in one action;
+scan, candidate/recipe selection and preset selection never verify or apply
+automatically. Verify
 owns a driver-enumerated low-clock clamp while it performs a bounded A–B–A
 controller-response test, and restores the captured controller state before
 releasing its clamp. Apply likewise keeps the clamp until Release restores the
@@ -99,6 +117,17 @@ same-directory flushed temporary-file replacement. Save has no tuning side
 effect. No profile loads at startup or after driver reset. Ordinary tuning stays
 session-only; Reconnect closes/reopens without replay. Saving a file does not
 authorize automatic application.
+
+## Timings helper
+
+Both presentations expose Timings. Locate an installed `nvtune.exe` with the
+native file dialog, then explicitly Read timings. The UI shows captured fields
+and stages one selected cycle value; Preview creates the backend's canonical
+plan before explicit Apply. Stable top-band capture and supported field checks
+remain required. Timing Undo is separate from ordinary tuning Undo and remains
+visible if a later capture fails. The helper is a separate process, not a
+bundled or automatically executed tuning dependency. Capture/preview have live
+evidence below; timing writes and restoration still need hardware qualification.
 
 The typed CoreClient uses `drutacore`'s C ABI, including the fresh
 `dc_gpu_clock_offset_range_get` reader. Python's native facade and standalone
@@ -167,7 +196,7 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 | `--width N`, `--height N` | Initial client pixels, each 640–7680. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
 | `--classic` | Start in the 1.9.1-inspired Classic composition instead of Focused. |
-| `--page daily\|curve\|advanced\|monitor` | Choose the initial page. |
+| `--page daily\|curve\|advanced\|monitor\|timings` | Choose the initial page. |
 | `--capture FILE.bmp` | Save the rendered view and exit; parent directory must exist. Live mode reads the GPU. |
 | `--smoke-test EXISTING_DIRECTORY` | Fixture renderer smoke, BMPs and `smoke.json`, then exit. |
 | `--live-smoke-test EXISTING_DIRECTORY` | Same bounded phases with completed live reads; no tuning commands. |
@@ -199,7 +228,8 @@ last-good values are marked stale until replaced. Session reads/commands run on
 an ordered worker independently of drawing; polls coalesce, generation checks
 reject late results, and close drains work before closing the handle. Plot
 arrays are bounded. Required maintenance deadlines remain separate from frame
-pacing; owned hold modes are not enabled yet.
+pacing; an owned hold's required maintenance continues while ordinary refresh is
+paused or minimized.
 
 Interactive waits use an optional high-resolution one-shot timer with an
 ordinary waitable-timer fallback. Idle windows use coarse waits; paused windows
@@ -234,13 +264,13 @@ the original scalar requests and full curve were checked afterward.
   reads**; Always refresh while minimized produced **115 frames and 2 completed
   reads over two seconds**. These are renderer resets, not GPU-driver
   restart-persistence tests.
-- Release checks: **203 view, 171 client, 92 curve-model, 61 Session, 36 profile
+- The original live-increment Release checks were **203 view, 171 client, 92 curve-model, 61 Session, 36 profile
   I/O, 48 refresh-policy and 16 PE-policy checks**, plus **57 targeted Python
   compatibility tests**. Fake-backend tests exercise alternate identities,
   partial capabilities, stale/failed reads, failures and manual Undo.
 - Focused live Daily at 1280×800 was rendered with the real adapter identity
   and all five rows visible. Headless checks cover the five rows at 1024×768,
-  both presentations and all four live pages. This does not establish physical
+  both presentations and the pages implemented at that checkpoint. This does not establish physical
   input or full accessibility qualification.
 - The independent desktop capture helper failed twice with
   `window capture timed out: timed out waiting on channel`. No physical inputs
@@ -294,9 +324,27 @@ A read-only core power-bounds probe on this adapter reported normal
 **100,000–500,000 mW** and XOC **1–1,999,000 mW**. Those are the observed
 request bounds for this route, not universal hardware limits.
 
-Remaining replacement work includes owned holds/headroom/recovery, GUI Max it
-and Reset all, I2C qualification on other devices and controller methods,
-registry/VBIOS relationship overrides, power saving, timings, configurable
+### Later native-control checkpoint
+
+The later Windows 10 / RTX 3070 Ti session added the following scoped evidence;
+the earlier fixtures and meter observations above remain historical records.
+Raw results and remaining retests are maintained in
+[validation/2026-11-12-native-controls.md](validation/2026-11-12-native-controls.md).
+
+| Action | Latest scoped result |
+| --- | --- |
+| Coupled power | Board request 1,999 → 500 W and core-current request 483.014 → 270 A changed related policy requests; Undo restored the captured state. |
+| Native Max it | 500 W, fan/boost 100%, ramp floor 1,000 mV and cap/held point 1,093.75 mV with headroom; maintenance and Undo passed. |
+| Reset controls | Reset reached 310 W, 243 A, memory offset 0, boost 0 and fan Auto. After correcting the curve geometry check, native Undo restored all 127 curve voltage/delta entries, all 19 policy requests and the scalar requests exactly. No hold or Undo remained. |
+| Native Timings | The selected installed nvtune v1.0.2-alpha helper captured timings and previewed RC 96 → 255 cycles. No timing write was issued. |
+
+These are configured-request/lifecycle observations for the tested adapter and
+operating point, not additional physical-voltage qualification or constants for
+another board.
+
+Remaining replacement work includes timing-write/restoration qualification,
+other I2C controller methods/devices,
+registry/VBIOS relationship overrides, power saving, configurable
 Monitor workflows, full profiles and Vista/7 qualification. Keep the Python
 frontend and experiment facade available during migration. See the
 [plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
