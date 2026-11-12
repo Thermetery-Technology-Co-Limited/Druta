@@ -2,6 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core_client.h"
 #include "profile_io.h"
+#include "curve_profile.h"
+#include "clock_monitor_service.h"
 #include "timing_model.h"
 #include <algorithm>
 #include <cmath>
@@ -9,6 +11,7 @@
 #include <limits>
 #include <sstream>
 #include <locale>
+#include <chrono>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -37,6 +40,19 @@ class Client final : public IBackend {
     dc_gpu* gpu_ = nullptr;
     dc_gpu_identity opened_{};
     LiveData last_{};
+    ClockMonitorService clock_monitor_;
+    std::optional<uint32_t> clock_architecture_;
+    bool clock_architecture_attempted_ = false, clock_step_measured_ = false;
+    uint32_t clock_step_khz_ = 0;
+    uint64_t clock_sample_ = 0;
+    void clock_tick(const dc_telemetry* telemetry) {
+        ClockMonitorInput input;
+        input.telemetry = telemetry; input.sample_id = ++clock_sample_;
+        input.now_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        input.architecture = clock_architecture_; input.step_khz = clock_step_khz_;
+        input.step_measured = clock_step_measured_;
+        last_.clock_monitor = std::make_shared<ClockMonitorData>(clock_monitor_.update(api_.clock_classify, input));
+    }
     struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; std::optional<uint32_t> selected_policy; };
     struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; };
     std::vector<Undo> undo_;
@@ -901,6 +917,8 @@ public:
         module_ = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (!module_) return;
 #define LOAD(member, name) api_.member = reinterpret_cast<decltype(api_.member)>(GetProcAddress(module_, #name))
+        LOAD(clock_classify, dc_clock_domains_classify);
+        LOAD(planner.hard_deflatten, dc_vfp_compute_hard_deflatten);
         LOAD(reset_all, dc_gpu_reset_all);
         LOAD(tuning.lock, dc_gpu_lock); LOAD(tuning.unlock, dc_gpu_unlock); LOAD(tuning.identity, dc_gpu_identity_get);
         LOAD(tuning.vf_status, dc_gpu_vf_lock_status); LOAD(tuning.clock_status, dc_gpu_clk_lock_status);
@@ -986,6 +1004,8 @@ public:
     }
     void close() override {
         if (!prepare_close().ok) return;
+        clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false;
+        clock_step_measured_ = false; clock_step_khz_ = 0; clock_sample_ = 0;
         timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_data_={};
         tuning_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
@@ -997,8 +1017,13 @@ public:
         last_.max_it_available=last_.hold_available && api_.planner.ramp && api_.planner.predict && api_.fan_set && api_.fan_restore && api_.boost_set && power_api() && api_.apply_deltas;
         last_.timings=std::make_shared<TimingViewData>(timing_data_);
         if (i2c_session_) last_.i2c=i2c_session_->data();
-        if (!gpu_) { last_.status = valid() ? "No GPU selected" : "Core DLL unavailable or incompatible"; return last_; }
-        dc_gpu_identity id{}; if (!identity(id)) { last_.connected = false; last_.status = "GPU identity read failed or changed"; return last_; }
+        if (!gpu_) { last_.status = valid() ? "No GPU selected" : "Core DLL unavailable or incompatible"; clock_tick(nullptr); return last_; }
+        dc_gpu_identity id{}; if (!identity(id)) { last_.connected = false; last_.status = "GPU identity read failed or changed"; clock_tick(nullptr); return last_; }
+        if (details || !clock_architecture_attempted_) {
+            clock_architecture_attempted_ = true;
+            uint32_t architecture = 0;
+            if (retry(api_.i2c.architecture, gpu_, &architecture) == DC_OK && architecture) clock_architecture_ = architecture;
+        }
         last_.connected = true; last_.identity = id; last_.status.clear(); bool xoc_state = false; if (current_xoc(xoc_state)) { last_.xoc_known = true; last_.xoc_enabled = xoc_state; }
         dc_telemetry t{}; t.size = sizeof(t);
         if (retry(api_.telemetry, gpu_, &t) == DC_OK) { last_.telemetry = t; last_.telemetry_valid = true; last_.telemetry_error.clear(); }
@@ -1088,21 +1113,25 @@ public:
         if (details) {
             dc_vf_delta_snapshot snapshot{}; std::vector<dc_vf_point> points; std::string why; uint32_t curve_step = 0; int32_t measured = 0;
             if (api_.lock && api_.unlock && api_.lock(gpu_) == DC_OK) {
-                const bool complete = curve_table(snapshot, points, why);
+                dc_vf_layout captured_layout{};
+                const bool complete = curve_table(snapshot, points, why, &captured_layout);
                 const bool grid = retry(api_.clock_step, gpu_, &curve_step, &measured) == DC_OK && curve_step; uint32_t max_rise = 0; if (retry(api_.max_rise, gpu_, &max_rise) != DC_OK) max_rise = 0;
+                if (grid) { clock_step_khz_ = curve_step; clock_step_measured_ = measured != 0; }
+                last_.curve_layout = complete ? captured_layout : dc_vf_layout{};
                 api_.unlock(gpu_);
                 dc_request_envelopes limits{}; limits.size = sizeof(limits); bool envelope = api_.envelopes && api_.envelopes(&limits) == DC_OK && limits.max_abs_delta_khz > 0;
                 if (complete) { last_.curve_max_abs_delta_khz = envelope ? limits.max_abs_delta_khz : 0; last_.curve_model_max_rise_khz = max_rise; last_.curve = std::move(points); last_.curve_error.clear(); last_.curve_step_khz = grid ? curve_step : 0; last_.curve_freq_div = snapshot.freq_div; last_.curve_writable = api_.apply_deltas && envelope && grid; last_.curve_reset_writable = api_.apply_deltas && api_.reset_curve; }
                 else { last_.curve.clear(); last_.curve_error = why; last_.curve_writable = false; last_.curve_reset_writable = false; last_.curve_step_khz = 0; last_.curve_freq_div = 0; last_.curve_max_abs_delta_khz = 0; last_.curve_model_max_rise_khz = 0; }
             } else { last_.curve.clear(); last_.curve_error = "Could not lock GPU for curve"; last_.curve_writable = false; last_.curve_reset_writable = false; last_.curve_step_khz = 0; last_.curve_freq_div = 0; last_.curve_max_abs_delta_khz = 0; last_.curve_model_max_rise_khz = 0; }
         }
+        clock_tick(last_.telemetry_valid ? &t : nullptr);
         last_.undo_available = !undo_.empty(); last_.undo_label = undo_.empty() ? "" : std::string("Undo ") + (undo_.back().curve_entry ? "V/F curve" : undo_.back().advanced_entry ? "advanced offset" : undo_.back().rail_entry ? "rail limit" : label(undo_.back().control)); return last_;
     }
     ActionResult execute(const Command& cmd) override {
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
-        if (cmd.operation >= Command::Operation::i2c_scan && cmd.operation <= Command::Operation::i2c_release) {
+        if (is_i2c_operation(cmd.operation)) {
             if (!i2c_session_) { result.message="I2C session unavailable"; return result; }
             // I2C validates the selected controller and owns its own temporary
             // hold. It must never release an unrelated/user-owned V/F request.
@@ -1119,6 +1148,16 @@ public:
             last_.xoc_known = true; last_.xoc_enabled = actual; result.ok = true; result.message = actual ? "XOC session mode enabled" : "XOC session mode disabled"; return result;
         }
         if (cmd.operation==Command::Operation::release_hold) return release_hold();
+        if (cmd.operation == Command::Operation::save_curve_profile) {
+            if (cmd.profile_path.empty()) { result.message = "Choose a V/F profile path"; return result; }
+            try {
+                // Explicit save captures fresh configured requests, never the UI draft.
+                const auto captured = read(true);
+                write_profile(cmd.profile_path, capture_curve_profile(captured));
+                result.ok = true; result.message = "Configured V/F curve saved. Loading stages a draft; Apply remains explicit.";
+            } catch (const std::exception& error) { result.message = std::string("V/F profile save failed: ") + error.what(); }
+            return result;
+        }
         if (cmd.operation==Command::Operation::reset_controls) return reset_action();
         if (i2c_session_ && i2c_session_->owned()) { result.message="Release the owned I2C request and clock clamp before other tuning writes"; return result; }
         if (cmd.operation==Command::Operation::max_it) return max_action(cmd);

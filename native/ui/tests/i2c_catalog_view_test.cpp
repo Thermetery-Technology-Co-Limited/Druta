@@ -133,6 +133,14 @@ int main() {
     state.commands.clear(); text=frame(state);
     check(state.i2c_nct_mapping==0 && text.find("Raw outputs")!=std::string::npos && text.find("Memory offset")==std::string::npos,
         "an alternate controller starts with raw nominal currents");
+    activate(state,button("Zero all outputs"));
+    check(state.commands.size()==1 && state.commands.back().operation==Command::Operation::i2c_zero_nct_outputs,
+        "NCT zero all queues one batch intent");
+    if(!state.commands.empty()) bound(state.commands.back(),data,"zero-all intent binds controller route and revision");
+    state.commands.clear(); data.controller.recovery=true; activate(state,button("Zero all outputs"));
+    check(state.commands.empty(),"recovery blocks zero all"); data.controller.recovery=false;
+    data.gate=false; activate(state,button("Zero all outputs"));
+    check(state.commands.empty(),"I2C gate blocks zero all"); data.gate=true;
     activate(state,button("Output mapping"));
     if(!context->OpenPopupStack.empty() && context->OpenPopupStack.back().Window)
         { const int index=1; const auto* popup=context->OpenPopupStack.back().Window;

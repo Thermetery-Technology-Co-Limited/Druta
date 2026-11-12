@@ -12,15 +12,16 @@ struct PlannerApi {
     decltype(&dc_vfp_compute_ramp) ramp = nullptr;
     decltype(&dc_vfp_compute_rephase) rephase = nullptr;
     decltype(&dc_vfp_predict_curve) predict = nullptr;
+    decltype(&dc_vfp_compute_hard_deflatten) hard_deflatten = nullptr;
 };
-enum class CurvePlanKind { deflatten, ramp, rephase };
+enum class CurvePlanKind { deflatten, ramp, rephase, hard_deflatten };
 struct CurvePlanRequest {
     CurvePlanKind kind = CurvePlanKind::deflatten;
     std::vector<dc_vf_point> points; // current draft: physical MHz, raw delta kHz
     std::uint32_t freq_div = 0;      // raw delta units per physical unit
     std::uint32_t step_khz = 0;      // verified physical clock step
     std::int64_t max_abs_delta_khz = 0; // verified raw delta envelope
-    std::optional<double> cap_mv, floor_mv, max_mhz;
+    std::optional<double> cap_mv, floor_mv, max_mhz, target_mhz;
     // Core's software prediction-model bound, not a physical measurement.
     std::optional<std::int64_t> max_rise_khz;
 };

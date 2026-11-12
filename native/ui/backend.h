@@ -14,6 +14,7 @@
 
 namespace druta::ui {
 struct TimingViewData;
+struct ClockMonitorData;
 enum class ControlId { core, memory, power, fan, boost, count };
 enum class Availability { unknown, available, unsupported, transient };
 struct ControlState {
@@ -54,6 +55,7 @@ struct I2cViewData {
     uint64_t prepared_preset_revision = 0;
 };
 struct LiveData {
+    std::shared_ptr<const ClockMonitorData> clock_monitor;
     TuningState tuning;
     bool max_it_available = false, reset_controls_available = false, hold_available = false;
     std::shared_ptr<const TimingViewData> timings;
@@ -70,6 +72,7 @@ struct LiveData {
     bool rail_mode_known = false, rail_mode_enabled = false;
     bool rail_writable_known = false, rail_writable = false;
     std::vector<dc_vf_point> curve;
+    dc_vf_layout curve_layout{};
     bool curve_writable = false;
     bool curve_reset_writable = false;
     uint32_t curve_step_khz = 0;
@@ -89,7 +92,7 @@ struct Command {
         i2c_scan, i2c_select, i2c_gate, i2c_read, i2c_verify, i2c_apply,
         i2c_recipe, i2c_reset, i2c_prepare_profile, i2c_save_profile, i2c_load_profile, i2c_stage_captured, i2c_apply_profile, i2c_release,
         timings_select_helper, timings_read, timings_preview, timings_apply, timings_undo,
-        max_it, reset_controls, hold_curve_point, release_hold };
+        max_it, reset_controls, hold_curve_point, release_hold, save_curve_profile, i2c_zero_nct_outputs };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -122,6 +125,10 @@ struct ActionResult {
     std::string message;
     std::optional<double> requested, readback;
 };
+inline bool is_i2c_operation(Command::Operation operation) {
+    return (operation >= Command::Operation::i2c_scan && operation <= Command::Operation::i2c_release)
+        || operation == Command::Operation::i2c_zero_nct_outputs;
+}
 class IBackend {
 public:
     virtual ~IBackend() = default;

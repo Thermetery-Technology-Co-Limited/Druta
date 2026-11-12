@@ -31,6 +31,9 @@ struct SessionSnapshot {
     bool curve_stale = false;
     std::uint64_t curve_revision = 0;
     bool fan_readings_stale = false;
+    // Per ABI fan index and independent field. The bool above is a summary,
+    // never authority to mark a simultaneously fresh duty/RPM value stale.
+    std::uint32_t fan_duty_stale_mask = 0, fan_rpm_stale_mask = 0;
     std::vector<HistorySample> history;
     std::vector<LogEntry> log;
 };

@@ -55,9 +55,13 @@ int main(){
     s.paused=true;m=build_monitor_model(s);
     CHECK(row(m,"CORE CLOCK").freshness==MonitorFreshness::stale);
     CHECK(row(m,"MEM CLOCK").freshness==MonitorFreshness::unavailable);
-    s.paused=false;s.fan_readings_stale=true;t.fan_count=1;t.fans[0].has_rpm=1;t.fans[0].rpm=0;
+    s.paused=false;s.fan_readings_stale=true;s.fan_rpm_stale_mask=1;t.fan_count=1;t.fans[0].has_rpm=1;t.fans[0].rpm=0;
     m=build_monitor_model(s);CHECK(row(m,"Fan 0 speed").text=="0" && row(m,"Fan 0 speed").freshness==MonitorFreshness::stale);
     CHECK(row(m,"Fan 0 duty").freshness==MonitorFreshness::unavailable);
+    t.fans[0].has_duty=1;t.fans[0].duty=42;m=build_monitor_model(s);
+    CHECK(row(m,"Fan 0 duty").freshness==MonitorFreshness::current && row(m,"Fan 0 speed").freshness==MonitorFreshness::stale);
+    s.fan_rpm_stale_mask=0;s.fan_duty_stale_mask=1;m=build_monitor_model(s);
+    CHECK(row(m,"Fan 0 duty").freshness==MonitorFreshness::stale && row(m,"Fan 0 speed").freshness==MonitorFreshness::current);
     t.fan_count=UINT32_MAX;m=build_monitor_model(s);CHECK(m.groups.back().readings.size()==13+64);
     // Different adapter/identity and only PCIe capabilities must remain useful.
     s={};s.data.telemetry_valid=true;s.selected_slot="0000:02:00.0";s.data.telemetry.present=DC_T_PCIE_GEN|DC_T_PCIE_WIDTH;

@@ -447,9 +447,8 @@ driver watts. Saving this display preference never saves or reapplies tuning.
 
 Remaining faithful-port work: persistent discovery hints and progress/cancel
 UI; Advanced registry/relationship overrides, rail/policy diagnostics and power
-saving panels; qualified clock-domain and measured-clock evidence displays;
-batch timing profiles/captures; V/F plot guides, legacy nudge buttons and hard
-de-flatten.
+saving panels; batch timing profiles/captures; rail/policy profiles and profile
+composition; device/recovery/help menus and general owned frequency locks.
 These are tracked gaps, not completed controls. The current update does not
 claim full Python interface parity or physical qualification of other I2C ICs.
 
@@ -480,3 +479,30 @@ owned recovery remains releasable independently of those initiation gates.
 Backend ownership and fresh preflight checks remain authoritative. The
 inventories still track the broader unimplemented workflows; this increment
 does not claim full frontend parity.
+
+The second parity increment adds same-session Classic page floating/docking,
+two-press Reset with a ten-second arm and adapter/lock cancellation, released
+I2C row geometry and discovery opening, and window-wide Classic WASD/Undo.
+Focused curve keyboard editing remains local to its editor. Classic curve
+guides and one/five-bin nudge buttons use the adapter's captured clock step.
+Hard de-flatten requires an explicit external-mod acknowledgement and stages
+only; changing the draft updates requested consequences and model estimates.
+
+Curve Profiles saves fresh configured requests and loads a validated profile
+into the clean local draft. Identity, sparse point geometry, divisor, voltages
+and envelope must match; invalid files and dirty drafts remain unchanged.
+The existing explicit Apply/readback/Undo path performs hardware operations.
+This separate manual curve scope does not advertise a full-tune profile.
+
+Monitor now classifies all clock domains through the core's pure API and
+tracks per-adapter B evidence, load/settling and stale reads. Missing samples
+break qualification continuity immediately while briefly retaining a clearly
+stale secondary display. A measured clock bin is independent of V/F editor
+availability; fallback bins never grade a gap. Duty and RPM retain last-good
+values independently, with per-field stale markers. These displays reuse the
+existing telemetry cadence. NCT Zero all outputs is one guarded operation
+which stops on the first failure and retains owned restoration state.
+
+The [completion ledger](ui/validation/PARITY-COMPLETION.md) records the entire
+remaining scope, and the [second checkpoint](ui/validation/2026-11-12-parity-second-increment.md)
+records this increment's tests and read-only renderer evidence.

@@ -352,6 +352,29 @@ ActionResult I2cSession::execute(const Command& cmd) {
     case Command::Operation::i2c_load_profile:
     case Command::Operation::i2c_stage_captured:
     case Command::Operation::i2c_apply_profile:action=preset(cmd);break;
+    case Command::Operation::i2c_zero_nct_outputs: {
+        if (!data_.selected || !data_.gate || data_.family!=I2cFamily::nct3933 || !controller_ || !api_.controller_write)
+            return failure("Select an NCT3933U controller and enable I2C first");
+        const ControllerContext context{data_.gate,xoc()};
+        const char* fields[]={"out1","out2","out3"};
+        std::string completed;
+        action.ok=true;
+        for (const char* field:fields) {
+            const auto outcome=controller_->apply({field,0,true},context);
+            action.may_have_changed=action.may_have_changed || outcome.may_have_changed;
+            if (!outcome.ok) {
+                action.ok=false;
+                action.message="Zero outputs stopped at "+std::string(field)+": "+outcome.message;
+                if (outcome.recovery_pending) action.message+="; restoration pending";
+                action.message+="; completed: "+(completed.empty()?std::string("none"):completed);
+                break;
+            }
+            if (!completed.empty()) completed+=", ";
+            completed+=field;
+        }
+        if (action.ok) action.message="Zeroed outputs: "+completed+"; physical voltage unknown";
+        break;
+    }
     case Command::Operation::i2c_apply:
     case Command::Operation::i2c_reset:
     case Command::Operation::i2c_verify: {

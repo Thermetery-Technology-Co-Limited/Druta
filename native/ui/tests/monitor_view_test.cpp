@@ -29,6 +29,10 @@ int main(){
     CHECK(text.find("SW power cap: ACTIVE")!=std::string::npos);
     CHECK(text.find("Link width")!=std::string::npos);
     CHECK(text.find("Memory offset")!=std::string::npos);
+    t.fan_count=1;t.fans[0]={1,0,1,1234};s.fan_readings_stale=true;s.fan_rpm_stale_mask=1;
+    text=frame(s,correction,true,{1500,2200});
+    CHECK(text.find("1234 RPM (stale)")!=std::string::npos);
+    CHECK(text.find("0 % (stale)")==std::string::npos); // current duty zero is independent of stale RPM
     text=frame(s,correction,false,{640,768});
     CHECK(text.find("XBAR CLOCK")!=std::string::npos && text.find("Throttle / clocks-event reasons")!=std::string::npos);
     CHECK(s.revision==revision && t.power_w==100 && t.event_mask==4);

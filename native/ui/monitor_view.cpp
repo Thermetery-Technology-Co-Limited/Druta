@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "monitor_view.h"
+#include "clock_monitor_view.h"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
@@ -62,6 +63,9 @@ void draw_monitor_tiles(const SessionSnapshot& snapshot,const ShuntCorrection& c
                 }
             }
             reading(r);
+            if(r.label=="CORE CLOCK")draw_clock_secondary(snapshot,"core");
+            else if(r.label=="XBAR CLOCK")draw_clock_secondary(snapshot,"xbar");
+            else if(r.label=="MEM CLOCK")draw_clock_secondary(snapshot,"mem");
         }
         ImGui::EndTable();
     }
@@ -70,6 +74,7 @@ void draw_monitor_tiles(const SessionSnapshot& snapshot,const ShuntCorrection& c
 }
 void draw_monitor_details(const SessionSnapshot& snapshot,bool classic){
     const auto model=build_monitor_model(snapshot);ImGui::PushID("monitor-details");
+    draw_clock_monitor_table(snapshot,classic);
     lamps("Throttle / clocks-event reasons",model.clock_reasons,classic);
     lamps("Performance-decrease reasons (NVAPI)",model.perf_reasons,classic);
     group(model.groups[0],true,classic);

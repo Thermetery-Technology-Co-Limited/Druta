@@ -27,10 +27,11 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
         return failure("Missing curve, scale, step, prediction-model bound, envelope, or planner interface");
     if ((req.kind == CurvePlanKind::deflatten && (!api.deflatten || !req.cap_mv)) ||
         (req.kind == CurvePlanKind::ramp && (!api.ramp || !req.cap_mv || !req.floor_mv)) ||
-        (req.kind == CurvePlanKind::rephase && !api.rephase))
+        (req.kind == CurvePlanKind::rephase && !api.rephase) ||
+        (req.kind == CurvePlanKind::hard_deflatten && (!api.hard_deflatten || !req.floor_mv || !req.target_mhz)))
         return failure("Planner interface or voltage bounds unavailable");
     auto finite_positive = [](const std::optional<double>& v) { return !v || (std::isfinite(*v) && *v > 0); };
-    if (!finite_positive(req.cap_mv) || !finite_positive(req.floor_mv) || !finite_positive(req.max_mhz) ||
+    if (!finite_positive(req.cap_mv) || !finite_positive(req.floor_mv) || !finite_positive(req.max_mhz) || !finite_positive(req.target_mhz) ||
         (req.floor_mv && req.cap_mv && *req.floor_mv > *req.cap_mv) ||
         (req.max_rise_khz && (*req.max_rise_khz < 0 || *req.max_rise_khz > 9007199254740992LL)))
         return failure("Invalid planner bounds");
@@ -42,7 +43,12 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
             p.freq_mhz <= 0 || p.freq_mhz * 1000.0 > 9007199254740992.0 || !unique.insert(p.idx).second)
             return failure("Malformed or duplicate curve point");
     }
-    dc_vfp_num cap{}, floor{}, maximum{}, step = integer(req.step_khz), rise{};
+    dc_vfp_num cap{}, floor{}, maximum{}, target{}, step = integer(req.step_khz), rise{};
+    if (req.target_mhz) {
+        const double khz = *req.target_mhz * 1000.0;
+        if (!std::isfinite(khz) || khz > 9007199254740992.0) return failure("Target clock is not representable");
+        target = floating(khz);
+    }
     if (req.cap_mv) cap = floating(*req.cap_mv);
     if (req.floor_mv) floor = floating(*req.floor_mv);
     if (req.max_mhz) {
@@ -72,20 +78,25 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
     } else {
         dc_vfp_deflatten def{}; def.size = sizeof(def);
         dc_vfp_ramp ramp{}; ramp.size = sizeof(ramp);
+        dc_vfp_hard hard{}; hard.size = sizeof(hard);
         dc_status status;
         if (req.kind == CurvePlanKind::deflatten)
             status = api.deflatten(points.data(), points.size(), &cap, req.max_mhz ? &maximum : nullptr, nullptr, &step, &def);
         else if (req.kind == CurvePlanKind::ramp)
             status = api.ramp(points.data(), points.size(), &floor, &cap, req.max_mhz ? &maximum : nullptr, &step, &ramp);
+        else if (req.kind == CurvePlanKind::hard_deflatten)
+            status = api.hard_deflatten(points.data(), points.size(), &floor, &target, &step, &hard);
         else return failure("Unknown planner kind");
         if (status != DC_OK) return failure("Curve planner failed", status);
-        const auto count = req.kind == CurvePlanKind::deflatten ? def.change_count : ramp.change_count;
-        const auto* edits = req.kind == CurvePlanKind::deflatten ? def.changes : ramp.changes;
+        const auto count = req.kind == CurvePlanKind::deflatten ? def.change_count : req.kind == CurvePlanKind::ramp ? ramp.change_count : hard.change_count;
+        const auto* edits = req.kind == CurvePlanKind::deflatten ? def.changes : req.kind == CurvePlanKind::ramp ? ramp.changes : hard.changes;
         if (count > points.size()) return failure("Planner returned too many points");
         for (uint32_t i = 0; i < count; ++i) {
             const auto& edit = edits[i]; double proposed = 0;
             if (edit.pos >= points.size() || points[edit.pos].idx != edit.idx || !number(edit.delta_khz, proposed))
                 return failure("Planner returned an invalid point or delta");
+            if (req.kind == CurvePlanKind::hard_deflatten && points[edit.pos].volt_mv < *req.floor_mv - 0.01)
+                return failure("Hard de-flatten returned a point below the floor");
             const double baseline = points[edit.pos].delta_khz;
             const double raw = baseline + (proposed - baseline) * req.freq_div;
             if (!std::isfinite(raw) || std::trunc(raw) != raw || raw < INT32_MIN || raw > INT32_MAX ||

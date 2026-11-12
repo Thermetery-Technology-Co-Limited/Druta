@@ -33,6 +33,16 @@ static dc_status DC_CALL rephase(const dc_vfp_num* raw, size_t n, const dc_vfp_n
     ++calls; CHECK(n == 2 && raw[0].i == 1234 && raw[1].i == -4321); rephase_step = step->i;
     out->change_count = 1; out->changes[0].pos = 0; out->changes[0].delta_khz = 1000; return DC_OK;
 }
+static dc_status DC_CALL hard(const dc_vf_point* p, size_t n, const dc_vfp_num* floor,
+    const dc_vfp_num* target, const dc_vfp_num* step, dc_vfp_hard* out) {
+    ++calls; CHECK(n == 2 && floor->f == 900 && target->f == 1700000 && step->i == 12500);
+    if (scenario == 1) return DC_E_FAILED;
+    out->change_count = 1; out->changes[0].pos = scenario == 2 ? 0 : 1;
+    out->changes[0].idx = p[out->changes[0].pos].idx;
+    out->changes[0].delta_khz.kind = DC_VFP_INT;
+    out->changes[0].delta_khz.i = scenario == 3 ? 1000000 : p[out->changes[0].pos].delta_khz + 12500;
+    return DC_OK;
+}
 static dc_status DC_CALL predict(const dc_vf_point*, size_t n, const dc_vfp_num* khz, const dc_vfp_num*,
                                  int64_t* real, uint32_t* order, size_t capacity) {
     CHECK(n == 2 && capacity == n);
@@ -41,7 +51,7 @@ static dc_status DC_CALL predict(const dc_vf_point*, size_t n, const dc_vfp_num*
     real[0] = khz[1].i; real[1] = khz[0].i; return DC_OK;
 }
 int wmain(int argc, wchar_t** argv) {
-    PlannerApi api{deflatten, ramp, rephase, predict};
+    PlannerApi api{deflatten, ramp, rephase, predict, hard};
     CurvePlanRequest req; req.points = {{9, 850, 1500, 1234}, {2, 900, 1600, -4321}};
     req.freq_div = 2; req.step_khz = 12500; req.max_abs_delta_khz = 100000;
     req.cap_mv = 1000; req.floor_mv = 800; req.max_rise_khz = 37500;
@@ -58,6 +68,14 @@ int wmain(int argc, wchar_t** argv) {
     req.kind = CurvePlanKind::rephase; plan = plan_curve(api, req);
     CHECK(plan.ok && rephase_step == 25000 && plan.changes[0].delta_khz == 1000);
     req.freq_div = 1; plan = plan_curve(api, req); CHECK(plan.ok && rephase_step == 12500);
+    req.freq_div = 2; req.kind = CurvePlanKind::hard_deflatten; req.floor_mv = 900; req.cap_mv.reset(); req.target_mhz = 1700;
+    plan = plan_curve(api, req);
+    CHECK(plan.ok && plan.changes.size() == 1 && plan.changes[0].idx == 2 && plan.changes[0].delta_khz == 20679);
+    CHECK(req.points[0].delta_khz == 1234 && req.points[1].delta_khz == -4321);
+    for (scenario = 1; scenario <= 3; ++scenario) CHECK(!plan_curve(api, req).ok);
+    scenario = 0; req.target_mhz = 0; CHECK(!plan_curve(api, req).ok);
+    req.target_mhz = 1700; api.hard_deflatten = nullptr; CHECK(!plan_curve(api, req).ok); api.hard_deflatten = hard;
+    req.kind = CurvePlanKind::rephase; req.cap_mv = 1000; req.floor_mv = 800; req.target_mhz.reset();
     const auto count = calls; req.freq_div = 0; CHECK(!plan_curve(api, req).ok && calls == count);
     req.freq_div = 2; req.points[1].idx = 9; CHECK(!plan_curve(api, req).ok && calls == count);
     req.points[1].idx = 2; req.points[0].volt_mv = std::numeric_limits<double>::quiet_NaN(); CHECK(!plan_curve(api, req).ok);
@@ -72,13 +90,17 @@ int wmain(int argc, wchar_t** argv) {
         actual.ramp = reinterpret_cast<decltype(actual.ramp)>(GetProcAddress(module, "dc_vfp_compute_ramp"));
         actual.rephase = reinterpret_cast<decltype(actual.rephase)>(GetProcAddress(module, "dc_vfp_compute_rephase"));
         actual.predict = reinterpret_cast<decltype(actual.predict)>(GetProcAddress(module, "dc_vfp_predict_curve"));
-        CHECK(actual.deflatten && actual.ramp && actual.rephase && actual.predict);
+        actual.hard_deflatten = reinterpret_cast<decltype(actual.hard_deflatten)>(GetProcAddress(module, "dc_vfp_compute_hard_deflatten"));
+        CHECK(actual.deflatten && actual.ramp && actual.rephase && actual.predict && actual.hard_deflatten);
         CurvePlanRequest real; real.points = {{7, 800, 1000, 1234}, {4, 900, 1100, -4321}, {9, 1000, 1100, 2345}};
         real.freq_div = 2; real.step_khz = 12500; real.max_abs_delta_khz = 1000000;
         real.cap_mv = 900; real.floor_mv = 800; real.max_rise_khz = 37500;
         for (auto kind : {CurvePlanKind::deflatten, CurvePlanKind::ramp, CurvePlanKind::rephase}) {
             real.kind = kind; auto result = plan_curve(actual, real); CHECK(result.ok && result.predicted_khz.size() == real.points.size());
         }
+        real.kind = CurvePlanKind::hard_deflatten; real.floor_mv = 900; real.cap_mv.reset(); real.target_mhz = 1124;
+        const auto hard_plan = plan_curve(actual, real); CHECK(hard_plan.ok && hard_plan.predicted_khz.size() == real.points.size());
+        for (const auto& change : hard_plan.changes) CHECK(change.idx != 7); // below-floor point retained
         FreeLibrary(module);
     }
     std::printf("curve_planner_test: %u checks passed\n", checks);

@@ -614,7 +614,7 @@ void inline_curve_input() {
         "inline A and Shift+S select and edit locally");
     ImGui::SetWindowFocus("Druta workspace"); frame(state, 1920, 1400, false);
     press_key(state, ImGuiKey_W, false, false, 1920, 1400);
-    check(state.curve_draft.draft()[0].delta_khz == 30000, "background inline editor cannot consume WASD");
+    check(state.curve_draft.draft()[0].delta_khz == 60000, "Classic window-wide W stages one bin while inline editor is in the background");
 
     plot = inline_plot();
     const auto before = state.curve_draft.draft()[1];
@@ -693,9 +693,16 @@ void popup_input(Presentation presentation) {
     ImGui::SetWindowFocus("Druta workspace");
     frame(state, 1366, 900, false);
     press_key(state, ImGuiKey_W);
-    check(!state.curve_draft.dirty(), "background editor cannot consume WASD");
+    if (presentation == Presentation::classic)
+        check(state.curve_draft.draft()[0].delta_khz == 25314, "Classic retains window-wide WASD outside the editor");
+    else check(!state.curve_draft.dirty(), "Focused background editor cannot consume WASD");
     ImGui::SetWindowFocus("V/F curve editor###druta_curve_editor");
     frame(state, 1366, 900, false);
+    // Start the drag-history check from a clean editor; Classic's preceding
+    // window-wide shortcut deliberately created its own separate Undo entry.
+    ImGui::ActivateItemByID(workspace_button("Revert local curve"));
+    frame(state, 1366, 900, false);
+    check(!state.curve_draft.dirty() && !state.curve_draft.can_undo(), "drag gesture fixture starts with cleared local history");
 
     auto* plot = popup_plot();
     check(plot != nullptr, "popup has a real interactive plot");
@@ -845,8 +852,19 @@ void i2c_panel_wiring(Presentation presentation) {
         ImGui::End(); ImGui::Render();
         check(ImGui::GetDrawData()->CmdListsCount > 0, "I2C panel renders from snapshot without a backend");
     };
+    auto apply_window = [&]() -> ImGuiWindow* {
+        auto* window = ImGui::FindWindowByName(panel_name);
+        if (state.presentation == Presentation::classic && window)
+            for (auto* child : ImGui::GetCurrentContext()->Windows)
+                if (child->ParentWindow == window && child->ChildId == ImHashStr("classic-i2c-manual",0,window->GetID("i2c-controller"))) return child;
+        return window;
+    };
     auto panel_id = [&](const char* label) {
         auto* window = ImGui::FindWindowByName(panel_name);
+        if (state.presentation == Presentation::classic && std::string(label) == "Apply") {
+            auto* manual = apply_window();
+            return manual ? ImHashStr(label,0,manual->GetID("manual-command")) : ImGuiID{0};
+        }
         return window ? ImHashStr(label, 0, window->GetID("i2c-controller")) : ImGuiID{0};
     };
     auto activate_panel = [&](const char* label) { ImGui::ActivateItemByID(panel_id(label)); panel_frame(); };
@@ -966,7 +984,7 @@ void i2c_panel_wiring(Presentation presentation) {
         && exact_route(state.commands[0]) && near(state.commands[0].value, 1125),
         "manual Apply button is wired to the route and exact visible millivolt target");
     state.commands.clear();
-    window = ImGui::FindWindowByName(panel_name);
+    window = apply_window();
     const auto apply_id = panel_id("Apply");
     check(window->NavLastIds[ImGuiNavLayer_Main] == apply_id, "actual Apply button receives navigation focus");
     const auto hover = window->NavRectRel[ImGuiNavLayer_Main].GetCenter();
@@ -1006,6 +1024,11 @@ void explicit_hold_and_global_actions(Presentation presentation) {
     live->data.reset_controls_available=live->data.max_it_available=live->data.hold_available=true;
     state.curve_cap_mv=1050; state.curve_floor_mv=925; state.hold_headroom=false; state.headroom_margin_mv=37.5;
     ImGui::ActivateItemByID(header_button("Reset controls")); frame(state,1920,1280);
+    if (presentation==Presentation::classic) {
+        check(state.commands.empty() && state.classic_reset_deadline>ImGui::GetTime(),
+            "Classic Reset first press visibly arms without queuing a hardware operation");
+        ImGui::ActivateItemByID(header_button("Reset controls")); frame(state,1920,1280);
+    }
     check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::reset_controls,
         "Reset controls queues its explicit operation only after capability and unlock are established");
     state.commands.clear();
@@ -1092,6 +1115,105 @@ void hold_shortcut() {
     check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::hold_curve_point,
         "Ctrl+H holds retained point with editor collapsed");
     if (editor) editor->Collapsed=false;
+}
+
+static dc_status DC_CALL hard_ui_plan(const dc_vf_point* p, size_t count, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, dc_vfp_hard* out) {
+    if (count != 2) return DC_E_ARGUMENT;
+    out->change_count=1; out->changes[0].pos=1; out->changes[0].idx=p[1].idx;
+    out->changes[0].delta_khz.kind=DC_VFP_INT; out->changes[0].delta_khz.i=p[1].delta_khz+15000;
+    return DC_OK;
+}
+static dc_status DC_CALL hard_ui_predict(const dc_vf_point*, size_t count, const dc_vfp_num* values, const dc_vfp_num*, int64_t* predicted, uint32_t* order, size_t capacity) {
+    if (count != capacity) return DC_E_ARGUMENT;
+    for (size_t i=0;i<count;++i) { predicted[i]=values[i].i; order[i]=static_cast<uint32_t>(i); }
+    return DC_OK;
+}
+void curve_profile_menu() {
+    ViewState state; state.preview=false; state.presentation=Presentation::focused;
+    auto live=snapshot(); state.live=live; state.curve_window_open=true; state.curve_window_focus_requested=true;
+    frame(state,1920,1280);
+    auto open_menu=[&]() {
+        ImGui::ActivateItemByID(workspace_button("Profiles...")); frame(state,1920,1280);
+        auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        return stack.empty()?static_cast<ImGuiWindow*>(nullptr):stack.back().Window;
+    };
+    auto choose=[&](const char* name) {
+        auto* popup=open_menu(); check(popup!=nullptr,"curve profiles menu opens");
+        if (popup) { ImGui::ActivateItemByID(popup->GetID(name)); frame(state,1920,1280); }
+    };
+    auto close_menu=[&]() {
+        auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        if (!stack.empty() && stack.back().Window) ImGui::FocusWindow(stack.back().Window);
+        press_key(state,ImGuiKey_Escape,false,false,1920,1280);
+        // Keep later fixtures isolated even if a disabled popup didn't consume Escape.
+        if (!stack.empty()) ImGui::ClosePopupToLevel(0,true);
+        frame(state,1920,1280);
+    };
+    const auto configured=live->data.curve;
+    choose("Save configured curve...");
+    check(state.save_curve_profile_requested && !state.load_curve_profile_requested && state.commands.empty(),
+        "Save configured opens a dialog intent without a hardware command");
+    state.save_curve_profile_requested=false;
+    choose("Load curve to draft...");
+    check(state.load_curve_profile_requested && !state.save_curve_profile_requested && state.commands.empty(),
+        "Load opens a staging dialog intent without a hardware command");
+    state.load_curve_profile_requested=false;
+    check(state.curve_draft.stage_mhz(0,15),"profile menu fixture stages an unsaved curve edit");
+    choose("Load curve to draft...");
+    check(!state.load_curve_profile_requested && state.commands.empty(),"dirty curve blocks profile load");
+    close_menu(); choose("Save configured curve...");
+    check(state.save_curve_profile_requested && state.commands.empty() && live->data.curve[0].delta_khz==configured[0].delta_khz
+        && state.curve_draft.dirty(),"Save remains available with a draft and leaves configured snapshot and draft unchanged");
+    state.save_curve_profile_requested=false;
+    check(state.curve_draft.revert(),"profile menu fixture reverts staged curve"); state.curve_entry_dirty=true;
+    choose("Load curve to draft...");
+    check(!state.load_curve_profile_requested && state.commands.empty(),"uncommitted numeric edit blocks profile load");
+    close_menu(); state.curve_entry_dirty=false;
+    auto* busy_popup=open_menu(); check(busy_popup!=nullptr,"profile menu opens before busy transition");
+    live->busy=true;
+    if (busy_popup) {
+        ImGui::ActivateItemByID(busy_popup->GetID("Save configured curve...")); frame(state,1920,1280);
+        ImGui::ActivateItemByID(busy_popup->GetID("Load curve to draft...")); frame(state,1920,1280);
+    }
+    check(!state.save_curve_profile_requested && !state.load_curve_profile_requested && state.commands.empty(),
+        "busy session blocks profile actions in an already-open menu");
+    close_menu(); live->busy=false;
+    auto* stale_popup=open_menu(); check(stale_popup!=nullptr,"profile menu opens before stale transition");
+    live->curve_stale=true;
+    if (stale_popup) {
+        ImGui::ActivateItemByID(stale_popup->GetID("Save configured curve...")); frame(state,1920,1280);
+        ImGui::ActivateItemByID(stale_popup->GetID("Load curve to draft...")); frame(state,1920,1280);
+    }
+    check(!state.save_curve_profile_requested && !state.load_curve_profile_requested && state.commands.empty(),
+        "stale curve blocks profile actions in an already-open menu");
+    close_menu();
+}
+
+void hard_de_flatten_ui() {
+    ViewState state; state.preview=false; auto live=snapshot(); state.live=live;
+    live->data.curve_model_max_rise_khz=45000; live->data.curve_writable=true;
+    state.planner_api.hard_deflatten=hard_ui_plan; state.planner_api.predict=hard_ui_predict;
+    state.curve_window_open=true; state.controls_unlocked=true; state.hard_floor_mv=900; state.hard_target_mhz=1905;
+    frame(state,1920,1280);
+    auto* editor=ImGui::FindWindowByName("V/F curve editor###druta_curve_editor");
+    check(editor!=nullptr,"hard de-flatten fixture has a curve editor");
+    if (editor) {
+        editor->StateStorage.SetInt(editor->GetID("Curve shape tools"),1);
+        editor->StateStorage.SetInt(editor->GetID("Hard de-flatten (needs an external voltage mod)"),1);
+    }
+    frame(state,1920,1280);
+    ImGui::ActivateItemByID(workspace_button("Stage hard de-flatten")); frame(state,1920,1280);
+    check(!state.curve_draft.dirty() && state.commands.empty(),"hard de-flatten requires explicit hardware acknowledgement");
+    state.hard_mod_ack=true;
+    ImGui::ActivateItemByID(workspace_button("Stage hard de-flatten"));
+    auto text=frame(state,1920,1280);
+    check(state.curve_draft.dirty() && state.commands.empty() && !state.hard_mod_ack,
+        "acknowledged hard de-flatten stages locally and consumes acknowledgement without writing");
+    check(contains(text,"Hard de-flatten remains in this draft") && contains(text,"changed point"),
+        "staged hard plan shows persistent consequences before Apply");
+    ImGui::ActivateItemByID(workspace_button("Apply curve")); frame(state,1920,1280);
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::apply_curve,
+        "only explicit Apply queues the staged hard curve request");
 }
 
 void timings_navigation_and_commands(Presentation presentation) {
@@ -1361,9 +1483,17 @@ void rendering_and_uncertainty() {
     live->data.telemetry.fans[0].has_rpm = 1;
     live->data.telemetry.fans[0].rpm = 1200;
     live->fan_readings_stale = true;
+    live->fan_duty_stale_mask = live->fan_rpm_stale_mask = 1;
     const auto fan_text = frame(state, 1920, 1400);
     check(contains(fan_text, "1200 RPM (stale)"), "last-good fan readings are explicitly stale independently of count presence bit");
+    state.page = Page::daily;
+    const auto classic_fan = frame(state, 1920, 1400);
+    check(contains(classic_fan, "35 % (stale)"), "Classic live fan reading marks retained duty stale independently of the configured request");
     live->fan_readings_stale = false;
+    live->fan_duty_stale_mask = live->fan_rpm_stale_mask = 0;
+    const auto fresh_classic_fan = frame(state, 1920, 1400);
+    check(!contains(fresh_classic_fan, "35 % (stale)"), "Classic recovered fan duty clears its stale marker");
+    state.page = Page::monitor;
     live->data.telemetry.fans[0].has_duty = 0;
     const auto partial_fan = frame(state, 1920, 1400);
     check(contains(partial_fan, "Fan 0 duty") && contains(partial_fan, "-- %") && contains(partial_fan, "1200 RPM"),
@@ -1419,6 +1549,8 @@ int main() {
     curve_apply_acknowledgement(Presentation::classic);
     i2c_panel_wiring(Presentation::focused);
     i2c_panel_wiring(Presentation::classic);
+    curve_profile_menu();
+    hard_de_flatten_ui();
     hold_shortcut();
     explicit_hold_and_global_actions(Presentation::focused);
     explicit_hold_and_global_actions(Presentation::classic);

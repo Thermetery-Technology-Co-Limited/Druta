@@ -4,6 +4,7 @@
 #include "ui_view.h"
 #include "session.h"
 #include "i2c_catalog.h"
+#include "classic_layout.h"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
@@ -98,13 +99,53 @@ void draw_nct_mapping(ViewState& state) {
         ImGui::TextWrapped("Positive mV raises voltage; negative mV lowers it. GPU/memory: 10 mV per 10 µA; PEX/PLL: 66 mV per 10 µA, with reversed sign. Configured offsets, not live rail voltages.");
     else ImGui::TextWrapped("Positive is SOURCE current and negative is SINK current, in nominal µA. Register readback; physical voltage requires a meter.");
 }
+void classic_family_help(const I2cViewData& data) {
+    // Presentation from released fa6ee83's controller-specific frontend.
+    // Ranges and write eligibility continue to come from this connection.
+    ImGui::SeparatorText(data.controller.name.empty()?i2c_family_name(data.family):data.controller.name.c_str());
+    switch (data.family) {
+    case I2cFamily::nct3933:
+        ImGui::TextWrapped("Three output offsets. OUT3, OUT1, OUT2 are shown in that order. Read settings first; Apply changes only its selected output and Zero sets that output to zero. Register current is not a measured rail voltage.");
+        break;
+    case I2cFamily::icx:
+        ImGui::TextWrapped("iCX readback is the controller's voltage request, not a voltage measurement. Move a slider or select a setting before Apply. NVVDD Auto releases only its manual request; FBVDD is independent. Auto can show a staged manual value in its input.");
+        ImGui::TextWrapped("Close Classified before applying. Frequency, overcurrent protection and loadline settings are independent of voltage requests. Use a meter to verify physical voltage. Loading or restoring an iCX preset stages a preview; Apply iCX preset is explicit.");
+        break;
+    case I2cFamily::up9512r:
+        ImGui::TextWrapped("One common offset request updates all five load-current states. Mixed programmed offsets remain distinct from the staged common request; inspect the load-state readback below. Verify the selected controller before Apply.");
+        break;
+    case I2cFamily::ncp4206:
+        ImGui::TextWrapped("Absolute VID command. Auto returns control to GPU VID; the target request is separate from controller VOUT and physical voltage. Verify this connection before applying a manual target.");
+        break;
+    case I2cFamily::mp29816:
+        ImGui::TextWrapped("Offset requests require an understood controller scale and a verified response. Readback is the stored offset; VOUT is reported separately. Unavailable scale or verification keeps writes disabled.");
+        break;
+    case I2cFamily::mp2888:
+        ImGui::TextWrapped(data.control_profile=="mp2888a-pmbus"
+            ? "Manual PMBus voltage commands are nominal requests, not measured voltage. Verify this recipe at the owned low-clock clamp before Apply. Restore returns this session's captured controller state before releasing its clock."
+            : "GPU VID offset recipe. Verify this selected method before Apply. A candidate fingerprint does not identify the electrical rail; controller VOUT is separate from the requested offset.");
+        break;
+    default: break;
+    }
+    ImGui::TextDisabled("Slider / input stage only; readback is separate. Apply and reset affect the selected field. * = last confirmed read.");
+}
 void draw_fields(ViewState& state,const I2cViewData& data) {
-    if (!ImGui::BeginTable("i2c-knobs",5,ImGuiTableFlags_SizingStretchProp)) return;
+    const bool classic = state.presentation == Presentation::classic;
+    if (classic) {
+        ImGui::SetNextWindowContentSize({classic_px(classic_column_width), 0});
+        ImGui::BeginChild("classic-i2c-fields", {0, 0}, ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+            ImGuiWindowFlags_HorizontalScrollbar);
+    }
+    const bool began = classic ? begin_classic_knob_table("i2c-knobs")
+        : ImGui::BeginTable("i2c-knobs",5,ImGuiTableFlags_SizingStretchProp);
+    if (!began) { if (classic) ImGui::EndChild(); return; }
+    if (!classic) {
     ImGui::TableSetupColumn("Control",ImGuiTableColumnFlags_WidthStretch,1.45f);
     ImGui::TableSetupColumn("Stage",ImGuiTableColumnFlags_WidthStretch,2.0f);
     ImGui::TableSetupColumn("Value",ImGuiTableColumnFlags_WidthFixed,85);
     ImGui::TableSetupColumn("Readback",ImGuiTableColumnFlags_WidthStretch,1.0f);
     ImGui::TableSetupColumn("Action",ImGuiTableColumnFlags_WidthFixed,150);
+    }
     std::vector<const I2cField*> rows;
     for (const auto& field : state.i2c_field_cache) rows.push_back(&field);
     if (data.family==I2cFamily::nct3933)
@@ -112,9 +153,25 @@ void draw_fields(ViewState& state,const I2cViewData& data) {
             const auto order=[](const std::string& key){return key=="out3"?0:key=="out1"?1:2;};
             return order(a->key)<order(b->key);
         });
+    if (classic && data.family==I2cFamily::icx)
+        std::stable_sort(rows.begin(),rows.end(),[](const auto* a,const auto* b) {
+            const auto order=[](const std::string& key) {
+                const char* keys[]{"nvvdd","fbvdd","frequency_nvvdd","frequency_fbvdd","ocp_nvvdd","ocp_fbvdd","loadline"};
+                for (int i=0;i<7;++i) if (key==keys[i]) return i;
+                return 7;
+            };
+            return order(a->key)<order(b->key);
+        });
     for (const auto* native : rows) {
         const bool mapped=data.family==I2cFamily::nct3933 && state.i2c_nct_mapping==1;
-        const auto field=display_field(*native,mapped);
+        auto field=display_field(*native,mapped);
+        if (classic && data.family==I2cFamily::icx) {
+            if (field.key=="nvvdd") field.label="NVVDD voltage request";
+            else if (field.key=="fbvdd") field.label="FBVDD voltage request";
+            else if (field.key=="ocp_nvvdd") field.label="NVVDD overcurrent protection";
+            else if (field.key=="ocp_fbvdd") field.label="FBVDD overcurrent protection";
+            else if (field.key=="loadline") field.label="NVVDD loadline";
+        }
         ImGui::PushID(field.key.c_str());
         auto& native_draft=field_draft(state,*native);
         auto draft=native_draft;
@@ -134,6 +191,8 @@ void draw_fields(ViewState& state,const I2cViewData& data) {
                 for (int n=300;n<=1000;n+=100) choices.emplace_back(std::to_string(n)+" kHz",n);
             else if (field.key=="loadline")
                 for (int n=0;n<=15;++n) choices.emplace_back("Level"+std::to_string(n),n);
+            else if (classic && (field.key=="ocp_nvvdd" || field.key=="ocp_fbvdd"))
+                choices={{"Enable",1},{"Disable",0}};
         }
         ImGui::BeginDisabled(!edit);
         if (!choices.empty()) {
@@ -147,7 +206,7 @@ void draw_fields(ViewState& state,const I2cViewData& data) {
             flash_gate_attempt(state,gated);
             draft.editing=ImGui::IsItemActive();
         } else if (field.minimum && field.maximum && *field.minimum<*field.maximum) {
-            if (ImGui::SliderScalar("##slider",ImGuiDataType_Double,&draft.value,&*field.minimum,&*field.maximum,"%.2f")) {
+            if (ImGui::SliderScalar("##slider",ImGuiDataType_Double,&draft.value,&*field.minimum,&*field.maximum,classic?" ":"%.2f")) {
                 snap(draft.value,field); draft.dirty=true;
             }
             flash_gate_attempt(state,gated);
@@ -163,19 +222,27 @@ void draw_fields(ViewState& state,const I2cViewData& data) {
         }
         ImGui::EndDisabled();
         ImGui::TableSetColumnIndex(3); ImGui::AlignTextToFramePadding();
-        if (field.value) ImGui::Text("%.2f %s%s",*field.value,field.unit.c_str(),field.stale?" *":"");
+        if (classic) push_classic_mono();
+        if (field.value && classic) {
+            const auto choice=std::find_if(choices.begin(),choices.end(),[&](const auto& value){return value.second==*field.value;});
+            if (choice!=choices.end()) ImGui::TextWrapped("%s%s",choice->first.c_str(),field.stale?" *":"");
+            else ImGui::TextWrapped("%.2f %s%s",*field.value,field.unit.c_str(),field.stale?" *":"");
+        }
+        else if (field.value) ImGui::Text("%.2f %s%s",*field.value,field.unit.c_str(),field.stale?" *":"");
         else ImGui::TextDisabled("%s",field.detail=="Auto"?"Auto":"unavailable");
+        if (classic) ImGui::PopFont();
         if (!field.detail.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s",field.detail.c_str());
         ImGui::TableSetColumnIndex(4); ImGui::BeginDisabled(!apply || !std::isfinite(draft.value) || (data.family==I2cFamily::icx && !draft.dirty));
-        if (ImGui::Button("Apply")) {
+        if (ImGui::Button("Apply", ImVec2(classic?-1.0f:0.0f,0))) {
             const double value=mapped?-draft.value/nct_gain(field.key):draft.value;
             auto c=command(state,Command::Operation::i2c_apply,value); c.i2c_field=field.key; state.commands.push_back(c);
         }
         flash_gate_attempt(state,gated);
         ImGui::EndDisabled();
+        if (classic) ImGui::TableSetColumnIndex(5);
         if (field.resettable) {
-            ImGui::SameLine(); ImGui::BeginDisabled(!apply);
-            if (ImGui::Button(field.reset_label.c_str())) { auto c=command(state,Command::Operation::i2c_reset); c.i2c_field=field.key; state.commands.push_back(c); }
+            if (!classic) ImGui::SameLine(); ImGui::BeginDisabled(!apply);
+            if (ImGui::Button(field.reset_label.c_str(), ImVec2(classic?-1.0f:0.0f,0))) { auto c=command(state,Command::Operation::i2c_reset); c.i2c_field=field.key; state.commands.push_back(c); }
             flash_gate_attempt(state,gated);
             ImGui::EndDisabled();
         }
@@ -184,6 +251,7 @@ void draw_fields(ViewState& state,const I2cViewData& data) {
         ImGui::PopID();
     }
     ImGui::EndTable();
+    if (classic) ImGui::EndChild();
 }
 void draw_manual(ViewState& state,const I2cViewData& data,const I2cControlProfile* profile) {
     const auto& status=data.status;
@@ -202,6 +270,40 @@ void draw_manual(ViewState& state,const I2cViewData& data,const I2cControlProfil
             ImGui::EndCombo();
         }
         flash_gate_attempt(state,gated);
+    }
+    if (state.presentation==Presentation::classic) {
+        ImGui::EndDisabled();
+        ImGui::SetNextWindowContentSize({classic_px(classic_column_width),0});
+        ImGui::BeginChild("classic-i2c-manual", {0,0}, ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+            ImGuiWindowFlags_HorizontalScrollbar);
+        if (begin_classic_knob_table("manual-command")) {
+            ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextWrapped("Manual voltage command (mV)");
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(!ready(state) || !state.controls_unlocked || !data.gate);
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::SliderScalar("##slider",ImGuiDataType_Double,&state.i2c_target_mv,&low,&high," ") &&
+                profile && std::isfinite(profile->step_mv) && profile->step_mv>0)
+                state.i2c_target_mv=std::clamp(std::round(state.i2c_target_mv/profile->step_mv)*profile->step_mv,low,high);
+            flash_gate_attempt(state,gated);
+            ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("##manual-mv",&state.i2c_target_mv,0,0,"%.2f");
+            flash_gate_attempt(state,gated); ImGui::EndDisabled();
+            ImGui::TableNextColumn(); push_classic_mono();
+            if (status.requested_mv) ImGui::TextWrapped("%.2f mV%s",*status.requested_mv,status.stale?" *":"");
+            else ImGui::TextDisabled("unavailable");
+            ImGui::PopFont();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stored controller command, not a physical voltage measurement.");
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(!ready(state) || !state.controls_unlocked || !data.gate || !data.verified || !status.writable);
+            if (ImGui::Button("Apply",{-1,0})) queue(state,Command::Operation::i2c_apply,state.i2c_target_mv);
+            flash_gate_attempt(state,gated); ImGui::EndDisabled();
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(!idle(state) || (!status.owned && !status.recovery_pending));
+            if (ImGui::Button("Restore",{-1,0})) queue(state,Command::Operation::i2c_release);
+            ImGui::EndDisabled();
+            ImGui::EndTable();
+        }
+        ImGui::EndChild(); return;
     }
     ImGui::SetNextItemWidth(320);
     if (ImGui::SliderScalar("Manual command (mV)",ImGuiDataType_Double,&state.i2c_target_mv,&low,&high,"%.2f") &&
@@ -274,6 +376,7 @@ void draw_i2c_panel(ViewState& state) {
     }
     ImGui::EndDisabled();
     if (data.selected) {
+        if (state.presentation==Presentation::classic) classic_family_help(data);
         const auto profile_it=std::find_if(data.control_profiles.begin(),data.control_profiles.end(),[&](const auto& p){return p.id==data.control_profile;});
         const auto* profile=profile_it==data.control_profiles.end()?nullptr:&*profile_it;
         if (data.family==I2cFamily::mp2888) {
@@ -303,7 +406,13 @@ void draw_i2c_panel(ViewState& state) {
         flash_gate_attempt(state,can && !verification_readonly && !data.gate);
         ImGui::EndDisabled();
         if (data.needs_clock_clamp) ImGui::TextDisabled("Requests hold the graphics clock at the driver's minimum.");
-        if (data.family==I2cFamily::nct3933) draw_nct_mapping(state);
+        if (data.family==I2cFamily::nct3933) {
+            draw_nct_mapping(state);
+            ImGui::BeginDisabled(!can || !state.controls_unlocked || !data.gate || data.controller.recovery);
+            if (ImGui::Button("Zero all outputs")) queue(state,Command::Operation::i2c_zero_nct_outputs);
+            flash_gate_attempt(state,can && !data.gate);
+            ImGui::EndDisabled();
+        }
         if (icx) ImGui::TextDisabled("Controller requests, not physical voltage. NVVDD Auto and FBVDD are independent.");
         draw_fields(state,data);
         if (data.family==I2cFamily::mp2888 && data.control_profile=="mp2888a-pmbus") draw_manual(state,data,profile);

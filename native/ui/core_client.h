@@ -18,6 +18,7 @@ struct CoreApi {
     decltype(&dc_gpu_close) close = nullptr;
     decltype(&dc_gpu_identity_get) identity = nullptr;
     decltype(&dc_gpu_read_telemetry) telemetry = nullptr;
+    decltype(&dc_clock_domains_classify) clock_classify = nullptr;
     decltype(&dc_gpu_capabilities_get) capabilities = nullptr;
     decltype(&dc_gpu_clock_offset_range_get) range = nullptr;
     decltype(&dc_gpu_mem_offset_scale) scale = nullptr;

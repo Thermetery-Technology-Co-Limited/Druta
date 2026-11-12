@@ -27,6 +27,7 @@ struct Fake : IBackend {
     std::atomic<bool> i2c_owned{false}, fail_cleanup{false}, missing_i2c_state{false};
     std::atomic<bool> tuning_owned{false}, missing_tuning{false}, maintenance_fail{false}, hold_maintenance{false};
     std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
+    std::atomic<int> fan_mode{0};
     bool xoc = false, rails = false;
     Fake() { InitializeCriticalSection(&lock); }
     ~Fake() override { CloseHandle(entered); CloseHandle(release); CloseHandle(maintenance_entered); CloseHandle(maintenance_release); DeleteCriticalSection(&lock); }
@@ -68,6 +69,23 @@ struct Fake : IBackend {
         if (d.telemetry_valid) { d.telemetry.fan_count = 1; d.telemetry.fans[0].has_duty = 1; d.telemetry.fans[0].duty = 40; }
         d.telemetry.present = DC_T_CORE | (is_partial ? 0 : DC_T_POWER_W);
         d.telemetry.core = 100; d.telemetry.power_w = 80;
+        const int fans=fan_mode.load();
+        if(fans){
+            std::fill(std::begin(d.telemetry.fans),std::end(d.telemetry.fans),dc_fan_reading{});
+            d.telemetry.fan_count=0;
+            if(fans==1){
+                d.telemetry.present|=DC_T_NUM_FANS;d.telemetry.num_fans=d.telemetry.fan_count=2;
+                d.telemetry.fans[0]={1,45,1,1000};d.telemetry.fans[1]={1,60,1,2000};
+            }else if(fans==2){
+                d.telemetry.present|=DC_T_NUM_FANS;d.telemetry.num_fans=d.telemetry.fan_count=2;
+                d.telemetry.fans[0]={1,0,0,0};d.telemetry.fans[1]={0,0,1,2100};
+            }else if(fans==3){d.telemetry.fan_count=1;d.telemetry.fans[0]={0,0,1,1100};}
+            else if(fans==4){
+                d.telemetry.present|=DC_T_NUM_FANS;d.telemetry.num_fans=d.telemetry.fan_count=1;
+                d.telemetry.fans[0]={1,50,1,1300};
+            }else if(fans==5){d.telemetry.present|=DC_T_NUM_FANS;d.telemetry.num_fans=0;}
+            // Mode 6: no count or field reading, while unrelated telemetry works.
+        }
         auto& c = d.controls[0];
         c.availability = is_partial ? Availability::transient : Availability::available;
         c.writable = !is_partial; c.current = is_partial ? std::optional<double>{} : 12;
@@ -79,6 +97,7 @@ struct Fake : IBackend {
     }
     ActionResult execute(const Command& cmd) override {
         record("execute"); if (hold_action.exchange(false)) block();
+        if (cmd.operation == Command::Operation::i2c_zero_nct_outputs) i2c_owned=true;
         if (throw_action.exchange(false)) { undo_available = true; throw 1; }
         if (cmd.operation == Command::Operation::hold_curve_point) tuning_owned=true;
         if (cmd.operation == Command::Operation::release_hold) tuning_owned=false;
@@ -253,7 +272,30 @@ int main() {
     CHECK(!recovery.select_device("b"));
     third->missing_i2c_state=false; CHECK(recovery.submit(release_i2c,recovery.snapshot()->generation));
     CHECK(until([&] { auto p=recovery.snapshot(); return !p->busy && !p->i2c_ownership_uncertain; }));
-    recovery.begin_shutdown(); CHECK(until([&] { return recovery.finished(); }));    auto fourth_owned=std::make_unique<Fake>(); auto* fourth=fourth_owned.get();
+    recovery.begin_shutdown(); CHECK(until([&] { return recovery.finished(); }));
+    auto zero_owned=std::make_unique<Fake>(); auto* zero_fake=zero_owned.get();
+    Session zero_session(std::move(zero_owned), [] {}); zero_session.start("a");
+    CHECK(until([&] { return !zero_session.snapshot()->history.empty(); }));
+    Command zero_outputs{}; zero_outputs.operation=Command::Operation::i2c_zero_nct_outputs;
+    zero_fake->stall_action(); CHECK(zero_session.submit(zero_outputs,zero_session.snapshot()->generation));
+    CHECK(WaitForSingleObject(zero_fake->entered,2000)==WAIT_OBJECT_0);
+    CHECK(!zero_session.select_device("b")); // Batch intent is I2C work while in flight.
+    SetEvent(zero_fake->release);
+    CHECK(until([&] { auto p=zero_session.snapshot(); return !p->busy && p->last_action_operation==zero_outputs.operation && p->data.i2c.clock_owned; }));
+    CHECK(!zero_session.snapshot()->i2c_ownership_uncertain && !zero_session.select_device("b"));
+    CHECK(zero_session.submit(release_i2c,zero_session.snapshot()->generation));
+    CHECK(until([&] { auto p=zero_session.snapshot(); return !p->busy && !p->data.i2c.clock_owned; }));
+    // An exception after a possible write and unavailable ownership readback
+    // must retain the uncertainty gate until explicit recovery succeeds.
+    zero_fake->missing_i2c_state=true; zero_fake->throw_action=true;
+    CHECK(zero_session.submit(zero_outputs,zero_session.snapshot()->generation));
+    CHECK(until([&] { auto p=zero_session.snapshot(); return !p->busy && p->last_action_operation==zero_outputs.operation && !p->last_action_ok && p->i2c_ownership_uncertain; }));
+    CHECK(!zero_session.select_device("b"));
+    zero_fake->missing_i2c_state=false;
+    CHECK(zero_session.submit(release_i2c,zero_session.snapshot()->generation));
+    CHECK(until([&] { auto p=zero_session.snapshot(); return !p->busy && !p->i2c_ownership_uncertain && !p->data.i2c.clock_owned; }));
+    zero_session.begin_shutdown(); CHECK(until([&] { return zero_session.finished(); }));
+    auto fourth_owned=std::make_unique<Fake>(); auto* fourth=fourth_owned.get();
     Session maintained(std::move(fourth_owned), [] {}); maintained.start("a");
     CHECK(until([&] { return !maintained.snapshot()->history.empty(); }));
     maintained.set_paused(true);
@@ -305,5 +347,40 @@ int main() {
     fifth->missing_tuning=false;
     CHECK(uncertain.submit(release_hold,uncertain.snapshot()->generation));
     CHECK(until([&] { auto p=uncertain.snapshot(); return !p->busy && !p->tuning_ownership_uncertain; }));
-    uncertain.begin_shutdown(); CHECK(until([&] { return uncertain.finished(); }));    std::printf("session_test: %u checks passed\n", checks);
+    uncertain.begin_shutdown(); CHECK(until([&] { return uncertain.finished(); }));
+    // Independent transient duty/RPM failures retain only previously observed
+    // fields. Fresh fields, including a stopped fan's zero, remain current.
+    auto fan_owned=std::make_unique<Fake>();auto* fan_fake=fan_owned.get();fan_fake->fan_mode=6;
+    Session fans(std::move(fan_owned),[]{});fans.start("a");
+    CHECK(until([&]{return !fans.snapshot()->opening&&fans.snapshot()->completed_reads>0;}));
+    CHECK(fans.snapshot()->data.telemetry.fan_count==0&&!fans.snapshot()->fan_readings_stale);
+    const auto fan_poll=[&](int mode){
+        const auto before=fans.snapshot()->completed_reads;fan_fake->fan_mode=mode;fans.request_poll();
+        CHECK(until([&]{return fans.snapshot()->completed_reads>before;}));return fans.snapshot();
+    };
+    auto fan_full=fan_poll(1);CHECK(fan_full->data.telemetry.fan_count==2&&!fan_full->fan_readings_stale);
+    auto fan_partial=fan_poll(2);
+    CHECK(fan_partial->fan_duty_stale_mask==2&&fan_partial->fan_rpm_stale_mask==1&&fan_partial->fan_readings_stale);
+    CHECK(fan_partial->data.telemetry.fans[0].has_duty&&fan_partial->data.telemetry.fans[0].duty==0);
+    CHECK(fan_partial->data.telemetry.fans[0].rpm==1000&&fan_partial->data.telemetry.fans[1].duty==60);
+    CHECK(fan_partial->data.telemetry.fans[1].rpm==2100&&fan_partial->data.controls[0].writable);
+    auto no_count=fan_poll(3);
+    CHECK(no_count->data.telemetry.fan_count==2&&no_count->fan_duty_stale_mask==3&&no_count->fan_rpm_stale_mask==2);
+    CHECK(no_count->data.telemetry.fans[0].duty==0&&no_count->data.telemetry.fans[0].rpm==1100);
+    CHECK(no_count->data.telemetry.fans[1].rpm==2100);
+    auto recovered=fan_poll(1);CHECK(!recovered->fan_readings_stale&&recovered->fan_duty_stale_mask==0&&recovered->fan_rpm_stale_mask==0);
+    fan_fake->telemetry_failure=true;auto failed_fans=fan_poll(1);
+    CHECK(failed_fans->fan_duty_stale_mask==3&&failed_fans->fan_rpm_stale_mask==3&&failed_fans->data.telemetry.fan_count==2);
+    fan_fake->telemetry_failure=false;auto smaller=fan_poll(4);
+    CHECK(smaller->data.telemetry.fan_count==1&&!smaller->fan_readings_stale&&!smaller->data.telemetry.fans[1].has_duty);
+    fans.set_paused(true);fans.set_paused(false);
+    CHECK(fans.snapshot()->fan_duty_stale_mask==1&&fans.snapshot()->fan_rpm_stale_mask==1);
+    auto zero_fans=fan_poll(5);CHECK(zero_fans->data.telemetry.fan_count==0&&!zero_fans->fan_readings_stale);
+    auto still_unknown=fan_poll(6);CHECK(still_unknown->data.telemetry.fan_count==0&&!still_unknown->fan_readings_stale);
+    fan_poll(1);fan_fake->fan_mode=6;const auto old_fan_generation=fans.snapshot()->generation;
+    CHECK(fans.select_device("b"));CHECK(until([&]{auto p=fans.snapshot();return !p->opening&&p->generation>old_fan_generation;}));
+    CHECK(fans.snapshot()->data.telemetry.fan_count==0&&fans.snapshot()->fan_duty_stale_mask==0&&fans.snapshot()->fan_rpm_stale_mask==0);
+    CHECK(fan_full->data.telemetry.fans[0].duty==45&&!fan_full->fan_readings_stale); // old publications immutable
+    fans.begin_shutdown();CHECK(until([&]{return fans.finished();}));
+    std::printf("session_test: %u checks passed\n", checks);
 }

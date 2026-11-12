@@ -130,11 +130,12 @@ MonitorModel build_monitor_model(const SessionSnapshot& s) {
         scalar(s,"Reported fan count",DC_T_NUM_FANS,t.num_fans,"")}};
     for(uint32_t i=0;i<std::min(t.fan_count,uint32_t{32});++i) {
         const auto& f=t.fans[i]; const auto prefix="Fan "+std::to_string(i);
-        const auto fresh=s.paused || s.fan_readings_stale?MonitorFreshness::stale:MonitorFreshness::current;
+        const auto duty_fresh=s.paused || (s.fan_duty_stale_mask&(UINT32_C(1)<<i))?MonitorFreshness::stale:MonitorFreshness::current;
+        const auto rpm_fresh=s.paused || (s.fan_rpm_stale_mask&(UINT32_C(1)<<i))?MonitorFreshness::stale:MonitorFreshness::current;
         MonitorReading duty;duty.label=prefix+" duty";duty.unit="%";
-        if(s.data.telemetry_valid && f.has_duty){duty.freshness=fresh;duty.text=std::to_string(f.duty);duty.percentage=f.duty;}
+        if(s.data.telemetry_valid && f.has_duty){duty.freshness=duty_fresh;duty.text=std::to_string(f.duty);duty.percentage=f.duty;}
         MonitorReading rpm;rpm.label=prefix+" speed";rpm.unit="RPM";
-        if(s.data.telemetry_valid && f.has_rpm){rpm.freshness=fresh;rpm.text=std::to_string(f.rpm);}
+        if(s.data.telemetry_valid && f.has_rpm){rpm.freshness=rpm_fresh;rpm.text=std::to_string(f.rpm);}
         state.readings.push_back(std::move(duty));state.readings.push_back(std::move(rpm));
     }
     m.groups.push_back(std::move(state)); return m;

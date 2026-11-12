@@ -38,11 +38,22 @@ struct ViewState {
 
     bool preview = true;
     bool controls_unlocked = true;
+    // Classic pages move between one docked body and same-window floating
+    // windows. They retain this ViewState and never acquire another Session.
+    std::array<bool, 4> classic_floating{};
+    std::array<bool, 4> classic_float_focus{};
+    int classic_tab_drag = -1;
+    float classic_tab_top = 0, classic_tab_bottom = 0;
+    double classic_reset_deadline = 0;
+    uint64_t classic_reset_generation = 0;
+    std::string classic_reset_slot;
     std::shared_ptr<const SessionSnapshot> live;
     bool refresh_requested = false;
     bool reconnect_requested = false;
     bool save_profile_requested = false;
     bool load_profile_requested = false;
+    bool save_curve_profile_requested = false, load_curve_profile_requested = false;
+    std::string curve_profile_status;
     bool timing_helper_requested = false;
     TimingsViewState timings_view;
     ShuntViewState shunt;
@@ -57,6 +68,9 @@ struct ViewState {
     AdvancedViewState advanced_view;
     PlannerApi planner_api;
     double curve_cap_mv = 1100, curve_floor_mv = 1000;
+    double hard_floor_mv = 0, hard_target_mhz = 0, hard_staged_floor_mv = 0;
+    bool hard_mod_ack = false, hard_plan_staged = false;
+    uint64_t hard_ack_generation = 0;
     std::string curve_plan_message;
     uint64_t observed_curve_revision = 0;
     uint64_t acknowledged_curve_action = 0;

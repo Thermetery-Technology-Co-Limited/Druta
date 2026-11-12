@@ -18,6 +18,29 @@ double now_seconds() {
     QueryPerformanceFrequency(&frequency);
     return frequency.QuadPart ? static_cast<double>(count.QuadPart) / frequency.QuadPart : 0;
 }
+void merge_fans(const LiveData& old, LiveData& next, SessionSnapshot& state) {
+    auto& n=next.telemetry;const auto& o=old.telemetry;
+    const uint32_t current=next.telemetry_valid?std::min(n.fan_count,uint32_t{32}):0;
+    const uint32_t previous=old.telemetry_valid?std::min(o.fan_count,uint32_t{32}):0;
+    // The C ABI keeps fan indices, including empty rows when the count was
+    // read. A short/empty vector without a successful count is not evidence
+    // that established fans disappeared. A fresh actual count may shrink it.
+    const bool counted=next.telemetry_valid&&(n.present&DC_T_NUM_FANS)&&n.num_fans<=32&&n.num_fans>=current;
+    const uint32_t count=counted?n.num_fans:std::max(current,previous);
+    state.fan_duty_stale_mask=state.fan_rpm_stale_mask=0;
+    for(uint32_t i=0;i<count;++i){
+        auto& f=n.fans[i];const auto fresh=i<current?f:dc_fan_reading{};
+        const auto prior=i<previous?o.fans[i]:dc_fan_reading{};
+        f={};
+        if(fresh.has_duty){f.has_duty=1;f.duty=fresh.duty;}
+        else if(prior.has_duty){f.has_duty=1;f.duty=prior.duty;state.fan_duty_stale_mask|=UINT32_C(1)<<i;}
+        if(fresh.has_rpm){f.has_rpm=1;f.rpm=fresh.rpm;}
+        else if(prior.has_rpm){f.has_rpm=1;f.rpm=prior.rpm;state.fan_rpm_stale_mask|=UINT32_C(1)<<i;}
+    }
+    for(uint32_t i=count;i<32;++i)n.fans[i]={};
+    n.fan_count=count;
+    state.fan_readings_stale=(state.fan_duty_stale_mask|state.fan_rpm_stale_mask)!=0;
+}
 // Keep the last reported scalar for absent summary fields and mark it stale.
 void merge_telemetry(const LiveData& old, LiveData& next, std::uint64_t& stale) {
     auto& n = next.telemetry;
@@ -156,18 +179,14 @@ struct Session::Impl {
         }
         const auto raw = fresh.telemetry;
         const bool valid = fresh.telemetry_valid;
-        if (!valid && state.data.telemetry_valid) {
-            fresh.telemetry.fan_count = state.data.telemetry.fan_count;
-            std::copy(std::begin(state.data.telemetry.fans), std::end(state.data.telemetry.fans),
-                      std::begin(fresh.telemetry.fans));
-            state.fan_readings_stale = true;
-        } else if (valid) state.fan_readings_stale = false;
+        merge_fans(state.data,fresh,state);
         if (initial) state.opening = false;
         if (finish_action) state.busy = false;
         merge_telemetry(state.data, fresh, state.telemetry_stale_mask);
         merge_controls(state.data, fresh);
         if (!details || !fresh.curve_error.empty()) {
             fresh.curve = state.data.curve;
+            fresh.curve_layout = state.data.curve_layout;
             if (!details) fresh.curve_error = state.data.curve_error;
             else state.curve_stale = !fresh.curve.empty();
         } else { state.curve_stale = false; ++state.curve_revision; }
@@ -272,7 +291,7 @@ struct Session::Impl {
                 std::optional<TuningState> owned_tuning; bool needed=false, needed_known=false;
                 try { owned_tuning=backend->tuning_state(); needed=backend->maintenance_needed(); needed_known=true; } catch (...) {}
                 const bool tuning_action=task.operation==Command::Operation::max_it || task.operation==Command::Operation::reset_controls || task.operation==Command::Operation::hold_curve_point || task.operation==Command::Operation::release_hold;
-                const bool i2c_action=task.operation>=Command::Operation::i2c_scan && task.operation<=Command::Operation::i2c_release;
+                const bool i2c_action=is_i2c_operation(task.operation);
                 std::optional<I2cViewData> owned_i2c;
                 if (i2c_action) { try { owned_i2c=backend->i2c_state(); } catch (...) {} }
                 bool current;
@@ -293,7 +312,7 @@ struct Session::Impl {
                         if (!maintenance_active) { maintenance_due = 0; maintenance_error.clear(); }
                         if (i2c_action) {
                             if (owned_i2c) { state.data.i2c=*owned_i2c; state.i2c_ownership_uncertain=false; }
-                            else if (task.operation==Command::Operation::i2c_apply || task.operation==Command::Operation::i2c_verify || task.operation==Command::Operation::i2c_release)
+                            else if (task.operation==Command::Operation::i2c_apply || task.operation==Command::Operation::i2c_verify || task.operation==Command::Operation::i2c_release || task.operation==Command::Operation::i2c_zero_nct_outputs)
                                 state.i2c_ownership_uncertain=true;
                         }
                         state.last_action_operation = task.operation; state.last_action_ok = result.ok;
@@ -337,7 +356,7 @@ bool Session::select_device(const std::string& slot) {
       if (!impl_->started || impl_->stopping || impl_->done) return false;
       const auto& i2c=impl_->state.data.i2c;
       const bool tuning_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::max_it || impl_->command.operation==Command::Operation::reset_controls || impl_->command.operation==Command::Operation::hold_curve_point || impl_->command.operation==Command::Operation::release_hold);
-      const bool i2c_busy=impl_->state.busy && impl_->command.operation>=Command::Operation::i2c_scan && impl_->command.operation<=Command::Operation::i2c_release;
+      const bool i2c_busy=impl_->state.busy && is_i2c_operation(impl_->command.operation);
       if (i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
           impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
       }
@@ -346,6 +365,7 @@ bool Session::select_device(const std::string& slot) {
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
       impl_->state.selected_slot = slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
+      impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
       impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false;
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return true;
@@ -362,7 +382,12 @@ void Session::set_paused(bool paused) {
       if (paused) impl_->poll_pending = impl_->details_pending = false;
       else {
           impl_->state.telemetry_stale_mask |= impl_->state.data.telemetry.present;
-          impl_->state.fan_readings_stale = impl_->state.data.telemetry.fan_count != 0;
+          for(uint32_t i=0;i<std::min(impl_->state.data.telemetry.fan_count,uint32_t{32});++i){
+              const auto& f=impl_->state.data.telemetry.fans[i];
+              if(f.has_duty)impl_->state.fan_duty_stale_mask|=UINT32_C(1)<<i;
+              if(f.has_rpm)impl_->state.fan_rpm_stale_mask|=UINT32_C(1)<<i;
+          }
+          impl_->state.fan_readings_stale=(impl_->state.fan_duty_stale_mask|impl_->state.fan_rpm_stale_mask)!=0;
       }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce();

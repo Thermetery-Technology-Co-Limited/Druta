@@ -632,7 +632,14 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
         ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
         push_classic_mono();
         auto reading = id == ControlId::power ? board_power_text(snapshot,state.shunt.correction) : classic_live_reading(snapshot,id);
-        if (id == ControlId::power && (snapshot.paused || (snapshot.telemetry_stale_mask & DC_T_POWER_W))) reading += " (stale)";
+        const uint64_t live_bit = id == ControlId::core ? DC_T_CORE : id == ControlId::memory ? DC_T_MEM
+            : id == ControlId::power ? DC_T_POWER_W : id == ControlId::boost ? DC_T_VCORE_MV : 0;
+        const auto& telemetry = snapshot.data.telemetry;
+        const bool have_reading = id == ControlId::fan ? telemetry.fan_count && telemetry.fans[0].has_duty
+            : (telemetry.present & live_bit) != 0;
+        const bool stale = snapshot.paused || !snapshot.data.connected || (snapshot.telemetry_stale_mask & live_bit)
+            || (id == ControlId::fan && (snapshot.fan_duty_stale_mask & 1));
+        if (have_reading && stale) reading += " (stale)";
         ImGui::TextWrapped("%s",reading.c_str());
         ImGui::PopFont();
         hint(("Configured request: " + number_text(control.current, control.unit.c_str()) + ". Live reading is separate.").c_str());
@@ -697,10 +704,22 @@ void hold_status(const SessionSnapshot& snapshot) {
     else if (snapshot.tuning_ownership_uncertain) ImGui::TextColored(amber, "V/F hold ownership uncertain");
 }
 
-void curve_keyboard(ViewState& state) {
+void nudge_selected_curve(ViewState& state, int bins) {
+    const auto& points = state.curve_draft.draft();
+    const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
+    if (selected == points.end() || !state.live) return;
+    const auto& data = state.live->data;
+    state.curve_draft.stage_frequency_mhz(selected->idx, selected->freq_mhz
+        + static_cast<double>(bins) * data.curve_step_khz / 1000.0,
+        data.curve_step_khz, data.curve_max_abs_delta_khz);
+    state.curve_entry_dirty = false; sync_curve_entry(state);
+}
+void curve_keyboard(ViewState& state, bool window_wide = false) {
     const auto& io = ImGui::GetIO();
-    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)
-        || io.AppFocusLost || io.WantTextInput || state.curve_entry_editing || ImGui::IsAnyItemActive()) return;
+    if (!ImGui::IsWindowFocused(window_wide ? ImGuiFocusedFlags_AnyWindow : ImGuiFocusedFlags_ChildWindows)
+        || io.AppFocusLost || io.WantTextInput || (!window_wide && state.curve_entry_editing) || ImGui::IsAnyItemActive()) return;
+    if (window_wide && (io.KeyAlt || io.KeySuper || ImGui::IsPopupOpen(nullptr,
+        ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))) return;
     auto& editor = state.curve_draft;
     const auto& points = editor.draft();
     if (points.empty()) return;
@@ -730,14 +749,7 @@ void curve_keyboard(ViewState& state) {
     int direction = 0;
     if (ImGui::IsKeyPressed(ImGuiKey_W)) ++direction;
     if (ImGui::IsKeyPressed(ImGuiKey_S)) --direction;
-    if (direction) {
-        const auto& data = state.live->data;
-        editor.stage_frequency_mhz(selected->idx, selected->freq_mhz
-            + static_cast<double>(direction * multiplier) * data.curve_step_khz / 1000.0,
-            data.curve_step_khz, data.curve_max_abs_delta_khz);
-        state.curve_entry_dirty = false;
-        sync_curve_entry(state);
-    }
+    if (direction) nudge_selected_curve(state, direction * multiplier);
 }
 
 void interactive_curve_plot(ViewState& state) {
@@ -822,6 +834,27 @@ void interactive_curve_plot(ViewState& state) {
             mark.MarkerFillColor = amber; mark.MarkerLineColor = amber;
             ImPlot::PlotScatter("Selected", &selected->volt_mv, &selected->freq_mhz, 1, mark);
         }
+        if (state.presentation == Presentation::classic) {
+            const auto guide = [](const char* name, double voltage, ImVec4 color, float weight) {
+                if (!std::isfinite(voltage)) return;
+                ImPlotSpec line; line.LineColor = color; line.LineWeight = weight; line.Flags = ImPlotItemFlags_NoFit;
+                ImPlot::PlotInfLines(name, &voltage, 1, line);
+            };
+            guide("Cap", state.curve_cap_mv, amber, u(2));
+            guide("Ramp floor", state.curve_floor_mv, ImVec4(0.67f,0.49f,0.95f,1), u(2));
+            if (state.hard_mod_ack) guide("Hard floor (armed)", state.hard_floor_mv, ImVec4(1,0.25f,0.25f,1), u(3));
+            const auto& hold = snapshot.data.tuning;
+            if (hold.owned && hold.confirmed && !hold.recovery && !snapshot.tuning_ownership_uncertain)
+                guide("Held", hold.voltage_uv / 1000.0, teal, u(3));
+            if (selected != points.end()) {
+                const auto limits = ImPlot::GetPlotLimits();
+                if (editor.freq_div()) ImPlot::Annotation(limits.X.Max, limits.Y.Min, ImVec4(0,0,0,0), {-u(8),-u(8)}, true,
+                    "idx %u | %.3f mV | %.9g MHz | delta %+.9g MHz", selected->idx,
+                    selected->volt_mv, selected->freq_mhz, selected->delta_khz / (1000.0 * editor.freq_div()));
+                else ImPlot::Annotation(limits.X.Max, limits.Y.Min, ImVec4(0,0,0,0), {-u(8),-u(8)}, true,
+                    "idx %u | %.3f mV | %.9g MHz | delta unverified", selected->idx, selected->volt_mv, selected->freq_mhz);
+            }
+        }
         const auto& telemetry = snapshot.data.telemetry;
         if ((telemetry.present & (DC_T_VCORE_MV | DC_T_CORE)) == (DC_T_VCORE_MV | DC_T_CORE)
             && !(snapshot.telemetry_stale_mask & (DC_T_VCORE_MV | DC_T_CORE)) && !snapshot.paused) {
@@ -898,6 +931,9 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
     const auto& snapshot = *state.live;
     auto& editor = state.curve_draft;
     const auto& points = editor.draft();
+    if (state.hard_ack_generation != snapshot.generation) {
+        state.hard_ack_generation = snapshot.generation; state.hard_mod_ack = false; state.hard_plan_staged = false;
+    }
     if (!points.empty()) {
         const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
         char preview[128]{};
@@ -910,6 +946,17 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
                 if (ImGui::Selectable(name, point.idx == state.selected_curve_point)) select_curve_point(state, point.idx);
             }
             ImGui::EndCombo();
+        }
+        if (state.presentation == Presentation::classic) {
+            for (int bins : {-5,-1,1,5}) {
+                ImGui::SameLine(); char label[64]{};
+                std::snprintf(label,sizeof(label),"%+.9g", static_cast<double>(bins) * snapshot.data.curve_step_khz / 1000.0);
+                ImGui::PushID(bins);
+                if (ImGui::Button(label)) nudge_selected_curve(state,bins);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stage %d clock bin(s), %+.9g MHz. No GPU write.", bins,
+                    static_cast<double>(bins) * snapshot.data.curve_step_khz / 1000.0);
+                ImGui::PopID();
+            }
         }
         ImGui::SameLine();
         ImGui::SetNextItemWidth(u(100));
@@ -942,7 +989,19 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
     ImGui::SameLine();
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh curve")) state.refresh_requested = true;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(snapshot.busy || !snapshot.data.connected || snapshot.curve_stale || points.empty());
+    if (ImGui::Button("Profiles...")) ImGui::OpenPopup("curve-profiles");
+    if (ImGui::BeginPopup("curve-profiles")) {
+        if (ImGui::MenuItem("Save configured curve...")) state.save_curve_profile_requested = true;
+        hint("Save fresh configured V/F requests. Unsaved local edits are not included.");
+        if (ImGui::MenuItem("Load curve to draft...", nullptr, false, !editor.dirty() && !state.curve_entry_dirty)) state.load_curve_profile_requested = true;
+        hint("Validate the saved adapter and curve geometry, then stage for review. Apply writes explicitly. Finish or revert pending edits first.");
+        ImGui::EndPopup();
+    }
     ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    if (!state.curve_profile_status.empty()) ImGui::TextWrapped("%s", state.curve_profile_status.c_str());
     if (!embedded) {
         ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
         ImGui::SameLine();
@@ -978,14 +1037,24 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
         ImGui::SameLine(); if (ImGui::Button("Stage ramp")) kind = CurvePlanKind::ramp;
         ImGui::SameLine(); if (ImGui::Button("Stage re-phase")) kind = CurvePlanKind::rephase;
         ImGui::EndDisabled();
+        if (ImGui::CollapsingHeader("Hard de-flatten (needs an external voltage mod)")) {
+            ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Hard floor (mV)", &state.hard_floor_mv, 0, 0, "%.3f");
+            ImGui::SameLine(); ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Hard target (MHz)", &state.hard_target_mhz, 0, 0, "%.3f");
+            ImGui::Checkbox("I have the external voltage modification required for hard de-flatten", &state.hard_mod_ack);
+            ImGui::TextWrapped("Hard de-flatten requests one clock for all points at or above the floor. It requires an external voltage modification; without it the requested clocks may be unstable or crash the driver. Effects below the floor are model estimates, not measurements.");
+            ImGui::BeginDisabled(!can_plan || !state.planner_api.hard_deflatten || !state.hard_mod_ack);
+            if (ImGui::Button("Stage hard de-flatten")) kind = CurvePlanKind::hard_deflatten;
+            ImGui::EndDisabled();
+        }
         hint("Shape tools stage local edits. Prediction uses the backend's software model; Apply and readback establish the stored request.");
         if (kind) {
             CurvePlanRequest request;
             request.kind = *kind; request.points = points; request.freq_div = editor.freq_div();
             request.step_khz = snapshot.data.curve_step_khz; request.max_abs_delta_khz = snapshot.data.curve_max_abs_delta_khz;
             request.max_rise_khz = snapshot.data.curve_model_max_rise_khz;
-            if (*kind != CurvePlanKind::rephase) request.cap_mv = state.curve_cap_mv;
+            if (*kind == CurvePlanKind::deflatten || *kind == CurvePlanKind::ramp) request.cap_mv = state.curve_cap_mv;
             if (*kind == CurvePlanKind::ramp) request.floor_mv = state.curve_floor_mv;
+            if (*kind == CurvePlanKind::hard_deflatten) { request.floor_mv = state.hard_floor_mv; request.target_mhz = state.hard_target_mhz; }
             const auto plan = plan_curve(state.planner_api, request);
             state.curve_plan_message = plan.message;
             if (plan.ok && !plan.changes.empty()) {
@@ -994,6 +1063,7 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
                 staged.end_gesture();
                 if (valid) {
                     editor = std::move(staged); state.curve_entry_dirty = false; sync_curve_entry(state);
+                    if (*kind == CurvePlanKind::hard_deflatten) { state.hard_plan_staged = true; state.hard_staged_floor_mv = state.hard_floor_mv; state.hard_mod_ack = false; }
                     state.curve_plan_message = "Staged " + std::to_string(plan.changes.size()) + " points. Review the dots before Apply.";
                     if (!plan.predicted_khz.empty()) state.curve_plan_message += " Model peak: " +
                         number_text(*std::max_element(plan.predicted_khz.begin(), plan.predicted_khz.end()) / 1000.0, "MHz") + " (estimate).";
@@ -1002,7 +1072,50 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
         }
         if (!state.curve_plan_message.empty()) ImGui::TextWrapped("%s", state.curve_plan_message.c_str());
     }
-    curve_keyboard(state);
+    if (state.presentation != Presentation::classic) curve_keyboard(state);
+    if (!editor.dirty()) state.hard_plan_staged = false;
+    if (editor.dirty()) {
+        const auto& baseline = editor.baseline();
+        double before_peak = 0, after_peak = 0; std::size_t changed_points = 0;
+        for (const auto& point : points) {
+            after_peak = std::max(after_peak, point.freq_mhz);
+            const auto previous = std::find_if(baseline.begin(), baseline.end(), [&](const auto& p) { return p.idx == point.idx; });
+            if (previous != baseline.end()) { before_peak = std::max(before_peak, previous->freq_mhz); if (previous->delta_khz != point.delta_khz) ++changed_points; }
+        }
+        ImGui::TextColored(amber, "Apply would request %zu changed point(s). Curve peak: %.3f -> %.3f MHz (requested model, not measured).", changed_points, before_peak, after_peak);
+        if (state.hard_plan_staged) {
+            ImGui::TextColored(amber, "Hard de-flatten remains in this draft; external voltage modification is required. Revert to discard the draft.");
+            auto prediction = [&](const std::vector<dc_vf_point>& input, std::vector<int64_t>& by_point) {
+                if (!state.planner_api.predict || !snapshot.data.curve_model_max_rise_khz || input.empty()) return false;
+                std::vector<dc_vfp_num> khz(input.size());
+                for (size_t i = 0; i < input.size(); ++i) {
+                    const double value = input[i].freq_mhz * 1000.0;
+                    if (!std::isfinite(value) || value <= 0 || value > 9007199254740992.0) return false;
+                    khz[i].kind = DC_VFP_INT; khz[i].i = static_cast<int64_t>(std::nearbyint(value));
+                }
+                dc_vfp_num rise{}; rise.kind = DC_VFP_INT; rise.i = snapshot.data.curve_model_max_rise_khz;
+                std::vector<int64_t> values(input.size()); std::vector<uint32_t> order(input.size());
+                if (state.planner_api.predict(input.data(), input.size(), khz.data(), &rise, values.data(), order.data(), input.size()) != DC_OK) return false;
+                by_point.resize(input.size()); std::vector<bool> seen(input.size());
+                for (size_t i = 0; i < input.size(); ++i) {
+                    if (order[i] >= input.size() || seen[order[i]]) return false;
+                    seen[order[i]] = true; by_point[order[i]] = values[i];
+                }
+                return true;
+            };
+            std::vector<int64_t> before, after;
+            if (baseline.size() == points.size() && prediction(baseline, before) && prediction(points, after)) {
+                size_t lifted = 0; double maximum_lift = 0, lowest = 0;
+                for (size_t i = 0; i < points.size(); ++i) if (points[i].idx == baseline[i].idx && points[i].volt_mv < state.hard_staged_floor_mv && after[i] > before[i]) {
+                    const double lift = static_cast<double>(after[i] - before[i]) / 1000.0;
+                    if (!lifted || points[i].volt_mv < lowest) lowest = points[i].volt_mv;
+                    ++lifted; maximum_lift = std::max(maximum_lift, lift);
+                }
+                ImGui::TextWrapped("Model estimate below %.3f mV: %zu point(s) raised%s", state.hard_staged_floor_mv, lifted, lifted ? ":" : ".");
+                if (lifted) ImGui::TextWrapped("Lowest affected %.3f mV; largest increase %.3f MHz. These are predictions, not measurements.", lowest, maximum_lift);
+            } else ImGui::TextWrapped("Below-floor model estimate unavailable; physical response is unknown.");
+        }
+    }
     ImGui::BeginDisabled(!can_hold_selected(state));
     if (ImGui::Button("Hold selected point")) queue_selected_hold(state);
     ImGui::EndDisabled(); ImGui::SameLine(); ImGui::Checkbox("Hold headroom",&state.hold_headroom);
@@ -1223,20 +1336,49 @@ void classic_header(ViewState& state) {
         state.presentation = presentation == 0 ? Presentation::focused : Presentation::classic;
 }
 
+constexpr Page classic_pages[]{Page::daily, Page::advanced, Page::monitor, Page::timings};
+int classic_page_index(Page page) {
+    for (int i = 0; i < 4; ++i) if (classic_pages[i] == page) return i;
+    return -1;
+}
+void float_classic_page(ViewState& state, int index) {
+    if (index < 0 || index >= 4) return;
+    state.classic_floating[index] = state.classic_float_focus[index] = true;
+    state.classic_tab_drag = -1;
+    for (int i = 0; i < 4; ++i) if (!state.classic_floating[i]) { state.page = classic_pages[i]; break; }
+}
 void classic_tabs(ViewState& state) {
     const std::pair<Page, const char*> tabs[] = {
         {Page::daily,"  Control  "}, {Page::advanced,"  Advanced  "},
         {Page::monitor,"  Monitor  "}, {Page::timings,"  Timings (nvtune)  "}};
     const auto selected_page = state.page;
     if (ImGui::BeginTabBar("legacy-tabs", ImGuiTabBarFlags_NoTooltip)) {
-        for (const auto& tab : tabs) {
+        for (int index = 0; index < 4; ++index) {
+            if (state.classic_floating[index]) continue;
+            const auto& tab = tabs[index];
             const bool active = ImGui::BeginTabItem(tab.second, nullptr,
                 tab.first == selected_page ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
             if (ImGui::IsItemClicked() || ImGui::IsItemActivated()) state.page = tab.first;
+            if (ImGui::IsItemClicked()) {
+                state.classic_tab_drag = index;
+                state.classic_tab_top = ImGui::GetItemRectMin().y;
+                state.classic_tab_bottom = ImGui::GetItemRectMax().y;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag this tab off the selector to float its page. Right-click for Float page.");
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Float page")) float_classic_page(state, index);
+                ImGui::EndPopup();
+            }
             if (active) ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
     }
+    if (state.classic_tab_drag >= 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left, classic_px(6))) {
+        const float y = ImGui::GetIO().MousePos.y;
+        if (y < state.classic_tab_top - classic_px(12) || y > state.classic_tab_bottom + classic_px(12))
+            float_classic_page(state, state.classic_tab_drag);
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) state.classic_tab_drag = -1;
 }
 
 bool classic_knob_table(const char* id) {
@@ -1310,6 +1452,10 @@ void classic_daily(ViewState& state) {
     }
     }
     ImGui::EndChild();
+    const auto discovery_id = ImGui::GetID(("classic-i2c-discovered-" + std::to_string(s.generation)).c_str());
+    if (!s.data.i2c.candidates.empty() && !ImGui::GetStateStorage()->GetBool(discovery_id)) {
+        ImGui::SetNextItemOpen(true); ImGui::GetStateStorage()->SetBool(discovery_id, true);
+    }
     if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
     if (ImGui::CollapsingHeader("V/F curve editor", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::Button("Open V/F curve", ImVec2(u(220), 0))) {
@@ -1377,6 +1523,54 @@ void classic_log(const SessionSnapshot& s) {
     ImGui::InputTextMultiline("##classic-log", text.data(), text.size() + 1,
         ImVec2(-1, height), ImGuiInputTextFlags_ReadOnly);
     ImGui::PopFont();
+}
+
+void classic_page_content(ViewState& state, Page page) {
+    if (state.preview) {
+        if (page == Page::daily) daily(state, true);
+        else if (page == Page::advanced) advanced(true);
+        else monitor(true);
+        return;
+    }
+    if (!state.live) { ImGui::TextUnformatted("Waiting for the first session snapshot..."); return; }
+    if (page == Page::daily) { classic_daily(state); classic_log(*state.live); }
+    else if (page == Page::advanced) classic_advanced(state);
+    else if (page == Page::monitor) classic_monitor(*state.live, state.shunt);
+    else if (page == Page::timings) {
+        const auto& s = *state.live;
+        auto output = draw_timings(state.timings_view, s.data.timings.get(), s.generation,
+            s.busy || !s.data.connected, state.controls_unlocked);
+        state.timing_helper_requested |= output.choose_helper;
+        state.commands.insert(state.commands.end(), output.commands.begin(), output.commands.end());
+    }
+}
+void classic_floating_pages(ViewState& state) {
+    const char* titles[]{"Control###druta_float_control", "Advanced###druta_float_advanced",
+        "Monitor###druta_float_monitor", "Timings###druta_float_timings"};
+    for (int index = 0; index < 4; ++index) {
+        if (!state.classic_floating[index]) continue;
+        ImGui::SetNextWindowSize({classic_px(760), classic_px(640)}, ImGuiCond_FirstUseEver);
+        const auto display = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowSizeConstraints({std::min(classic_px(320), display.x), std::min(classic_px(240), display.y)},
+            {display.x, display.y});
+        if (state.classic_float_focus[index]) {
+            const float offset = 24.0f * static_cast<float>(index);
+            ImGui::SetNextWindowPos({classic_px(60 + offset), classic_px(90 + offset)}, ImGuiCond_Appearing);
+            ImGui::SetNextWindowFocus(); state.classic_float_focus[index] = false;
+        }
+        bool open = true;
+        if (ImGui::Begin(titles[index], &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse)) {
+            if (ImGui::Button("Dock back")) { state.classic_floating[index] = false; state.page = classic_pages[index]; }
+            ImGui::SameLine(); ImGui::TextDisabled("Same GPU session; shared drafts. Close also docks this page.");
+            if (state.classic_floating[index]) {
+                ImGui::BeginChild("floating-page-content", {0, 0});
+                classic_page_content(state, classic_pages[index]);
+                ImGui::EndChild();
+            }
+        }
+        ImGui::End();
+        if (!open) { state.classic_floating[index] = false; state.page = classic_pages[index]; }
+    }
 }
 
 } // namespace
@@ -1457,6 +1651,7 @@ void draw(ViewState& state) {
     }
     if (!state.preview) { sync_live_drafts(state); observe_curve(state); }
     const bool classic = state.presentation == Presentation::classic;
+    if (!classic || !state.live) state.classic_reset_deadline = 0;
     if (classic && (state.page == Page::rails || state.page == Page::i2c)) state.page = Page::daily;
     unsigned classic_colors = 0;
     if (classic) {
@@ -1503,9 +1698,22 @@ void draw(ViewState& state) {
         {
             const auto& s=*state.live;
             if (classic) ImGui::SameLine(0, u(16));
-            ImGui::BeginDisabled(!s.data.connected || s.busy || !state.controls_unlocked || !s.data.reset_controls_available);
-            if (ImGui::Button("Reset controls")) { Command c; c.operation=Command::Operation::reset_controls; state.commands.push_back(c); }
+            const bool reset_ready = s.data.connected && !s.busy && !s.opening && state.controls_unlocked && s.data.reset_controls_available;
+            if (!reset_ready || state.classic_reset_deadline <= ImGui::GetTime()
+                || state.classic_reset_generation != s.generation || state.classic_reset_slot != s.selected_slot
+                || (state.select_slot && *state.select_slot != s.selected_slot)) state.classic_reset_deadline = 0;
+            ImGui::BeginDisabled(!reset_ready);
+            if (ImGui::Button("Reset controls")) {
+                if (!classic || state.classic_reset_deadline > ImGui::GetTime()) {
+                    Command c; c.operation=Command::Operation::reset_controls; state.commands.push_back(c);
+                    state.classic_reset_deadline = 0;
+                } else {
+                    state.classic_reset_deadline = ImGui::GetTime() + 10;
+                    state.classic_reset_generation = s.generation; state.classic_reset_slot = s.selected_slot;
+                }
+            }
             ImGui::EndDisabled();
+            if (classic) hint("First press arms for 10 seconds; press again to reset offsets, voltage boost, power, fan and V/F curve, and release owned holds/I2C requests. Registry overrides are unchanged.");
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button, {168.0f/255, 88.0f/255, 16.0f/255, 1});
             ImGui::BeginDisabled(!s.data.connected || s.busy || s.curve_stale || !state.controls_unlocked || !s.data.max_it_available || state.curve_draft.dirty());
@@ -1530,6 +1738,12 @@ void draw(ViewState& state) {
                 if (s.data.tuning.maintenance_needed()) queue_hold_release(state);
                 else queue_selected_hold(state);
             }
+        }
+        if (classic && state.classic_reset_deadline > ImGui::GetTime()) {
+            ImGui::TextColored(amber, "RESET ARMED — press Reset controls again within %.0f seconds, or Cancel reset.",
+                std::ceil(state.classic_reset_deadline - ImGui::GetTime()));
+            ImGui::TextWrapped("Scope: resets clock/voltage offsets, voltage boost, power limit, fan policy and V/F curve; releases owned holds and I2C requests. Registry overrides are unchanged. A scoped Undo is captured where available.");
+            if (ImGui::Button("Cancel reset")) state.classic_reset_deadline = 0;
         }
         ImGui::Separator();
     }
@@ -1557,7 +1771,11 @@ void draw(ViewState& state) {
     }
     ImGui::BeginChild("workspace", ImVec2(0, body_height), false);
     const bool verbose = state.presentation == Presentation::classic;
-    if (!state.preview) {
+    if (classic) {
+        const int index = classic_page_index(state.page);
+        if (index >= 0 && state.classic_floating[index]) ImGui::TextUnformatted("This page is floating. Use Dock back in its window to return it.");
+        else classic_page_content(state, state.page);
+    } else if (!state.preview) {
         if (!state.live) ImGui::TextUnformatted("Waiting for the first session snapshot...");
         else if (state.page == Page::daily) { if (classic) classic_daily(state); else live_daily(state, false); }
         else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
@@ -1574,7 +1792,6 @@ void draw(ViewState& state) {
             state.commands.insert(state.commands.end(),output.commands.begin(),output.commands.end());
         }
         else { if (classic) classic_monitor(*state.live,state.shunt); else live_monitor(*state.live, false,state.shunt); }
-        if (classic && state.live && state.page == Page::daily) classic_log(*state.live);
     } else if (state.page == Page::daily) daily(state, verbose);
     else if (state.page == Page::advanced) advanced(verbose);
     else monitor(verbose);
@@ -1585,8 +1802,10 @@ void draw(ViewState& state) {
     ImGui::TextColored(state.hotkey_available ? muted : amber, "%s", footer);
     ImGui::PopTextWrapPos();
     ImGui::End();
+    if (classic) classic_floating_pages(state);
     draw_curve_window(state);
     draw_shunt_window(state.shunt);
+    if (classic && !state.preview && state.live) curve_keyboard(state, true);
     if (compact && !classic) ImGui::PopStyleVar(3);
     if (risk_colors) ImGui::PopStyleColor(static_cast<int>(risk_colors));
     if (classic) { ImGui::PopStyleVar(10); ImGui::PopFont(); ImGui::PopStyleColor(static_cast<int>(classic_colors)); }

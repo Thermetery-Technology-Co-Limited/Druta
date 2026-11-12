@@ -13,10 +13,12 @@
 #include "ui_view.h"
 #include "classic_layout.h"
 #include "session.h"
+#include "curve_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
@@ -249,6 +251,46 @@ struct App {
             } else if (const auto error = CommDlgExtendedError()) {
                 const std::wstring message = L"The profile dialog could not open (Windows error " + std::to_wstring(error) + L").";
                 MessageBoxW(window, message.c_str(), L"Druta", MB_OK | MB_ICONERROR);
+            }
+            policy.note_activity(now_seconds());
+        }
+        if (view.save_curve_profile_requested || view.load_curve_profile_requested) {
+            const bool save = view.save_curve_profile_requested;
+            view.save_curve_profile_requested = view.load_curve_profile_requested = false;
+            const auto generation = view.live ? view.live->generation : 0;
+            wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize = sizeof(dialog);
+            dialog.hwndOwner = window; dialog.lpstrFile = path; dialog.nMaxFile = static_cast<DWORD>(std::size(path));
+            dialog.lpstrFilter = L"Druta V/F curve (*.json)\0*.json\0\0"; dialog.lpstrDefExt = L"json";
+            dialog.lpstrTitle = save ? L"Save configured V/F curve" : L"Load V/F curve into draft";
+            dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+            const BOOL selected = save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog);
+            if (selected) {
+                try {
+                    const auto current = session->snapshot();
+                    if (current->generation != generation) throw std::runtime_error("Adapter changed while selecting the curve profile");
+                    if (save) {
+                        druta::ui::Command command; command.operation = druta::ui::Command::Operation::save_curve_profile;
+                        command.profile_path = path;
+                        if (!session->submit(command, generation)) throw std::runtime_error("Session is busy; curve profile was not saved");
+                        view.curve_profile_status = "Capturing configured curve; outcome appears in the operation log.";
+                    } else {
+                        if (view.curve_entry_dirty) throw std::runtime_error("Finish or revert the current numeric curve edit before loading");
+                        const auto document = druta::ui::read_profile(path);
+                        const auto loaded_snapshot = session->snapshot();
+                        if (loaded_snapshot->generation != generation) throw std::runtime_error("Adapter changed while reading the curve profile");
+                        druta::ui::stage_curve_profile(document, *loaded_snapshot, view.curve_draft);
+                        view.curve_profile_status = "Profile staged locally. Review the curve and consequences, then Apply; Undo edit restores the prior draft.";
+                        view.curve_entry_dirty = false; view.curve_entry_editing = false; view.curve_fit_requested = true;
+                        const auto& points = view.curve_draft.draft();
+                        const auto point = std::find_if(points.begin(), points.end(), [&](const auto& p) { return p.idx == view.selected_curve_point; });
+                        if (point != points.end()) {
+                            view.curve_frequency_mhz = point->freq_mhz;
+                            view.curve_delta_mhz = static_cast<double>(point->delta_khz) / (1000.0 * view.curve_draft.freq_div());
+                        }
+                    }
+                } catch (const std::exception& error) { view.curve_profile_status = error.what(); }
+            } else if (const auto error = CommDlgExtendedError()) {
+                view.curve_profile_status = "Curve profile dialog failed (Windows error " + std::to_string(error) + ").";
             }
             policy.note_activity(now_seconds());
         }

@@ -17,7 +17,7 @@ std::map<int,uint32_t> regs;
 std::vector<std::string> events;
 int reads=0, writes=0, lock_depth=0, identity_reads=0, fail_reads=0; uint32_t held=0; bool foreign_vf=false, fail_clamp=false, fail_restore=false;
 uint8_t wanted_port=3, wanted_addr=0x34; bool lose_clock_after_command=false, clock_unreadable=false;
-bool duplicate_route=false, nct_mode=false; int typed_writes=0;
+bool duplicate_route=false, nct_mode=false; int typed_writes=0, typed_fail_reg=0; bool typed_uncertain=false;
 void setup() {
     identity={}; identity.size=sizeof(identity); identity.nvapi_ok=identity.nvapi_selected=1;
     identity.nvapi_handle=1984; identity.nvapi_devid=0x12345678; identity.nvapi_subsys=0x87654321;
@@ -26,7 +26,7 @@ void setup() {
     regs={{0x00,0},{0xbe,0xb4},{0x21,120},{0xe1,0x4200},{0x01,0x80},{0x45,0},{0x23,0},
           {0x2a,32},{0x2d,0},{0x1f,48},{0x24,208},{0x8b,850},{0x8c,0xe020},{0x8d,400},{0x44,0},{0x78,0}};
     events.clear(); reads=writes=lock_depth=identity_reads=fail_reads=0; held=0; foreign_vf=fail_clamp=fail_restore=false; lose_clock_after_command=clock_unreadable=false;
-    duplicate_route=false; nct_mode=false; typed_writes=0; wanted_port=3; wanted_addr=0x34;
+    duplicate_route=false; nct_mode=false; typed_writes=0; typed_fail_reg=0; typed_uncertain=false; wanted_port=3; wanted_addr=0x34;
 }
 dc_status DC_CALL get_identity(const dc_gpu*,dc_gpu_identity* out) { ++identity_reads; *out=identity; return DC_OK; }
 dc_status DC_CALL gpu_lock(dc_gpu*) { ++lock_depth; return DC_OK; }
@@ -54,7 +54,13 @@ dc_status DC_CALL block_read(dc_gpu* gpu,uint32_t port,uint32_t addr,uint32_t re
 }
 dc_status DC_CALL typed_write(dc_gpu*,uint32_t family,uint32_t port,uint32_t addr,uint32_t reg,const uint8_t* data,uint32_t count,dc_error*) {
     CHECK(nct_mode && family==static_cast<uint32_t>(I2cFamily::nct3933) && port==wanted_port && addr==wanted_addr);
-    CHECK(reg>=1 && reg<=3 && data && count==1); ++typed_writes; regs[static_cast<int>(reg)]=data[0]; return DC_OK;
+    CHECK(reg>=1 && reg<=3 && data && count==1); ++typed_writes;
+    events.push_back("out"+std::to_string(reg));
+    if (static_cast<int>(reg)==typed_fail_reg) {
+        typed_fail_reg=0; if (typed_uncertain) { regs[static_cast<int>(reg)]=data[0]; fail_reads=4; }
+        return DC_E_FAILED;
+    }
+    regs[static_cast<int>(reg)]=data[0]; return DC_OK;
 }
 dc_status DC_CALL clock_table(dc_gpu*,dc_clock_row* rows,size_t capacity,size_t* count) {
     *count=2; if (!rows || capacity<2) return DC_E_BUFFER;
@@ -186,6 +192,32 @@ int main() {
     CHECK(!typed.execute(stale_gate).ok && typed.data().gate && typed.owned());
     CHECK(reads==before_stale_gate_reads && typed_writes==before_stale_gate_writes);
     CHECK(typed.execute(command(Command::Operation::i2c_release)).ok && !typed.owned());
+    auto zero=command(Command::Operation::i2c_zero_nct_outputs);
+    zero.i2c_route=I2cRoute{1,0x15}; zero.i2c_selection_revision=typed.data().selection_revision;
+    regs[1]=0x82; regs[2]=3; regs[3]=0x84; events.clear();
+    auto zeroed=typed.execute(zero);
+    CHECK(zeroed.ok && zeroed.may_have_changed && regs[1]==0 && regs[2]==0 && regs[3]==0 && typed.owned());
+    CHECK(events==std::vector<std::string>({"out1","out2","out3"}));
+    CHECK(zeroed.message.find("out1, out2, out3")!=std::string::npos);
+    CHECK(typed.execute(command(Command::Operation::i2c_release)).ok && !typed.owned());
+    CHECK(regs[1]==0x82 && regs[2]==3 && regs[3]==0x84);
+    typed_fail_reg=2; events.clear(); auto partial_zero=typed.execute(zero);
+    CHECK(!partial_zero.ok && partial_zero.may_have_changed && typed.owned());
+    CHECK(partial_zero.message.find("out2")!=std::string::npos && partial_zero.message.find("completed: out1")!=std::string::npos);
+    CHECK(regs[1]==0 && regs[2]==3 && regs[3]==0x84 && events==std::vector<std::string>({"out1","out2"}));
+    CHECK(typed.execute(command(Command::Operation::i2c_release)).ok && regs[1]==0x82 && !typed.owned());
+    typed_fail_reg=2; typed_uncertain=true; events.clear(); auto uncertain_zero=typed.execute(zero);
+    CHECK(!uncertain_zero.ok && uncertain_zero.may_have_changed && typed.owned());
+    CHECK(uncertain_zero.message.find("restoration pending")!=std::string::npos && regs[3]==0x84);
+    CHECK(events==std::vector<std::string>({"out1","out2"}));
+    fail_reads=0; typed_uncertain=false; CHECK(typed.execute(command(Command::Operation::i2c_release)).ok);
+    CHECK(regs[1]==0x82 && regs[2]==3 && regs[3]==0x84 && !typed.owned());
+    auto stale_zero=zero; --stale_zero.i2c_selection_revision;
+    const int before_zero_refusal=typed_writes; CHECK(!typed.execute(stale_zero).ok && typed_writes==before_zero_refusal);
+    auto wrong_zero=zero; wrong_zero.i2c_route=I2cRoute{1,0x14};
+    CHECK(!typed.execute(wrong_zero).ok && typed_writes==before_zero_refusal);
+    auto gate_off=command(Command::Operation::i2c_gate); gate_off.enabled=false; CHECK(typed.execute(gate_off).ok);
+    CHECK(!typed.execute(zero).ok && typed_writes==before_zero_refusal);
     CHECK(I2cControls::nominal_presets(900.1,906.24).empty());
     CHECK(I2cControls::nominal_presets(-1,1000).empty());
     CHECK(I2cControls::nominal_presets(0,4000).empty());

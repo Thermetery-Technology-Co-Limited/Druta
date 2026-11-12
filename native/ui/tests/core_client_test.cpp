@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core_client.h"
 #include "profile_io.h"
+#include "clock_monitor_model.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -14,7 +15,8 @@ using namespace druta::ui;
 namespace {
 int current = 40, writes = 0, mode = 0, range_fail = 0;
 int core_low = -1000, core_high = 2000, mem_low = -1000, mem_high = 2000, telemetry_fail = 0; uint32_t memory_p0 = 8000, memory_clock = 0; bool changed_id = false, no_device = false;
-int curve_div = 1, voltage_shift = 0, base_shift = 0, layout_shift = 0; bool nonlinear_curve = false;
+int curve_div = 1, voltage_shift = 0, base_shift = 0, layout_shift = 0, curve_read_fail = 0;
+int clock_step_fail = 0; uint32_t test_clock_step = 1000; int32_t test_clock_measured = 1; bool nonlinear_curve = false;
 int core_value = 30, boost_value = 10, delta = 123, delta2 = 456, curve_failure = 0, curve_writes = 0, fan_mode = 0, fan_level = 40; bool fan_auto = false, fan_refuse = false, fan_post_fail = false, curve_corrupt = false, curve_geometry_corrupt = false; int fan_read_fail = 0;
 dc_gpu* handle = reinterpret_cast<dc_gpu*>(1);
 uint32_t DC_CALL version() { return DC_ABI_VERSION; }
@@ -29,6 +31,14 @@ dc_status DC_CALL range(dc_gpu*, uint32_t type, dc_offset_range* out) {
     out->present = 1; out->low = type == 0 ? core_low : mem_low; out->high = type == 0 ? core_high : mem_high; out->current = type == 0 ? core_value : current; return DC_OK;
 }
 dc_status DC_CALL memory_telemetry(dc_gpu*, dc_telemetry* out) { if (telemetry_fail > 0) { --telemetry_fail; return DC_E_UNAVAILABLE; } out->present = DC_T_MEM_P0MAX | DC_T_MEM; out->mem_p0max = memory_p0; out->mem = memory_clock; return DC_OK; }
+dc_status DC_CALL clock_telemetry(dc_gpu*, dc_telemetry* out) {
+    out->present=DC_T_PRIV_CLOCKS|DC_T_CORE; out->core=1500; return DC_OK;
+}
+dc_status DC_CALL clock_classifier(const uint32_t*, size_t, int32_t, uint32_t, int32_t, uint32_t, int32_t, uint32_t, dc_clock_domains* out) {
+    out->count=1; auto& row=out->rows[0]; row.domain=0; row.scale=1;
+    std::memcpy(row.name,"GPC",4); std::memcpy(row.grade,"confirmed",10); std::memcpy(row.kind,"freq",5);
+    row.prog_khz=1500000; row.meas_khz=1499000; return DC_OK;
+}
 dc_status DC_CALL scale(dc_gpu*, dc_mem_offset_scale* out) { out->scale = 2; std::memcpy(out->unit, "MHz eff", sizeof("MHz eff")); return DC_OK; }
 uint32_t DC_CALL step(dc_gpu*) { return 2; }
 dc_status DC_CALL setter(dc_gpu*, uint32_t type, double value, int32_t preserve, dc_outcome* out) {
@@ -40,11 +50,11 @@ dc_status DC_CALL setter(dc_gpu*, uint32_t type, double value, int32_t preserve,
     if (mode == 3) range_fail = 2;
     return DC_OK;
 }
-dc_status DC_CALL clock_step(dc_gpu*, uint32_t* v, int32_t* m) { *v = 1000; *m = 1; return DC_OK; }
+dc_status DC_CALL clock_step(dc_gpu*, uint32_t* v, int32_t* m) { if (clock_step_fail > 0) { --clock_step_fail; return DC_E_UNAVAILABLE; } *v = test_clock_step; *m = test_clock_measured; return DC_OK; }
 dc_status DC_CALL snapshot(dc_gpu*, dc_vf_delta_snapshot* o) { o->freq_div = curve_div; o->count = 2; o->deltas[0] = {3, delta}; o->deltas[1] = {4, delta2}; return DC_OK; }
 dc_status DC_CALL deltas(dc_gpu*, const dc_vf_delta* d, size_t n, dc_outcome* o) { ++curve_writes; if (!curve_failure) { for (size_t i = 0; i < n; ++i) { if (d[i].idx == 3) delta = static_cast<int>(d[i].delta_khz); else if (d[i].idx == 4) delta2 = static_cast<int>(d[i].delta_khz); } if (curve_corrupt) ++delta2; if (curve_geometry_corrupt) ++voltage_shift; } o->ok = !curve_failure; return DC_OK; }
 dc_status DC_CALL curve_layout(dc_gpu*, int32_t, dc_vf_layout* l) { l->n_entries = 7; l->gpu_count = 2; l->gpu_idx[0] = 3; l->gpu_idx[1] = 4; l->other_count = 1; l->other_idx[0] = 5 + layout_shift; l->freq_div = curve_div; return DC_OK; }
-dc_status DC_CALL curve_read(dc_gpu*, dc_vf_curve* c) { c->count = 2; c->points[0] = {3, 900.0 + voltage_shift, (nonlinear_curve ? 2010.0 : 1500.0) + base_shift + delta / (1000.0 * curve_div), delta}; c->points[1] = {4, 950, (nonlinear_curve ? 2010.0 : 1600.0) + delta2 / (1000.0 * curve_div) + (nonlinear_curve ? delta / (1000.0 * curve_div) : 0), delta2}; return DC_OK; }
+dc_status DC_CALL curve_read(dc_gpu*, dc_vf_curve* c) { if (curve_read_fail > 0) { --curve_read_fail; return DC_E_UNAVAILABLE; } c->count = 2; c->points[0] = {3, 900.0 + voltage_shift, (nonlinear_curve ? 2010.0 : 1500.0) + base_shift + delta / (1000.0 * curve_div), delta}; c->points[1] = {4, 950, (nonlinear_curve ? 2010.0 : 1600.0) + delta2 / (1000.0 * curve_div) + (nonlinear_curve ? delta / (1000.0 * curve_div) : 0), delta2}; return DC_OK; }
 dc_status DC_CALL envelopes(dc_request_envelopes* e) { e->max_abs_delta_khz = 1000000; e->rail_offset_max_mv = 100; e->rail_offset_xoc_max_mv = 500; e->power_limit_xoc_max_mw = 1999000; return DC_OK; }
 dc_status DC_CALL curve_reset(dc_gpu*, dc_outcome* o) { ++curve_writes; delta = delta2 = 0; o->ok = 1; return DC_OK; }
 dc_status DC_CALL fan_get(dc_gpu*, dc_fan_state* s) { if (fan_mode == 2 || fan_read_fail > 0) { if (fan_read_fail > 0) --fan_read_fail; return DC_E_UNAVAILABLE; } std::memcpy(s->source, "nvml", 5); s->count = 2; for (int i = 0; i < 2; ++i) { s->fans[i].id = i; s->fans[i].level = fan_level + (fan_mode == 1 ? i : 0); s->fans[i].policy = 1; s->fans[i].manual = !fan_auto; } return DC_OK; }
@@ -168,6 +178,60 @@ int main() {
     board_mismatch = true; auto mismatch = pb->execute(power); CHECK(!mismatch.ok && mismatch.readback == 251.0 && mismatch.may_have_changed); board_mismatch = false;
     table_fail = true; power.operation = Command::Operation::stock; auto stock = pb->execute(power); CHECK(stock.ok && stock.message.find("cannot be undone") != std::string::npos); table_fail = false;
     wchar_t directory[MAX_PATH]{}; CHECK(GetTempPathW(MAX_PATH, directory) != 0); wchar_t path[MAX_PATH]{}; CHECK(GetTempFileNameW(directory, L"drp", 0, path) != 0);
+    // Save captures a fresh configured V/F table, including sparse layout,
+    // rather than the last cached observation or any staged UI state.
+    wchar_t curve_path[MAX_PATH]{}; CHECK(GetTempFileNameW(directory, L"vfp", 0, curve_path) != 0);
+    CHECK(DeleteFileW(curve_path) != 0);
+    Command save_curve{}; save_curve.operation = Command::Operation::save_curve_profile; save_curve.profile_path = curve_path;
+    const auto cached_curve = pb->read(true); CHECK(cached_curve.curve.size() == 2);
+    const int original_delta = delta, original_delta2 = delta2;
+    delta = 321; delta2 = -654;
+    const int save_curve_writes = curve_writes, save_offset_writes = writes, save_power_writes = power_writes;
+    const int save_policy_writes = policy_writes, save_advanced_writes = advanced_writes, save_boost_writes = boost_writes;
+    const auto curve_saved = pb->execute(save_curve); CHECK(curve_saved.ok && !curve_saved.may_have_changed);
+    const auto curve_doc = read_profile(curve_path);
+    CHECK(curve_doc["format"] == "druta-native-curve" && curve_doc["target"]["uuid"] == "GPU-A");
+    CHECK(curve_doc["geometry"]["n_entries"] == 7 && curve_doc["geometry"]["freq_div"] == curve_div
+        && curve_doc["geometry"]["gpu_indices"] == ProfileJson::array({3,4})
+        && curve_doc["geometry"]["other_indices"] == ProfileJson::array({5}));
+    CHECK(curve_doc["points"].size() == 2 && curve_doc["points"][0]["idx"] == 3
+        && curve_doc["points"][0]["delta_khz"] == 321 && curve_doc["points"][1]["delta_khz"] == -654);
+    CHECK(curve_writes == save_curve_writes && writes == save_offset_writes && power_writes == save_power_writes
+        && policy_writes == save_policy_writes && advanced_writes == save_advanced_writes && boost_writes == save_boost_writes);
+    CHECK(DeleteFileW(curve_path) != 0);
+    curve_read_fail = 2; CHECK(!pb->execute(save_curve).ok && GetFileAttributesW(curve_path) == INVALID_FILE_ATTRIBUTES);
+    curve_read_fail = 0; changed_id = true;
+    CHECK(!pb->execute(save_curve).ok && GetFileAttributesW(curve_path) == INVALID_FILE_ATTRIBUTES);
+    changed_id = false;
+    CoreApi unavailable_curve_api = pa; unavailable_curve_api.curve_layout = nullptr;
+    auto unavailable_curve = create_core_backend_for_test(unavailable_curve_api);
+    CHECK(unavailable_curve->open("0000:02:00.0", error));
+    CHECK(!unavailable_curve->execute(save_curve).ok && GetFileAttributesW(curve_path) == INVALID_FILE_ATTRIBUTES);
+    CHECK(curve_writes == save_curve_writes && writes == save_offset_writes && power_writes == save_power_writes
+        && policy_writes == save_policy_writes && advanced_writes == save_advanced_writes && boost_writes == save_boost_writes);
+    delta = original_delta; delta2 = original_delta2;
+    // Clock bin evidence uses the independently probed step even when V/F
+    // detail capture fails; transient step failures preserve a known value.
+    CoreApi clock_api = pa; clock_api.telemetry = clock_telemetry; clock_api.clock_classify = clock_classifier;
+    auto clocks = create_core_backend_for_test(clock_api); CHECK(clocks->open("0000:02:00.0", error));
+    test_clock_step=12500; test_clock_measured=1; curve_read_fail=2;
+    auto clock_state=clocks->read(true);
+    CHECK(clock_state.curve.empty() && clock_state.clock_monitor && clock_state.clock_monitor->readings[0].bin_mhz == 12.5);
+    curve_read_fail=0; clock_step_fail=2; clock_state=clocks->read(true);
+    CHECK(clock_state.curve.size()==2 && clock_state.clock_monitor->readings[0].bin_mhz == 12.5);
+    test_clock_step=15000; clock_state=clocks->read(true);
+    CHECK(clock_state.clock_monitor->readings[0].bin_mhz == 15.0);
+    test_clock_measured=0; clock_state=clocks->read(true);
+    CHECK(!clock_state.clock_monitor->readings[0].bin_mhz);
+    test_clock_measured=1; clock_state=clocks->read(true);
+    CHECK(clock_state.clock_monitor->readings[0].bin_mhz == 15.0);
+    clocks->close(); CHECK(clocks->open("0000:02:00.0", error));
+    clock_state=clocks->read(false);
+    CHECK(clock_state.clock_monitor && !clock_state.clock_monitor->readings[0].bin_mhz);
+    CoreApi missing_step_api=clock_api; missing_step_api.clock_step=nullptr;
+    auto no_step=create_core_backend_for_test(missing_step_api); CHECK(no_step->open("0000:02:00.0", error));
+    clock_state=no_step->read(true); CHECK(clock_state.clock_monitor && !clock_state.clock_monitor->readings[0].bin_mhz);
+    test_clock_step=1000; test_clock_measured=1; clock_step_fail=0;
     Command save{}; save.operation = Command::Operation::save_profile; save.profile_path = path;
     fan_auto = false; fan_mode = 1; mode = 0; CHECK(pb->execute(save).ok); auto saved = read_profile(path);
     CHECK(saved["format"] == "druta-native-daily" && !saved["controls"].contains("fan") && saved["controls"].contains("core"));
