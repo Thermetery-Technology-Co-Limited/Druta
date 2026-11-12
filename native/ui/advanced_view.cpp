@@ -3,6 +3,7 @@
 #include "advanced_view.h"
 #include "session.h"
 #include "imgui.h"
+#include "classic_layout.h"
 #include <algorithm>
 #include <cmath>
 
@@ -18,16 +19,9 @@ void hint(const std::string& text) {
 }
 bool ready(const SessionSnapshot& s) { return s.data.connected && !s.opening && !s.busy; }
 bool table(const char* id, bool classic = false) {
-    if (!ImGui::BeginTable(id, classic ? 6 : 4, ImGuiTableFlags_SizingStretchProp)) return false;
+    if (classic) return begin_classic_knob_table(id);
+    if (!ImGui::BeginTable(id, 4, ImGuiTableFlags_SizingStretchProp)) return false;
     ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch, 1.3f);
-    if (classic) {
-        ImGui::TableSetupColumn("Slider", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, u(66));
-        ImGui::TableSetupColumn("Readback", ImGuiTableColumnFlags_WidthFixed, u(92));
-        ImGui::TableSetupColumn("Apply", ImGuiTableColumnFlags_WidthFixed, u(60));
-        ImGui::TableSetupColumn("Extra", ImGuiTableColumnFlags_WidthFixed, u(60));
-        return true;
-    }
     ImGui::TableSetupColumn("Request", ImGuiTableColumnFlags_WidthStretch, 1.1f);
     ImGui::TableSetupColumn("Readback", ImGuiTableColumnFlags_WidthFixed, u(122));
     ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, u(155));
@@ -49,7 +43,8 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     }
     ImGui::PushID(static_cast<int>(key));
     ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label); hint(c.detail);
+    if (verbose) ImGui::TextWrapped("%s", label); else ImGui::TextUnformatted(label);
+    hint(c.detail);
     ImGui::TableNextColumn();
     const float width = ImGui::GetContentRegionAvail().x;
     const bool slider = c.low && c.high && std::isfinite(*c.low) && std::isfinite(*c.high)
@@ -60,7 +55,7 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     ImGui::BeginDisabled(!gate);
     if (slider) {
         ImGui::SetNextItemWidth(verbose || stacked ? -1 : width - u(92) - ImGui::GetStyle().ItemSpacing.x);
-        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &d.value, &*c.low, &*c.high, "%.6g", ImGuiSliderFlags_NoInput)) {
+        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &d.value, &*c.low, &*c.high, verbose ? " " : "%.6g", ImGuiSliderFlags_NoInput)) {
             const double step = keep_slider ? c.step.value_or(0.0)
                 : std::max(c.step.value_or(1.0), c.unit == "mV" || c.unit == "MHz" ? 1.0 : 0.001);
             if (std::isfinite(step) && step > 0) {
@@ -78,8 +73,8 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     ImGui::EndDisabled();
     hint("Draft only. Apply sends this selected request; polling preserves unfinished edits.");
     ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-    if (verbose) ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 14.0f / 16.0f);
-    if (c.current && verbose) ImGui::Text("%.6g cfg%s", *c.current, c.availability == Availability::transient ? " *" : "");
+    if (verbose) push_classic_mono();
+    if (c.current && verbose) ImGui::TextWrapped("%.6g %s%s", *c.current, c.unit.c_str(), c.availability == Availability::transient ? " *" : "");
     else if (c.current) ImGui::Text("%.6g %s%s", *c.current, c.unit.c_str(), c.availability == Availability::transient ? " *" : "");
     else ImGui::TextDisabled("-- %s", c.unit.c_str());
     if (verbose) ImGui::PopFont();

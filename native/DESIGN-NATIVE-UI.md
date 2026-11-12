@@ -447,8 +447,9 @@ driver watts. Saving this display preference never saves or reapplies tuning.
 
 Remaining faithful-port work: persistent discovery hints and progress/cancel
 UI; Advanced registry/relationship overrides, rail/policy diagnostics and power
-saving panels; expanded Monitor metrics; batch timing profiles/captures; V/F
-plot guides, legacy nudge buttons, Ctrl+H hold initiation and hard de-flatten.
+saving panels; qualified clock-domain and measured-clock evidence displays;
+batch timing profiles/captures; V/F plot guides, legacy nudge buttons and hard
+de-flatten.
 These are tracked gaps, not completed controls. The current update does not
 claim full Python interface parity or physical qualification of other I2C ICs.
 
@@ -457,5 +458,25 @@ The detailed source comparisons are recorded separately in the
 and [Focused port inventory](ui/validation/2026-11-12-focused-port-inventory.md).
 They compare released Python `fa6ee83` with native `d5034e8`, distinguish
 missing UI bindings from missing semantic services, and list bounded follow-up
-work. Classic geometry/fonts and the missing monitoring displays are the main
-visual gaps; the reports are an inventory, not a claim those gaps are fixed.
+work. The first implementation increment restores Classic's shared fixed knob
+columns, wrapping labels, separate body/heading/monospace fonts, actual page
+tabs and selectable/copyable log. Narrow windows scroll the two knob columns
+horizontally without shrinking them. Configured values show their units;
+tooltips distinguish requests from physical measurements.
+
+Both skins now bind the existing telemetry snapshot to seven legacy tiles,
+reason statuses, power/utilization bars, paired PCIe/state panels and optional
+history. Missing values, zeros and stale readings remain distinct; counters
+retain their integer precision. TDP used is draw divided by the reported
+enforced limit, separate from the power-policy target percentage. Partial
+PCIe aggregate coverage is not represented as a complete zero, and historical
+baseline coverage remains explicitly unverified. No additional polling is
+introduced by these displays.
+
+Ctrl+H now shares the selected-point hold command with the editor button and
+works across pages, including a closed or collapsed editor. Text entry,
+pending edits, stale/disconnected state and active work block initiation;
+owned recovery remains releasable independently of those initiation gates.
+Backend ownership and fresh preflight checks remain authoritative. The
+inventories still track the broader unimplemented workflows; this increment
+does not claim full frontend parity.

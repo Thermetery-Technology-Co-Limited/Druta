@@ -306,6 +306,9 @@ void original_classic_layout_and_daily_companions() {
     rail.state.availability = Availability::available;
     live->data.rail_controls.push_back(rail);
     const float rounding = ImGui::GetStyle().FrameRounding;
+    // Actual tab bars defer new-tab layout, and the horizontal knob region
+    // measures its automatic height. Inspect the settled production frame.
+    for (int n = 0; n < 4; ++n) frame(state, 1501, 1125, false);
     auto text = frame(state, 1501, 1125);
     check(contains(text, "Thermetery Druta 1.9.1") && contains(text, "card") && contains(text, "driver") && contains(text, "vbios"),
         "Classic restores the original version/card metadata header");
@@ -323,14 +326,20 @@ void original_classic_layout_and_daily_companions() {
     }
     bool columns_match = false;
     if (body) {
-        const auto columns_id = body->GetID("classic-control-columns");
-        const auto* columns = ImGui::TableFindByID(columns_id);
-        const auto* offsets = ImGui::TableFindByID(ImHashStr("classic-clock-offsets", 0, columns_id));
-        const auto* rails = ImGui::TableFindByID(ImHashStr("daily-rail-controls", 0, columns_id));
-        columns_match = columns && columns->ColumnsCount == 2 && offsets && offsets->ColumnsCount == 6
-            && rails && rails->ColumnsCount == 6 && offsets->OuterRect.Min.x < rails->OuterRect.Min.x;
+        ImGuiWindow* knobs = nullptr;
+        for (auto* window : ImGui::GetCurrentContext()->Windows)
+            if (window->ParentWindow == body && window->ChildId == body->GetID("classic-knob-columns")) knobs = window;
+        if (knobs) {
+            const auto columns_id = knobs->GetID("classic-control-columns");
+            const auto* columns = ImGui::TableFindByID(columns_id);
+            const auto* offsets = ImGui::TableFindByID(ImHashStr("classic-clock-offsets", 0, columns_id));
+            const auto* rails = ImGui::TableFindByID(ImHashStr("daily-rail-controls", 0, columns_id));
+            columns_match = columns && columns->ColumnsCount == 2 && offsets && offsets->ColumnsCount == 6
+                && rails && rails->ColumnsCount == 6 && offsets->OuterRect.Min.x < rails->OuterRect.Min.x
+                && knobs->ScrollMax.x > 0 && knobs->ScrollMax.y == 0;
+        }
     }
-    check(columns_match && !active_sidebar, "Classic uses clipped left/right groups and original six-column slider tables");
+    check(columns_match && !active_sidebar, "Classic preserves six-column left/right groups with horizontal overflow instead of compressed controls");
     check(near(ImGui::GetStyle().FrameRounding, rounding), "Classic restores scoped style after drawing instead of mutating Focused theme");
     check(state.advanced_view.drafts.count(2027) && !state.advanced_view.drafts.count(2003),
         "Daily selects uniquely API-qualified core current, not a matching label or fixed policy ID");
@@ -448,7 +457,13 @@ void shunt_display_and_raw_power_apply() {
         && contains(text, "240 W corrected (120 W raw)") && contains(text, "300 W corrected"),
         "Daily shows corrected measured watts and configured watts with the raw reading retained");
     state.page = Page::monitor; text = frame(state, 1920, 1400);
-    check(contains(text, "BOARD POWER") && contains(text, "CORRECTED"), "monitor identifies corrected power history");
+    check(contains(text, "BOARD POWER") && contains(text, "240.0 W corrected") && contains(text, "120.0 W raw"),
+        "monitor power tile identifies corrected watts and retains the raw reading");
+    for (auto* window : ImGui::GetCurrentContext()->Windows)
+        if (window->ParentWindow && window->ChildId == window->ParentWindow->GetID("workspace"))
+            window->StateStorage.SetInt(window->GetID("History"), 1);
+    text = frame(state, 1920, 1400);
+    check(contains(text, "CORRECTED"), "expanded Monitor history identifies corrected power");
     state.page = Page::daily; frame(state, 1920, 1400);
     check(state.commands.empty() && !state.shunt.save_requested && !state.save_profile_requested
         && !state.load_profile_requested && !state.refresh_requested && !state.reconnect_requested,
@@ -1024,13 +1039,76 @@ void explicit_hold_and_global_actions(Presentation presentation) {
     check(state.commands.empty(),"busy owned hold cannot queue overlapping releases");
 }
 
+void hold_shortcut() {
+    ViewState state; state.preview=false; state.presentation=Presentation::focused;
+    auto live=snapshot(); state.live=live; live->data.hold_available=true;
+    state.curve_window_open=true; state.curve_window_focus_requested=true; state.controls_unlocked=true;
+    state.hold_headroom=false; state.headroom_margin_mv=37.5;
+    frame(state,1920,1280); state.selected_curve_point=1;
+    auto press = [&] { ImGui::FocusWindow(ImGui::FindWindowByName("V/F curve editor###druta_curve_editor"));
+        press_key(state,ImGuiKey_H,false,true,1920,1280); };
+    press();
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::hold_curve_point
+        && state.commands[0].hold_point_index==1 && state.commands[0].expected_curve.size()==live->data.curve.size()
+        && state.commands[0].expected_curve_freq_div==live->data.curve_freq_div && !state.commands[0].hold_headroom
+        && near(state.commands[0].headroom_margin_mv,37.5), "Ctrl+H queues the same selected-point hold and curve guard as the button");
+    press(); check(state.commands.size()==1,"a queued hold prevents duplicate shortcut commands");
+    state.commands.clear(); live->data.tuning.owned=true; live->data.tuning.recovery=true;
+    live->data.connected=false; state.controls_unlocked=false;
+    press(); check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::release_hold,
+        "Ctrl+H releases owned recovery even while disconnected and locked");
+    press(); check(state.commands.size()==1,"a queued release is not duplicated");
+    state.commands.clear(); live->busy=true; press(); check(state.commands.empty(),"busy blocks owned hold release");
+    live->busy=false; live->data.tuning={}; live->data.connected=true; state.controls_unlocked=true;
+    live->curve_stale=true; press(); check(state.commands.empty(),"stale curve blocks shortcut hold");
+    live->curve_stale=false; ++live->curve_revision; live->busy=true; press(); check(state.commands.empty(),"busy blocks shortcut hold");
+    live->busy=false; state.controls_unlocked=false; press(); check(state.commands.empty(),"locked controls block shortcut hold");
+    state.controls_unlocked=true; live->data.connected=false; press(); check(state.commands.empty(),"disconnected adapter blocks shortcut hold");
+    live->data.connected=true; ++live->curve_revision; frame(state,1920,1280); state.selected_curve_point=999; press(); check(state.commands.empty(),"invalid selected point blocks shortcut hold");
+    state.selected_curve_point=1; live->data.telemetry.present|=DC_T_VF_LOCKED; live->data.telemetry.vf_locked_count=1;
+    press(); check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::hold_curve_point,
+        "unowned lock telemetry never causes a release; fresh backend preflight decides whether hold is safe");
+    state.commands.clear(); live->data.telemetry.vf_locked_count=0;
+    ImGui::ActivateItemByID(workspace_button("MHz")); frame(state,1920,1280);
+    press(); check(state.commands.empty(),"active text entry blocks shortcut hold");
+    ImGui::ClearActiveID(); state.curve_entry_dirty=true;
+    press(); check(state.commands.empty(),"uncommitted numeric entry blocks shortcut hold");
+    state.curve_entry_dirty=false; check(state.curve_draft.stage_mhz(0,15),"shortcut fixture stages a curve edit");
+    press(); check(state.commands.empty(),"dirty curve blocks shortcut hold");
+    check(state.curve_draft.revert(),"fresh curve observation restores clean shortcut fixture"); state.curve_window_open=false;
+    for (const auto page : {Page::advanced, Page::monitor}) {
+        state.page=page; frame(state,1920,1280);
+        ImGui::FocusWindow(ImGui::FindWindowByName("Druta workspace"));
+        press_key(state,ImGuiKey_H,false,true,1920,1280);
+        check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::hold_curve_point
+            && state.commands[0].hold_point_index==1,"Ctrl+H holds retained point on another page with editor closed");
+        state.commands.clear();
+    }
+    state.curve_window_open=true; state.curve_window_focus_requested=true; frame(state,1920,1280);
+    auto* editor=ImGui::FindWindowByName("V/F curve editor###druta_curve_editor");
+    check(editor != nullptr,"editor exists for collapsed shortcut test");
+    if (editor) { editor->Collapsed=true; ImGui::FocusWindow(editor); }
+    press_key(state,ImGuiKey_H,false,true,1920,1280);
+    check(state.commands.size()==1 && state.commands[0].operation==Command::Operation::hold_curve_point,
+        "Ctrl+H holds retained point with editor collapsed");
+    if (editor) editor->Collapsed=false;
+}
+
 void timings_navigation_and_commands(Presentation presentation) {
     ViewState state; state.preview=false; state.presentation=presentation;
     auto live=snapshot(); state.live=live;
     frame(state,1024,1000);
     auto* root=ImGui::FindWindowByName("Druta workspace");
     ImGuiID nav_id=0;
-    if(presentation==Presentation::classic) nav_id=ImHashStr("Timings (nvtune)",0,root->GetID("legacy-tabs"));
+    if(presentation==Presentation::classic) {
+        // New tabs are registered on the first frame and become interactive
+        // after the bar has laid them out. Activate the actual padded tab ID.
+        frame(state,1024,1000);
+        auto* tabs=ImGui::GetCurrentContext()->TabBars.GetByKey(root->GetID("legacy-tabs"));
+        check(tabs && tabs->Tabs.Size==4,"Classic navigation is an actual four-page tab bar");
+        nav_id=ImHashStr("  Timings (nvtune)  ",0,root->GetID("legacy-tabs"));
+        check(tabs && ImGui::TabBarFindTabByID(tabs,nav_id),"Timings route targets the real registered tab");
+    }
     else {
         auto* nav=root;
         for(auto* candidate:ImGui::GetCurrentContext()->Windows)
@@ -1288,7 +1366,8 @@ void rendering_and_uncertainty() {
     live->fan_readings_stale = false;
     live->data.telemetry.fans[0].has_duty = 0;
     const auto partial_fan = frame(state, 1920, 1400);
-    check(contains(partial_fan, "duty --") && contains(partial_fan, "1200 RPM"), "fresh partial fan data preserves independent duty/RPM availability");
+    check(contains(partial_fan, "Fan 0 duty") && contains(partial_fan, "-- %") && contains(partial_fan, "1200 RPM"),
+        "fresh partial fan data preserves independent duty/RPM availability");
     live->data.connected = false;
     live->data.curve.clear();
     live->data.telemetry.present = 0;
@@ -1340,6 +1419,7 @@ int main() {
     curve_apply_acknowledgement(Presentation::classic);
     i2c_panel_wiring(Presentation::focused);
     i2c_panel_wiring(Presentation::classic);
+    hold_shortcut();
     explicit_hold_and_global_actions(Presentation::focused);
     explicit_hold_and_global_actions(Presentation::classic);
     timings_navigation_and_commands(Presentation::focused);

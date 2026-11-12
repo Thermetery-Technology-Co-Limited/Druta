@@ -11,6 +11,7 @@
 #include "imgui_impl_dx9.h"
 #include "refresh_policy.h"
 #include "ui_view.h"
+#include "classic_layout.h"
 #include "session.h"
 #include <algorithm>
 #include <cmath>
@@ -391,24 +392,34 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 }
 void load_font() {
     wchar_t directory[MAX_PATH]{};
-    if (GetWindowsDirectoryW(directory, MAX_PATH)) {
-        const std::wstring path = std::wstring(directory) + L"\\Fonts\\segoeui.ttf";
+    const bool have_directory = GetWindowsDirectoryW(directory, MAX_PATH) != 0;
+    const auto load = [&](const wchar_t* filename, float size) -> ImFont* {
+        if (!have_directory) return nullptr;
+        const std::wstring path = std::wstring(directory) + L"\\Fonts\\" + filename;
         HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
         if (f != INVALID_HANDLE_VALUE) {
             const DWORD length = GetFileSize(f, nullptr);
             if (length > 0 && length < 32*1024*1024) {
                 void* bytes = IM_ALLOC(length); DWORD read = 0;
                 if (bytes && ReadFile(f, bytes, length, &read, nullptr) && read == length) {
-                    ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes, int(length), 18.0f);
-                    CloseHandle(f); return;
+                    auto* font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes, int(length), size);
+                    CloseHandle(f); return font;
                 }
                 if (bytes) IM_FREE(bytes);
             }
             CloseHandle(f);
         }
+        return nullptr;
+    };
+    // Keep Focused's default face/size unchanged. Classic follows released
+    // 1.9.1's separate body, semibold heading and monospaced reading faces.
+    if (!load(L"segoeui.ttf", 18)) {
+        ImFontConfig config; config.SizePixels = 18;
+        ImGui::GetIO().Fonts->AddFontDefault(&config);
     }
-    ImFontConfig config; config.SizePixels = 18;
-    ImGui::GetIO().Fonts->AddFontDefault(&config);
+    druta::ui::classic_fonts.body = load(L"segoeui.ttf", 16);
+    druta::ui::classic_fonts.heading = load(L"seguisb.ttf", 26);
+    druta::ui::classic_fonts.mono = load(L"consola.ttf", 14);
 }
 
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
