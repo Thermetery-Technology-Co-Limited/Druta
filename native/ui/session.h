@@ -18,6 +18,7 @@ struct LogEntry { std::uint64_t id = 0; std::string message; bool ok = false; };
 struct SessionSnapshot {
     std::uint64_t generation = 0, revision = 0;
     std::uint64_t completed_reads = 0, completed_actions = 0;
+    std::uint64_t last_action_log_id = 0; // exact result entry for last_action_operation
     std::optional<Command::Operation> last_action_operation;
     bool last_action_ok = false;
     std::vector<Device> devices;
@@ -43,8 +44,12 @@ public:
     ~Session();
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
-    void start(const std::string& slot = {});
+    // An expected UUID requires an explicit slot and remains enforced until
+    // the user explicitly selects a device.
+    void start(const std::string& slot = {}, const std::string& expected_uuid = {});
     bool select_device(const std::string& slot);
+    // Retry the current slot while retaining any startup UUID constraint.
+    bool reconnect();
     void request_poll(bool details = false);
     void set_paused(bool paused);
     bool submit(Command command, std::uint64_t expected_generation);
@@ -52,6 +57,7 @@ public:
     void begin_shutdown();
     bool finished() const;
 private:
+    bool change_device(const std::string& slot, bool preserve_constraint);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

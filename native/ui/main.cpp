@@ -81,7 +81,7 @@ struct Options {
     int width = 1280, height = 800;
     float scale = 0;
     std::wstring smoke_dir, capture, core_path;
-    std::string slot;
+    std::string slot, expected_uuid;
     druta::ui::Page page = druta::ui::Page::daily;
     bool classic = false, preview = false;
 };
@@ -106,6 +106,11 @@ bool parse_options(Options& o) {
                 valid = slot.size() < 24 && std::all_of(slot.begin(), slot.end(), [](wchar_t c) { return c > 0 && c < 128; });
                 if (valid) for (wchar_t c : slot) o.slot.push_back(static_cast<char>(c));
             }
+            else if (key == L"--expect-uuid") {
+                const std::wstring uuid(value);
+                valid = !uuid.empty() && uuid.size() < 96 && std::all_of(uuid.begin(),uuid.end(),[](wchar_t c){return c>=0x20 && c<0x7f;});
+                if(valid)for(wchar_t c:uuid)o.expected_uuid.push_back(static_cast<char>(c));
+            }
             else if (key == L"--width" || key == L"--height") {
                 wchar_t* end = nullptr; const long n = wcstol(value, &end, 10);
                 valid = *value && end && !*end && n >= 640 && n <= 7680;
@@ -125,7 +130,7 @@ bool parse_options(Options& o) {
             } else valid = false;
         }
     }
-    LocalFree(args); return valid;
+    LocalFree(args); return valid && (o.expected_uuid.empty() || (!o.slot.empty() && !o.preview));
 }
 struct App {
     HWND window = nullptr;
@@ -135,6 +140,7 @@ struct App {
     druta::ui::RefreshPolicy policy{now_seconds()};
     druta::ui::ViewState view;
     std::unique_ptr<druta::ui::Session> session;
+    std::wstring active_core_path, app_executable, app_directory;
     bool closing = false;
     UINT width = 1280, height = 800;
     bool resize_pending = false, device_lost = false, initialized = false, quit = false;
@@ -184,7 +190,62 @@ struct App {
         SetWindowTextW(window, L"Druta - finishing current operation and closing");
         policy.note_activity(now_seconds());
     }
+    void consume_app_actions() {
+        auto& actions=view.app_actions;
+        if(closing) {druta::ui::cancel_pending_app_actions(actions);return;}
+        if(actions.notices.empty()) {
+            std::vector<wchar_t> path(32768);
+            const DWORD length=GetModuleFileNameW(nullptr,path.data(),static_cast<DWORD>(path.size()));
+            app_executable=length && length<path.size()?std::wstring(path.data(),length):std::wstring{};
+            const auto separator=app_executable.find_last_of(L"\\/");
+            app_directory=separator==std::wstring::npos?std::wstring{}:app_executable.substr(0,separator);
+            actions.notices=druta::ui::load_bundled_notices(app_directory);
+        }
+        if(actions.exit_requested) {actions.exit_requested=false;request_close();return;}
+        if(actions.save_report_requested) {
+            actions.save_report_requested=false;
+            const auto report=actions.report;
+            const auto before=session?session->snapshot():view.live;
+            if(!report || !before || view.select_slot || !druta::ui::app_target_matches(report->target,*before))
+                actions.status="Selected adapter changed; capture its report again before saving.";
+            else {
+                wchar_t filename[32768]=L"Druta-device-report.txt";OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);
+                dialog.hwndOwner=window;dialog.lpstrFile=filename;dialog.nMaxFile=static_cast<DWORD>(std::size(filename));
+                dialog.lpstrFilter=L"Device report (*.txt)\0*.txt\0All files\0*.*\0\0";dialog.lpstrDefExt=L"txt";
+                dialog.lpstrTitle=L"Save selected-device report";
+                dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|OFN_OVERWRITEPROMPT;
+                if(GetSaveFileNameW(&dialog)) {
+                    const auto after=session?session->snapshot():view.live;
+                    if(!after || view.select_slot || !druta::ui::app_target_matches(report->target,*after))
+                        actions.status="Adapter/session changed during the dialog; no report file was written.";
+                    else if(report->text.size()<(UINT64_C(1)<<32) && write_bytes(filename,report->text.data(),static_cast<DWORD>(report->text.size())))
+                        actions.status="Captured selected-device report saved.";
+                    else actions.status="Could not write the selected report file.";
+                } else if(CommDlgExtendedError())actions.status="The report save dialog could not open.";
+                policy.note_activity(now_seconds());
+            }
+        }
+        if(actions.second_window) {
+            const auto target=*actions.second_window;actions.second_window.reset();
+            const auto fresh=session?session->snapshot():view.live;std::string why;
+            if(!fresh || view.select_slot || !druta::ui::app_target_matches(target,*fresh) || !druta::ui::second_window_target(*fresh,why))
+                actions.status="Second window cancelled: selected adapter changed or its slot/UUID is unverified. "+why;
+            else {
+                try {
+                    auto command=druta::ui::second_window_command(app_executable,active_core_path,target,
+                        view.presentation==druta::ui::Presentation::classic);
+                    std::vector<wchar_t> buffer(command.begin(),command.end());buffer.push_back(0);
+                    STARTUPINFOW startup{};startup.cb=sizeof(startup);PROCESS_INFORMATION process{};
+                    if(CreateProcessW(app_executable.c_str(),buffer.data(),nullptr,nullptr,FALSE,0,nullptr,app_directory.c_str(),&startup,&process)) {
+                        CloseHandle(process.hThread);CloseHandle(process.hProcess);
+                        actions.status="Second window launched for the explicit PCI slot and expected UUID; no tuning was passed.";
+                    } else actions.status="Could not launch the selected GPU window (Windows error "+std::to_string(GetLastError())+").";
+                } catch(const std::exception& error) {actions.status=error.what();}
+            }
+        }
+    }
     void consume_actions() {
+        consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         if(druta::ui::take_shunt_save_request(view.shunt)) {
             try {
@@ -195,8 +256,7 @@ struct App {
         if (view.select_slot) { session->select_device(*view.select_slot); view.select_slot.reset(); }
         if (view.reconnect_requested) {
             view.reconnect_requested = false;
-            const auto snapshot = session->snapshot();
-            session->select_device(snapshot->selected_slot);
+            session->reconnect();
         }
         if (view.refresh_requested) { session->request_poll(true); view.refresh_requested = false; }
         if(i2c_save_waiting) {
@@ -254,6 +314,41 @@ struct App {
             }
             policy.note_activity(now_seconds());
         }
+        if (view.scoped_profile_view.save_requested || view.scoped_profile_view.load_requested) {
+            auto& workspace = view.scoped_profile_view;
+            const bool save = workspace.save_requested;
+            workspace.save_requested = workspace.load_requested = false;
+            const auto before = session->snapshot();
+            const auto selection = workspace.selection;
+            wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize = sizeof(dialog);
+            dialog.hwndOwner = window; dialog.lpstrFile = path; dialog.nMaxFile = static_cast<DWORD>(std::size(path));
+            dialog.lpstrFilter = L"Druta selected rail/power requests (*.json)\0*.json\0\0"; dialog.lpstrDefExt = L"json";
+            dialog.lpstrTitle = save ? L"Save selected configured requests" : L"Preview selected rail/power requests";
+            dialog.Flags = OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+            const BOOL selected = save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog);
+            if (selected) {
+                try {
+                    if (session->snapshot()->generation != before->generation) throw std::runtime_error("Selected adapter changed while choosing the profile");
+                    if (save) {
+                        auto request = std::make_shared<druta::ui::ScopedProfileRequest>(); request->selection = selection;
+                        druta::ui::Command command; command.operation = druta::ui::Command::Operation::save_scoped_profile;
+                        command.profile_path = path; command.scoped_profile = std::move(request);
+                        const auto action_baseline = session->snapshot();
+                        if (!session->submit(command, before->generation)) throw std::runtime_error("Session is busy; profile was not saved");
+                        druta::ui::mark_scoped_profile_pending(workspace, *action_baseline, command.operation, true);
+                        workspace.status = "Capturing selected requests; save result appears in the operation log.";
+                    } else {
+                        const auto document = druta::ui::read_profile(path);
+                        const auto current = session->snapshot();
+                        if (current->generation != before->generation) throw std::runtime_error("Selected adapter changed while reading the profile");
+                        druta::ui::sync_scoped_profile_view(workspace, current->generation);
+                        if (current->data.scoped_profiles) druta::ui::stage_scoped_profile(document, *current->data.scoped_profiles, workspace);
+                        else { workspace.loaded_document = document; workspace.plan.reset(); workspace.status = "Refresh requests to preview this profile."; }
+                    }
+                } catch (const std::exception& error) { workspace.status = error.what(); }
+            } else if (const auto error = CommDlgExtendedError()) workspace.status = "Profile dialog failed (Windows error " + std::to_string(error) + ").";
+            policy.note_activity(now_seconds());
+        }
         if (view.save_curve_profile_requested || view.load_curve_profile_requested) {
             const bool save = view.save_curve_profile_requested;
             view.save_curve_profile_requested = view.load_curve_profile_requested = false;
@@ -294,7 +389,12 @@ struct App {
             }
             policy.note_activity(now_seconds());
         }
-        if (view.live) for (const auto& command : view.commands) session->submit(command, view.live->generation);
+        if (view.live) for (const auto& command : view.commands) {
+            const auto baseline = session->snapshot();
+            if (session->submit(command, view.live->generation) &&
+                (command.operation == druta::ui::Command::Operation::prepare_scoped_profile || command.operation == druta::ui::Command::Operation::apply_scoped_profile))
+                druta::ui::mark_scoped_profile_pending(view.scoped_profile_view, *baseline, command.operation, true);
+        }
         view.commands.clear();
     }
     void client_size(int w, int h) {
@@ -538,7 +638,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     Options options;
     if (!parse_options(options)) {
         MessageBoxW(nullptr, L"Options: --width N --height N --scale 1..3 --classic --page daily|curve|advanced|monitor|timings\n"
-            L"--preview --gpu PCI_SLOT --core ABSOLUTE_DLL\n--capture FILE.bmp (save and exit)\n--smoke-test DIR (fixtures) or --live-smoke-test DIR (reads only)", L"Druta", MB_ICONERROR); return 2;
+            L"--preview --gpu PCI_SLOT --expect-uuid UUID --core ABSOLUTE_DLL\n--capture FILE.bmp (save and exit)\n--smoke-test DIR (fixtures) or --live-smoke-test DIR (reads only)", L"Druta", MB_ICONERROR); return 2;
     }
     ImGui_ImplWin32_EnableDpiAwareness();
     App app; active = &app;
@@ -575,11 +675,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 options.core_path = executable.substr(0, executable.find_last_of(L"\\/")+1) + L"drutacore.dll";
             }
         }
+        app.active_core_path=options.core_path;
         auto backend = druta::ui::create_core_backend(options.core_path);
         app.view.planner_api = backend->planner_api(); // pure calls, module pinned by Session for the UI lifetime
         app.session = std::make_unique<druta::ui::Session>(std::move(backend),
             [window = app.window] { PostMessageW(window, session_update_message, 0, 0); });
-        app.session->start(options.slot);
+        app.session->start(options.slot,options.expected_uuid);
         app.view.live = app.session->snapshot();
     }
     ShowWindow(app.window, SW_SHOW); UpdateWindow(app.window);

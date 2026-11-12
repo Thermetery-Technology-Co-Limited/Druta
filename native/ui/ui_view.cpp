@@ -101,6 +101,7 @@ void navigation(ViewState& state, bool horizontal) {
 }
 
 void top_bar(ViewState& state) {
+    draw_app_actions_menu(state);
     const ImGuiStyle& style = ImGui::GetStyle();
     const float control_width = ImGui::CalcTextSize("Always refresh").x
         + ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + u(60 + 164)
@@ -1294,6 +1295,7 @@ unsigned push_classic_palette() {
 }
 
 void classic_header(ViewState& state) {
+    draw_app_actions_menu(state);
     const auto snapshot = state.live;
     const auto* id = snapshot ? &snapshot->data.identity : nullptr;
     const float scale = ImGui::GetFontSize() / 16.0f;
@@ -1690,7 +1692,7 @@ void draw(ViewState& state) {
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     const auto flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
         | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings
-        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar;
+        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar;
     ImGui::Begin("Druta workspace", nullptr, flags);
     if (classic) classic_header(state); else top_bar(state);
     if (!state.preview && state.live) {
@@ -1802,6 +1804,8 @@ void draw(ViewState& state) {
     ImGui::TextColored(state.hotkey_available ? muted : amber, "%s", footer);
     ImGui::PopTextWrapPos();
     ImGui::End();
+    draw_app_actions_windows(state);
+    if (state.live) draw_scoped_profile_workspace(state.scoped_profile_view, *state.live, state.controls_unlocked, state.commands);
     if (classic) classic_floating_pages(state);
     draw_curve_window(state);
     draw_shunt_window(state.shunt);

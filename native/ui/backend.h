@@ -15,6 +15,8 @@
 namespace druta::ui {
 struct TimingViewData;
 struct ClockMonitorData;
+struct ScopedSnapshot;
+struct ScopedProfileRequest;
 enum class ControlId { core, memory, power, fan, boost, count };
 enum class Availability { unknown, available, unsupported, transient };
 struct ControlState {
@@ -55,6 +57,8 @@ struct I2cViewData {
     uint64_t prepared_preset_revision = 0;
 };
 struct LiveData {
+    // Explicitly captured profile catalog; ordinary polling does not recapture it.
+    std::shared_ptr<const ScopedSnapshot> scoped_profiles;
     std::shared_ptr<const ClockMonitorData> clock_monitor;
     TuningState tuning;
     bool max_it_available = false, reset_controls_available = false, hold_available = false;
@@ -92,7 +96,8 @@ struct Command {
         i2c_scan, i2c_select, i2c_gate, i2c_read, i2c_verify, i2c_apply,
         i2c_recipe, i2c_reset, i2c_prepare_profile, i2c_save_profile, i2c_load_profile, i2c_stage_captured, i2c_apply_profile, i2c_release,
         timings_select_helper, timings_read, timings_preview, timings_apply, timings_undo,
-        max_it, reset_controls, hold_curve_point, release_hold, save_curve_profile, i2c_zero_nct_outputs };
+        max_it, reset_controls, hold_curve_point, release_hold, save_curve_profile, i2c_zero_nct_outputs,
+        prepare_scoped_profile, save_scoped_profile, apply_scoped_profile };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -104,6 +109,7 @@ struct Command {
     uint64_t i2c_selection_revision = 0;
     uint64_t i2c_preset_revision = 0;
     std::wstring profile_path;
+    std::shared_ptr<const ScopedProfileRequest> scoped_profile;
     std::wstring timing_helper_path;
     std::string timing_field;
     uint32_t timing_value = 0;
@@ -115,6 +121,10 @@ struct Command {
     std::optional<uint32_t> power_policy;
     std::optional<RailId> rail;
     std::optional<std::string> expected_binding;
+    // Comparison-only preconditions for a multi-control transaction, never
+    // state to replay. Existing individual commands leave them unset.
+    std::optional<int64_t> expected_request_raw;
+    std::optional<std::string> expected_power_state;
     std::vector<dc_vf_point> expected_curve;
     uint32_t expected_curve_freq_div = 0;
     std::vector<dc_vf_delta> curve_deltas;

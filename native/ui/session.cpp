@@ -3,6 +3,7 @@
 #include "session.h"
 #include <windows.h>
 #include <algorithm>
+#include <cstring>
 #include <utility>
 
 namespace druta::ui {
@@ -119,7 +120,8 @@ struct Session::Impl {
     unsigned read_retries = 0;
     Command command{};
     std::uint64_t next_log = 0;
-    std::string desired_slot;
+    std::string desired_slot, expected_uuid;
+    bool identity_mismatch = false;
     explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n) : backend(std::move(b)), notify(std::move(n)) {
         InitializeCriticalSection(&lock);
         wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -144,6 +146,24 @@ struct Session::Impl {
         Guard guard(lock);
         if (stopping || generation != state.generation) return false;
         ++state.completed_reads;
+        bool wrong_identity = false;
+        if (!expected_uuid.empty() && !failed && fresh.connected) {
+            const auto& id=fresh.identity;
+            const bool uuid_valid=std::memchr(id.uuid,0,sizeof(id.uuid)) && id.uuid[0];
+            const bool slot_valid=std::memchr(id.slot,0,sizeof(id.slot)) && id.slot[0];
+            const bool pairing_valid=std::memchr(id.pairing_error,0,sizeof(id.pairing_error)) && !id.pairing_error[0];
+            const bool api_valid=id.nvapi_ok || id.nvml_ok;
+            wrong_identity=(uuid_valid && expected_uuid!=id.uuid) || (slot_valid && state.selected_slot!=id.slot) ||
+                (std::memchr(id.pairing_error,0,sizeof(id.pairing_error)) && id.pairing_error[0]);
+            if (wrong_identity || !uuid_valid || !slot_valid || !pairing_valid || !api_valid) {
+                fresh=state.data; fresh.connected=false; fresh.telemetry_valid=false;
+                fresh.telemetry_error="GPU identity unavailable";
+                fresh.status=wrong_identity ? "GPU identity does not match the requested adapter" : "GPU identity unavailable; retrying read";
+                if (details) fresh.curve_error=fresh.status;
+            }
+            if (wrong_identity) identity_mismatch=true;
+            else if (uuid_valid && slot_valid && pairing_valid && api_valid) identity_mismatch=false;
+        }
         if (failed) {
             fresh = state.data;
             fresh.connected = false;
@@ -184,6 +204,13 @@ struct Session::Impl {
         if (finish_action) state.busy = false;
         merge_telemetry(state.data, fresh, state.telemetry_stale_mask);
         merge_controls(state.data, fresh);
+        if (wrong_identity) {
+            for (auto& c:fresh.controls) c.writable=c.stock_writable=false;
+            for (auto& c:fresh.advanced_controls) c.state.writable=c.state.stock_writable=false;
+            for (auto& c:fresh.power_policies) c.state.writable=c.state.stock_writable=false;
+            for (auto& c:fresh.rail_controls) c.state.writable=c.state.stock_writable=false;
+            fresh.curve_writable=fresh.curve_reset_writable=false;
+        }
         if (!details || !fresh.curve_error.empty()) {
             fresh.curve = state.data.curve;
             fresh.curve_layout = state.data.curve_layout;
@@ -209,14 +236,14 @@ struct Session::Impl {
         for (;;) {
             enum class Work { none, change, poll, action, maintain, stop } work = Work::none;
             std::uint64_t generation = 0;
-            std::string slot;
+            std::string slot, required_uuid;
             bool details = false;
             DWORD wait_ms = INFINITE;
             Command task;
             {
                 Guard guard(lock);
                 if (stopping) work = Work::stop;
-                else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; generation = state.generation; }
+                else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; required_uuid = expected_uuid; generation = state.generation; }
                 else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot; }
                 else if (maintenance_active && GetTickCount64() >= maintenance_due) { work = Work::maintain; generation = state.generation; maintenance_inflight = true; maintenance_due = GetTickCount64() + 1000; }
                 else if (poll_pending && !state.paused) { work = Work::poll; poll_pending = false; details = details_pending; details_pending = false; generation = state.generation; }
@@ -242,9 +269,17 @@ struct Session::Impl {
                 try {
                     backend->close();
                     devices = backend->enumerate();
-                    if (slot.empty() && !devices.empty()) slot = devices.front().slot;
-                    if (!slot.empty()) opened = backend->open(slot, error);
-                    else error = "No GPU available";
+                    if (!required_uuid.empty()) {
+                        const auto matching_slot=std::count_if(devices.begin(),devices.end(),[&](const auto& d){return d.slot==slot;});
+                        const auto matched=std::find_if(devices.begin(),devices.end(),[&](const auto& d){return d.slot==slot && d.uuid==required_uuid;});
+                        if (slot.empty()) error="Expected GPU UUID requires an explicit slot";
+                        else if (matching_slot!=1 || matched==devices.end()) error="Requested GPU slot and UUID were not found together";
+                        else opened=backend->open(slot,error);
+                    } else {
+                        if (slot.empty() && !devices.empty()) slot = devices.front().slot;
+                        if (!slot.empty()) opened = backend->open(slot, error);
+                        else error = "No GPU available";
+                    }
                 } catch (...) { error = "Unable to open GPU"; }
                 bool current;
                 {
@@ -328,7 +363,9 @@ struct Session::Impl {
                     }
                     const std::string message = generation == state.generation ? result.message :
                         "GPU " + slot + " (session " + std::to_string(generation) + "): " + result.message;
-                    log_locked(result.ok, message); publish_locked();
+                    log_locked(result.ok, message);
+                    if (generation == state.generation) state.last_action_log_id=state.log.back().id;
+                    publish_locked();
                 }
                 announce();
                 if (current && read_and_publish(generation, true, false, true)) announce();
@@ -341,17 +378,19 @@ struct Session::Impl {
 };
 Session::Session(std::unique_ptr<IBackend> backend, std::function<void()> notify) : impl_(std::make_unique<Impl>(std::move(backend), std::move(notify))) {}
 Session::~Session() { begin_shutdown(); if (impl_->thread) WaitForSingleObject(impl_->thread, INFINITE); }
-void Session::start(const std::string& slot) {
+void Session::start(const std::string& slot, const std::string& expected_uuid) {
     { Guard guard(impl_->lock);
       if (impl_->started || impl_->stopping) return;
       impl_->started = true; impl_->state.generation++; impl_->state.opening = true;
-      impl_->desired_slot = slot; impl_->switch_pending = true;
+      impl_->desired_slot = slot; impl_->expected_uuid = expected_uuid; impl_->switch_pending = true;
       if (impl_->backend && impl_->wake) impl_->thread = CreateThread(nullptr, 0, &Impl::entry, impl_.get(), 0, nullptr);
       if (!impl_->thread) { impl_->done = true; impl_->state.opening = false; impl_->state.status = "Unable to start session worker"; }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce();
 }
-bool Session::select_device(const std::string& slot) {
+bool Session::select_device(const std::string& slot) { return change_device(slot,false); }
+bool Session::reconnect() { return change_device({},true); }
+bool Session::change_device(const std::string& slot, bool preserve_constraint) {
     { Guard guard(impl_->lock);
       if (!impl_->started || impl_->stopping || impl_->done) return false;
       const auto& i2c=impl_->state.data.i2c;
@@ -361,19 +400,31 @@ bool Session::select_device(const std::string& slot) {
           impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
       }
       impl_->backend_opened = false; impl_->read_retries = 0;
-      ++impl_->state.generation; impl_->desired_slot = slot; impl_->switch_pending = true;
+      // Only an explicit picker selection clears the startup constraint.
+      const auto target_slot=preserve_constraint ? impl_->state.selected_slot : slot;
+      if (!preserve_constraint) { impl_->expected_uuid.clear(); impl_->identity_mismatch=false; }
+      ++impl_->state.generation; impl_->desired_slot = target_slot; impl_->switch_pending = true;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
-      impl_->state.selected_slot = slot; impl_->state.opening = true; impl_->state.busy = false;
+      impl_->state.selected_slot = target_slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
       impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
-      impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false;
+      impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false; impl_->state.last_action_log_id = 0;
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return true;
 }
 void Session::request_poll(bool details) {
-    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening || !impl_->backend_opened || (!details && !impl_->state.data.connected && impl_->read_retries >= 3)) return;
-      if (details) impl_->read_retries=0;
-      impl_->poll_pending = true; impl_->details_pending |= details; }
+    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening) return;
+      if (!impl_->backend_opened) {
+          // An explicit details refresh may retry a failed constrained startup,
+          // without dropping its slot/UUID binding or silently selecting another GPU.
+          if (!details || impl_->expected_uuid.empty()) return;
+          impl_->desired_slot=impl_->state.selected_slot; impl_->switch_pending=true;
+          impl_->state.opening=true; impl_->state.status="Retrying GPU enumeration"; impl_->publish_locked();
+      } else {
+          if (!details && !impl_->state.data.connected && impl_->read_retries>=3) return;
+          if (details) impl_->read_retries=0;
+          impl_->poll_pending = true; impl_->details_pending |= details;
+      } }
     impl_->signal();
 }
 void Session::set_paused(bool paused) {
@@ -398,6 +449,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       const char* reason = nullptr;
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
+      else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
       else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);

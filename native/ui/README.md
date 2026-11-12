@@ -368,3 +368,27 @@ Monitor workflows, full profiles and Vista/7 qualification. Keep the Python
 frontend and experiment facade available during migration. See the
 [plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
 for the implementation boundary.
+
+### Device menus and selected-request profiles
+
+Both presentations expose Device and Help menus. Device can refresh capability
+readbacks without changing the page or drafts, capture/copy/save a selected-GPU
+report, open that GPU in a second window, and navigate to timing-helper setup.
+The child window receives the exact core DLL, PCI slot and expected UUID; it
+does not receive tuning settings. Reconnect preserves that constraint. Help
+shows shortcuts, About and the actual licence/guide files bundled beside the EXE.
+
+**File → Rail / power profiles** opens the manual selected-request workspace.
+Refresh captures the adapter's understood fields. Choose which current board,
+policy and rail-limit requests to save. Load previews the saved selection;
+Apply rechecks the whole selection against fresh identity, units, bindings,
+gates and bounds. Selected policy values are explicit session pins. Board power
+runs first, followed by selected policies and rail fields, with readback and a
+grouped Undo on partial failure. An unrelated pin changed afterward is preserved
+by refusing Undo until that conflict is resolved. Nothing applies automatically.
+
+Rail request deltas and estimated absolute voltages are labelled separately.
+An unavailable unrelated rail does not prevent saving a qualified selection.
+This workspace is separate from daily and V/F profiles; full-profile composition,
+PnP panic/restart and the richer timing workflows remain tracked in the
+[completion ledger](validation/PARITY-COMPLETION.md).

@@ -26,6 +26,9 @@ struct Fake : IBackend {
     std::atomic<bool> throw_reads{false}, throw_after_action{false}, fail_gate{false};
     std::atomic<bool> i2c_owned{false}, fail_cleanup{false}, missing_i2c_state{false};
     std::atomic<bool> tuning_owned{false}, missing_tuning{false}, maintenance_fail{false}, hold_maintenance{false};
+    std::atomic<bool> missing_identity{false}, mismatched_identity{false}, identity_no_api{false};
+    std::atomic<bool> empty_enumeration{false}, replacement_uuid{false};
+    std::string opened_slot;
     std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
     std::atomic<int> fan_mode{0};
     bool xoc = false, rails = false;
@@ -35,8 +38,9 @@ struct Fake : IBackend {
     void block() { SetEvent(entered); WaitForSingleObject(release, INFINITE); }
     void stall_read() { ResetEvent(entered); ResetEvent(release); hold_read = true; }
     void stall_action() { ResetEvent(entered); ResetEvent(release); hold_action = true; }
-    std::vector<Device> enumerate() override { record("enumerate"); return {{"a", "A", "1"}, {"b", "B", "2"}}; }
-    bool open(const std::string& s, std::string&) override { record("open:" + s); return true; }
+    std::vector<Device> enumerate() override { record("enumerate"); if (empty_enumeration.load()) return {};
+        return {{"a", "A", replacement_uuid.load()?"replacement":"1"}, {"b", "B", "2"}}; }
+    bool open(const std::string& s, std::string&) override { record("open:" + s); opened_slot=s; return true; }
     void close() override { record("close"); }
     ActionResult prepare_close() override {
         record("prepare_close"); ActionResult r; r.ok=!fail_cleanup.load();
@@ -62,6 +66,11 @@ struct Fake : IBackend {
         if (throw_reads.load()) throw 1;
         const bool is_partial = partial.load();
         LiveData d; d.connected = !disconnected.load(); d.telemetry_valid = !telemetry_failure.load(); d.status = "ok";
+        if (!missing_identity.load()) {
+            d.identity.nvapi_ok=identity_no_api.load()?0:1;
+            std::snprintf(d.identity.slot,sizeof(d.identity.slot),"%s",opened_slot.c_str());
+            std::snprintf(d.identity.uuid,sizeof(d.identity.uuid),"%s",mismatched_identity.load()?"wrong":opened_slot=="a"?"1":"2");
+        }
         d.undo_available = undo_available.load(); d.i2c.clock_owned = i2c_owned.load();
         d.tuning.owned=tuning_owned.load(); d.controls[2].current=board_w.load();
         PowerPolicy policy; policy.id=3; policy.state.current=core_ma.load(); d.power_policies.push_back(policy);
@@ -115,6 +124,54 @@ static bool until(const std::function<bool()>& condition) {
     return false;
 }
 int main() {
+    // Startup UUID binding checks enumeration before open and every fresh read.
+    for (const auto& request : {std::pair<std::string,std::string>{"a","2"}, {"", "1"}, {"missing", "1"}}) {
+        auto absent=std::make_unique<Fake>(); auto* fake=absent.get();
+        Session constrained(std::move(absent), [] {}); constrained.start(request.first,request.second);
+        CHECK(until([&] { auto p=constrained.snapshot(); return !p->opening && !p->status.empty(); }));
+        EnterCriticalSection(&fake->lock); auto calls=fake->calls; LeaveCriticalSection(&fake->lock);
+        CHECK(std::find_if(calls.begin(),calls.end(),[](const auto& call){return call.rfind("open:",0)==0;})==calls.end());
+        CHECK(!constrained.snapshot()->data.connected && constrained.snapshot()->history.empty());
+        constrained.begin_shutdown(); CHECK(until([&] {return constrained.finished();}));
+    }
+    auto retry_owned=std::make_unique<Fake>(); auto* retry_fake=retry_owned.get(); retry_fake->empty_enumeration=true;
+    Session retry_session(std::move(retry_owned), [] {}); retry_session.start("a","1");
+    CHECK(until([&] { auto p=retry_session.snapshot(); return !p->opening && !p->status.empty(); }));
+    CHECK(!retry_session.snapshot()->data.connected);
+    retry_fake->empty_enumeration=false; retry_session.request_poll(true);
+    CHECK(until([&] {return retry_session.snapshot()->data.connected;}));
+    retry_session.begin_shutdown(); CHECK(until([&] {return retry_session.finished();}));
+    auto bound_fake=std::make_unique<Fake>(); auto* bound=bound_fake.get(); bound->missing_identity=true;
+    Session constrained(std::move(bound_fake), [] {}); constrained.start("a","1");
+    CHECK(until([&] { return constrained.snapshot()->completed_reads>=4; }));
+    CHECK(!constrained.snapshot()->data.connected && !constrained.submit({},constrained.snapshot()->generation));
+    bound->missing_identity=false; constrained.request_poll(true);
+    CHECK(until([&] { return constrained.snapshot()->data.connected; }));
+    CHECK(constrained.snapshot()->data.controls[0].writable);
+    bound->mismatched_identity=true; constrained.request_poll(true);
+    CHECK(until([&] { auto p=constrained.snapshot(); return !p->data.connected && p->status.find("does not match")!=std::string::npos; }));
+    CHECK(!constrained.snapshot()->data.controls[0].writable && !constrained.submit({},constrained.snapshot()->generation));
+    bound->mismatched_identity=false; bound->identity_no_api=true; constrained.request_poll(true);
+    CHECK(until([&] { return constrained.snapshot()->status.find("unavailable")!=std::string::npos; }));
+    Command unsafe_release{}; unsafe_release.operation=Command::Operation::i2c_release;
+    CHECK(!constrained.submit(unsafe_release,constrained.snapshot()->generation));
+    const auto reads_before_missing=constrained.snapshot()->completed_reads;
+    bound->identity_no_api=false; bound->missing_identity=true; constrained.request_poll(true);
+    CHECK(until([&] { auto p=constrained.snapshot(); return p->completed_reads>reads_before_missing && !p->data.connected; }));
+    CHECK(!constrained.submit(unsafe_release,constrained.snapshot()->generation));
+    bound->missing_identity=false; constrained.request_poll(true);
+    CHECK(until([&] { return constrained.snapshot()->data.connected; }));
+    EnterCriticalSection(&bound->lock); auto before_reconnect=bound->calls; LeaveCriticalSection(&bound->lock);
+    const auto open_before=std::count(before_reconnect.begin(),before_reconnect.end(),"open:a");
+    bound->replacement_uuid=true; CHECK(constrained.reconnect());
+    CHECK(until([&] { auto p=constrained.snapshot(); return !p->opening && p->status.find("not found")!=std::string::npos; }));
+    EnterCriticalSection(&bound->lock); auto after_reconnect=bound->calls; LeaveCriticalSection(&bound->lock);
+    CHECK(std::count(after_reconnect.begin(),after_reconnect.end(),"open:a")==open_before && !constrained.snapshot()->data.connected);
+    bound->replacement_uuid=false; CHECK(constrained.reconnect());
+    CHECK(until([&] {return constrained.snapshot()->data.connected;}));
+    CHECK(constrained.select_device("b"));
+    CHECK(until([&] { auto p=constrained.snapshot(); return p->selected_slot=="b" && p->data.connected; }));
+    constrained.begin_shutdown(); CHECK(until([&] { return constrained.finished(); }));
     auto owned = std::make_unique<Fake>(); auto* f = owned.get();
     f->stall_read();
     Session s(std::move(owned), [] {}); s.start("a");
@@ -170,12 +227,18 @@ int main() {
         return entry.message.find("state is uncertain") != std::string::npos;
     }));
     CHECK(after_uncertain->log.back().message == "Action not queued: Another operation is still running");
+    const auto action_log=std::find_if(after_uncertain->log.begin(),after_uncertain->log.end(),[&](const auto& entry) {
+        return entry.id==after_uncertain->last_action_log_id;
+    });
+    CHECK(after_uncertain->last_action_log_id!=0 && action_log!=after_uncertain->log.end()
+        && action_log->message.find("state is uncertain")!=std::string::npos
+        && action_log->id!=after_uncertain->log.back().id);
     CHECK(s.snapshot()->data.undo_available);
     f->undo_available = false;
     f->stall_action(); auto generation = s.snapshot()->generation;
     CHECK(s.submit({}, generation)); CHECK(WaitForSingleObject(f->entered, 2000) == WAIT_OBJECT_0);
     CHECK(!s.submit({}, generation));
-    CHECK(s.select_device("b")); CHECK(!s.submit({}, generation));
+    CHECK(s.select_device("b")); CHECK(s.snapshot()->last_action_log_id==0); CHECK(!s.submit({}, generation));
     SetEvent(f->release);
     CHECK(until([&] { auto p = s.snapshot(); return p->selected_slot == "b" && !p->opening && !p->history.empty(); }));
     auto after_switch = s.snapshot();

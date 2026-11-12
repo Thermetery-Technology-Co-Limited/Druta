@@ -13,8 +13,8 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Classic real tabs and copyable monospaced log | Implemented/tested in `4c6f1f5`; floating pages remain below |
 | Same-session floating pages, dock-back, preserved drafts, no duplicate controls | Implemented/tested in second checkpoint: real headless drag/dock/close events, all four pages |
 | Classic two-press Reset, scope display, expiry/adapter-change cancellation | Implemented/tested in second checkpoint; Focused retains its existing action |
-| Header Device/Panic actions and menu hierarchy | Open: selected-device report/copy, capability refresh, second GPU window, helper setup, exact-target PnP service and no replay |
-| Help, licences and About | Open |
+| Header Device/Panic actions and menu hierarchy | Device report/copy/save, capability refresh, explicit-target second window and helper navigation implemented/tested in third checkpoint. Exact-target out-of-process PnP service and no-replay recovery remain open |
+| Help, licences and About | Implemented/tested in third checkpoint; actual bundled licence/guide sources and keyboard help |
 | Seven Monitor tiles, reason statuses, power/utilization, PCIe/state/fans, optional histories | Implemented/tested in `4c6f1f5`; second checkpoint adds independent partial fan last-good merging |
 | Classified A/B clock-domain table with architecture/unit/unknown-domain handling | Implemented/tested in second checkpoint, including real pure C ABI classifier |
 | Measured-clock evidence: identical/unproven, stale, settling/load, secondary readings | Implemented/tested in second checkpoint; evidence policy is not universal physical measurement proof |
@@ -22,9 +22,9 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Legacy Classic keyboard scope and curve plot guides/nudge buttons | Implemented/tested/rendered in second checkpoint; Focused remains editor-local |
 | Continuous curve consequences, parameter organization, acknowledged hard de-flatten | Implemented/tested in second checkpoint; software predictions remain distinct from measurements |
 | Manual V/F profiles, identity/geometry validation, stage/preview/explicit Apply | Implemented/tested in second checkpoint; standalone scope, not full-tune composition |
-| Manual rail-limit profiles using independent qualified fields | Open |
-| Manual policy profiles and coupled board/current state | Open |
-| Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Open |
+| Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
+| Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
+| Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Rail/power selection workspace and its partial-failure Undo implemented/tested. Broader catalog, Python rail/power format import, cross-scope composition and conflict review remain open |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Open |
 | Advanced read-only PERF groups and power arbitration diagnostics | Open |
 | Advanced power feedback/integral bounds, selected-field restoration | Open |
@@ -35,7 +35,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
 | Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Open |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Open |
-| Timing profile save/load staged only | Open |
+| Timing profile save/load staged only | Pure typed profile capture/validation module tested in third checkpoint; UI/staging and batch integration remain open |
 | Bounded owned-P0 capture and qualifying-band auto-capture | Open |
 | Classic I2C per-family geometry/order/help and auto-open on discovery | Implemented/tested in second checkpoint across all six controller families; physical qualification remains controller-specific |
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
@@ -45,6 +45,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 ## Invariants and completion gate
 
 Second checkpoint: [implementation and validation evidence](2026-11-12-parity-second-increment.md).
+Third checkpoint: [menus, selected profiles and validation evidence](2026-11-12-parity-third-increment.md).
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated

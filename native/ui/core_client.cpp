@@ -3,6 +3,7 @@
 #include "core_client.h"
 #include "profile_io.h"
 #include "curve_profile.h"
+#include "scoped_profile.h"
 #include "clock_monitor_service.h"
 #include "timing_model.h"
 #include <algorithm>
@@ -53,7 +54,7 @@ class Client final : public IBackend {
         input.step_measured = clock_step_measured_;
         last_.clock_monitor = std::make_shared<ClockMonitorData>(clock_monitor_.update(api_.clock_classify, input));
     }
-    struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; std::optional<uint32_t> selected_policy; };
+    struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; std::optional<uint32_t> selected_policy; std::vector<uint32_t> selected_policies; bool guard_unselected_pins = false; };
     struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; };
     std::vector<Undo> undo_;
     bool suppress_undo_ = false;
@@ -146,7 +147,7 @@ class Client final : public IBackend {
     }
     bool power_geometry(const PowerSnapshot& saved, const PowerSnapshot& now) {
         if (saved.rows.size() != now.rows.size()) return false;
-        for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& a = saved.rows[i]; const auto& b = now.rows[i]; if (a.policy != b.policy || a.type != b.type || a.channel != b.channel || a.unit != b.unit || a.board != b.board) return false; }
+        for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& a = saved.rows[i]; const auto& b = now.rows[i]; if (a.policy != b.policy || a.type != b.type || a.channel != b.channel || a.unit != b.unit || a.board != b.board || a.named_current != b.named_current) return false; }
         return true;
     }
     std::string power_write_message(bool policy, char* initial, size_t needed, size_t capacity) {
@@ -170,8 +171,33 @@ class Client final : public IBackend {
     static bool binding_matches(const Command& cmd, const std::string& actual) { return !cmd.expected_binding || cmd.expected_binding->empty() || *cmd.expected_binding == actual; }
     static std::string policy_binding(const dc_policy_row& row) {
         std::ostringstream out; out.imbue(std::locale::classic());
-        out << "policy:" << row.policy << ':' << row.type << ':' << row.channel << ':' << row.unit << ':' << row.minimum << ':' << row.maximum;
+        out << "policy:" << row.policy << ':' << row.type << ':' << row.channel << ':' << row.unit << ':' << row.minimum << ':' << row.maximum << ':' << row.board << ':' << row.named_current;
         return out.str();
+    }
+    static std::string board_binding(const PowerSnapshot& power) {
+        std::ostringstream binding; binding.imbue(std::locale::classic()); binding << "board";
+        for (const auto& row : power.rows) binding << ':' << row.policy << ':' << row.type << ':' << row.channel << ':' << row.unit << ':' << row.board << ':' << row.named_current;
+        return binding.str();
+    }
+    static std::string power_state_token(const PowerSnapshot& power) {
+        std::ostringstream out; out.imbue(std::locale::classic()); out << board_binding(power) << ':' << power.board;
+        for (const auto& row : power.rows) out << ':' << row.policy << ':' << row.requested;
+        // Pin order is not meaningful; compare its canonical mapping.
+        std::vector<std::pair<uint32_t, int64_t>> pins;
+        for (size_t i = 0; i < power.pin_ids.size(); ++i) pins.emplace_back(power.pin_ids[i], power.pin_values[i]);
+        std::sort(pins.begin(), pins.end()); for (const auto& pin : pins) out << ":pin:" << pin.first << ':' << pin.second;
+        return out.str();
+    }
+    static bool selected_policy(const PowerSnapshot& power, uint32_t policy) {
+        return (power.selected_policy && *power.selected_policy == policy) || std::find(power.selected_policies.begin(), power.selected_policies.end(), policy) != power.selected_policies.end();
+    }
+    static bool same_unselected_pins(const PowerSnapshot& saved, const PowerSnapshot& current) {
+        for (size_t i = 0; i < saved.pin_ids.size(); ++i) if (!selected_policy(saved, saved.pin_ids[i])) {
+            const auto it = std::find(current.pin_ids.begin(), current.pin_ids.end(), saved.pin_ids[i]);
+            if (it == current.pin_ids.end() || current.pin_values[static_cast<size_t>(it - current.pin_ids.begin())] != saved.pin_values[i]) return false;
+        }
+        for (auto id : current.pin_ids) if (!selected_policy(saved, id) && std::find(saved.pin_ids.begin(), saved.pin_ids.end(), id) == saved.pin_ids.end()) return false;
+        return true;
     }
     static std::string advanced_binding(AdvancedId id, const dc_clkdom_layout& layout) {
         std::ostringstream out; out.imbue(std::locale::classic());
@@ -188,6 +214,7 @@ class Client final : public IBackend {
         struct Unlock { CoreApi& api; dc_gpu* gpu; ~Unlock() { api.unlock(gpu); } } unlock{api_, gpu_};
         PowerSnapshot before; std::string why;
         if (!power_capture(before, why)) { result.message = "Power policy capture failed; no write issued: " + why; return result; }
+        if (cmd.expected_power_state && *cmd.expected_power_state != power_state_token(before)) { result.message = "Power requests or pins changed during profile application; no write issued"; return result; }
         auto it = std::find_if(before.rows.begin(), before.rows.end(), [&](const dc_policy_row& r) { return r.policy == *cmd.power_policy; });
         if (it == before.rows.end() || it->board || !it->consistent || !(it->writable || it->named_current) || (it->unit != 0 && it->unit != 1)) { result.message = "Selected policy is unavailable or not writable"; return result; }
         if (!binding_matches(cmd, policy_binding(*it))) { result.message = "Policy binding changed; review the request before applying"; return result; }
@@ -231,6 +258,7 @@ class Client final : public IBackend {
         if (undoing) {
             const PowerSnapshot saved = undo_.back().power;
             if (!captured || !power_geometry(saved, current)) { result.message = "Power Undo refused: " + (captured ? std::string("policy geometry changed") : why); return result; }
+            if (saved.guard_unselected_pins && !same_unselected_pins(saved, current)) { result.message = "Power Undo refused: an unselected policy pin changed; current pins preserved"; return result; }
             if (api_.pins_set(gpu_, nullptr, nullptr, 0) != DC_OK) { result.message = "Could not suppress policy pins; no power write issued"; return result; }
             bool ok = true; std::string message;
             if (current.board != saved.board) { result.may_have_changed = true; if (!set_board(saved.board, message)) ok = false; }
@@ -238,7 +266,8 @@ class Client final : public IBackend {
                 PowerSnapshot fresh; if (!power_capture(fresh, why) || !power_geometry(saved, fresh)) { ok = false; message += "; policy geometry or readback changed"; break; }
                 const auto it = std::find_if(fresh.rows.begin(), fresh.rows.end(), [&](const dc_policy_row& r) { return r.policy == row.policy; });
                 const bool pinned = std::find(saved.pin_ids.begin(), saved.pin_ids.end(), row.policy) != saved.pin_ids.end();
-                if (row.board || (!pinned && (!saved.selected_policy || *saved.selected_policy != row.policy)) || it->requested == row.requested) continue;
+                const bool selected = (saved.selected_policy && *saved.selected_policy == row.policy) || std::find(saved.selected_policies.begin(), saved.selected_policies.end(), row.policy) != saved.selected_policies.end();
+                if (row.board || (!pinned && !selected) || it->requested == row.requested) continue;
                 if (!(it->writable || it->named_current) || !it->consistent || row.requested < it->minimum || row.requested > it->maximum) { ok = false; message += "; selected policy no longer restorable in fresh bounds"; continue; }
                 result.may_have_changed = true; std::string note; if (!set_policy(row, note)) { ok = false; message += "; " + note; }
             }
@@ -246,15 +275,22 @@ class Client final : public IBackend {
             std::vector<uint32_t> verified_ids; std::vector<int64_t> verified_values;
             if (verified) {
                 if (final.board != saved.board) ok = false;
-                for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& row = saved.rows[i]; const bool pinned = std::find(saved.pin_ids.begin(), saved.pin_ids.end(), row.policy) != saved.pin_ids.end(); if (!row.board && (pinned || (saved.selected_policy && *saved.selected_policy == row.policy)) && row.requested != final.rows[i].requested) ok = false; }
+                for (size_t i = 0; i < saved.rows.size(); ++i) { const auto& row = saved.rows[i]; const bool pinned = std::find(saved.pin_ids.begin(), saved.pin_ids.end(), row.policy) != saved.pin_ids.end(); const bool selected = (saved.selected_policy && *saved.selected_policy == row.policy) || std::find(saved.selected_policies.begin(), saved.selected_policies.end(), row.policy) != saved.selected_policies.end(); if (!row.board && (pinned || selected) && row.requested != final.rows[i].requested) ok = false; }
                 for (size_t i = 0; i < saved.pin_ids.size(); ++i) for (size_t j = 0; j < saved.rows.size(); ++j) if (saved.rows[j].policy == saved.pin_ids[i] && final.rows[j].requested == saved.rows[j].requested) { verified_ids.push_back(saved.pin_ids[i]); verified_values.push_back(saved.pin_values[i]); }
                 if (api_.pins_set(gpu_, verified_ids.data(), verified_values.data(), static_cast<uint32_t>(verified_ids.size())) != DC_OK || verified_ids.size() != saved.pin_ids.size()) ok = false;
+                if (saved.guard_unselected_pins) {
+                    PowerSnapshot restored; PowerSnapshot expected_pins = saved;
+                    expected_pins.selected_policy.reset(); expected_pins.selected_policies.clear();
+                    if (!power_capture(restored, why) || !same_unselected_pins(expected_pins, restored)) ok = false;
+                }
             } else ok = false;
             result.ok = ok; result.message = ok ? "Board power and captured explicit policy requests restored; unpinned peers left to the driver" : "Power restoration incomplete or unverified; Undo retained" + message;
             if (ok) undo_.pop_back(); return result;
         }
         const bool stock = cmd.operation == Command::Operation::stock;
         if (!captured && !stock) { result.message = "Power capture failed; no write issued: " + why; return result; }
+        if (cmd.expected_power_state && (!captured || *cmd.expected_power_state != power_state_token(current))) { result.message = "Power requests or pins changed during profile application; no write issued"; return result; }
+        if (cmd.expected_binding && (!captured || !binding_matches(cmd, board_binding(current)))) { result.message = "Board policy geometry changed; no write issued"; return result; }
         dc_cl_statics st = power_statics(); int64_t low = 0, high = 0; dc_error error{}; error.size = sizeof(error);
         bool xoc = false; if (!effective_xoc(xoc) || api_.power_bounds(gpu_, &st, xoc ? 1 : 0, &low, &high, &error) != DC_OK) { result.message = "Power bounds or XOC state unavailable; no write issued"; return result; }
         double mw = stock ? (st.pl_def_state == DC_CL_STATIC_VALUE ? static_cast<double>(st.pl_def_mw) : -1.0) : cmd.value * 1000.0;
@@ -465,13 +501,14 @@ class Client final : public IBackend {
         RailResult action; bool recorded = false;
         auto capture = [&](const RailUndo& before) {
             if (bound) { auto current = binding_now(); if (!current || !binding_matches(cmd, *current)) throw BindingChanged{}; }
-            Undo saved{}; saved.control = ControlId::count; saved.rail_entry = true; saved.rail = before; remember(saved); recorded = true;
+            if (cmd.expected_request_raw && before.requested_uv != *cmd.expected_request_raw) throw BindingChanged{};
+            Undo saved{}; saved.control = ControlId::count; saved.rail_entry = true; saved.rail = before; remember(saved); recorded = !suppress_undo_;
         };
         try {
             if (undoing) action = rail_service_->restore(undo_.back().rail, rail_mode_, xoc);
             else if (cmd.operation == Command::Operation::stock) action = rail_service_->stock(static_cast<int>(cmd.rail->rail), cmd.rail->field, capture);
             else { double raw = cmd.value * 1000.0; if (!std::isfinite(raw) || raw < INT32_MIN || raw > INT32_MAX || std::abs(raw - std::nearbyint(raw)) > 0.000001) { result.message = "Rail request is not exactly representable in microvolts"; return result; } action = rail_service_->apply(static_cast<int>(cmd.rail->rail), cmd.rail->field, static_cast<int32_t>(std::nearbyint(raw)), rail_mode_, xoc, capture); }
-        } catch (const BindingChanged&) { result.message = "Rail binding changed during preflight; no write issued"; return result; }
+        } catch (const BindingChanged&) { result.message = "Rail binding or request changed during preflight; no write issued"; return result; }
         result.ok = action.ok; result.may_have_changed = action.may_have_changed; result.message = action.message;
         if (undoing) { if (action.ok) undo_.pop_back(); }
         else if (recorded) { if (!action.may_have_changed) undo_.pop_back(); else if (!rail_mode_) result.message += "; enable rail mode to use Undo"; }
@@ -656,6 +693,124 @@ class Client final : public IBackend {
         ProfileJson translated = {{"format", "druta-native-daily"}, {"version", 1}, {"target", {{"uuid", id.uuid}, {"slot", id.slot}}}, {"controls", controls}};
         if (!advanced.empty()) { translated["version"] = 2; translated["advanced"] = advanced; } return translated;
     }
+    ScopedSnapshot scoped_capture(PowerSnapshot* power_before = nullptr,
+                                  std::array<RailRow, DC_RAILS_COUNT>* rails_before = nullptr) {
+        dc_gpu_identity id{};
+        if (!identity(id) || !id.uuid[0]) throw std::runtime_error("Fresh paired GPU identity unavailable");
+        ScopedSnapshot snapshot; snapshot.target = {id.uuid, id.slot};
+        bool xoc = false; const bool xoc_known = effective_xoc(xoc);
+        PowerSnapshot power; std::string why;
+        if (power_capture(power, why)) {
+            if (power_before) *power_before = power;
+            dc_cl_statics statics = power_statics(); int64_t low = 0, high = 0;
+            dc_error error{}; error.size = sizeof(error);
+            if (xoc_known && api_.power_bounds(gpu_, &statics, xoc ? 1 : 0, &low, &high, &error) == DC_OK) {
+                ScopedCurrent row; row.key = ScopedKey::board_power(); row.binding = board_binding(power); row.unit = "mW";
+                row.value = power.board; row.low = low; row.high = high; row.fresh = row.writable = true;
+                snapshot.entries.push_back(std::move(row));
+            }
+            for (const auto& policy : power.rows) {
+                if (policy.board || !policy.consistent || !(policy.writable || policy.named_current) || (policy.unit != 0 && policy.unit != 1)) continue;
+                ScopedCurrent row; row.key = ScopedKey::policy_request(policy.policy); row.binding = policy_binding(policy);
+                row.unit = policy.unit == 0 ? "mW" : "mA"; row.value = policy.requested;
+                row.low = policy.minimum; row.high = policy.maximum; row.fresh = row.writable = true;
+                auto pin = std::find(power.pin_ids.begin(), power.pin_ids.end(), policy.policy);
+                if (pin != power.pin_ids.end()) row.pin_value = power.pin_values[static_cast<size_t>(pin - power.pin_ids.begin())];
+                snapshot.entries.push_back(std::move(row));
+            }
+        }
+        if (rail_service_) {
+            const auto rails = rail_service_->read(); if (rails_before) *rails_before = rails;
+            dc_rails_hold_record hold{}; hold.size = sizeof(hold);
+            const bool hold_known = retry(api_.rails.hold, gpu_, &hold) == DC_OK && (!hold.present || (hold.rail >= 0 && hold.rail < static_cast<int>(DC_RAILS_COUNT)));
+            const bool writer = api_.rails.set_raw && api_.rails.lock && api_.rails.unlock && api_.rails.identity && api_.rails.limits && api_.rails.fields;
+            for (uint32_t rail = 0; rail < DC_RAILS_COUNT; ++rail) for (uint32_t field = 0; field < DC_RAILS_LIMIT_FIELDS; ++field) {
+                const auto& f = rails[rail].fields[field];
+                if (!rails[rail].type || !f.established || !f.requested_uv || !f.estimated_base_mv || !xoc_known) continue;
+                // Match Rails::set_limits: retain current requests above the
+                // normal ceiling, and allow the current/captured initial floor.
+                const double low = std::min({std::ceil((DC_RAILS_LIMIT_MIN_MV - *f.estimated_base_mv) * 1000.0), static_cast<double>(*f.requested_uv), static_cast<double>(f.initial_uv.value_or(*f.requested_uv))});
+                const double high = std::max(std::floor(((xoc ? DC_RAILS_LIMIT_XOC_MAX_MV : DC_RAILS_LIMIT_MAX_MV) - *f.estimated_base_mv) * 1000.0), static_cast<double>(*f.requested_uv));
+                if (!std::isfinite(low) || !std::isfinite(high) || low < INT32_MIN || high > INT32_MAX || low > high) continue;
+                ScopedCurrent row; row.key = ScopedKey::rail_field(rail, field);
+                row.binding = rail_binding(rail, field, *rails[rail].type, *f.estimated_base_mv); row.unit = "uV";
+                row.value = *f.requested_uv; row.low = static_cast<int64_t>(low); row.high = static_cast<int64_t>(high);
+                row.fresh = !f.stale; row.writable = rail_mode_ && writer && hold_known && (!hold.present || hold.rail != static_cast<int>(rail));
+                snapshot.entries.push_back(std::move(row));
+            }
+        }
+        // Individual unavailable families do not erase unrelated qualified rows.
+        if (!identity(id)) throw std::runtime_error("GPU identity changed during profile capture");
+        last_.scoped_profiles = std::make_shared<ScopedSnapshot>(snapshot);
+        return snapshot;
+    }
+    ActionResult scoped_action(const Command& cmd) {
+        ActionResult result; bool aggregate_stored = false;
+        if (!api_.lock || !api_.unlock || api_.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU for profile capture"; return result; }
+        struct Unlock { CoreApi& api; dc_gpu* gpu; ~Unlock() { api.unlock(gpu); } } unlock{api_, gpu_};
+        try {
+            PowerSnapshot power; std::array<RailRow, DC_RAILS_COUNT> rails{};
+            const auto captured = scoped_capture(&power, &rails);
+            if (cmd.operation == Command::Operation::prepare_scoped_profile) {
+                result.ok = true; result.message = "Captured " + std::to_string(captured.entries.size()) + " understood rail/power requests for profile selection"; return result;
+            }
+            if (!cmd.scoped_profile) throw std::runtime_error("No explicit profile selection/document");
+            if (cmd.operation == Command::Operation::save_scoped_profile) {
+                if (cmd.profile_path.empty()) throw std::runtime_error("Choose a profile path");
+                write_profile(cmd.profile_path, capture_scoped_profile(captured, cmd.scoped_profile->selection));
+                result.ok = true; result.message = "Selected configured rail/power requests saved; omitted controls are unchanged. Loading previews; Apply is explicit."; return result;
+            }
+            const auto plan = plan_scoped_profile(cmd.scoped_profile->document, captured);
+            if (std::none_of(plan.steps.begin(), plan.steps.end(), [](const auto& step) { return step.execute_required; })) {
+                result.ok = true; result.message = "Selected requests already match"; return result;
+            }
+            Undo power_undo{}; power_undo.control = ControlId::power; power_undo.power = power;
+            power_undo.power.guard_unselected_pins = true;
+            for (const auto& step : plan.steps) if (step.key.kind == ScopedKey::Kind::policy) power_undo.power.selected_policies.push_back(step.key.policy);
+            Undo aggregate{}; aggregate.control = ControlId::count; remember(aggregate); aggregate_stored = true;
+            bool power_recorded = false;
+            std::string expected_power = power_state_token(power);
+            suppress_undo_ = true;
+            struct Reset { bool& flag; ~Reset() { flag = false; } } reset{suppress_undo_};
+            for (const auto& step : plan.steps) {
+                if (!step.execute_required) continue;
+                bool appended = false;
+                if (step.key.kind == ScopedKey::Kind::rail) {
+                    const auto& row = rails[step.key.rail]; const auto& field = row.fields[step.key.field];
+                    Undo saved{}; saved.control = ControlId::count; saved.rail_entry = true;
+                    saved.rail = {static_cast<int>(step.key.rail), step.key.field, *row.type, *field.requested_uv};
+                    undo_.back().group.push_back(saved); appended = true;
+                } else if (!power_recorded) { undo_.back().group.push_back(power_undo); power_recorded = true; appended = true; }
+                // Existing writers re-read target, geometry, gate and range. Stop
+                // on coupling-induced changes rather than rewriting bindings.
+                auto command = step.command;
+                if (step.key.kind == ScopedKey::Kind::rail) command.expected_request_raw = step.before;
+                else command.expected_power_state = expected_power;
+                const auto action = execute(command);
+                if (!action.may_have_changed && appended) {
+                    undo_.back().group.pop_back();
+                    if (step.key.kind != ScopedKey::Kind::rail) power_recorded = false;
+                }
+                result.may_have_changed = result.may_have_changed || action.may_have_changed;
+                if (!action.ok) throw std::runtime_error(action.message);
+                if (step.key.kind != ScopedKey::Kind::rail) {
+                    PowerSnapshot after; std::string why;
+                    if (!power_capture(after, why)) throw std::runtime_error("Coupled power readback unavailable: " + why);
+                    expected_power = power_state_token(after);
+                }
+            }
+            const auto mismatch = scoped_profile_readback_error(plan, scoped_capture());
+            if (!mismatch.empty()) throw std::runtime_error(mismatch);
+            if (undo_.back().group.empty()) { undo_.pop_back(); aggregate_stored = false; }
+            result.ok = true; result.message = "Selected rail/power requests and policy pins verified; grouped Undo retains captured requests";
+        } catch (const std::exception& error) {
+            if (aggregate_stored && undo_.back().group.empty()) { undo_.pop_back(); aggregate_stored = false; }
+            result.may_have_changed = result.may_have_changed || aggregate_stored;
+            result.message = std::string("Scoped profile failed: ") + error.what() + (aggregate_stored ? "; grouped Undo retained" : "; no writes issued");
+        }
+        return result;
+    }
+
     ActionResult profile_action(const Command& cmd) {
         ActionResult result{}; const bool save = cmd.operation == Command::Operation::save_profile;
         if (cmd.profile_path.empty()) { result.message = "Choose a profile path"; return result; }
@@ -1148,6 +1303,7 @@ public:
             last_.xoc_known = true; last_.xoc_enabled = actual; result.ok = true; result.message = actual ? "XOC session mode enabled" : "XOC session mode disabled"; return result;
         }
         if (cmd.operation==Command::Operation::release_hold) return release_hold();
+        if (cmd.operation == Command::Operation::prepare_scoped_profile || cmd.operation == Command::Operation::save_scoped_profile) return scoped_action(cmd);
         if (cmd.operation == Command::Operation::save_curve_profile) {
             if (cmd.profile_path.empty()) { result.message = "Choose a V/F profile path"; return result; }
             try {
@@ -1168,6 +1324,7 @@ public:
         }
         if (cmd.operation >= Command::Operation::timings_select_helper && cmd.operation <= Command::Operation::timings_undo) return timing_action(cmd);
         if (cmd.operation == Command::Operation::save_profile || cmd.operation == Command::Operation::load_profile) return profile_action(cmd);
+        if (cmd.operation == Command::Operation::apply_scoped_profile) return scoped_action(cmd);
         if (cmd.operation == Command::Operation::apply_curve || cmd.operation == Command::Operation::reset_curve) return curve_action(cmd, false);
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().curve_entry) return curve_action(cmd, true);
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().rail_entry) return rail_action(cmd, true);

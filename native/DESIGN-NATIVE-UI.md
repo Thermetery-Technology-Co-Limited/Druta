@@ -506,3 +506,20 @@ which stops on the first failure and retains owned restoration state.
 The [completion ledger](ui/validation/PARITY-COMPLETION.md) records the entire
 remaining scope, and the [second checkpoint](ui/validation/2026-11-12-parity-second-increment.md)
 records this increment's tests and read-only renderer evidence.
+
+The third parity increment adds the shared Device/Help menus, selected-device
+reports, capability refresh that preserves drafts, and a second-window launch
+bound to PCI slot, UUID and the exact core DLL. Startup enumeration and fresh
+identity publication enforce the UUID; explicit reconnect preserves it, while
+an intentional adapter-picker selection starts a new session. PnP restart still
+requires its separate out-of-process lifecycle and is not conflated with Reset.
+
+File → Rail / power profiles captures explicit subsets, saves fresh configured
+requests, previews loaded files and applies only on command. Whole-selection
+preflight precedes existing typed writes. Board and current-policy requests
+share one original Undo baseline, with request/pin drift checks before dispatch,
+final selected readback, partial-failure retention and unrelated-pin conflict
+protection. Bounds follow the backend's current/initial rail expansion. The
+workspace does not introduce polling or automatic profile replay. A pure timing
+profile validation module is prepared and tested separately; its UI/batch-write
+integration remains open rather than being counted as completed timing parity.

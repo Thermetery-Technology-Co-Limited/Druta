@@ -28,7 +28,7 @@ add_library(druta_ui_vendor STATIC
 target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/implot)
 target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
 
-add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp curve_profile.cpp rail_controls.cpp
+add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
   i2c_icx.cpp i2c_mp2888_offset.cpp i2c_mp29816.cpp icx_preset.cpp i2c_verify_hold.cpp i2c_warmup.cpp
   tuning_actions.cpp timings_service.cpp timing_transport.cpp)
@@ -50,13 +50,22 @@ add_library(druta_ui_shunt STATIC shunt_model.cpp shunt_view.cpp)
 target_link_libraries(druta_ui_shunt PUBLIC druta_ui_session druta_ui_vendor)
 add_library(druta_ui_monitor STATIC monitor_model.cpp monitor_view.cpp clock_monitor_view.cpp)
 target_link_libraries(druta_ui_monitor PUBLIC druta_ui_shunt)
+add_library(druta_ui_app_actions STATIC app_actions.cpp app_actions_view.cpp)
+target_link_libraries(druta_ui_app_actions PUBLIC druta_ui_monitor druta_ui_vendor)
+add_library(druta_ui_scoped_profile_view STATIC scoped_profile_view.cpp)
+target_link_libraries(druta_ui_scoped_profile_view PUBLIC druta_ui_session druta_ui_vendor)
 if(MSVC)
   target_compile_options(druta_ui_shunt PRIVATE /W4 /WX)
   target_compile_options(druta_ui_monitor PRIVATE /W4 /WX)
+  target_compile_options(druta_ui_app_actions PRIVATE /W4 /WX)
+  target_compile_options(druta_ui_scoped_profile_view PRIVATE /W4 /WX)
 endif()
 add_executable(druta-ui WIN32 main.cpp ui_view.cpp advanced_view.cpp i2c_view.cpp timings_view.cpp)
 target_link_libraries(druta-ui PRIVATE druta_ui_session druta_ui_curve_draft druta_ui_risk druta_ui_planner druta_ui_shunt druta_ui_monitor)
 target_link_libraries(druta-ui PRIVATE druta_ui_vendor d3d9 user32 gdi32 dwmapi imm32 shell32 comdlg32)
+target_link_libraries(druta-ui PRIVATE druta_ui_app_actions druta_ui_scoped_profile_view)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/Native-README.md
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/COPYING
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImGui-LICENSE.txt
@@ -135,6 +144,21 @@ add_test(NAME druta-ui-profile COMMAND druta-ui-profile-test ${CMAKE_CURRENT_BIN
 add_executable(druta-ui-curve-profile-test tests/curve_profile_test.cpp)
 target_link_libraries(druta-ui-curve-profile-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-curve-profile COMMAND druta-ui-curve-profile-test)
+add_executable(druta-ui-scoped-profile-test tests/scoped_profile_test.cpp)
+target_link_libraries(druta-ui-scoped-profile-test PRIVATE druta_ui_session)
+add_test(NAME druta-ui-scoped-profile COMMAND druta-ui-scoped-profile-test)
+add_executable(druta-ui-timing-profile-test tests/timing_profile_test.cpp)
+target_link_libraries(druta-ui-timing-profile-test PRIVATE druta_ui_session)
+add_test(NAME druta-ui-timing-profile COMMAND druta-ui-timing-profile-test)
+add_executable(druta-ui-scoped-profile-view-test tests/scoped_profile_view_test.cpp)
+target_link_libraries(druta-ui-scoped-profile-view-test PRIVATE druta_ui_scoped_profile_view)
+add_test(NAME druta-ui-scoped-profile-view COMMAND druta-ui-scoped-profile-view-test)
+add_executable(druta-ui-app-actions-test tests/app_actions_test.cpp ui_view.cpp advanced_view.cpp i2c_view.cpp timings_view.cpp)
+target_link_libraries(druta-ui-app-actions-test PRIVATE druta_ui_app_actions druta_ui_scoped_profile_view druta_ui_risk shell32)
+add_test(NAME druta-ui-app-actions COMMAND druta-ui-app-actions-test $<TARGET_FILE_DIR:druta-ui>)
+foreach(view_target druta-ui-view-test druta-ui-classic-layout-test druta-ui-classic-behavior-test)
+  target_link_libraries(${view_target} PRIVATE druta_ui_app_actions druta_ui_scoped_profile_view)
+endforeach()
 add_executable(druta-ui-curve-test tests/curve_draft_test.cpp)
 target_link_libraries(druta-ui-curve-test PRIVATE druta_ui_curve_draft)
 add_test(NAME druta-ui-curve COMMAND druta-ui-curve-test)

@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core_client.h"
 #include "profile_io.h"
+#include "scoped_profile.h"
 #include "clock_monitor_model.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -64,8 +65,9 @@ dc_status DC_CALL fan_reset(dc_gpu*, dc_outcome* o) { fan_level = 20; fan_auto =
 dc_status DC_CALL fan_restore(dc_gpu*, const dc_fan_snapshot* s, dc_outcome* o) { CHECK(s->count == 2); fan_level = s->fans[0].level; fan_mode = s->fans[1].level != s->fans[0].level ? 1 : 0; fan_auto = !s->fans[0].manual; o->ok = 1; return DC_OK; }
 dc_status DC_CALL boost_get(dc_gpu*, int32_t* v) { *v = boost_value; return DC_OK; }
 dc_status DC_CALL boost_set(dc_gpu*, int64_t v, dc_outcome* o) { ++boost_writes; boost_value = static_cast<int>(v); o->ok = 1; return DC_OK; }
-uint32_t board = 200000; int64_t peer = 100, pinned_value = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
+uint32_t board = 200000; int64_t peer = 100, pinned_value = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0, pin_writes = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
 bool derived_test = false, callback_matches = true, callback_answer = false, mutable_bounds = false, power_throw = false;
+int mutate_power_at_policy_read = 0;
 dc_status DC_CALL cpc_live(dc_gpu*, dc_cpc_observation* out, dc_error*) { CHECK(out->size == sizeof(*out) && out->metadata.size == sizeof(out->metadata) && out->arbitration.size == sizeof(out->arbitration)); out->metadata.role_info_size = 5; out->metadata.role_info[4] = 0x30; out->metadata.maximum_mw = 500000; out->requested_mw = 600000; out->metadata.native_info_size = 4; out->native_control_size = 4; uint32_t a = callback_matches ? 42u : 43u, b = 56; std::memcpy(out->metadata.native_info, &a, 4); std::memcpy(out->native_control, &b, 4); return DC_OK; }
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL unlock_gpu(dc_gpu*) { return DC_OK; }
@@ -75,9 +77,10 @@ dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int
 dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = derived_test ? 700 : 200; if (power_throw) throw std::runtime_error("post-dispatch power failure"); *ok = 1; *needed = 1; return DC_OK; }
 dc_status DC_CALL message(dc_gpu*, char* out, size_t, size_t* n) { out[0] = 0; *n = 1; return DC_OK; }
 dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = pinned_value; } return DC_OK; }
-dc_status DC_CALL pins_set(dc_gpu*, const uint32_t* ids, const int64_t* values, uint32_t n) { if (n) { CHECK(n == 1 && ids[0] == 1); pinned_value = values[0]; } pin_present = n != 0; return DC_OK; }
+dc_status DC_CALL pins_set(dc_gpu*, const uint32_t* ids, const int64_t* values, uint32_t n) { ++pin_writes; if (n) { CHECK(n == 1 && ids[0] == 1); pinned_value = values[0]; } pin_present = n != 0; return DC_OK; }
 dc_status DC_CALL policies(dc_gpu*, dc_cl_confirm_fn confirm, void* confirm_context, dc_cl_policy_inputs_fn input, void* context, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
-    ++policy_reads; CHECK(confirm != nullptr); if (table_fail) return DC_E_FAILED;
+    ++policy_reads; if (mutate_power_at_policy_read==policy_reads) peer=101;
+    CHECK(confirm != nullptr); if (table_fail) return DC_E_FAILED;
     if (derived_test) { uint32_t info = 42, control = 56; callback_answer = confirm(confirm_context, 1, 700, 500, &info, 1, &control, 1) != 0; }
     dc_cl_statics st{}; st.size = sizeof(st); int32_t has = 0; int64_t mw = 0; CHECK(input(context, &has, &mw, &st) == 0 && has && mw == board);
     *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 350000; rows[0].requested = board;
@@ -100,11 +103,11 @@ dc_status DC_CALL rail_set(dc_gpu*, double value, int64_t, int64_t rail, dc_outc
 dc_status DC_CALL rail_reset(dc_gpu*, int64_t, dc_outcome* out) { ++advanced_writes; rail_raw[1] = 0; out->ok = 1; return DC_OK; }
 dc_status DC_CALL flags_set(dc_gpu*, int32_t a, int32_t b) { CHECK(a == b); xoc_flag = a; return DC_OK; }
 dc_status DC_CALL flags_get(dc_gpu*, int32_t* a, int32_t* b) { if (flags_fail) return DC_E_UNAVAILABLE; *a = *b = xoc_flag; return DC_OK; }
-int rail_type = 7, rail_limits_calls = 0, rail_type_flip_at = 0; double rail_base = 900;
-int raw_limits[2][4] = {{100, 200, 300, 400}, {500, 600, 700, 800}}; bool rail_fields_fail = false, rail_throw = false; int rail_set_calls = 0, rail_failed_index = -1, rail_held = -1;
+int rail_type = 7, rail_limits_calls = 0, rail_type_flip_at = 0, rail_request_flip_at = 0; double rail_base = 900;
+int raw_limits[2][4] = {{100, 200, 300, 400}, {500, 600, 700, 800}}; bool override_rail_initial=false; int rail_initial_override=0; bool rail_fields_fail = false, rail_throw = false; int rail_set_calls = 0, rail_failed_index = -1, rail_held = -1;
 dc_status DC_CALL rail_fields(dc_gpu*, int32_t rail, uint32_t* count) { if (rail_fields_fail || rail == rail_failed_index) return DC_E_UNAVAILABLE; *count = 4; return DC_OK; }
-dc_status DC_CALL rail_limits(dc_gpu*, dc_rails_limit_set* out) { ++rail_limits_calls; if (rail_type_flip_at && rail_limits_calls == rail_type_flip_at) ++rail_type; for (int i = 0; i < 2; ++i) { out->present |= 1u << i; out->rails[i].type = i + rail_type; out->rails[i].has_base = 1; for (int j = 0; j < 4; ++j) { out->rails[i].fields[j] = raw_limits[i][j] / 1000.0; out->rails[i].base[j] = rail_base; } } return DC_OK; }
-dc_status DC_CALL rail_initial(dc_gpu*, int32_t rail, int32_t* has, int32_t values[4]) { *has = 1; for (int i = 0; i < 4; ++i) values[i] = (rail * 4 + i + 1) * 100; return DC_OK; }
+dc_status DC_CALL rail_limits(dc_gpu*, dc_rails_limit_set* out) { ++rail_limits_calls; if (rail_type_flip_at && rail_limits_calls == rail_type_flip_at) ++rail_type; if (rail_request_flip_at && rail_limits_calls == rail_request_flip_at) raw_limits[1][2]=850; for (int i = 0; i < 2; ++i) { out->present |= 1u << i; out->rails[i].type = i + rail_type; out->rails[i].has_base = 1; for (int j = 0; j < 4; ++j) { out->rails[i].fields[j] = raw_limits[i][j] / 1000.0; out->rails[i].base[j] = rail_base; } } return DC_OK; }
+dc_status DC_CALL rail_initial(dc_gpu*, int32_t rail, int32_t* has, int32_t values[4]) { *has = 1; for (int i = 0; i < 4; ++i) values[i] = override_rail_initial && rail==1 && i==2 ? rail_initial_override : (rail * 4 + i + 1) * 100; return DC_OK; }
 dc_status DC_CALL rail_hold(dc_gpu*, dc_rails_hold_record* out) { out->present = rail_held >= 0; out->rail = rail_held; return DC_OK; }
 dc_status DC_CALL rail_raw_set(dc_gpu*, int32_t rail, const dc_rails_raw_request* request, int32_t enabled, int32_t, dc_outcome* out, dc_rails_setter_writes* write_info) { CHECK(enabled && request->count == 1); ++rail_set_calls; auto field = request->order[0]; raw_limits[rail][field] = request->uv[field]; write_info->calls = 1; if (rail_throw) throw std::runtime_error("post-write failure"); out->ok = 1; return DC_OK; }
 dc_status DC_CALL rail_initial_set(dc_gpu*, int32_t, int32_t rail, const dc_rails_reset_request* request, dc_outcome* out, dc_rails_setter_writes* write_info) { for (int i = 0; i < 4; ++i) if (request->field_mask & (1u << i)) raw_limits[rail][i] = (rail * 4 + i + 1) * 100; write_info->calls = 1; out->ok = 1; return DC_OK; }
@@ -309,6 +312,112 @@ int main() {
     CHECK(rb->execute(rail_command).ok && raw_limits[1][2] == 1234); rail_gate.enabled = false; CHECK(rb->execute(rail_gate).ok && !rb->read(false).rail_mode_enabled);
     rail_fields_fail = true; rail_view = rb->read(true); CHECK(!rail_view.rail_controls[0].state.writable && rail_view.rail_writable); rail_fields_fail = false;
     flags_fail = true; rail_command.operation = Command::Operation::stock; CHECK(rb->execute(rail_command).ok && raw_limits[1][2] == 700); flags_fail = false;
+    // Scoped profiles capture fresh selected requests and use one grouped Undo.
+    wchar_t scoped_path[MAX_PATH]{}; CHECK(GetTempFileNameW(directory,L"scp",0,scoped_path)!=0);
+    Command prepare_scoped{}; prepare_scoped.operation=Command::Operation::prepare_scoped_profile;
+    Command save_scoped{}; save_scoped.operation=Command::Operation::save_scoped_profile; save_scoped.profile_path=scoped_path;
+    Command apply_scoped{}; apply_scoped.operation=Command::Operation::apply_scoped_profile;
+    auto selection=[](std::vector<ScopedKey> keys) {
+        auto request=std::make_shared<ScopedProfileRequest>(); request->selection=std::move(keys); return request;
+    };
+    auto document=[](ProfileJson json) {
+        auto request=std::make_shared<ScopedProfileRequest>(); request->document=std::move(json); return request;
+    };
+    auto scoped_client=create_core_backend_for_test(rail_api); CHECK(scoped_client->open("0000:02:00.0",error));
+    board=200000; peer=100; pinned_value=100; pin_present=true; raw_limits[1][2]=700;
+    const int scoped_rail_writes=rail_set_calls, scoped_power_writes=power_writes, scoped_policy_writes=policy_writes, scoped_pin_writes=pin_writes;
+    table_fail=true; CHECK(scoped_client->execute(prepare_scoped).ok);
+    auto catalog=scoped_client->read(false).scoped_profiles; CHECK(catalog!=nullptr);
+    save_scoped.scoped_profile=selection({ScopedKey::rail_field(1,2)});
+    raw_limits[1][2]=800; // changed after catalog: Save must re-read the configured request.
+    CHECK(scoped_client->execute(save_scoped).ok); auto scoped_rail=read_profile(scoped_path);
+    CHECK(scoped_rail["entries"].size()==1 && scoped_rail["entries"][0]["value"]==800);
+    CHECK(rail_set_calls==scoped_rail_writes && power_writes==scoped_power_writes && policy_writes==scoped_policy_writes && pin_writes==scoped_pin_writes);
+    scoped_rail["entries"][0]["value"]=900; apply_scoped.scoped_profile=document(scoped_rail);
+    CHECK(!scoped_client->execute(apply_scoped).ok && rail_set_calls==scoped_rail_writes); // Rail mode remains off.
+    table_fail=false; raw_limits[1][2]=700;
+    CHECK(scoped_client->execute(prepare_scoped).ok); catalog=scoped_client->read(false).scoped_profiles;
+    CHECK(catalog!=nullptr);
+    save_scoped.scoped_profile=selection({ScopedKey::board_power(),ScopedKey::policy_request(1)});
+    board=250000; peer=250; pinned_value=250;
+    CHECK(scoped_client->execute(save_scoped).ok); auto scoped_power=read_profile(scoped_path);
+    CHECK(scoped_power["entries"].size()==2 && power_writes==scoped_power_writes && policy_writes==scoped_policy_writes && pin_writes==scoped_pin_writes);
+    board=200000; peer=100; pinned_value=100; pin_present=true;
+    auto reject_scoped=[&](ProfileJson value) {
+        const int p=power_writes, q=policy_writes, r=rail_set_calls, pins=pin_writes;
+        apply_scoped.scoped_profile=document(std::move(value));
+        CHECK(!scoped_client->execute(apply_scoped).ok && power_writes==p && policy_writes==q && rail_set_calls==r && pin_writes==pins);
+    };
+    auto invalid_scoped=scoped_power; invalid_scoped["target"]["uuid"]="GPU-other"; reject_scoped(invalid_scoped);
+    invalid_scoped=scoped_power; invalid_scoped["entries"][1]["binding"]="changed"; reject_scoped(invalid_scoped);
+    invalid_scoped=scoped_power; invalid_scoped["entries"][1]["value"]=true; reject_scoped(invalid_scoped);
+    // An external rail update after aggregate capture must not be overwritten
+    // or become a stale grouped Undo baseline.
+    Command scoped_rail_gate{}; scoped_rail_gate.operation=Command::Operation::set_rail_mode; scoped_rail_gate.enabled=true;
+    CHECK(scoped_client->execute(scoped_rail_gate).ok);
+    apply_scoped.scoped_profile=document(scoped_rail); rail_limits_calls=0; rail_request_flip_at=4;
+    const int before_rail_race=rail_set_calls; auto raced_rail=scoped_client->execute(apply_scoped);
+    CHECK(!raced_rail.ok && !raced_rail.may_have_changed && rail_set_calls==before_rail_race && raw_limits[1][2]==850);
+    rail_request_flip_at=0; raw_limits[1][2]=700;
+    // Change an observed policy after capture but before the first board writer.
+    mutate_power_at_policy_read=policy_reads+2; apply_scoped.scoped_profile=document(scoped_power);
+    const int before_power_race=power_writes, before_policy_race=policy_writes;
+    const auto raced_power=scoped_client->execute(apply_scoped);
+    CHECK(!raced_power.ok && !raced_power.may_have_changed && power_writes==before_power_race && policy_writes==before_policy_race && peer==101);
+    mutate_power_at_policy_read=0; peer=100;
+    policy_external_test=true; apply_scoped.scoped_profile=document(scoped_power);
+    auto scoped_result=scoped_client->execute(apply_scoped);
+    CHECK(scoped_result.ok && board==250000 && peer==250 && pin_present && pinned_value==250);
+    CHECK(scoped_client->read(false).undo_available && scoped_client->execute(undo).ok);
+    CHECK(board==200000 && peer==100 && pin_present && pinned_value==100);
+    // Board setter changes the selected policy from 100 to 200 even though its
+    // requested profile value was already 100; it must be explicitly reasserted.
+    auto coupled=scoped_power; coupled["entries"][1]["value"]=100;
+    apply_scoped.scoped_profile=document(coupled); const int before_reassert=policy_writes;
+    CHECK(scoped_client->execute(apply_scoped).ok && board==250000 && peer==100 && pin_present && pinned_value==100 && policy_writes>before_reassert);
+    CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pinned_value==100);
+    // A selected policy failure after board dispatch retains the original group Undo.
+    peer_fail=true; apply_scoped.scoped_profile=document(scoped_power);
+    auto failed_scoped=scoped_client->execute(apply_scoped);
+    CHECK(!failed_scoped.ok && failed_scoped.may_have_changed && scoped_client->read(false).undo_available);
+    peer_fail=false; CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pin_present && pinned_value==100);
+    // A policy setter can perturb the board after its own successful write;
+    // final verification must catch that coupled change and retain Undo.
+    policy_change_board=true; auto changed_scoped=scoped_client->execute(apply_scoped);
+    CHECK(!changed_scoped.ok && changed_scoped.may_have_changed && scoped_client->read(false).undo_available);
+    policy_change_board=false; CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pin_present && pinned_value==100);
+    // Board-only Undo must not erase an unrelated pin changed after Apply.
+    auto board_only=scoped_power; board_only["entries"].erase(1);
+    apply_scoped.scoped_profile=document(board_only); CHECK(scoped_client->execute(apply_scoped).ok && board==250000);
+    pinned_value=111; const int prior_guard_pins=pin_writes, prior_guard_board=power_writes;
+    const auto guarded_undo=scoped_client->execute(undo);
+    CHECK(!guarded_undo.ok && scoped_client->read(false).undo_available && pin_writes==prior_guard_pins
+        && power_writes==prior_guard_board && board==250000 && pinned_value==111);
+    pinned_value=100; CHECK(scoped_client->execute(undo).ok && board==200000 && pin_present && pinned_value==100);
+    policy_external_test=false; CHECK(DeleteFileW(scoped_path)!=0);
+    // The adapter-derived rail range includes existing requests outside the
+    // ordinary 650..1200 mV bounds and the captured initial lower request.
+    auto bounds_client=create_core_backend_for_test(rail_api); CHECK(bounds_client->open("0000:02:00.0",error));
+    const auto rail_key=ScopedKey::rail_field(1,2);
+    auto capture_bounds=[&]() -> ScopedCurrent {
+        CHECK(bounds_client->execute(prepare_scoped).ok);
+        const auto snap=bounds_client->read(false).scoped_profiles; CHECK(snap!=nullptr);
+        if (snap) {
+            const auto found=std::find_if(snap->entries.begin(),snap->entries.end(),[&](const auto& row){return row.key==rail_key;});
+            CHECK(found!=snap->entries.end()); if (found!=snap->entries.end()) return *found;
+        }
+        return {};
+    };
+    const int bounds_writes=rail_set_calls; rail_base=900; override_rail_initial=false;
+    raw_limits[1][2]=-300000; auto low_rail=capture_bounds();
+    CHECK(low_rail.value==-300000 && low_rail.low==-300000 && low_rail.high==300000 && low_rail.fresh);
+    raw_limits[1][2]=350000; auto high_rail=capture_bounds();
+    CHECK(high_rail.value==350000 && high_rail.low==-250000 && high_rail.high==350000 && high_rail.fresh);
+    raw_limits[1][2]=700; override_rail_initial=true; rail_initial_override=-320000;
+    auto initial_low_rail=capture_bounds();
+    CHECK(initial_low_rail.value==700 && initial_low_rail.low==-320000 && initial_low_rail.high==300000 && initial_low_rail.fresh);
+    CHECK(rail_set_calls==bounds_writes);
+    override_rail_initial=false; rail_initial_override=0; raw_limits[1][2]=700;
     fan_mode = 0; fan_auto = false; fan_level = 40; fan_refuse = true; fan.value = 60; fan.operation = Command::Operation::apply;
     CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_refuse = false;
     fan_post_fail = true; CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_post_fail = false;

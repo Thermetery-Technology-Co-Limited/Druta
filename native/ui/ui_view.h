@@ -6,6 +6,8 @@
 #include "advanced_view.h"
 #include "timings_view.h"
 #include "shunt_view.h"
+#include "app_actions.h"
+#include "scoped_profile_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -31,6 +33,8 @@ struct ViewState {
     bool always_refresh = false;
     bool pause_requested = false;
     bool hotkey_available = true;
+    AppActionsState app_actions;
+    ScopedProfileViewState scoped_profile_view;
     float core_offset_mhz = 0.0f;
     float memory_offset_mhz = 0.0f;
     float power_limit_w = 310.0f;
