@@ -3,6 +3,7 @@
 #pragma once
 #include "backend.h"
 #include "curve_draft.h"
+#include "advanced_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -46,14 +47,25 @@ struct ViewState {
     uint64_t draft_generation = 0;
     bool generation_initialized = false;
     CurveDraft curve_draft;
+    AdvancedViewState advanced_view;
+    PlannerApi planner_api;
+    double curve_cap_mv = 1100, curve_floor_mv = 1000;
+    std::string curve_plan_message;
     uint64_t observed_curve_revision = 0;
+    uint64_t acknowledged_curve_action = 0;
     uint64_t observed_curve_generation = 0;
     bool curve_observation_initialized = false;
     bool observed_curve_stale = true;
     uint32_t selected_curve_point = 0;
     double curve_delta_mhz = 0;
+    double curve_frequency_mhz = 0;
     bool curve_entry_dirty = false;
     bool curve_entry_editing = false;
+    bool curve_window_open = false;
+    bool curve_window_focus_requested = false;
+    bool curve_fit_requested = true;
+    std::optional<uint32_t> curve_drag_point;
+    double curve_last_undo_time = -1;
 
     bool has_draft() const;
     void revert_draft();

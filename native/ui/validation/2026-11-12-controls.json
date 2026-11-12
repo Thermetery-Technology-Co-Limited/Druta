@@ -1,0 +1,173 @@
+{
+  "date": "2026-11-12",
+  "branch": "codex/native-ui-controls",
+  "base_commit": "e64a2a3fcf4d60bf29c0ed9b6c01345d7b2c363b",
+  "platform": "Windows 10 x64 build 19045",
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 3070 Ti",
+    "slot": "0000:01:00.0",
+    "driver": "595.97",
+    "vbios": "94.04.5a.00.56"
+  },
+  "build": {
+    "configuration": "MSVC Release x64",
+    "ui_renderer": "D3D9",
+    "import_audit": "passed; selected API audit only, not Vista/7 qualification",
+    "sha256": {
+      "drutacore.dll": "184d6dfc25046dfcfd401523b5928573824951f1cbc6c613bad2d22c5ebc3753",
+      "druta-ui.exe": "59cdbae3591cf5028838209eb3dd6d14df67793821fcd3e433b147056b6e7cd3",
+      "druta-ui-live-check.exe": "5e05fa4e93b4497c347270034f641cdfd803bbfdf984e53503dca1c0870bbf35"
+    }
+  },
+  "tests": {
+    "ctest_suites": 11,
+    "passed": true,
+    "client_checks": 311,
+    "session_checks": 90,
+    "view_checks": 461,
+    "advanced_view_checks": 177,
+    "curve_draft_checks": 164,
+    "planner_checks": 41,
+    "risk_checks": 19,
+    "rails_checks": 46,
+    "profile_checks": 36,
+    "refresh_checks": 48,
+    "import_policy_pytest": 16,
+    "input_method": "Headless ImGui mouse/key event injection, both presentations. No physical desktop input claim."
+  },
+  "live_read": {
+    "advanced_offsets": 7,
+    "policy_rows": 19,
+    "rail_fields": 4,
+    "curve_points": 127
+  },
+  "live_roundtrips": [
+    {
+      "control": "Crossbar domain 1",
+      "unit": "configured MHz",
+      "before": 0,
+      "requested": -1,
+      "restored": 0,
+      "apply_verified": true,
+      "restore_verified": true,
+      "restore_scope": "Selected request, all surfaced advanced/rail requests, complete V/F curve, adapter identity",
+      "raw_log": "native/build/ui-controls-evidence/domain-1-roundtrip.txt"
+    },
+    {
+      "control": "Explicit native profile save, narrow to memory, Load and Undo",
+      "saved_profile_version": 2,
+      "loaded_profile_version": 1,
+      "scale": 16,
+      "before_raw": 512,
+      "requested_raw": 528,
+      "restored_mhz_true": 32,
+      "apply_verified": true,
+      "restore_verified": true,
+      "raw_log": "native/build/ui-controls-evidence/profile-memory-check.txt"
+    }
+  ],
+  "roundtrip_build_scope": "Round trips ran before final read-recovery/risk publication fixes and label cleanup; those fixes have mock regression coverage. No extra hardware writes solely to update hashes.",
+  "window_smoke": {
+    "live_mode": true,
+    "phases": [
+      {
+        "phase": "visible_default",
+        "frames": 43,
+        "presents": 43,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.1875,
+        "passed": true
+      },
+      {
+        "phase": "always_visible",
+        "frames": 116,
+        "presents": 116,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.109375,
+        "passed": true
+      },
+      {
+        "phase": "always_minimized",
+        "frames": 114,
+        "presents": 114,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.109375,
+        "passed": true
+      },
+      {
+        "phase": "explicit_pause",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "hotkey_restore",
+        "frames": 114,
+        "presents": 114,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.265625,
+        "passed": true
+      },
+      {
+        "phase": "default_minimized",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "default_restored",
+        "frames": 47,
+        "presents": 47,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.1875,
+        "passed": true
+      },
+      {
+        "phase": "classic",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.09375,
+        "passed": true
+      },
+      {
+        "phase": "advanced",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.09375,
+        "passed": true
+      },
+      {
+        "phase": "monitor",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.109375,
+        "passed": true
+      },
+      {
+        "phase": "resize_1024x768",
+        "frames": 19,
+        "presents": 19,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.109375,
+        "passed": true
+      }
+    ],
+    "device_resets": 3,
+    "hotkey_registered": true,
+    "passed": true
+  },
+  "scope_notes": [
+    "Configured-request evidence on this adapter and operating point; no physical voltage, stability, or other-board claim.",
+    "Ordinary tuning is session-only, profile Load explicit, and XOC/Rail modes are never automatically armed.",
+    "I2C physical-effect qualification stays parked for owner multimeter work.",
+    "Remaining frontend parity: owned holds/headroom/recovery, Max it/Reset all, I2C, registry/VBIOS, power saving, timings, broader profiles, configurable monitoring, Vista/7 execution."
+  ],
+  "local_artifacts": "native/build/ui-controls-evidence (ignored captures and raw logs)"
+}

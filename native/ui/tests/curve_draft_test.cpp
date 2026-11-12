@@ -72,9 +72,9 @@ int main() {
     draft.observe(2, reordered, true, 1);
     CHECK(draft.generation() == 2 && !draft.dirty() && !draft.can_undo());
     CHECK(draft.baseline()[0].idx == 2);
-    for (int i = 0; i < 40; ++i) CHECK(draft.stage_khz(2, i));
+    for (int i = 0; i < 80; ++i) CHECK(draft.stage_khz(2, i));
     unsigned undone = 0; while (draft.undo_edit()) ++undone;
-    CHECK(undone == 32 && draft.draft()[0].delta_khz == 7);
+    CHECK(undone == 64 && draft.draft()[0].delta_khz == 15);
     CHECK(draft.revert() && !draft.dirty() && !draft.can_undo());
     draft.observe(3, {}, false, 0);
     CHECK(draft.generation() == 3 && draft.baseline().empty() && !draft.can_apply());
@@ -96,5 +96,46 @@ int main() {
     CHECK(dual.stage_khz(9, 123));
     dual.observe(4, dual_points, true, 0);
     CHECK(dual.dirty() && !dual.can_apply() && !dual.revert());
+    CurveDraft gestures;
+    gestures.observe(5, dual_points, true, 2);
+    CHECK(gestures.stage_frequency_mhz(9, 1511.3285, 12657, 50000));
+    CHECK(gestures.draft()[0].delta_khz == 35314 && gestures.draft()[0].freq_mhz == 1517.657);
+    CHECK(gestures.undo_edit() && gestures.draft()[0].delta_khz == 10000 && gestures.can_redo());
+    CHECK(gestures.redo_edit() && gestures.draft()[0].delta_khz == 35314);
+    CHECK(gestures.undo_edit());
+    CHECK(gestures.stage_frequency_mhz(9, 1498.6715, 12657, 50000));
+    CHECK(gestures.draft()[0].delta_khz == 10000); // Negative half-bin rounds upward too.
+    CHECK(gestures.stage_frequency_mhz(9, 1540, 12657, 50000, true));
+    CHECK(gestures.draft()[0].delta_khz == 35314); // Floor and the raw envelope both apply.
+    CHECK(gestures.stage_frequency_mhz(9, -10000, 12657, 50000));
+    CHECK(gestures.draft()[0].delta_khz == -40628);
+    CHECK(!gestures.stage_frequency_mhz(9, 1500, 0, 50000));
+    CHECK(!gestures.stage_frequency_mhz(9, 1500, 12657, 0));
+    CHECK(gestures.revert());
+    gestures.begin_gesture();
+    CHECK(gestures.stage_frequency_mhz(9, 1520, 15000, 1000000));
+    CHECK(gestures.stage_frequency_mhz(9, 1535, 15000, 1000000));
+    CHECK(gestures.stage_frequency_mhz(2, 1629, 15000, 1000000));
+    gestures.end_gesture();
+    CHECK(gestures.draft()[0].delta_khz == 70000 && gestures.draft()[1].delta_khz == 58000);
+    CHECK(gestures.undo_edit());
+    CHECK(gestures.draft()[0].delta_khz == 10000 && gestures.draft()[1].delta_khz == -2000);
+    CHECK(!gestures.can_undo() && gestures.can_redo());
+    CHECK(gestures.redo_edit() && gestures.draft()[0].delta_khz == 70000 && gestures.draft()[1].delta_khz == 58000);
+    CHECK(gestures.undo_edit());
+    CHECK(gestures.stage_khz(9, 123) && !gestures.can_redo());
+    gestures.observe(6, dual_points, true, 2);
+    CHECK(!gestures.can_undo() && !gestures.can_redo());
+    CHECK(gestures.stage_khz(9, 123));
+    const auto submitted = gestures.draft();
+    gestures.observe(6, submitted, true, 2);
+    CHECK(gestures.dirty() && !gestures.can_apply());
+    CHECK(gestures.accept_applied());
+    CHECK(!gestures.dirty() && !gestures.can_undo());
+    CHECK(gestures.stage_khz(9, 456));
+    gestures.observe(6, submitted, true, 2);
+    CHECK(!gestures.accept_applied() && gestures.dirty()); // further local edit retained
+    gestures.observe(6, gestures.draft(), false, 2);
+    CHECK(!gestures.accept_applied()); // no stale readback acceptance
     std::printf("curve_draft_test: %u checks passed\n", checks);
 }

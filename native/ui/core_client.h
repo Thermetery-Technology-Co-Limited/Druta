@@ -2,9 +2,12 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include "backend.h"
+#include "rail_controls.h"
 namespace druta::ui {
 // Injected table also permits deterministic tests without loading a driver.
 struct CoreApi {
+    PlannerApi planner{};
+    RailApi rails{};
     decltype(&dc_abi_version) abi_version = nullptr;
     decltype(&dc_enumerate_gpus) enumerate = nullptr;
     decltype(&dc_gpu_open) open = nullptr;
@@ -16,6 +19,7 @@ struct CoreApi {
     decltype(&dc_gpu_mem_offset_scale) scale = nullptr;
     decltype(&dc_gpu_memory_offset_step_units) step = nullptr;
     decltype(&dc_gpu_clock_step_khz) clock_step = nullptr;
+    decltype(&dc_gpu_max_rise_khz) max_rise = nullptr;
     decltype(&dc_gpu_clock_offset_set) set_offset = nullptr;
     decltype(&dc_request_envelopes_get) envelopes = nullptr;
     decltype(&dc_gpu_vf_curve_reset) reset_curve = nullptr;
@@ -29,6 +33,20 @@ struct CoreApi {
     decltype(&dc_gpu_fan_capabilities_get) fan_caps = nullptr;
     decltype(&dc_gpu_voltage_boost_get) boost = nullptr;
     decltype(&dc_gpu_vf_layout) curve_layout = nullptr;
+    decltype(&dc_gpu_clkdom_ok) clkdom_ok = nullptr;
+    decltype(&dc_gpu_clkdom_layout) clkdom_layout = nullptr;
+    decltype(&dc_gpu_clkdom_domains) clkdom_domains = nullptr;
+    decltype(&dc_gpu_clkdom_controls_for_ui) clkdom_controls = nullptr;
+    decltype(&dc_gpu_clkdom_offset_slider_offered) clkdom_offered = nullptr;
+    decltype(&dc_gpu_clkdom_control_label) clkdom_label = nullptr;
+    decltype(&dc_gpu_clkdom_requests) clkdom_requests = nullptr;
+    decltype(&dc_gpu_clkdom_offset_set) clkdom_set = nullptr;
+    decltype(&dc_gpu_rail_offset_capability) rail_cap = nullptr;
+    decltype(&dc_gpu_rail_offset_read) rail_read = nullptr;
+    decltype(&dc_gpu_rail_offset_set) rail_set = nullptr;
+    decltype(&dc_gpu_msvdd_offset_reset) msvdd_reset = nullptr;
+    decltype(&dc_gpu_clkdom_flags_set) clkdom_flags_set = nullptr;
+    decltype(&dc_gpu_clkdom_flags_get) clkdom_flags = nullptr;
     decltype(&dc_gpu_vf_curve_read) curve = nullptr;
     decltype(&dc_gpu_lock) lock = nullptr;
     decltype(&dc_gpu_unlock) unlock = nullptr;

@@ -18,6 +18,8 @@ struct LogEntry { std::uint64_t id = 0; std::string message; bool ok = false; };
 struct SessionSnapshot {
     std::uint64_t generation = 0, revision = 0;
     std::uint64_t completed_reads = 0, completed_actions = 0;
+    std::optional<Command::Operation> last_action_operation;
+    bool last_action_ok = false;
     std::vector<Device> devices;
     std::string selected_slot, status;
     LiveData data;

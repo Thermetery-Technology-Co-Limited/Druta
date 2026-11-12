@@ -21,6 +21,8 @@ struct Fake : IBackend {
     std::vector<std::string> calls;
     std::atomic<bool> partial{false}, disconnected{false}, hold_read{false}, hold_action{false};
     std::atomic<bool> telemetry_failure{false}, throw_action{false}, undo_available{false};
+    std::atomic<bool> throw_reads{false}, throw_after_action{false}, fail_gate{false};
+    bool xoc = false, rails = false;
     Fake() { InitializeCriticalSection(&lock); }
     ~Fake() override { CloseHandle(entered); CloseHandle(release); DeleteCriticalSection(&lock); }
     void record(const std::string& s) { EnterCriticalSection(&lock); calls.push_back(s); LeaveCriticalSection(&lock); }
@@ -33,22 +35,30 @@ struct Fake : IBackend {
     LiveData read(bool details) override {
         record(details ? "details" : "read");
         if (hold_read.exchange(false)) block();
+        if (throw_reads.load()) throw 1;
         const bool is_partial = partial.load();
         LiveData d; d.connected = !disconnected.load(); d.telemetry_valid = !telemetry_failure.load(); d.status = "ok";
         d.undo_available = undo_available.load();
+        d.xoc_known = d.rail_mode_known = true; d.xoc_enabled = xoc; d.rail_mode_enabled = rails;
         if (d.telemetry_valid) { d.telemetry.fan_count = 1; d.telemetry.fans[0].has_duty = 1; d.telemetry.fans[0].duty = 40; }
         d.telemetry.present = DC_T_CORE | (is_partial ? 0 : DC_T_POWER_W);
         d.telemetry.core = 100; d.telemetry.power_w = 80;
         auto& c = d.controls[0];
         c.availability = is_partial ? Availability::transient : Availability::available;
         c.writable = !is_partial; c.current = is_partial ? std::optional<double>{} : 12;
+        AdvancedControl advanced;
+        advanced.id = {AdvancedKind::clock_domain, 7}; advanced.label = "Alternate domain";
+        advanced.state = c; d.advanced_controls.push_back(advanced);
         if (details) d.curve.resize(1);
         return d;
     }
-    ActionResult execute(const Command&) override {
+    ActionResult execute(const Command& cmd) override {
         record("execute"); if (hold_action.exchange(false)) block();
         if (throw_action.exchange(false)) { undo_available = true; throw 1; }
-        ActionResult r; r.ok = true; r.message = "done"; return r;
+        if (cmd.operation == Command::Operation::set_xoc) xoc = cmd.enabled;
+        if (cmd.operation == Command::Operation::set_rail_mode) rails = cmd.enabled;
+        if (throw_after_action.load()) throw_reads = true;
+        ActionResult r; r.ok = !fail_gate.load(); r.message = "done"; return r;
     }
 };
 static bool until(const std::function<bool()>& condition) {
@@ -66,6 +76,7 @@ int main() {
     CHECK(until([&] { return !s.snapshot()->history.empty(); }));
     auto initial = s.snapshot(); CHECK(initial->selected_slot == "a");
     CHECK(initial->data.controls[0].writable);
+    CHECK(initial->data.advanced_controls.size() == 1 && initial->data.advanced_controls[0].state.writable);
     CHECK(initial->data.curve.size() == 1); // initial read requested details
     CHECK(initial->data.telemetry.fan_count == 1 && !initial->fan_readings_stale);
     f->partial = true; s.request_poll();
@@ -76,6 +87,9 @@ int main() {
     CHECK(!partial->history.back().power_w);
     CHECK(partial->data.controls[0].writable && partial->data.controls[0].current == 12);
     CHECK(partial->data.controls[0].availability == Availability::transient);
+    CHECK(partial->data.advanced_controls[0].id.domain == 7);
+    CHECK(partial->data.advanced_controls[0].state.availability == Availability::transient);
+    CHECK(!partial->data.advanced_controls[0].state.writable && partial->data.advanced_controls[0].state.current == 12);
     s.request_poll();
     CHECK(until([&] { return s.snapshot()->history.size() == 3; }));
     CHECK(s.snapshot()->data.controls[0].detail == partial->data.controls[0].detail);
@@ -144,6 +158,7 @@ int main() {
     CHECK(until([&] { return s.snapshot()->history.size() == before_failure + 4; }));
     CHECK((s.snapshot()->telemetry_stale_mask & DC_T_CORE) != 0);
     CHECK(!s.snapshot()->history.back().core_mhz);
+    CHECK(s.snapshot()->data.advanced_controls[0].state.availability == Availability::transient);
     Sleep(50); s.request_poll(); Sleep(50);
     CHECK(s.snapshot()->history.size() == before_failure + 4);
     f->disconnected = false;
@@ -153,5 +168,21 @@ int main() {
     f->stall_read(); s.request_poll(); CHECK(WaitForSingleObject(f->entered, 2000) == WAIT_OBJECT_0);
     s.begin_shutdown(); CHECK(!s.finished()); SetEvent(f->release);
     CHECK(until([&] { return s.finished(); }));
+    for (const auto operation : {Command::Operation::set_xoc, Command::Operation::set_rail_mode}) {
+        for (const bool uncertain : {false, true}) {
+            auto owned_gate = std::make_unique<Fake>(); auto* gate_fake = owned_gate.get();
+            Session gates(std::move(owned_gate), [] {}); gates.start("a");
+            CHECK(until([&] { return !gates.snapshot()->opening && gates.snapshot()->data.connected; }));
+            gate_fake->throw_after_action = true; gate_fake->fail_gate = uncertain;
+            Command enable; enable.operation = operation; enable.enabled = true;
+            CHECK(gates.submit(enable, gates.snapshot()->generation));
+            CHECK(until([&] { return !gates.snapshot()->busy && gates.snapshot()->completed_reads >= 5; }));
+            const auto gate_snapshot = gates.snapshot(); const auto& data = gate_snapshot->data;
+            if (operation == Command::Operation::set_xoc) {
+                CHECK(data.xoc_known == !uncertain); CHECK(uncertain || data.xoc_enabled);
+            } else { CHECK(data.rail_mode_known == !uncertain); CHECK(uncertain || data.rail_mode_enabled); }
+            gates.begin_shutdown(); CHECK(until([&] { return gates.finished(); }));
+        }
+    }
     std::printf("session_test: %u checks passed\n", checks);
 }

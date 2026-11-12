@@ -1,7 +1,7 @@
 # Native frontend
 
 The native Win32/D3D9 application now has a live Session, Daily tuning, a V/F
-point editor, Monitor and read-only Advanced details. **Focused** and
+point editor, Monitor and qualified Advanced controls. **Focused** and
 **Classic / Verbose** share drafts, snapshots, command queue and Undo; changing
 presentation never opens another GPU or applies a draft. The original fixture
 shell remains available with `--preview`.
@@ -18,8 +18,7 @@ Python frontend parity and Vista/7 qualification remain open.
   does not disable a qualified control. Stock/Auto can have a separate capability
   from Apply; an explicit escape action can report that prior state was
   unavailable for Undo.
-  Board-power requests currently use the normal reported bounds; native XOC,
-  Max it and Reset all workflows have not been ported.
+  XOC is an explicit session mode; Max it and Reset all remain pending.
 - Draft edits never write. Unlock controls, then use the selected row's Apply
   or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
   values in the adapter-reported scale. Configured requests remain separate from
@@ -28,23 +27,44 @@ Python frontend parity and Vista/7 qualification remain open.
   V/F table for core-offset writes and understood peer policies/pins for coupled
   power actions. Fan Undo restores requested levels and policies, not merely
   observed RPM. Partial or uncertain outcomes remain in the operation log.
-- **V/F curve** has a separate workspace: select a point, enter its total delta
-  in physical MHz, then Stage. Current curve, draft prediction and a fresh
+- **V/F curve** opens a large resizable popup: drag a point or type its absolute
+  physical frequency and use Set MHz. Current curve, draft and a fresh
   operating point are distinct. The current adapter's verified frequency divisor
   converts physical MHz to raw delta units. Undo edit and Revert are local;
   Apply/Reset carry a complete expected curve and divisor. A stale or changed
-  curve retains edits and requires a fresh read/explicit rebase. Holds, headroom
-  ownership/recovery and curve planners remain pending.
+  curve retains edits and requires a fresh read/explicit rebase. The expanded
+  plot uses large outlined points, vertical dragging and WASD movement; Shift
+  moves three steps and Ctrl+Z/Ctrl+Y undo or redo local edits. De-flatten, ramp
+  and rephase stage plans through the pure C ABI. Prediction uses the core's
+  software model and reported grid-derived bound; it is not a measurement.
 - Global **Save profile...** and **Load profile...** use explicit Windows file
   dialogs. Save reads qualified Daily settings and reports omissions. Load
   requires unlock, validates target/units/current capabilities, captures aggregate
   Undo and reports partial failure. Native `druta-native-daily` version 1 can
   store scalar core/memory/boost, the board request and a representable fan
-  policy/target. **It does not save the core V/F point table.** A saved core
-  scalar cannot restore a sculpted curve; live core-write Undo is separate.
+  policy/target. Version 2 also supports qualified advanced offsets. Profiles
+  exclude individual power policies, rail limits and the full V/F point table;
+  no profile enables a session gate automatically. A saved core scalar cannot
+  restore a sculpted curve; live core-write Undo is separate.
 - Import accepts only Python schema-2 `scope: tuning_action` profiles of kind
-  `memory` or `boost`. Other Python scopes/kinds, full-tune/combined profiles and
-  unknown native fields are refused. Broader existing-format import is pending.
+  `memory`, `boost`, clock `domain` or NVVDD `rail_offset`. Other Python
+  scopes/kinds, full-tune/combined profiles and unknown native fields are
+  refused. Broader existing-format import is pending.
+
+**Advanced** exposes independently qualified clock-domain, NVVDD and MSVDD
+offsets, with an explicit XOC session gate where required, plus available power
+policy and current-request rows. Rail-limit fields show an absolute estimate
+from the signed request plus captured first-read base; Initial restores the
+captured request, not a verified factory default. A separate Rail limits session
+mode gates writes; selected-field Undo does not replay opaque rail packets.
+Missing fields and transient reads remain distinct from unsupported controls.
+
+The risk indicator follows the existing combined score: XOC adds 1, an enabled
+writable rail-limit path adds 1, and an enabled identified writable I2C path
+adds 2. Stock is neutral, 1 amber, 2 red and 3 or more crimson; unknown state
+is shown separately. The native I2C writer is not ported, so it is inactive;
+the indicator does not probe the bus to choose a color. Drafts and active
+session gates are distinct.
 
 Profiles are UTF-8 JSON, limited to 1 MiB, with duplicate-key rejection and
 same-directory flushed temporary-file replacement. Save has no tuning side
@@ -208,10 +228,17 @@ ticks and captures are fixture evidence, separate from the live results above.
 The live evidence and final build hash are recorded in
 [validation/2026-11-12-live.json](validation/2026-11-12-live.json).
 
-Remaining replacement work includes owned holds/headroom/recovery, curve
-planners, XOC/Max it/Reset all workflows, broader existing-profile imports,
-configurable Monitor workflows and
-Advanced domain/rail/current/policy, I2C, registry/BIOS, power-saving and timing
-services. Keep the Python frontend and experiment facade available during that
-migration. See the [plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
+The current control-arc evidence is recorded separately in
+[validation/2026-11-12-controls.json](validation/2026-11-12-controls.json).
+On the tested RTX 3070 Ti, the Crossbar request returned 0 → -1 → 0 MHz;
+all surfaced advanced and rail requests and the complete V/F curve were checked
+as restored. This is configured-request evidence for that adapter and operating
+point, not proof of physical response or behavior on other boards.
+
+Remaining replacement work includes owned holds/headroom/recovery, Max it and
+Reset all, I2C implementation and parked physical qualification, registry/VBIOS
+relationship overrides, power saving, timings, configurable Monitor workflows,
+full profiles and Vista/7 qualification. Keep the Python frontend and experiment
+facade available during migration. See the
+[plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
 for the implementation boundary.

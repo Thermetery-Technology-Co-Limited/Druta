@@ -458,7 +458,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 options.core_path = executable.substr(0, executable.find_last_of(L"\\/")+1) + L"drutacore.dll";
             }
         }
-        app.session = std::make_unique<druta::ui::Session>(druta::ui::create_core_backend(options.core_path),
+        auto backend = druta::ui::create_core_backend(options.core_path);
+        app.view.planner_api = backend->planner_api(); // pure calls, module pinned by Session for the UI lifetime
+        app.session = std::make_unique<druta::ui::Session>(std::move(backend),
             [window = app.window] { PostMessageW(window, session_update_message, 0, 0); });
         app.session->start(options.slot);
         app.view.live = app.session->snapshot();

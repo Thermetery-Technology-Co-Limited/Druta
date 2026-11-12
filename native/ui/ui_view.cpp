@@ -68,7 +68,7 @@ void navigation(ViewState& state, bool horizontal) {
     constexpr Entry entries[] = {
         {Page::daily, "Daily tuning"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::curve, "V/F curve"}
     };
-    const int count = state.preview ? 3 : 4;
+    const int count = 3; // The V/F editor is a large independent window from Daily.
     const float width = horizontal ? (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * (count - 1)) / count : 0.0f;
     for (int i = 0; i < count; ++i) {
         if (horizontal && i != 0) ImGui::SameLine();
@@ -321,13 +321,9 @@ void daily(ViewState& state, bool verbose) {
     stat_cards();
     if (!short_view()) ImGui::Dummy(ImVec2(0, u(12)));
     tuning_controls(state, verbose);
-    if (!short_view()) ImGui::Dummy(ImVec2(0, u(14)));
-    ImGui::SeparatorText("Voltage / frequency");
-    label("Sample curve. Core-offset edits preview their shape here.");
-    vf_plot(state, u(250));
-    if (ImGui::CollapsingHeader("Curve details", verbose ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-        ImGui::TextWrapped("The curve, draft and operating point remain distinct. "
-                           "This sample is for layout review; it is not a measurement of this GPU.");
+    if (ImGui::Button("Open V/F curve")) {
+        state.curve_window_open = true;
+        state.curve_window_focus_requested = true;
     }
 }
 
@@ -460,7 +456,10 @@ void sync_curve_entry(ViewState& state) {
         state.curve_entry_dirty = false;
     }
     if (!state.curve_entry_dirty && !state.curve_entry_editing && state.curve_draft.freq_div())
+    {
         state.curve_delta_mhz = point->delta_khz / (1000.0 * state.curve_draft.freq_div());
+        state.curve_frequency_mhz = point->freq_mhz;
+    }
 }
 
 void observe_curve(ViewState& state) {
@@ -471,11 +470,22 @@ void observe_curve(ViewState& state) {
     const bool stale = snapshot.curve_stale || !snapshot.data.connected || snapshot.curve_revision == 0;
     if (generation || revision || (stale && !state.observed_curve_stale)) {
         state.curve_draft.observe(snapshot.generation, snapshot.data.curve, !stale, snapshot.data.curve_freq_div);
-        if (generation) { state.curve_entry_dirty = false; state.curve_entry_editing = false; }
+        if (generation) {
+            state.curve_entry_dirty = false; state.curve_entry_editing = false;
+            state.curve_drag_point.reset(); state.curve_fit_requested = true;
+            state.acknowledged_curve_action = snapshot.completed_actions;
+            state.curve_plan_message.clear();
+        }
         sync_curve_entry(state);
         state.observed_curve_revision = snapshot.curve_revision;
         state.observed_curve_generation = snapshot.generation;
         state.curve_observation_initialized = true;
+    }
+    if (!stale && !snapshot.busy && state.acknowledged_curve_action != snapshot.completed_actions) {
+        if (snapshot.last_action_ok && snapshot.last_action_operation == Command::Operation::apply_curve) {
+            if (state.curve_draft.accept_applied()) { state.curve_entry_dirty = false; sync_curve_entry(state); }
+        }
+        state.acknowledged_curve_action = snapshot.completed_actions;
     }
     state.observed_curve_stale = stale;
 }
@@ -620,57 +630,157 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool ver
     ImGui::PopID();
 }
 
-void live_curve(const SessionSnapshot& snapshot, const CurveDraft* edits = nullptr, float height = -1) {
-    if (!edits) ImGui::SeparatorText("Voltage / frequency");
-    if (snapshot.data.curve.empty()) {
-        ImGui::TextWrapped("Curve unavailable%s%s", snapshot.data.curve_error.empty() ? "" : ": ",
-            snapshot.data.curve_error.c_str());
+void end_curve_drag(ViewState& state) {
+    state.curve_draft.end_gesture();
+    state.curve_drag_point.reset();
+}
+
+void select_curve_point(ViewState& state, uint32_t index) {
+    state.selected_curve_point = index;
+    state.curve_entry_dirty = false;
+    state.curve_entry_editing = false;
+    sync_curve_entry(state);
+}
+
+void curve_keyboard(ViewState& state) {
+    const auto& io = ImGui::GetIO();
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+        || io.AppFocusLost || io.WantTextInput || state.curve_entry_editing || ImGui::IsAnyItemActive()) return;
+    auto& editor = state.curve_draft;
+    const auto& points = editor.draft();
+    if (points.empty()) return;
+    if (io.KeyCtrl) {
+        const bool z = ImGui::IsKeyPressed(ImGuiKey_Z);
+        const bool y = ImGui::IsKeyPressed(ImGuiKey_Y);
+        if ((z || y) && ImGui::GetTime() - state.curve_last_undo_time >= 0.4) {
+            state.curve_last_undo_time = ImGui::GetTime();
+            if (y || io.KeyShift) editor.redo_edit(); else editor.undo_edit();
+            state.curve_entry_dirty = false;
+            sync_curve_entry(state);
+        }
         return;
     }
-    std::array<double, DC_VFP_POINTS> voltage{}, frequency{};
-    const size_t count = std::min(snapshot.data.curve.size(), voltage.size());
-    for (size_t i = 0; i < count; ++i) {
-        voltage[i] = snapshot.data.curve[i].volt_mv;
-        frequency[i] = snapshot.data.curve[i].freq_mhz;
+    if (io.KeyAlt || io.KeySuper) return;
+    const int multiplier = io.KeyShift ? 3 : 1;
+    auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
+    if (selected == points.end()) return;
+    int position = static_cast<int>(selected - points.begin());
+    if (ImGui::IsKeyPressed(ImGuiKey_A)) position -= multiplier;
+    if (ImGui::IsKeyPressed(ImGuiKey_D)) position += multiplier;
+    position = std::max(0, std::min(static_cast<int>(points.size()) - 1, position));
+    if (points[static_cast<size_t>(position)].idx != state.selected_curve_point) {
+        select_curve_point(state, points[static_cast<size_t>(position)].idx);
+        selected = points.begin() + position;
     }
-    if (count != snapshot.data.curve.size())
-        ImGui::TextColored(amber, "Curve exceeds the understood point capacity; plot is truncated.");
-    if (snapshot.curve_stale) ImGui::TextColored(amber, "Last observed curve (stale). Refresh to read again.");
-    else if (!edits) ImGui::TextColored(muted, "Configured curve. Open V/F curve to stage point edits.");
-    if (height <= 0) height = u(short_view() ? 190.0f : 250.0f);
-    if (ImPlot::BeginPlot("##live_curve", ImVec2(-1, height), ImPlotFlags_NoTitle)) {
-        ImPlot::SetupAxes("Voltage (mV)", "Core (MHz)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
-        ImPlotSpec style;
-        style.LineColor = accent;
-        style.LineWeight = 2;
-        ImPlot::PlotLine("Configured curve", voltage.data(), frequency.data(), static_cast<int>(count), style);
-        if (edits && !edits->draft().empty()) {
-            std::array<double, DC_VFP_POINTS> draft_voltage{}, draft_frequency{};
-            const auto& draft = edits->draft();
-            const size_t draft_count = std::min(draft.size(), draft_voltage.size());
-            for (size_t i = 0; i < draft_count; ++i) {
-                draft_voltage[i] = draft[i].volt_mv;
-                draft_frequency[i] = draft[i].freq_mhz;
+    int direction = 0;
+    if (ImGui::IsKeyPressed(ImGuiKey_W)) ++direction;
+    if (ImGui::IsKeyPressed(ImGuiKey_S)) --direction;
+    if (direction) {
+        const auto& data = state.live->data;
+        editor.stage_frequency_mhz(selected->idx, selected->freq_mhz
+            + static_cast<double>(direction * multiplier) * data.curve_step_khz / 1000.0,
+            data.curve_step_khz, data.curve_max_abs_delta_khz);
+        state.curve_entry_dirty = false;
+        sync_curve_entry(state);
+    }
+}
+
+void interactive_curve_plot(ViewState& state) {
+    const auto& snapshot = *state.live;
+    auto& editor = state.curve_draft;
+    const auto& points = editor.draft();
+    if (points.empty()) {
+        ImGui::TextWrapped("Curve unavailable: %s", snapshot.data.curve_error.empty() ? editor.status().c_str() : snapshot.data.curve_error.c_str());
+        return;
+    }
+    if (state.curve_drag_point && (!ImGui::IsMouseDown(ImGuiMouseButton_Left)
+        || ImGui::GetIO().AppFocusLost || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))) end_curve_drag(state);
+    const auto saved_input = ImPlot::GetInputMap();
+    auto& input = ImPlot::GetInputMap();
+    input.Pan = state.curve_drag_point ? 4 : ImGuiMouseButton_Left;
+    input.Fit = 4; // Fit view is explicit; a double click on a dot is still a dot grab.
+    if (state.curve_fit_requested) ImPlot::SetNextAxesToFit();
+    const float height = std::max(u(180), ImGui::GetContentRegionAvail().y);
+    const auto flags = ImPlotFlags_NoTitle | ImPlotFlags_NoMouseText | ImPlotFlags_NoMenus | ImPlotFlags_NoBoxSelect;
+    ImPlot::PushStyleVar(ImPlotStyleVar_FitPadding, ImVec2(0.03f, 0.06f));
+    if (ImPlot::BeginPlot("##live_curve", ImVec2(-1, height), flags)) {
+        double xmin = points.front().volt_mv, xmax = xmin, ymin = points.front().freq_mhz, ymax = ymin;
+        for (const auto& point : points) {
+            xmin = std::min(xmin, point.volt_mv); xmax = std::max(xmax, point.volt_mv);
+            ymin = std::min(ymin, point.freq_mhz); ymax = std::max(ymax, point.freq_mhz);
+        }
+        xmin -= 25; xmax += 25;
+        ymin = std::min(0.0, ymin - 120); ymax = std::max(3000.0, ymax + 200);
+        ImPlot::SetupAxes("Voltage (mV)", "Core (MHz)");
+        // View constraints only: they are not device voltage/frequency limits.
+        ImPlot::SetupAxisLimitsConstraints(ImAxis_X1, xmin, xmax);
+        ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, ymin, ymax);
+        ImPlot::SetupAxisZoomConstraints(ImAxis_X1, std::min(20.0, xmax - xmin), xmax - xmin);
+        ImPlot::SetupAxisZoomConstraints(ImAxis_Y1, std::min(100.0, ymax - ymin), ymax - ymin);
+        ImPlot::SetupFinish();
+        if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            end_curve_drag(state);
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            double closest = static_cast<double>(u(14)) * u(14);
+            std::optional<uint32_t> grabbed;
+            for (const auto& point : points) {
+                const auto pixel = ImPlot::PlotToPixels(point.volt_mv, point.freq_mhz);
+                const double dx = pixel.x - mouse.x, dy = pixel.y - mouse.y;
+                const double distance = dx * dx + dy * dy;
+                if (distance <= closest) { closest = distance; grabbed = point.idx; }
             }
-            ImPlotSpec draft_style;
-            draft_style.LineColor = teal;
-            draft_style.LineWeight = 2;
-            ImPlot::PlotLine("Draft request", draft_voltage.data(), draft_frequency.data(), static_cast<int>(draft_count), draft_style);
+            if (grabbed) {
+                state.curve_drag_point = grabbed;
+                select_curve_point(state, *grabbed);
+                editor.begin_gesture();
+            }
+        }
+        if (state.curve_drag_point && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            const auto& data = snapshot.data;
+            editor.stage_frequency_mhz(*state.curve_drag_point, ImPlot::GetPlotMousePos().y,
+                data.curve_step_khz, data.curve_max_abs_delta_khz);
+            state.curve_entry_dirty = false;
+            sync_curve_entry(state);
+        }
+        std::array<double, DC_VFP_POINTS> current_x{}, current_y{}, draft_x{}, draft_y{};
+        const size_t current_count = std::min(snapshot.data.curve.size(), current_x.size());
+        const size_t draft_count = std::min(points.size(), draft_x.size());
+        for (size_t i = 0; i < current_count; ++i) {
+            current_x[i] = snapshot.data.curve[i].volt_mv; current_y[i] = snapshot.data.curve[i].freq_mhz;
+        }
+        for (size_t i = 0; i < draft_count; ++i) { draft_x[i] = points[i].volt_mv; draft_y[i] = points[i].freq_mhz; }
+        ImPlotSpec current;
+        current.LineColor = secondary; current.LineWeight = u(2);
+        current.Marker = ImPlotMarker_Circle; current.MarkerSize = u(5);
+        current.MarkerFillColor = secondary;
+        ImPlot::PlotLine("Current", current_x.data(), current_y.data(), static_cast<int>(current_count), current);
+        ImPlotSpec edited;
+        edited.LineColor = accent; edited.LineWeight = u(1);
+        edited.Marker = ImPlotMarker_Circle; edited.MarkerSize = u(6);
+        edited.MarkerFillColor = accent;
+        edited.MarkerLineColor = ImVec4(0.055f, 0.078f, 0.11f, 1);
+        ImPlot::PlotLine("Draft", draft_x.data(), draft_y.data(), static_cast<int>(draft_count), edited);
+        const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
+        if (selected != points.end()) {
+            ImPlotSpec mark;
+            mark.Marker = ImPlotMarker_Diamond; mark.MarkerSize = u(12);
+            mark.MarkerFillColor = amber; mark.MarkerLineColor = amber;
+            ImPlot::PlotScatter("Selected", &selected->volt_mv, &selected->freq_mhz, 1, mark);
         }
         const auto& telemetry = snapshot.data.telemetry;
         if ((telemetry.present & (DC_T_VCORE_MV | DC_T_CORE)) == (DC_T_VCORE_MV | DC_T_CORE)
             && !(snapshot.telemetry_stale_mask & (DC_T_VCORE_MV | DC_T_CORE)) && !snapshot.paused) {
             const double clock = telemetry.core;
-            ImPlotSpec point;
-            point.Marker = ImPlotMarker_Circle;
-            point.MarkerFillColor = teal;
-            point.MarkerSize = 5;
-            ImPlot::PlotScatter("Observed operating point", &telemetry.vcore_mv, &clock, 1, point);
+            ImPlotSpec observed;
+            observed.Marker = ImPlotMarker_Circle; observed.MarkerSize = u(4);
+            observed.MarkerFillColor = teal;
+            ImPlot::PlotScatter("Observed operating point", &telemetry.vcore_mv, &clock, 1, observed);
         }
         ImPlot::EndPlot();
+        state.curve_fit_requested = false;
     }
-    if (!snapshot.data.curve_error.empty())
-        ImGui::TextWrapped("Curve: %s", snapshot.data.curve_error.c_str());
+    ImPlot::PopStyleVar();
+    ImPlot::GetInputMap() = saved_input;
 }
 
 void live_daily(ViewState& state, bool verbose) {
@@ -720,110 +830,154 @@ void live_daily(ViewState& state, bool verbose) {
     if (snapshot.data.enforced_power_w)
         ImGui::TextWrapped("NVML enforced power limit: %s. This is separate from the configured request and actual draw.",
             number_text(snapshot.data.enforced_power_w, "W").c_str());
-    if (ImGui::Button("Open V/F curve")) state.page = Page::curve;
-    live_curve(snapshot);
+    if (ImGui::Button("Open V/F curve")) {
+        state.curve_window_open = true;
+        state.curve_window_focus_requested = true;
+    }
 }
 
 void live_curve_workspace(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
     auto& editor = state.curve_draft;
-    if (!short_view()) title("V/F curve", "Stage point deltas, review the draft, then Apply.");
     const auto& points = editor.draft();
-    size_t changed = 0;
-    for (const auto& point : points) {
-        const auto& baseline = editor.baseline();
-        const auto before = std::find_if(baseline.begin(), baseline.end(), [&](const auto& row) { return row.idx == point.idx; });
-        if (before != baseline.end() && before->delta_khz != point.delta_khz) ++changed;
-    }
-    ImGui::TextColored(changed ? amber : secondary, "%zu pending point%s%s", changed, changed == 1 ? "" : "s",
-        state.curve_entry_dirty ? " | entry not staged" : "");
-    ImGui::SameLine();
-    const char* short_status = snapshot.curve_stale ? "Curve stale" : editor.can_apply() ? "Ready to Apply"
-        : editor.dirty() ? "Draft retained; Refresh / Revert"
-        : editor.status().size() > 30 ? "See curve details" : editor.status().c_str();
-    ImGui::TextColored(editor.can_apply() ? teal : secondary, "%s", short_status);
-    hint(editor.status().c_str());
-    ImGui::SameLine();
-    ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
-    if (ImGui::Button("Refresh curve")) state.refresh_requested = true;
-    ImGui::EndDisabled();
-    // Reserve the short editing/action panel; put the plot first so a compact
-    // or high-DPI window never hides every curve below explanatory text.
-    const float plot_height = std::max(u(130), std::min(u(300), ImGui::GetContentRegionAvail().y - u(150)));
-    live_curve(snapshot, &editor, plot_height);
     if (!points.empty()) {
         const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
         char preview[128]{};
         if (selected != points.end()) std::snprintf(preview, sizeof(preview), "#%u | %.3f mV", selected->idx, selected->volt_mv);
-        ImGui::SetNextItemWidth(u(155));
+        ImGui::SetNextItemWidth(u(165));
         if (ImGui::BeginCombo("Point", preview)) {
             for (const auto& point : points) {
                 char name[128]{};
                 std::snprintf(name, sizeof(name), "#%u | %.3f mV | %.9g MHz", point.idx, point.volt_mv, point.freq_mhz);
-                if (ImGui::Selectable(name, point.idx == state.selected_curve_point)) {
-                    state.selected_curve_point = point.idx;
-                    state.curve_entry_dirty = false;
-                    state.curve_entry_editing = false;
-                    sync_curve_entry(state);
-                }
+                if (ImGui::Selectable(name, point.idx == state.selected_curve_point)) select_curve_point(state, point.idx);
             }
             ImGui::EndCombo();
         }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(u(105));
-        double value = state.curve_delta_mhz;
-        if (ImGui::InputDouble("Delta (MHz)", &value, 0, 0, "%.9g") && std::isfinite(value)) {
-            state.curve_delta_mhz = value;
-            state.curve_entry_dirty = true;
+        ImGui::SetNextItemWidth(u(100));
+        double target = state.curve_frequency_mhz;
+        if (ImGui::InputDouble("MHz", &target, 0, 0, "%.9g") && std::isfinite(target)) {
+            state.curve_frequency_mhz = target; state.curve_entry_dirty = true;
         }
         state.curve_entry_editing = ImGui::IsItemActive();
         ImGui::SameLine();
-        if (ImGui::Button("Stage point")) {
-            if (editor.stage_mhz(state.selected_curve_point, state.curve_delta_mhz)) state.curve_entry_dirty = false;
-        }
-        ImGui::BeginDisabled(!editor.can_undo());
-        if (ImGui::Button("Undo edit")) { editor.undo_edit(); sync_curve_entry(state); }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Revert local curve")) {
-            if (editor.revert()) { state.curve_entry_dirty = false; state.curve_entry_editing = false; sync_curve_entry(state); }
+        if (ImGui::Button("Set MHz")) {
+            if (editor.stage_frequency_mhz(state.selected_curve_point, state.curve_frequency_mhz,
+                snapshot.data.curve_step_khz, snapshot.data.curve_max_abs_delta_khz, true)) {
+                state.curve_entry_dirty = false; sync_curve_entry(state);
+            }
         }
         ImGui::SameLine();
-        ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
+        ImGui::TextColored(secondary, "Delta: %s", number_text(state.curve_delta_mhz, "MHz").c_str());
     }
+    ImGui::BeginDisabled(!editor.can_undo());
+    if (ImGui::Button("Undo edit")) { editor.undo_edit(); state.curve_entry_dirty = false; sync_curve_entry(state); }
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled(!editor.can_redo());
+    if (ImGui::Button("Redo edit")) { editor.redo_edit(); state.curve_entry_dirty = false; sync_curve_entry(state); }
+    ImGui::EndDisabled(); ImGui::SameLine();
+    if (ImGui::Button("Revert local curve")) {
+        if (editor.revert()) { state.curve_entry_dirty = false; state.curve_entry_editing = false; sync_curve_entry(state); }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Fit view")) state.curve_fit_requested = true;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
+    if (ImGui::Button("Refresh curve")) state.refresh_requested = true;
+    ImGui::EndDisabled();
+    ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
+    ImGui::SameLine();
     const bool ready = snapshot.data.connected && !snapshot.busy && !snapshot.opening
         && !snapshot.curve_stale && snapshot.curve_revision != 0 && snapshot.data.curve_freq_div != 0 && state.controls_unlocked;
     ImGui::BeginDisabled(!ready || !snapshot.data.curve_writable || !editor.can_apply());
     if (ImGui::Button("Apply curve")) {
         Command command;
         command.operation = Command::Operation::apply_curve;
-        command.expected_curve = editor.baseline();
-        command.expected_curve_freq_div = editor.freq_div();
-        command.curve_deltas = editor.changes();
-        state.commands.push_back(std::move(command));
+        command.expected_curve = editor.baseline(); command.expected_curve_freq_div = editor.freq_div();
+        command.curve_deltas = editor.changes(); state.commands.push_back(std::move(command));
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
+    ImGui::EndDisabled(); ImGui::SameLine();
     ImGui::BeginDisabled(!ready || !snapshot.data.curve_reset_writable || snapshot.data.curve.empty() || snapshot.data.curve.size() > DC_VFP_POINTS);
     if (ImGui::Button("Reset curve to stock")) {
         Command command;
-        command.operation = Command::Operation::reset_curve;
-        command.expected_curve = snapshot.data.curve;
-        command.expected_curve_freq_div = snapshot.data.curve_freq_div;
-        state.commands.push_back(std::move(command));
+        command.operation = Command::Operation::reset_curve; command.expected_curve = snapshot.data.curve;
+        command.expected_curve_freq_div = snapshot.data.curve_freq_div; state.commands.push_back(std::move(command));
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
+    ImGui::EndDisabled(); ImGui::SameLine();
     ImGui::BeginDisabled(!state.controls_unlocked || !snapshot.data.connected || !snapshot.data.undo_available || snapshot.busy || snapshot.opening);
     if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::core, 0});
     ImGui::EndDisabled();
-    if (ImGui::CollapsingHeader("Curve workflow details", verbose && !short_view() ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-        ImGui::TextWrapped("%s", editor.status().c_str());
-        if (snapshot.data.curve_step_khz)
-            ImGui::TextColored(muted, "Reported core grid: %.9g MHz. Entries preserve exact raw kHz.", snapshot.data.curve_step_khz / 1000.0);
-        ImGui::TextWrapped("Backend checks current geometry, frequency divisor and request limits on Apply. Draft frequency predicts the requested delta; the operating point is measured telemetry.");
-        ImGui::TextWrapped("Undo edit changes only the staged curve. Hardware Undo restores the recorded write. A changed or unreadable curve retains your draft; Refresh and Revert explicitly to rebase. Holds and curve planners remain under migration.");
+    if (ImGui::CollapsingHeader("Curve shape tools")) {
+        ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Cap (mV)", &state.curve_cap_mv, 0, 0, "%.3f");
+        ImGui::SameLine(); ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Ramp floor (mV)", &state.curve_floor_mv, 0, 0, "%.3f");
+        std::optional<CurvePlanKind> kind;
+        const bool can_plan = !points.empty() && snapshot.data.curve_step_khz && snapshot.data.curve_max_abs_delta_khz
+            && snapshot.data.curve_model_max_rise_khz && state.planner_api.predict;
+        ImGui::BeginDisabled(!can_plan);
+        if (ImGui::Button("Stage de-flatten")) kind = CurvePlanKind::deflatten;
+        ImGui::SameLine(); if (ImGui::Button("Stage ramp")) kind = CurvePlanKind::ramp;
+        ImGui::SameLine(); if (ImGui::Button("Stage re-phase")) kind = CurvePlanKind::rephase;
+        ImGui::EndDisabled();
+        hint("Shape tools stage local edits. Prediction uses the backend's software model; Apply and readback establish the stored request.");
+        if (kind) {
+            CurvePlanRequest request;
+            request.kind = *kind; request.points = points; request.freq_div = editor.freq_div();
+            request.step_khz = snapshot.data.curve_step_khz; request.max_abs_delta_khz = snapshot.data.curve_max_abs_delta_khz;
+            request.max_rise_khz = snapshot.data.curve_model_max_rise_khz;
+            if (*kind != CurvePlanKind::rephase) request.cap_mv = state.curve_cap_mv;
+            if (*kind == CurvePlanKind::ramp) request.floor_mv = state.curve_floor_mv;
+            const auto plan = plan_curve(state.planner_api, request);
+            state.curve_plan_message = plan.message;
+            if (plan.ok && !plan.changes.empty()) {
+                auto staged = editor; staged.end_gesture(); staged.begin_gesture(); bool valid = true;
+                for (const auto& change : plan.changes) valid = staged.stage_khz(static_cast<uint32_t>(change.idx), static_cast<double>(change.delta_khz)) && valid;
+                staged.end_gesture();
+                if (valid) {
+                    editor = std::move(staged); state.curve_entry_dirty = false; sync_curve_entry(state);
+                    state.curve_plan_message = "Staged " + std::to_string(plan.changes.size()) + " points. Review the dots before Apply.";
+                    if (!plan.predicted_khz.empty()) state.curve_plan_message += " Model peak: " +
+                        number_text(*std::max_element(plan.predicted_khz.begin(), plan.predicted_khz.end()) / 1000.0, "MHz") + " (estimate).";
+                } else state.curve_plan_message = "Plan could not be staged; draft unchanged";
+            }
+        }
+        if (!state.curve_plan_message.empty()) ImGui::TextWrapped("%s", state.curve_plan_message.c_str());
     }
+    curve_keyboard(state);
+    const char* status = snapshot.curve_stale ? "Curve stale; edits retained" : editor.status().c_str();
+    ImGui::TextColored(editor.dirty() ? amber : secondary, "%s", status);
+    ImGui::TextColored(muted, "Drag dots | A/D select | W/S +/- %.9g MHz | Shift x3 | Ctrl+Z / Y",
+        snapshot.data.curve_step_khz / 1000.0);
+    if (ImGui::CollapsingHeader("Curve details")) {
+        ImGui::TextWrapped("Set MHz floors onto the captured point's clock phase. Drag snaps half up; voltage stays fixed. Empty left-drag pans; wheel zooms. Ctrl+Shift+Z also redoes local edits (64 deep). Closing keeps the draft. Apply and hardware Undo are separate explicit commands.");
+        ImGui::TextWrapped("Current card grid: %.9g MHz. Request divisor: %u. Draft frequency predicts a request, not a measurement. Holds/planners remain pending.",
+            snapshot.data.curve_step_khz / 1000.0, editor.freq_div());
+        if (verbose) ImGui::TextWrapped("%s", snapshot.data.curve_error.c_str());
+    }
+    if (!snapshot.log.empty()) {
+        const auto& last = snapshot.log.back();
+        ImGui::TextColored(last.ok ? secondary : amber, "%s", last.message.c_str());
+        hint(last.message.c_str());
+    }
+    interactive_curve_plot(state);
+}
+
+void draw_curve_window(ViewState& state) {
+    if (state.curve_drag_point && (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::GetIO().AppFocusLost))
+        end_curve_drag(state);
+    if (!state.curve_window_open) { end_curve_drag(state); return; }
+    const auto display = ImGui::GetIO().DisplaySize;
+    const ImVec2 maximum(std::max(320.0f, display.x - u(16)), std::max(240.0f, display.y - u(16)));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(u(640), maximum.x), std::min(u(480), maximum.y)), maximum);
+    ImGui::SetNextWindowSize(ImVec2(maximum.x - u(12), maximum.y - u(12)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (state.curve_window_focus_requested) { ImGui::SetNextWindowFocus(); state.curve_window_focus_requested = false; }
+    if (ImGui::Begin("V/F curve editor###druta_curve_editor", &state.curve_window_open, ImGuiWindowFlags_NoSavedSettings)) {
+        if (state.preview) { label("Preview / sample data. No GPU session is connected."); vf_plot(state, ImGui::GetContentRegionAvail().y); }
+        else if (state.live) live_curve_workspace(state, state.presentation == Presentation::classic);
+        else ImGui::TextUnformatted("Waiting for a fresh curve...");
+    }
+    ImGui::End();
+    if (!state.curve_window_open) end_curve_drag(state);
 }
 
 void live_identity(const SessionSnapshot& snapshot) {
@@ -842,12 +996,13 @@ void live_identity(const SessionSnapshot& snapshot) {
 
 void live_advanced(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
-    title("Advanced", "Current session details. Additional control workflows remain under migration.");
+    title("Advanced", "Stage a selected request, then Apply. Details explain reported capabilities.");
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh details")) state.refresh_requested = true;
     ImGui::SameLine();
     if (ImGui::Button("Reconnect")) state.reconnect_requested = true;
     ImGui::EndDisabled();
+    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
     if (ImGui::CollapsingHeader("Control capabilities", flags)) {
@@ -1009,7 +1164,24 @@ void apply_theme(float scale) {
 }
 
 void draw(ViewState& state) {
+    if (state.page == Page::curve) {
+        state.page = Page::daily;
+        state.curve_window_open = true;
+        state.curve_window_focus_requested = true;
+    }
     if (!state.preview) { sync_live_drafts(state); observe_curve(state); }
+    unsigned risk_colors = 0;
+    if (!state.preview && state.live) {
+        const auto risk = session_risk(state.live->data);
+        if (risk.score) {
+            auto tint = [](RiskColor c) { return ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1); };
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, tint(risk.tint.background));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, tint(risk.tint.background));
+            ImGui::PushStyleColor(ImGuiCol_Border, tint(risk.tint.border));
+            ImGui::PushStyleColor(ImGuiCol_TitleBgActive, tint(risk.tint.border));
+            risk_colors = 4;
+        }
+    }
     const bool compact = short_view();
     if (compact) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(u(8), u(4)));
@@ -1023,6 +1195,10 @@ void draw(ViewState& state) {
         | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar;
     ImGui::Begin("Druta workspace", nullptr, flags);
     top_bar(state);
+    if (!state.preview && state.live) {
+        draw_mode_bar(*state.live, state.controls_unlocked, state.commands);
+        ImGui::Separator();
+    }
     const bool narrow = ImGui::GetContentRegionAvail().x < u(900);
     if (narrow) {
         navigation(state, true);
@@ -1049,14 +1225,9 @@ void draw(ViewState& state) {
     if (!state.preview) {
         if (!state.live) ImGui::TextUnformatted("Waiting for the first session snapshot...");
         else if (state.page == Page::daily) live_daily(state, verbose);
-        else if (state.page == Page::curve) live_curve_workspace(state, verbose);
         else if (state.page == Page::advanced) live_advanced(state, verbose);
         else live_monitor(*state.live, verbose);
     } else if (state.page == Page::daily) daily(state, verbose);
-    else if (state.page == Page::curve) {
-        title("V/F curve", "Preview / sample data. No GPU session is connected.");
-        vf_plot(state, u(300));
-    }
     else if (state.page == Page::advanced) advanced(verbose);
     else monitor(verbose);
     ImGui::EndChild();
@@ -1066,7 +1237,9 @@ void draw(ViewState& state) {
     ImGui::TextColored(state.hotkey_available ? muted : amber, "%s", footer);
     ImGui::PopTextWrapPos();
     ImGui::End();
+    draw_curve_window(state);
     if (compact) ImGui::PopStyleVar(3);
+    if (risk_colors) ImGui::PopStyleColor(static_cast<int>(risk_colors));
 }
 
 } // namespace druta::ui

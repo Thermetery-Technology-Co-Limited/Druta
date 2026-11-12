@@ -60,6 +60,24 @@ void merge_controls(const LiveData& old, LiveData& next) {
                 c.detail += ": " + reason;
         }
     }
+    for (auto& row : next.advanced_controls) {
+        const auto found = std::find_if(old.advanced_controls.begin(), old.advanced_controls.end(),
+            [&](const AdvancedControl& prior) { return prior.id.kind == row.id.kind && prior.id.domain == row.id.domain; });
+        if (found == old.advanced_controls.end()) continue;
+        if (!row.binding.empty() && row.binding != found->binding) continue;
+        auto& c = row.state;
+        const auto& previous = found->state;
+        if ((c.availability == Availability::unknown || c.availability == Availability::transient) && previous.current) {
+            const auto reason = c.detail;
+            const bool writable = c.writable, stock = c.stock_writable;
+            c = previous;
+            c.writable = writable; c.stock_writable = stock;
+            c.availability = Availability::transient;
+            c.detail = "Read unavailable; showing last known state";
+            if (!reason.empty() && reason.find("Read unavailable; showing last known state") != 0)
+                c.detail += ": " + reason;
+        }
+    }
 }
 }
 struct Session::Impl {
@@ -105,11 +123,20 @@ struct Session::Impl {
             fresh.status = "Read failed";
             if (details) fresh.curve_error = "Read failed";
             for (auto& c : fresh.controls) c.availability = Availability::transient;
+            for (auto& row : fresh.advanced_controls) row.state.availability = Availability::transient;
+            for (auto& row : fresh.power_policies) row.state.availability = Availability::transient;
+            for (auto& row : fresh.rail_controls) row.state.availability = Availability::transient;
         }
         if (!fresh.connected) {
             fresh.telemetry_valid = false;
             for (auto& c : fresh.controls)
                 if (c.availability == Availability::available) c.availability = Availability::transient;
+            for (auto& row : fresh.advanced_controls)
+                if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
+            for (auto& row : fresh.power_policies)
+                if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
+            for (auto& row : fresh.rail_controls)
+                if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
             if (details && fresh.curve_error.empty()) fresh.curve_error = "Read unavailable";
         }
         const auto raw = fresh.telemetry;
@@ -194,6 +221,18 @@ struct Session::Impl {
                     current = !stopping && generation == state.generation;
                     if (stopping && generation == state.generation) state.busy = false;
                     ++state.completed_actions;
+                    if (generation == state.generation) {
+                        state.last_action_operation = task.operation; state.last_action_ok = result.ok;
+                        // A verified process gate is authoritative even if the following
+                        // telemetry refresh throws. An uncertain change cannot look off.
+                        if (task.operation == Command::Operation::set_xoc) {
+                            state.data.xoc_known = result.ok;
+                            if (result.ok) state.data.xoc_enabled = task.enabled;
+                        } else if (task.operation == Command::Operation::set_rail_mode) {
+                            state.data.rail_mode_known = result.ok;
+                            if (result.ok) state.data.rail_mode_enabled = task.enabled;
+                        }
+                    }
                     const std::string message = generation == state.generation ? result.message :
                         "GPU " + slot + " (session " + std::to_string(generation) + "): " + result.message;
                     log_locked(result.ok, message); publish_locked();
@@ -227,6 +266,7 @@ bool Session::select_device(const std::string& slot) {
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
       impl_->state.selected_slot = slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
+      impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false;
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return true;
 }

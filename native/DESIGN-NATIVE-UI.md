@@ -9,8 +9,8 @@ records the existing Python-interface/C++-backend integration.
 ## Compact handoff
 
 - The initial fixture shell remains available with `--preview`. A live Session,
-  complete Daily actions, scoped Undo, manual native profiles and a point-based
-  V/F workspace are now implemented; see the continuation checkpoint below.
+  Daily actions, scoped Undo, manual profiles, staged V/F planning and qualified
+  Advanced controls are implemented; see the continuation checkpoint below.
 - Keep Windows Vista and Windows 7 in the first-version target, alongside
   modern Windows. Legacy compatibility is an acceptance requirement, not yet
   a demonstrated result for the new executable.
@@ -192,16 +192,18 @@ never a driver's version or a developer's device/VBIOS identity.
    Undo too. Owned hold modes remain disabled pending their recovery lifecycle.
 4. **V/F and owned controls — partial.** The point editor, local edit history,
    delta Apply/Reset and hardware Undo are implemented with physical-MHz/raw-unit
-   divisor validation. Curve planners, holds and headroom remain pending.
+   divisor validation. De-flatten, ramp and rephase stage pure C ABI plans;
+   owned holds and headroom remain pending.
    Port marker/release/recovery before enabling holds;
    run the same command tests through both presentations.
 5. **Profiles and ordinary-control parity — partial.** Native Daily files,
-   manual Load/aggregate Undo and Python memory/boost tuning-action imports are
+   manual Load/aggregate Undo and Python memory/boost/domain/NVVDD tuning-action imports are
    implemented. The full V/F table is not saved by native Daily profiles.
-   Broader existing-format import, named Reset workflows and remaining
-   rails/current/policies are pending. Exercise
+   Version 2 includes qualified advanced offsets; individual policies, rail
+   limits and full-curve profiles remain pending. Exercise
    partial failures, close/switch during work and restart without replay.
-6. **Advanced parity — pending.** Port remaining I2C, registry/BIOS,
+6. **Advanced parity — partial.** Qualified domain and rail offsets, XOC,
+   policy/current rows and selected rail limits are implemented. Port I2C, registry/BIOS,
    power-saving and timing
    workflows incrementally with Python parity and scoped hardware evidence.
 
@@ -231,22 +233,29 @@ fan Undo retains policy as well as level. Their independent capabilities keep
 partial/transient reads separate from unsupported operations. Focused uses
 compact rows; Classic expands provenance using the same drafts and commands.
 
-The separate curve workspace stages point deltas in physical MHz using the
-verified current layout divisor. It plots current and draft curves with fresh
-operating telemetry, keeps edit Undo distinct from hardware Undo, and carries
-the complete expected geometry/divisor into Apply/Reset. Ordinary telemetry
-publications do not replace edits; changed/stale full reads retain the draft
-until an explicit fresh rebase. Holds, headroom ownership/recovery, de-flatten,
-ramp and other planners are not enabled by this increment.
+The curve workspace uses the verified divisor for physical-MHz editing and raw
+point requests. The expanded popup has large outlined dots, vertical drag, WASD,
+Shift for three steps and local Ctrl Undo/Redo. De-flatten, ramp and rephase
+stage through the pure C ABI from the current draft. Their prediction is the
+core software model with a grid-derived bound, not a physical measurement. Full
+expected geometry and divisor are checked on Apply/Reset; stale drafts require
+an explicit fresh rebase. Hardware Undo remains distinct from edit Undo.
 
-Native Daily profiles save qualified scalar requests to an explicit path;
-Save is read-only and reports omissions. Load validates identity/units/current
-capabilities and captures aggregate Undo before changing requests. The native
-format does **not** save the V/F point table, so a saved core scalar does not
-restore a shaped curve. Python import currently supports only schema-2
-`tuning_action` memory and boost scopes; unsupported scopes/kinds are refused.
-No startup or post-reset tuning replay was added.
+Qualified clock-domain, NVVDD and MSVDD offsets, explicit XOC, individual power
+policy/current requests and rail-limit fields are available in Advanced. Rail
+controls present the base-plus-delta absolute estimate of the signed request;
+Initial is a captured request, not a verified factory default. Rail limits have
+a separate session gate and selected-field Undo. Risk scoring follows the
+existing palette: XOC and writable armed rail limits score 1 each, and an armed
+identified writable I2C controller scores 2; stock is neutral, 1 amber, 2 red,
+and 3 or more crimson. Unknown states stay distinct. The native I2C writer is
+not ported, so I2C is inactive, and color selection does not probe the bus.
 
+Explicit native profiles support qualified Daily settings and version 2 advanced
+offsets; Python tuning-action import includes memory, boost, clock domain and
+NVVDD offset. Individual policies, rail limits and full curve tables are not
+saved. Profiles neither enable gates nor apply themselves at startup or after a
+driver reset. Full profile parity remains open.
 Windows 10 x64 build 19045 / RTX 3070 Ti evidence on 2026-11-12 includes exact
 request/readback/Undo round trips: memory 32→33→32 in its reported MHz scale,
 core 0→15→0 MHz, board 310→309→310 W, fan 30→31→30% and boost 0→1→0%.
@@ -270,12 +279,16 @@ were issued through it. The [live evidence record](ui/validation/2026-11-12-live
 contains the raw results and final build hash. D3D9 BMP review succeeded, but physical input, shortcut
 delivery and broader accessibility qualification remain open.
 
-The next replacement work is owned hold/headroom/recovery, curve planners,
-native XOC/Max it/Reset all workflows, broader existing-profile import and ordinary domain/rail/current/policy
-workflows, configurable Monitor features, then the remaining I2C,
-registry/BIOS, power-saving and timing services. Advanced currently exposes
-read-only session details rather than those complete workflows. GPU restart
-and other tool/lifecycle parity also remain on the service matrix. I2C physical
-verification stays parked for the owner. Vista/7 actual launch/render/DPI/
-device-loss/shutdown acceptance is still outstanding; XP/x86 UI support is not
-promised. This checkpoint is not full frontend parity.
+The later control-arc evidence is in
+[ui/validation/2026-11-12-controls.json](ui/validation/2026-11-12-controls.json).
+On the tested RTX 3070 Ti, Crossbar's configured request went 0 → -1 → 0 MHz;
+all surfaced advanced/rail requests and the complete V/F curve were checked as
+restored. This is limited to that adapter and operating point and does not
+establish physical response or another board's behavior.
+
+Remaining work includes owned holds/headroom/recovery, Max it and Reset all,
+I2C implementation and parked physical qualification, registry/VBIOS
+relationship overrides, power saving, timings, configurable Monitor workflows,
+full profiles and Vista/7 launch/render/DPI/device-loss/shutdown qualification.
+The Python frontend and experiment facade remain available. This checkpoint is
+not full frontend parity.
