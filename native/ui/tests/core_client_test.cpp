@@ -12,7 +12,8 @@ int failures = 0, checks = 0, boost_writes = 0;
 #include <cstring>
 using namespace druta::ui;
 namespace {
-int current = 40, writes = 0, mode = 0, range_fail = 0; bool changed_id = false, no_device = false;
+int current = 40, writes = 0, mode = 0, range_fail = 0;
+int core_low = -1000, core_high = 2000, mem_low = -1000, mem_high = 2000, telemetry_fail = 0; uint32_t memory_p0 = 8000, memory_clock = 0; bool changed_id = false, no_device = false;
 int curve_div = 1, voltage_shift = 0, base_shift = 0;
 int core_value = 30, boost_value = 10, delta = 123, delta2 = 456, curve_failure = 0, curve_writes = 0, fan_mode = 0, fan_level = 40; bool fan_auto = false, fan_refuse = false, fan_post_fail = false, curve_corrupt = false, curve_geometry_corrupt = false; int fan_read_fail = 0;
 dc_gpu* handle = reinterpret_cast<dc_gpu*>(1);
@@ -25,8 +26,9 @@ dc_status DC_CALL identity(const dc_gpu*, dc_gpu_identity* out) {
 }
 dc_status DC_CALL range(dc_gpu*, uint32_t type, dc_offset_range* out) {
     if (range_fail) { --range_fail; return DC_E_UNAVAILABLE; }
-    out->present = 1; out->low = -1000; out->high = 2000; out->current = type == 0 ? core_value : current; return DC_OK;
+    out->present = 1; out->low = type == 0 ? core_low : mem_low; out->high = type == 0 ? core_high : mem_high; out->current = type == 0 ? core_value : current; return DC_OK;
 }
+dc_status DC_CALL memory_telemetry(dc_gpu*, dc_telemetry* out) { if (telemetry_fail > 0) { --telemetry_fail; return DC_E_UNAVAILABLE; } out->present = DC_T_MEM_P0MAX | DC_T_MEM; out->mem_p0max = memory_p0; out->mem = memory_clock; return DC_OK; }
 dc_status DC_CALL scale(dc_gpu*, dc_mem_offset_scale* out) { out->scale = 2; std::memcpy(out->unit, "MHz eff", sizeof("MHz eff")); return DC_OK; }
 uint32_t DC_CALL step(dc_gpu*) { return 2; }
 dc_status DC_CALL setter(dc_gpu*, uint32_t type, double value, int32_t preserve, dc_outcome* out) {
@@ -43,7 +45,7 @@ dc_status DC_CALL snapshot(dc_gpu*, dc_vf_delta_snapshot* o) { o->freq_div = cur
 dc_status DC_CALL deltas(dc_gpu*, const dc_vf_delta* d, size_t n, dc_outcome* o) { ++curve_writes; if (!curve_failure) { for (size_t i = 0; i < n; ++i) { if (d[i].idx == 3) delta = static_cast<int>(d[i].delta_khz); else if (d[i].idx == 4) delta2 = static_cast<int>(d[i].delta_khz); } if (curve_corrupt) ++delta2; if (curve_geometry_corrupt) ++base_shift; } o->ok = !curve_failure; return DC_OK; }
 dc_status DC_CALL curve_layout(dc_gpu*, int32_t, dc_vf_layout* l) { l->gpu_count = 2; l->gpu_idx[0] = 3; l->gpu_idx[1] = 4; l->freq_div = curve_div; return DC_OK; }
 dc_status DC_CALL curve_read(dc_gpu*, dc_vf_curve* c) { c->count = 2; c->points[0] = {3, 900.0 + voltage_shift, 1500.0 + base_shift + delta / (1000.0 * curve_div), delta}; c->points[1] = {4, 950, 1600.0 + delta2 / (1000.0 * curve_div), delta2}; return DC_OK; }
-dc_status DC_CALL envelopes(dc_request_envelopes* e) { e->max_abs_delta_khz = 1000000; e->rail_offset_max_mv = 100; e->rail_offset_xoc_max_mv = 500; return DC_OK; }
+dc_status DC_CALL envelopes(dc_request_envelopes* e) { e->max_abs_delta_khz = 1000000; e->rail_offset_max_mv = 100; e->rail_offset_xoc_max_mv = 500; e->power_limit_xoc_max_mw = 1999000; return DC_OK; }
 dc_status DC_CALL curve_reset(dc_gpu*, dc_outcome* o) { ++curve_writes; delta = delta2 = 0; o->ok = 1; return DC_OK; }
 dc_status DC_CALL fan_get(dc_gpu*, dc_fan_state* s) { if (fan_mode == 2 || fan_read_fail > 0) { if (fan_read_fail > 0) --fan_read_fail; return DC_E_UNAVAILABLE; } std::memcpy(s->source, "nvml", 5); s->count = 2; for (int i = 0; i < 2; ++i) { s->fans[i].id = i; s->fans[i].level = fan_level + (fan_mode == 1 ? i : 0); s->fans[i].policy = 1; s->fans[i].manual = !fan_auto; } return DC_OK; }
 dc_status DC_CALL fan_caps(dc_gpu*, dc_fan_capabilities* c) { c->manual = 1; c->automatic = 1; c->max = 100; return DC_OK; }
@@ -52,12 +54,12 @@ dc_status DC_CALL fan_reset(dc_gpu*, dc_outcome* o) { fan_level = 20; fan_auto =
 dc_status DC_CALL fan_restore(dc_gpu*, const dc_fan_snapshot* s, dc_outcome* o) { CHECK(s->count == 2 && s->fans[1].level == s->fans[0].level + 1); fan_level = s->fans[0].level; fan_mode = s->fans[1].level != s->fans[0].level ? 1 : 0; fan_auto = !s->fans[0].manual; o->ok = 1; return DC_OK; }
 dc_status DC_CALL boost_get(dc_gpu*, int32_t* v) { *v = boost_value; return DC_OK; }
 dc_status DC_CALL boost_set(dc_gpu*, int64_t v, dc_outcome* o) { ++boost_writes; boost_value = static_cast<int>(v); o->ok = 1; return DC_OK; }
-uint32_t board = 200000; int64_t peer = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
+uint32_t board = 200000; int64_t peer = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL unlock_gpu(dc_gpu*) { return DC_OK; }
-dc_status DC_CALL capabilities(dc_gpu*, dc_capabilities* c) { c->present = DC_C_PL_MIN | DC_C_PL_MAX | DC_C_PL_DEF; c->pl_min_mw = 100000; c->pl_max_mw = 350000; c->pl_def_mw = 200000; return DC_OK; }
+dc_status DC_CALL capabilities(dc_gpu*, dc_capabilities* c) { c->present = DC_C_PL_MIN | DC_C_PL_MAX | DC_C_PL_DEF; c->pl_min_mw = 100000; c->pl_max_mw = 500000; c->pl_def_mw = 200000; return DC_OK; }
 dc_status DC_CALL power_read(dc_gpu*, dc_cl_statics*, int32_t* has, uint32_t* value, dc_error*) { *has = 1; *value = board; return DC_OK; }
-dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t, int64_t* low, int64_t* high, dc_error*) { *low = 100000; *high = 350000; return DC_OK; }
+dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error*) { *low = 100000; *high = xoc && xoc_live ? 1999000 : 500000; if (board > *high) *high = board; return DC_OK; }
 dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = 200; *ok = 1; *needed = 1; return DC_OK; }
 dc_status DC_CALL message(dc_gpu*, char* out, size_t, size_t* n) { out[0] = 0; *n = 1; return DC_OK; }
 dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = 100; } return DC_OK; }
@@ -93,6 +95,16 @@ dc_status DC_CALL rail_initial(dc_gpu*, int32_t rail, int32_t* has, int32_t valu
 dc_status DC_CALL rail_hold(dc_gpu*, dc_rails_hold_record* out) { out->present = rail_held >= 0; out->rail = rail_held; return DC_OK; }
 dc_status DC_CALL rail_raw_set(dc_gpu*, int32_t rail, const dc_rails_raw_request* request, int32_t enabled, int32_t, dc_outcome* out, dc_rails_setter_writes* write_info) { CHECK(enabled && request->count == 1); ++rail_set_calls; auto field = request->order[0]; raw_limits[rail][field] = request->uv[field]; write_info->calls = 1; if (rail_throw) throw std::runtime_error("post-write failure"); out->ok = 1; return DC_OK; }
 dc_status DC_CALL rail_initial_set(dc_gpu*, int32_t, int32_t rail, const dc_rails_reset_request* request, dc_outcome* out, dc_rails_setter_writes* write_info) { for (int i = 0; i < 4; ++i) if (request->field_mask & (1u << i)) raw_limits[rail][i] = (rail * 4 + i + 1) * 100; write_info->calls = 1; out->ok = 1; return DC_OK; }
+uint32_t current_index = 7; bool current_read_fails = false, current_generic_label = false;
+dc_status DC_CALL alternate_policies(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_cl_policy_inputs_fn, void*, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
+    CHECK(!confirm); *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 500000; rows[0].requested = board;
+    rows[1].policy = current_index; rows[1].channel = 17; rows[1].unit = 1; rows[1].minimum = 1000; rows[1].maximum = 500000; rows[1].default_value = 150000; rows[1].requested = 120000; rows[1].named_current = 1; rows[1].consistent = 1; return DC_OK;
+}
+dc_status DC_CALL core_current(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_current_row* rows, uint32_t, uint32_t* n) {
+    CHECK(!confirm); if (current_read_fails) return DC_E_FAILED; *n = 1; rows[0].policy = current_index; rows[0].channel = 17; rows[0].minimum_ma = 1000; rows[0].maximum_ma = 500000; rows[0].requested_ma = 120000;
+    if (current_generic_label) std::memcpy(rows[0].label, "Other current", sizeof("Other current")); else std::memcpy(rows[0].label, "Core current", sizeof("Core current")); return DC_OK;
+}
+dc_status DC_CALL no_pins(dc_gpu*, uint32_t*, int64_t*, uint32_t, uint32_t* n) { *n = 0; return DC_OK; }
 CoreApi api() { CoreApi a{}; a.abi_version = version; a.enumerate = enumerate; a.open = open_gpu; a.close = close_gpu; a.identity = identity; a.range = range; a.scale = scale; a.step = step; a.set_offset = setter; a.clock_step = clock_step; a.snapshot = snapshot; a.apply_deltas = deltas; a.curve_layout = curve_layout; a.curve = curve_read; a.envelopes = envelopes; a.reset_curve = curve_reset; a.fan_state = fan_get; a.fan_caps = fan_caps; a.fan_set = fan_set; a.fan_reset = fan_reset; a.fan_restore = fan_restore; a.boost = boost_get; a.boost_set = boost_set; return a; }
 Command command(Command::Operation op, double value = 0) { return {op, ControlId::memory, value}; }
 }
@@ -162,9 +174,21 @@ int main() {
     bad = py; bad["tuning_action"]["value"] = true; reject(bad);
     bad = py; bad["tuning_action"] = {{"kind", "domain"}, {"index", 1}, {"value", 0}}; reject(bad);
     bad = py; bad["tuning_action"] = {{"kind", "mystery"}, {"index", nullptr}, {"value", 0}}; CHECK(reject(bad).find("unsupported Python tuning action kind: mystery") != std::string::npos);
-    CoreApi advanced_api = pa; advanced_api.clkdom_ok = dom_ok; advanced_api.clkdom_layout = dom_layout; advanced_api.clkdom_domains = dom_list; advanced_api.clkdom_controls = dom_controls; advanced_api.clkdom_offered = dom_offered; advanced_api.clkdom_requests = dom_read; advanced_api.clkdom_set = dom_set; advanced_api.rail_cap = rail_cap; advanced_api.rail_read = rail_read; advanced_api.rail_set = rail_set; advanced_api.msvdd_reset = rail_reset; advanced_api.clkdom_flags = flags_get; advanced_api.clkdom_flags_set = flags_set;
+    CoreApi advanced_api = pa; advanced_api.telemetry = memory_telemetry; advanced_api.clkdom_ok = dom_ok; advanced_api.clkdom_layout = dom_layout; advanced_api.clkdom_domains = dom_list; advanced_api.clkdom_controls = dom_controls; advanced_api.clkdom_offered = dom_offered; advanced_api.clkdom_requests = dom_read; advanced_api.clkdom_set = dom_set; advanced_api.rail_cap = rail_cap; advanced_api.rail_read = rail_read; advanced_api.rail_set = rail_set; advanced_api.msvdd_reset = rail_reset; advanced_api.clkdom_flags = flags_get; advanced_api.clkdom_flags_set = flags_set;
     xoc_flag = 1; auto ab = create_core_backend_for_test(advanced_api); CHECK(ab->open("0000:02:00.0", error) && xoc_flag == 0); auto adv = ab->read(true); CHECK(adv.advanced_controls.size() == 4 && adv.xoc_known && !adv.xoc_enabled);
-    auto memory_label = std::find_if(adv.advanced_controls.begin(), adv.advanced_controls.end(), [](const AdvancedControl& a) { return a.id.kind == AdvancedKind::clock_domain && a.id.domain == 2; }); CHECK(memory_label != adv.advanced_controls.end() && memory_label->label == "Additional memory offset");
+    auto memory_label = std::find_if(adv.advanced_controls.begin(), adv.advanced_controls.end(), [](const AdvancedControl& a) { return a.id.kind == AdvancedKind::clock_domain && a.id.domain == 2; }); CHECK(memory_label != adv.advanced_controls.end() && memory_label->label == "Additional memory offset" && memory_label->state.low == -500 && memory_label->state.high == 1000);
+    auto find_domain = [](const LiveData& data, uint32_t id) -> ControlState { auto it = std::find_if(data.advanced_controls.begin(), data.advanced_controls.end(), [id](const AdvancedControl& a) { return a.id.kind == AdvancedKind::clock_domain && a.id.domain == id; }); CHECK(it != data.advanced_controls.end()); return it == data.advanced_controls.end() ? ControlState{} : it->state; };
+    auto normal_domain = find_domain(adv, 5); CHECK(normal_domain.low == -300 && normal_domain.high == 300 && normal_domain.detail.find("software editing range") != std::string::npos);
+    domain_raw[5] = 450000; CHECK(find_domain(ab->read(true), 5).high == 450); domain_raw[5] = 0;
+    Command range_gate{}; range_gate.operation = Command::Operation::set_xoc; range_gate.enabled = true; CHECK(ab->execute(range_gate).ok);
+    core_low = -700; core_high = 900; mem_low = -400; mem_high = 3000; auto varied_ranges = ab->read(true); CHECK(find_domain(varied_ranges, 5).low == -700 && find_domain(varied_ranges, 5).high == 900); CHECK(find_domain(varied_ranges, 2).low == -2000 && find_domain(varied_ranges, 2).high == 2000);
+    memory_p0 = 0; memory_clock = 12000; CHECK(find_domain(ab->read(true), 2).high == 3000); memory_p0 = 8000; memory_clock = 0; ab->read(true);
+    domain_raw[5] = 1500000; CHECK(find_domain(ab->read(true), 5).high == 1500); domain_raw[5] = 0;
+    range_fail = 4; telemetry_fail = 2; auto transient_ranges = ab->read(true); CHECK(find_domain(transient_ranges, 5).low == -700 && find_domain(transient_ranges, 5).high == 900 && find_domain(transient_ranges, 2).high == 2000);
+    range_gate.enabled = false; CHECK(ab->execute(range_gate).ok); auto normal_memory = find_domain(ab->read(true), 2); CHECK(normal_memory.low == -200 && normal_memory.high == 1500);
+    core_low = -1000; core_high = 2000; mem_low = -1000; mem_high = 2000;
+    CoreApi no_offset_range = advanced_api; no_offset_range.range = nullptr; auto defaults = create_core_backend_for_test(no_offset_range); CHECK(defaults->open("0000:02:00.0", error)); auto default_normal = defaults->read(true); CHECK(find_domain(default_normal, 5).low == -300 && find_domain(default_normal, 2).low == -1000 && find_domain(default_normal, 2).high == 3000);
+    range_gate.enabled = true; CHECK(defaults->execute(range_gate).ok); auto default_xoc = defaults->read(true); CHECK(find_domain(default_xoc, 5).low == -1000 && find_domain(default_xoc, 5).high == 1000 && find_domain(default_xoc, 2).high == 3000); xoc_flag = 0;
     auto omitted_profile = ab->execute(save); CHECK(omitted_profile.ok && omitted_profile.message.find("Additional memory offset") != std::string::npos);
     Command dc{}; dc.operation = Command::Operation::apply; dc.advanced = AdvancedId{AdvancedKind::clock_domain, 5}; dc.value = 20;
     auto domain_bound = std::find_if(adv.advanced_controls.begin(), adv.advanced_controls.end(), [](const AdvancedControl& a) { return a.id.kind == AdvancedKind::clock_domain && a.id.domain == 5; }); CHECK(domain_bound != adv.advanced_controls.end() && !domain_bound->binding.empty()); dc.expected_binding = domain_bound->binding; int before_dom_writes = advanced_writes; layout_version = 5; CHECK(!ab->execute(dc).ok && advanced_writes == before_dom_writes); layout_version = 4;
@@ -221,6 +245,15 @@ int main() {
     CoreApi no_curve = pa; no_curve.curve = nullptr; auto without_curve = create_core_backend_for_test(no_curve); CHECK(without_curve->open("0000:02:00.0", error)); auto no_curve_state = without_curve->read(false); CHECK(!no_curve_state.controls[0].writable && no_curve_state.controls[1].writable);
     CoreApi no_reset = pa; no_reset.reset_curve = nullptr; auto partial_curve = create_core_backend_for_test(no_reset); CHECK(partial_curve->open("0000:02:00.0", error)); auto partial_state = partial_curve->read(true); CHECK(partial_state.curve_writable && !partial_state.curve_reset_writable);
     fresh = pb->read(true); curve.operation = Command::Operation::reset_curve; curve.expected_curve = fresh.curve; curve.curve_deltas.clear(); CHECK(pb->execute(curve).ok && delta == 0 && delta2 == 0); CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
+    CoreApi power_test = advanced_api; power_test.policy_read = alternate_policies; power_test.current_limits = core_current; power_test.pins_get = no_pins;
+    auto xp = create_core_backend_for_test(power_test); CHECK(xp->open("0000:02:00.0", error)); board = 200000; xoc_live = false; auto normal = xp->read(true); CHECK(normal.controls[2].high == 500.0);
+    CHECK(normal.power_policies.size() == 2 && normal.power_policies[1].id == 7 && normal.power_policies[1].core_current && normal.power_policies[1].label == "Core current (NVVDD)");
+    current_read_fails = true; auto retained = xp->read(true); CHECK(retained.power_policies[1].core_current); current_read_fails = false;
+    current_generic_label = true; auto generic = xp->read(true); CHECK(!generic.power_policies[1].core_current); current_generic_label = false; current_index = 19; auto alternate = xp->read(true); CHECK(alternate.power_policies[1].id == 19 && alternate.power_policies[1].core_current);
+    Command mode_on{}; mode_on.operation = Command::Operation::set_xoc; mode_on.enabled = true; CHECK(xp->execute(mode_on).ok); auto expanded = xp->read(false); CHECK(expanded.controls[2].high == 1999.0 && expanded.controls[2].detail.find("software envelope") != std::string::npos);
+    Command xoc_power{}; xoc_power.operation = Command::Operation::apply; xoc_power.control = ControlId::power; xoc_power.value = 1999; int writes_before = power_writes; CHECK(!xp->execute(xoc_power).ok && power_writes == writes_before && board == 200000);
+    xoc_live = true; CHECK(xp->execute(xoc_power).ok && power_writes == writes_before + 1 && board == 1999000); mode_on.enabled = false; CHECK(xp->execute(mode_on).ok); auto carry = xp->read(false); CHECK(carry.controls[2].high == 1999.0 && carry.controls[2].current == 1999.0);
+    xoc_power.value = 200; CHECK(xp->execute(xoc_power).ok && board == 200000); CHECK(xp->read(false).controls[2].high == 500.0);
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

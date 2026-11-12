@@ -66,6 +66,9 @@ struct ViewState {
     bool curve_fit_requested = true;
     std::optional<uint32_t> curve_drag_point;
     double curve_last_undo_time = -1;
+    // Editable route/target hints only. No automatic controller probing or SET.
+    int i2c_port = 1, i2c_address = 0x20;
+    double i2c_target_mv = 1100;
 
     bool has_draft() const;
     void revert_draft();

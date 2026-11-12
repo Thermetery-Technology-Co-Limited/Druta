@@ -137,6 +137,7 @@ endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
+  src/backend/i2c.cpp
   src/backend/clkdom.cpp
   src/backend/clkdom_names.cpp
   src/backend/clocks.cpp
@@ -181,6 +182,7 @@ target_link_libraries(drutacore_impl PUBLIC druta_options)
 # ---- drutacore (the C ABI shared library) ------------------------------------------------------
 add_library(drutacore SHARED
   src/core/abi.cpp
+  src/core/abi_i2c.cpp
   src/core/abi_clkdom.cpp
   src/core/abi_current_limits.cpp
   src/core/abi_client_power.cpp
@@ -246,3 +248,9 @@ if(DRUTA_FUZZ)
   target_compile_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
+# Injected NVAPI packet and target checks; no driver or GPU access.
+add_executable(drutacore-i2c-test tests/i2c_test.cpp)
+target_include_directories(drutacore-i2c-test PRIVATE include src)
+target_link_libraries(drutacore-i2c-test PRIVATE drutacore druta_options)
+druta_windows_binary(drutacore-i2c-test)
+add_test(NAME drutacore-i2c COMMAND drutacore-i2c-test)

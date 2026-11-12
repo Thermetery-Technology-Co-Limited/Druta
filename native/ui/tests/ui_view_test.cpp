@@ -5,6 +5,7 @@
 // No Session implementation, GPU backend, native window, or graphics device is used.
 #include "../ui_view.h"
 #include "../session.h"
+#include "../i2c_view.h"
 #include "imgui.h"
 #include "imgui_internal.h" // Pinned ImGui text capture, not widget coordinates.
 #include "implot.h"
@@ -41,7 +42,8 @@ ImGuiID control_button(ControlId control, const char* name) {
             if (window->ParentWindow == root && window->ChildId == child_id) {
                 const int row = static_cast<int>(control);
                 const auto table_id = window->GetID("daily_controls");
-                const auto row_id = ImHashData(&row, sizeof(row), table_id);
+                const auto row_seed = ImHashStr("control-row", 0, table_id);
+                const auto row_id = ImHashData(&row, sizeof(row), row_seed);
                 return ImHashStr(name, 0, row_id);
             }
         }
@@ -218,6 +220,105 @@ void compact_layout() {
         }
     }
     check(visible, "Focused Daily fits all five control rows at 1024x768 with global profiles and operation log");
+}
+
+void daily_header_hover_conflict() {
+    ViewState state; state.preview = false;
+    auto live = snapshot(); state.live = live;
+    for (auto& control : live->data.controls) {
+        control.current = 0; control.low = -100; control.high = 100;
+        control.writable = control.stock_writable = true;
+    }
+    frame(state, 1366, 900, false); frame(state, 1366, 900, false);
+    auto* root = ImGui::FindWindowByName("Druta workspace");
+    ImGuiWindow* body = nullptr;
+    if (root) for (auto* window : ImGui::GetCurrentContext()->Windows)
+        if (window->ParentWindow == root && window->ChildId == root->GetID("workspace")) body = window;
+    check(body != nullptr, "Daily body exists for real Apply-header hover regression");
+    if (!body) return;
+    const auto table_id = body->GetID("daily_controls");
+    const auto* table = ImGui::TableFindByID(table_id);
+    check(table && table->ColumnsCount == 5, "Focused Daily exposes the real five-column table");
+    if (!table) return;
+    const int apply_column = 3;
+    const auto header_id = ImHashStr("Apply", 0, ImHashData(&apply_column, sizeof(apply_column), table_id));
+    check(header_id != control_button(ControlId::fan, "Apply"), "Apply header column 3 and fan control 3 have distinct ID namespaces");
+    const float x = (table->Columns[3].MinX + table->Columns[3].MaxX) * 0.5f;
+    const float y = table->OuterRect.Min.y + 12;
+    auto& io = ImGui::GetIO();
+    check(io.ConfigDebugHighlightIdConflicts, "ImGui conflicting-ID diagnostics stay enabled");
+    io.AddMousePosEvent(x, y);
+    for (int i = 0; i < 4; ++i) frame(state, 1366, 900, false);
+    check(ImGui::GetCurrentContext()->DebugDrawIdConflictsId == 0
+        && ImGui::GetCurrentContext()->HoveredIdPreviousFrameItemCount <= 1,
+        "hovering actual Apply header does not report two visible items with a conflicting ID");
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true); frame(state, 1366, 900, false);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false); frame(state, 1366, 900, false);
+    check(state.commands.empty(), "clicking a table header cannot dispatch a fan Apply command");
+}
+
+void original_classic_layout_and_daily_companions() {
+    ViewState state; state.preview = false; state.presentation = Presentation::classic;
+    auto live = snapshot(); state.live = live;
+    live->data.xoc_known = live->data.rail_mode_known = live->data.rail_writable_known = true;
+    live->data.rail_writable = true;
+    for (auto& control : live->data.controls) {
+        control.current = 0; control.low = -100; control.high = 100;
+        control.writable = control.stock_writable = true;
+    }
+    PowerPolicy named;
+    named.id = 27; named.named_current = true; named.core_current = true;
+    named.label = "Core current (NVVDD)"; named.binding = "current-channel-binding";
+    named.state.current = 200; named.state.low = 0; named.state.high = 300;
+    named.state.unit = "A"; named.state.writable = named.state.stock_writable = true;
+    named.state.availability = Availability::available;
+    auto misleading = named; misleading.id = 3; misleading.core_current = false;
+    misleading.label = "Core current"; misleading.state.current = 30;
+    live->data.power_policies = {misleading, named};
+    RailControl rail;
+    rail.id = {0, 0}; rail.binding = "rail-binding"; rail.estimated_base_mv = 1000;
+    rail.state.current = 0; rail.state.low = -100; rail.state.high = 100; rail.state.unit = "mV";
+    rail.state.availability = Availability::available;
+    live->data.rail_controls.push_back(rail);
+    const float rounding = ImGui::GetStyle().FrameRounding;
+    auto text = frame(state, 1501, 1125);
+    check(contains(text, "Thermetery Druta 1.9.1") && contains(text, "card") && contains(text, "driver") && contains(text, "vbios"),
+        "Classic restores the original version/card metadata header");
+    check(contains(text, "Clock offsets") && contains(text, "Limits") && contains(text, "Rails")
+        && contains(text, "Timings (needs nvtune)") && !contains(text, "WORKSPACE"),
+        "Classic has original Control grouping and Timings tab rather than the modern workspace sidebar");
+    size_t unlock_count = 0, start = 0;
+    while ((start = text.find("Unlock controls", start)) != std::string::npos) { ++unlock_count; ++start; }
+    check(unlock_count == 1 && !contains(text, "Unlock tuning controls"), "the main Classic interface has exactly one original unlock strip");
+    auto* root = ImGui::FindWindowByName("Druta workspace"); ImGuiWindow* body = nullptr;
+    bool active_sidebar = false;
+    if (root) for (auto* window : ImGui::GetCurrentContext()->Windows) if (window->ParentWindow == root) {
+        if (window->ChildId == root->GetID("workspace")) body = window;
+        if (window->ChildId == root->GetID("navigation") && window->Active) active_sidebar = true;
+    }
+    bool columns_match = false;
+    if (body) {
+        const auto columns_id = body->GetID("classic-control-columns");
+        const auto* columns = ImGui::TableFindByID(columns_id);
+        const auto* offsets = ImGui::TableFindByID(ImHashStr("classic-clock-offsets", 0, columns_id));
+        const auto* rails = ImGui::TableFindByID(ImHashStr("daily-rail-controls", 0, columns_id));
+        columns_match = columns && columns->ColumnsCount == 2 && offsets && offsets->ColumnsCount == 6
+            && rails && rails->ColumnsCount == 6 && offsets->OuterRect.Min.x < rails->OuterRect.Min.x;
+    }
+    check(columns_match && !active_sidebar, "Classic uses clipped left/right groups and original six-column slider tables");
+    check(near(ImGui::GetStyle().FrameRounding, rounding), "Classic restores scoped style after drawing instead of mutating Focused theme");
+    check(state.advanced_view.drafts.count(2027) && !state.advanced_view.drafts.count(2003),
+        "Daily selects uniquely API-qualified core current, not a matching label or fixed policy ID");
+    state.advanced_view.drafts[2027].value = 201.125; state.advanced_view.drafts[2027].dirty = true;
+    state.drafts[static_cast<size_t>(ControlId::memory)].value = 2.5;
+    state.drafts[static_cast<size_t>(ControlId::memory)].dirty = true;
+    state.presentation = Presentation::focused;
+    text = frame(state, 1366, 900);
+    check(contains(text, "NVVDD current limit") && contains(text, "Rail limits") && contains(text, "Board power"),
+        "Focused Daily retains board power, named NVVDD current and rail-limit controls");
+    check(near(state.advanced_view.drafts[2027].value, 201.125)
+        && near(state.drafts[static_cast<size_t>(ControlId::memory)].value, 2.5) && state.commands.empty(),
+        "switching actual layouts retains ordinary and named-current drafts without writing");
 }
 
 void compact_curve_layout() {
@@ -447,6 +548,98 @@ void curve_apply_acknowledgement(Presentation presentation) {
     }
 }
 
+void i2c_panel_wiring(Presentation presentation) {
+    ViewState state; state.preview = false; state.presentation = presentation;
+    auto live = snapshot(); state.live = live;
+    live->data.i2c.available = true;
+    state.i2c_port = 3; state.i2c_address = 0x42; state.i2c_target_mv = 1125;
+    constexpr const char* panel_name = "I2C UI wiring contract";
+    auto panel_frame = [&] {
+        ImGui::GetIO().DisplaySize = {1200, 900}; ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1200, 900});
+        ImGui::Begin(panel_name, nullptr, ImGuiWindowFlags_NoSavedSettings);
+        draw_i2c_gate(state); draw_i2c_panel(state);
+        ImGui::End(); ImGui::Render();
+        check(ImGui::GetDrawData()->CmdListsCount > 0, "I2C panel renders from snapshot without a backend");
+    };
+    auto panel_id = [&](const char* label) {
+        auto* window = ImGui::FindWindowByName(panel_name);
+        return window ? ImHashStr(label, 0, window->GetID("i2c-controller")) : ImGuiID{0};
+    };
+    auto activate_panel = [&](const char* label) { ImGui::ActivateItemByID(panel_id(label)); panel_frame(); };
+    auto exact_route = [&](const Command& command) {
+        return command.i2c_route && command.i2c_route->port == 3 && command.i2c_route->addr7 == 0x42;
+    };
+    panel_frame(); panel_frame();
+    check(state.commands.empty(), "showing the I2C panel does not probe or write automatically");
+    activate_panel("Probe route");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_select
+        && exact_route(state.commands[0]), "Probe queues the exact edited route instead of a developer-board route");
+    state.commands.clear();
+    live->data.i2c.selected = I2cRoute{3, 0x42};
+    live->data.i2c.status.min_mv = 500; live->data.i2c.status.max_mv = 1600;
+    live->data.i2c.status.capable = true; live->data.i2c.status.writable = true;
+    panel_frame();
+    auto* window = ImGui::FindWindowByName(panel_name);
+    ImGui::ActivateItemByID(window->GetID("I2C rail")); panel_frame();
+    check(state.commands.empty(), "locked I2C gate cannot arm a controller");
+    state.controls_unlocked = true;
+    ImGui::ActivateItemByID(window->GetID("I2C rail")); panel_frame();
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_gate
+        && state.commands[0].enabled && exact_route(state.commands[0]), "I2C gate emits a route-bound explicit intent");
+    state.commands.clear();
+    activate_panel("Verify response");
+    check(state.commands.empty(), "an unconfirmed gate intent does not immediately authorize Verify");
+    live->data.i2c.gate = true; live->data.i2c.status.capable = false;
+    activate_panel("Verify response");
+    check(state.commands.empty(), "Verify requires the reported controller capability");
+    live->data.i2c.status.capable = true;
+    activate_panel("Verify response");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_verify
+        && exact_route(state.commands[0]), "Verify queues exactly the selected route without calling hardware in the renderer");
+    state.commands.clear();
+    activate_panel("Apply");
+    check(state.commands.empty(), "manual Apply is blocked until response verification is confirmed");
+    live->data.i2c.verified = true; live->data.i2c.status.writable = false;
+    activate_panel("Apply");
+    check(state.commands.empty(), "verified but non-writable controller cannot Apply");
+    live->data.i2c.status.writable = true; live->data.i2c.gate = false;
+    activate_panel("Apply");
+    check(state.commands.empty(), "manual Apply still requires the I2C gate");
+    live->data.i2c.gate = true; state.controls_unlocked = false;
+    activate_panel("Apply");
+    check(state.commands.empty(), "manual Apply still requires unlock");
+    state.controls_unlocked = true;
+    activate_panel("Apply");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_apply
+        && exact_route(state.commands[0]) && near(state.commands[0].value, 1125),
+        "manual Apply button is wired to the route and exact visible millivolt target");
+    state.commands.clear();
+    window = ImGui::FindWindowByName(panel_name);
+    const auto apply_id = panel_id("Apply");
+    check(window->NavLastIds[ImGuiNavLayer_Main] == apply_id, "actual Apply button receives navigation focus");
+    const auto hover = window->NavRectRel[ImGuiNavLayer_Main].GetCenter();
+    ImGui::GetIO().AddMousePosEvent(window->Pos.x + hover.x, window->Pos.y + hover.y);
+    panel_frame(); panel_frame();
+    check(state.commands.empty(), "hovering the actual Apply button never submits another request");
+    live->data.i2c.status.owned = true;
+    live->data.connected = false; state.controls_unlocked = false; live->data.i2c.gate = false;
+    state.i2c_port = 7; state.i2c_address = 0x77; // Route hints are not the owned selection.
+    activate_panel("Probe route");
+    check(state.commands.empty(), "owned/disconnected controller cannot be redirected by route hints");
+    activate_panel("Release / restore captured state");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_release
+        && exact_route(state.commands[0]), "owned Release remains available while disconnected, locked and gate-off");
+    state.commands.clear();
+    live->busy = true;
+    activate_panel("Release / restore captured state");
+    check(state.commands.empty(), "in-flight work is not overlapped by a second release intent");
+    live->busy = false; live->data.i2c.status.owned = false; live->data.i2c.status.recovery_pending = true;
+    activate_panel("Release / restore captured state");
+    check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_release,
+        "uncertain restoration retains an explicit Release recovery action");
+}
+
 void draft_behavior() {
     ViewState state;
     state.preview = false;
@@ -492,7 +685,7 @@ void draft_behavior() {
     memory.detail = "Temporary request read failure; last valid capability retained";
     const auto text = frame(state);
     check(draft.initialized && near(draft.value, 5.25), "transient state retains established draft");
-    check(contains(text, "Temporary request read failure"), "transient uncertainty is visible");
+    check(contains(text, "last read"), "transient uncertainty remains visible without a repeated diagnostics paragraph");
     state.controls_unlocked = true;
     draft.value = 10;
     draft.dirty = true;
@@ -617,7 +810,7 @@ void rendering_and_uncertainty() {
     state.page = Page::daily;
     const auto text = frame(state, 1920, 1080);
     check(contains(text, "1890 MHz") && contains(text, "(stale)"), "last-good core reading is explicitly stale");
-    check(contains(text, "Board") && contains(text, "--"), "absent board reading is unavailable rather than zero");
+    check(contains(text, "Power limit") && contains(text, "--"), "absent board reading is unavailable rather than zero");
     check(live->curve_stale && state.curve_draft.status() == "Curve is not fresh", "retained curve is not treated as a fresh editor observation");
     // Stress the incoming snapshot sizes without allowing plotting arrays to overflow.
     for (size_t i = 0; i < 800; ++i) live->history.push_back({static_cast<double>(i + 3), 1890, 43, 200});
@@ -672,6 +865,8 @@ int main() {
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     apply_theme(1);
     compact_layout();
+    daily_header_hover_conflict();
+    original_classic_layout_and_daily_companions();
     compact_curve_layout();
     draft_behavior();
     explicit_profile_intents_and_stock();
@@ -681,6 +876,8 @@ int main() {
     popup_input(Presentation::classic);
     curve_apply_acknowledgement(Presentation::focused);
     curve_apply_acknowledgement(Presentation::classic);
+    i2c_panel_wiring(Presentation::focused);
+    i2c_panel_wiring(Presentation::classic);
     rendering_and_uncertainty();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();

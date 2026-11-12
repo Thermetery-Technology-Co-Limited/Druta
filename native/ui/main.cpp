@@ -479,6 +479,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         if (app.session) {
             app.view.live = app.session->snapshot();
             if (app.closing && app.session->finished()) break;
+            if (app.closing && app.view.live->close_refused) {
+                app.closing=false;
+                SetWindowTextW(app.window,L"Druta - recovery required before closing");
+            }
         }
         if (testing) {
             smoke.advance(app, options.smoke_dir);

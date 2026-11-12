@@ -47,8 +47,8 @@ SessionSnapshot snapshot() {
         {{AdvancedKind::msvdd, 4}, "MSVDD request at nonzero control", control(-8.125, "mV"), "msvdd-control-four"},
     };
     s.data.power_policies = {
-        {9, "Adapter-specific current channel with a long policy label", true, control(126.125, "A"), "policy-nine-channel-A"},
-        {25, "Separate board-derived power policy", false, control(87.5, "W"), "policy-twenty-five-channel-B"},
+        {9, "Adapter-specific current channel with a long policy label", true, true, control(126.125, "A"), "policy-nine-channel-A"},
+        {25, "Separate board-derived power policy", false, false, control(87.5, "W"), "policy-twenty-five-channel-B"},
     };
     s.data.rail_controls = {
         {{0, 1}, control(1000.125, "mV"), 950.0, "rail-zero-field-one"},
@@ -289,8 +289,8 @@ void draft_lifetime_and_layout() {
     bool layout_valid = window != nullptr;
     if (window) for (const char* name : {"advanced-offsets", "power-policies", "rail-limits"}) {
         const auto* table = ImGui::TableFindByID(window->GetID(name));
-        layout_valid = layout_valid && table && table->ColumnsCount == 4
-            && table->Columns[1].WidthGiven > 0 && table->Columns[3].WidthGiven >= 100;
+        layout_valid = layout_valid && table && table->ColumnsCount == 6
+            && table->Columns[1].WidthGiven > 0 && table->Columns[4].WidthGiven >= 50;
     }
     check(layout_valid, "1024-pixel layout with long labels retains positive request and usable action columns");
     ++h.s.generation;

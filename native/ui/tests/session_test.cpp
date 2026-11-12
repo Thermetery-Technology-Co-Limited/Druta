@@ -22,6 +22,7 @@ struct Fake : IBackend {
     std::atomic<bool> partial{false}, disconnected{false}, hold_read{false}, hold_action{false};
     std::atomic<bool> telemetry_failure{false}, throw_action{false}, undo_available{false};
     std::atomic<bool> throw_reads{false}, throw_after_action{false}, fail_gate{false};
+    std::atomic<bool> i2c_owned{false}, fail_cleanup{false}, missing_i2c_state{false};
     bool xoc = false, rails = false;
     Fake() { InitializeCriticalSection(&lock); }
     ~Fake() override { CloseHandle(entered); CloseHandle(release); DeleteCriticalSection(&lock); }
@@ -32,13 +33,22 @@ struct Fake : IBackend {
     std::vector<Device> enumerate() override { record("enumerate"); return {{"a", "A", "1"}, {"b", "B", "2"}}; }
     bool open(const std::string& s, std::string&) override { record("open:" + s); return true; }
     void close() override { record("close"); }
+    ActionResult prepare_close() override {
+        record("prepare_close"); ActionResult r; r.ok=!fail_cleanup.load();
+        r.message=r.ok ? "released" : "recovery required";
+        if (r.ok) i2c_owned=false; return r;
+    }
+    std::optional<I2cViewData> i2c_state() const override {
+        if (missing_i2c_state.load()) return {};
+        I2cViewData d; d.clock_owned=i2c_owned.load(); return d;
+    }
     LiveData read(bool details) override {
         record(details ? "details" : "read");
         if (hold_read.exchange(false)) block();
         if (throw_reads.load()) throw 1;
         const bool is_partial = partial.load();
         LiveData d; d.connected = !disconnected.load(); d.telemetry_valid = !telemetry_failure.load(); d.status = "ok";
-        d.undo_available = undo_available.load();
+        d.undo_available = undo_available.load(); d.i2c.clock_owned = i2c_owned.load();
         d.xoc_known = d.rail_mode_known = true; d.xoc_enabled = xoc; d.rail_mode_enabled = rails;
         if (d.telemetry_valid) { d.telemetry.fan_count = 1; d.telemetry.fans[0].has_duty = 1; d.telemetry.fans[0].duty = 40; }
         d.telemetry.present = DC_T_CORE | (is_partial ? 0 : DC_T_POWER_W);
@@ -55,6 +65,8 @@ struct Fake : IBackend {
     ActionResult execute(const Command& cmd) override {
         record("execute"); if (hold_action.exchange(false)) block();
         if (throw_action.exchange(false)) { undo_available = true; throw 1; }
+        if (cmd.operation == Command::Operation::i2c_apply) i2c_owned=true;
+        if (cmd.operation == Command::Operation::i2c_release) i2c_owned=false;
         if (cmd.operation == Command::Operation::set_xoc) xoc = cmd.enabled;
         if (cmd.operation == Command::Operation::set_rail_mode) rails = cmd.enabled;
         if (throw_after_action.load()) throw_reads = true;
@@ -184,5 +196,44 @@ int main() {
             gates.begin_shutdown(); CHECK(until([&] { return gates.finished(); }));
         }
     }
-    std::printf("session_test: %u checks passed\n", checks);
+    auto second_owned=std::make_unique<Fake>(); auto* second_backend=second_owned.get();
+    Session protected_session(std::move(second_owned), [] {}); protected_session.start("a");
+    CHECK(until([&] { return !protected_session.snapshot()->history.empty(); }));
+    second_backend->stall_action(); Command i2c{}; i2c.operation=Command::Operation::i2c_apply;
+    CHECK(protected_session.submit(i2c,protected_session.snapshot()->generation));
+    CHECK(WaitForSingleObject(second_backend->entered,2000)==WAIT_OBJECT_0);
+    CHECK(!protected_session.select_device("b")); // in-flight controller operation
+    SetEvent(second_backend->release);
+    CHECK(until([&] { auto p=protected_session.snapshot(); return !p->busy && p->data.i2c.clock_owned; }));
+    CHECK(!protected_session.select_device("b")); // owned rail/clock cannot be abandoned
+    second_backend->fail_cleanup=true;
+    EnterCriticalSection(&second_backend->lock); auto prior=second_backend->calls; LeaveCriticalSection(&second_backend->lock);
+    const auto close_count=std::count(prior.begin(),prior.end(),"close");
+    protected_session.begin_shutdown();
+    CHECK(until([&] { return protected_session.snapshot()->close_refused; }));
+    CHECK(!protected_session.finished() && protected_session.snapshot()->data.connected && protected_session.snapshot()->data.i2c.clock_owned);
+    EnterCriticalSection(&second_backend->lock); auto failed_close=second_backend->calls; LeaveCriticalSection(&second_backend->lock);
+    CHECK(std::count(failed_close.begin(),failed_close.end(),"close")==close_count);
+    second_backend->fail_cleanup=false; protected_session.begin_shutdown();
+    CHECK(until([&] { return protected_session.finished(); }));
+    EnterCriticalSection(&second_backend->lock); auto completed_close=second_backend->calls; LeaveCriticalSection(&second_backend->lock);
+    CHECK(std::count(completed_close.begin(),completed_close.end(),"close")==close_count+1);    auto third_owned=std::make_unique<Fake>(); auto* third=third_owned.get();
+    Session recovery(std::move(third_owned), [] {}); recovery.start("a");
+    CHECK(until([&] { return !recovery.snapshot()->history.empty(); }));
+    third->throw_after_action=true; Command apply_i2c{}; apply_i2c.operation=Command::Operation::i2c_apply;
+    CHECK(recovery.submit(apply_i2c,recovery.snapshot()->generation));
+    CHECK(until([&] { auto p=recovery.snapshot(); return !p->busy && !p->data.connected && p->data.i2c.clock_owned; }));
+    CHECK(!recovery.select_device("b"));
+    Command release_i2c{}; release_i2c.operation=Command::Operation::i2c_release;
+    CHECK(recovery.submit(release_i2c,recovery.snapshot()->generation));
+    CHECK(until([&] { auto p=recovery.snapshot(); return !p->busy && !p->data.i2c.clock_owned; }));
+    third->throw_after_action=false; third->throw_reads=false; recovery.request_poll(true);
+    CHECK(until([&] { return recovery.snapshot()->data.connected; }));
+    third->missing_i2c_state=true; Command verify_i2c{}; verify_i2c.operation=Command::Operation::i2c_verify;
+    CHECK(recovery.submit(verify_i2c,recovery.snapshot()->generation));
+    CHECK(until([&] { auto p=recovery.snapshot(); return !p->busy && p->i2c_ownership_uncertain; }));
+    CHECK(!recovery.select_device("b"));
+    third->missing_i2c_state=false; CHECK(recovery.submit(release_i2c,recovery.snapshot()->generation));
+    CHECK(until([&] { auto p=recovery.snapshot(); return !p->busy && !p->i2c_ownership_uncertain; }));
+    recovery.begin_shutdown(); CHECK(until([&] { return recovery.finished(); }));    std::printf("session_test: %u checks passed\n", checks);
 }

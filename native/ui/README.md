@@ -2,9 +2,11 @@
 
 The native Win32/D3D9 application now has a live Session, Daily tuning, a V/F
 point editor, Monitor and qualified Advanced controls. **Focused** and
-**Classic / Verbose** share drafts, snapshots, command queue and Undo; changing
-presentation never opens another GPU or applies a draft. The original fixture
-shell remains available with `--preview`.
+**Classic** share drafts, snapshots, command queue and Undo. Classic uses a
+composition based on Druta 1.9.1; it is more than a verbose-text option. Both
+presentations retain the resizable V/F editor popup. Changing presentation never
+opens another GPU or applies a draft. The fixture shell remains available with
+`--preview`.
 
 This is an implemented development milestone in
 [the UI/UX plan](../DESIGN-NATIVE-UI.md), with Windows 10 evidence below. Full
@@ -13,12 +15,17 @@ Python frontend parity and Vista/7 qualification remain open.
 ## Live controls and profiles
 
 - Daily provides core/memory offsets, configured board-power request, fan
-  target/Auto and voltage boost. Each uses its own capabilities, fresh capture,
-  existing C ABI setter and independent readback. Missing unrelated telemetry
+  target/Auto, voltage boost, the independently identified NVVDD core-current
+  request and qualified rail-limit fields. Each uses its own capabilities,
+  fresh capture, existing C ABI setter and independent readback. Missing unrelated telemetry
   does not disable a qualified control. Stock/Auto can have a separate capability
   from Apply; an explicit escape action can report that prior state was
   unavailable for Undo.
-  XOC is an explicit session mode; Max it and Reset all remain pending.
+  XOC is an explicit session mode. Its power slider can show the core's
+  published **1,999 W software request envelope**; each Apply still checks the
+  adapter's fresh validated power route and bounds, which can be narrower. The
+  GUI's Max it and Reset all actions remain pending. The existing Python Max it
+  path with the C++ backend was used for the multimeter baseline.
 - Draft edits never write. Unlock controls, then use the selected row's Apply
   or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
   values in the adapter-reported scale. Configured requests remain separate from
@@ -62,9 +69,30 @@ Missing fields and transient reads remain distinct from unsupported controls.
 The risk indicator follows the existing combined score: XOC adds 1, an enabled
 writable rail-limit path adds 1, and an enabled identified writable I2C path
 adds 2. Stock is neutral, 1 amber, 2 red and 3 or more crimson; unknown state
-is shown separately. The native I2C writer is not ported, so it is inactive;
-the indicator does not probe the bus to choose a color. Drafts and active
+is shown separately. The indicator uses the established session gate and
+controller state; it does not probe the bus to choose a color. Drafts and active
 session gates are distinct.
+
+## Native I2C controller path
+
+On 64-bit processes, the core can use the NVAPI Ex I2C transport for explicit
+controller discovery and reads. The current native writer supports the MP2888A
+candidate's manual PMBus command (`0x21`) and its mode bit in `0xE1`; a
+fingerprint is a candidate, not a unique model identification or a physical
+rail assignment. Scan and Read are user actions, not ordinary telemetry polls.
+The transport refuses the existing nonvolatile and password command blocklist.
+The 32-bit Ex packet path is not qualified and declines these I2C operations;
+that limitation does not disable the rest of the core.
+
+Writing requires the I2C session gate and a successful response Verify. Verify
+owns a driver-enumerated low-clock clamp while it performs a bounded A–B–A
+controller-response test, and restores the captured controller state before
+releasing its clamp. Apply likewise keeps the clamp until Release restores the
+owned controller request. A failed or uncertain restoration retains recovery
+and prevents switching GPUs or closing the session until it can be resolved.
+Controller readback is not an independent physical-voltage measurement. I2C
+settings are excluded from native profiles and are never automatically applied
+at startup, after a driver reset, or by loading a profile.
 
 Profiles are UTF-8 JSON, limited to 1 MiB, with duplicate-key rejection and
 same-directory flushed temporary-file replacement. Save has no tuning side
@@ -138,7 +166,7 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 | `--gpu PCI_SLOT` | Select by PCI slot; the live adapter picker can change it later. |
 | `--width N`, `--height N` | Initial client pixels, each 640–7680. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
-| `--classic` | Start in Classic / Verbose instead of Focused. |
+| `--classic` | Start in the 1.9.1-inspired Classic composition instead of Focused. |
 | `--page daily\|curve\|advanced\|monitor` | Choose the initial page. |
 | `--capture FILE.bmp` | Save the rendered view and exit; parent directory must exist. Live mode reads the GPU. |
 | `--smoke-test EXISTING_DIRECTORY` | Fixture renderer smoke, BMPs and `smoke.json`, then exit. |
@@ -182,9 +210,10 @@ pauses submission inside the Win32 move/size modal loop.
 ## Qualification checkpoint
 
 **2026-11-12, Windows 10 x64 build 19045, RTX 3070 Ti:** integrated Release work
-uses MSVC 19.44.35230 / SDK 10.0.26100.0. These are configured-request/readback
-and restoration results for this adapter/configuration, not physical-effect
-qualification or constants for other boards or GPUs of the same generation.
+uses MSVC 19.44.35230 / SDK 10.0.26100.0. The following ordinary tuning
+round trips are configured-request/readback and restoration results for this
+adapter/configuration, not physical-effect qualification or constants for
+other boards or GPUs of the same generation.
 Each helper action reported successful Apply, exact request readback and Undo;
 the original scalar requests and full curve were checked afterward.
 
@@ -235,10 +264,40 @@ all surfaced advanced and rail requests and the complete V/F curve were checked
 as restored. This is configured-request evidence for that adapter and operating
 point, not proof of physical response or behavior on other boards.
 
-Remaining replacement work includes owned holds/headroom/recovery, Max it and
-Reset all, I2C implementation and parked physical qualification, registry/VBIOS
-relationship overrides, power saving, timings, configurable Monitor workflows,
-full profiles and Vista/7 qualification. Keep the Python frontend and experiment
-facade available during migration. See the
+On that RTX 3070 Ti/configuration, a native I2C probe found an MP2888A
+candidate at port **1**, address **0x20**, initially reporting **676 mV**. The
+nominal 900 → 925 → 900 mV controller-response Verify passed and restored its
+captured entry before releasing the clock clamp.
+
+The existing Python Max it path with the C++ backend provided the multimeter
+baseline: fan 100%, power request 500 W, boost 100% and a 1,093.75 mV V/F
+request, with **1.11 V** on the meter. The later native manual-command test at
+**405 MHz** produced the following observations:
+
+| Nominal request | Controller report | User's meter reading |
+| --- | --- | --- |
+| 1,100 mV, first Apply | 1,066 mV | 1.06 V, truncated; excluded from the quantitative comparison |
+| 1,125 mV | 1,091 mV | 1.097 V |
+| 1,100 mV, return | 1,067 mV | 1.071 V |
+| 1,125 mV, repeat | 1,091 mV | 1.097 V |
+
+The repeatable meter change was **26 mV** for a **25 mV** nominal command
+change. Release verified the captured controller registers before releasing
+the clock clamp; afterward the controller reported **676 mV** at **210 MHz**
+and the meter read **675 mV**. The helper exited with no ownership remaining.
+This qualifies the observed response of this candidate route and operating
+point in this session only. A nominal command is not the measured voltage, and
+these readings establish no factory default, gain, offset or behavior for
+another board or controller.
+
+A read-only core power-bounds probe on this adapter reported normal
+**100,000–500,000 mW** and XOC **1–1,999,000 mW**. Those are the observed
+request bounds for this route, not universal hardware limits.
+
+Remaining replacement work includes owned holds/headroom/recovery, GUI Max it
+and Reset all, I2C qualification on other devices and controller methods,
+registry/VBIOS relationship overrides, power saving, timings, configurable
+Monitor workflows, full profiles and Vista/7 qualification. Keep the Python
+frontend and experiment facade available during migration. See the
 [plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
 for the implementation boundary.

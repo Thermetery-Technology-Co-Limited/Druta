@@ -185,7 +185,17 @@ struct Session::Impl {
                 else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot; }
                 else if (poll_pending && !state.paused) { work = Work::poll; poll_pending = false; details = details_pending; details_pending = false; generation = state.generation; }
             }
-            if (work == Work::stop) break;
+            if (work == Work::stop) {
+                ActionResult cleanup;
+                try { cleanup=backend->prepare_close(); }
+                catch (...) { cleanup.message="Owned control restoration failed; session kept open for recovery"; }
+                if (cleanup.ok) break;
+                {
+                    Guard guard(lock); stopping=false; state.close_refused=true; state.busy=false;
+                    state.status=cleanup.message; log_locked(false,cleanup.message); publish_locked();
+                }
+                announce(); continue;
+            }
             if (work == Work::none) { WaitForSingleObject(wake, INFINITE); continue; }
             if (work == Work::change) {
                 std::vector<Device> devices; std::string error; bool opened = false;
@@ -215,6 +225,9 @@ struct Session::Impl {
             } else {
                 ActionResult result;
                 try { result = backend->execute(task); } catch (...) { result.message = "Action failed; state is uncertain, checking readback and Undo availability"; result.may_have_changed = true; }
+                const bool i2c_action=task.operation>=Command::Operation::i2c_scan && task.operation<=Command::Operation::i2c_release;
+                std::optional<I2cViewData> owned_i2c;
+                if (i2c_action) { try { owned_i2c=backend->i2c_state(); } catch (...) {} }
                 bool current;
                 {
                     Guard guard(lock);
@@ -222,6 +235,11 @@ struct Session::Impl {
                     if (stopping && generation == state.generation) state.busy = false;
                     ++state.completed_actions;
                     if (generation == state.generation) {
+                        if (i2c_action) {
+                            if (owned_i2c) { state.data.i2c=*owned_i2c; state.i2c_ownership_uncertain=false; }
+                            else if (task.operation==Command::Operation::i2c_apply || task.operation==Command::Operation::i2c_verify || task.operation==Command::Operation::i2c_release)
+                                state.i2c_ownership_uncertain=true;
+                        }
                         state.last_action_operation = task.operation; state.last_action_ok = result.ok;
                         // A verified process gate is authoritative even if the following
                         // telemetry refresh throws. An uncertain change cannot look off.
@@ -261,6 +279,11 @@ void Session::start(const std::string& slot) {
 bool Session::select_device(const std::string& slot) {
     { Guard guard(impl_->lock);
       if (!impl_->started || impl_->stopping || impl_->done) return false;
+      const auto& i2c=impl_->state.data.i2c;
+      const bool i2c_busy=impl_->state.busy && impl_->command.operation>=Command::Operation::i2c_scan && impl_->command.operation<=Command::Operation::i2c_release;
+      if (i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain) {
+          impl_->log_locked(false,"Release the active I2C session before switching GPUs"); impl_->publish_locked(); return false;
+      }
       impl_->backend_opened = false; impl_->read_retries = 0;
       ++impl_->state.generation; impl_->desired_slot = slot; impl_->switch_pending = true;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
@@ -271,7 +294,8 @@ bool Session::select_device(const std::string& slot) {
     impl_->signal(); impl_->announce(); return true;
 }
 void Session::request_poll(bool details) {
-    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening || !impl_->backend_opened || (!impl_->state.data.connected && impl_->read_retries >= 3)) return;
+    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening || !impl_->backend_opened || (!details && !impl_->state.data.connected && impl_->read_retries >= 3)) return;
+      if (details) impl_->read_retries=0;
       impl_->poll_pending = true; impl_->details_pending |= details; }
     impl_->signal();
 }
@@ -292,7 +316,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       const char* reason = nullptr;
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
-      else if (impl_->state.opening || !impl_->state.data.connected) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
@@ -301,7 +325,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
 }
 std::shared_ptr<const SessionSnapshot> Session::snapshot() const { Guard guard(impl_->lock); return impl_->published; }
 void Session::begin_shutdown() {
-    { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true;
+    { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true; impl_->state.close_refused=false;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = impl_->switch_pending = false;
       if (!impl_->thread) impl_->done = true; }
     impl_->signal();

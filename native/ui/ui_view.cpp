@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui_view.h"
 #include "session.h"
+#include "i2c_view.h"
 
 #include "imgui.h"
 #include "implot.h"
@@ -542,92 +543,85 @@ void live_summary(const SessionSnapshot& snapshot) {
         ImGui::TextWrapped("Telemetry: %s", snapshot.data.telemetry_error.c_str());
 }
 
-void live_control_row(ViewState& state, ControlId id, const char* name, bool verbose) {
+std::string classic_live_reading(const SessionSnapshot& snapshot, ControlId id) {
+    const auto& t = snapshot.data.telemetry;
+    switch (id) {
+    case ControlId::core: return number_text(telemetry_value(snapshot, DC_T_CORE, t.core), "MHz");
+    case ControlId::memory: return number_text(telemetry_value(snapshot, DC_T_MEM, t.mem), "") + "\nMHz driver";
+    case ControlId::power: return number_text(telemetry_value(snapshot, DC_T_POWER_W, t.power_w), "W");
+    case ControlId::boost: return number_text(telemetry_value(snapshot, DC_T_VCORE_MV, t.vcore_mv), "mV");
+    case ControlId::fan:
+        return number_text(t.fan_count && t.fans[0].has_duty ? std::optional<double>(t.fans[0].duty) : std::nullopt, "%");
+    default: return "--";
+    }
+}
+
+void live_control_row(ViewState& state, ControlId id, const char* name, bool classic) {
     const size_t index = static_cast<size_t>(id);
     const auto& snapshot = *state.live;
     const auto& control = snapshot.data.controls[index];
     auto& draft = state.drafts[index];
-    if (!verbose) {
-        ImGui::TableNextRow();
+    ImGui::TableNextRow(); ImGui::TableNextColumn();
+    // Table headers use numeric column IDs. A namespace is required before
+    // numeric control IDs, otherwise Apply(column 3) aliases Apply(fan 3).
+    ImGui::PushID("control-row"); ImGui::PushID(static_cast<int>(id));
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s%s%s", name, draft.dirty ? " *" : "",
+        control.availability == Availability::transient ? " (last read)" : "");
+    hint(control.detail.c_str());
+    ImGui::TableNextColumn();
+    const bool editable = control.writable && draft.initialized && snapshot.data.connected && !snapshot.opening && !snapshot.busy;
+    const bool ranged = control.low && control.high && std::isfinite(*control.low) && std::isfinite(*control.high) && *control.low < *control.high;
+    bool edited = false, editing = false;
+    if (!classic) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(control.availability == Availability::transient ? amber : secondary, "%s",
+            number_text(control.current, control.unit.c_str()).c_str());
+        hint(control.detail.empty() ? availability_text(control.availability) : control.detail.c_str());
         ImGui::TableNextColumn();
     }
-    ImGui::PushID(static_cast<int>(id));
-    if (verbose) ImGui::Separator();
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s%s", name, draft.dirty ? " *" : "");
-    if (!control.detail.empty()) hint(control.detail.c_str());
-    if (verbose) ImGui::SameLine();
-    else ImGui::TableNextColumn();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(control.availability == Availability::transient ? amber : secondary, "%s%s",
-        verbose ? "Configured: " : "", number_text(control.current, control.unit.c_str()).c_str());
-    hint(control.detail.empty() ? availability_text(control.availability) : control.detail.c_str());
-    if (draft.dirty) {
-        if (verbose) { ImGui::SameLine(); ImGui::TextColored(amber, "Draft"); }
-    }
-    if (!verbose) ImGui::TableNextColumn();
-    const bool editable = control.writable && draft.initialized && snapshot.data.connected
-        && !snapshot.opening && !snapshot.busy;
-    const bool ranged = control.low && control.high && std::isfinite(*control.low)
-        && std::isfinite(*control.high) && *control.low < *control.high;
     ImGui::BeginDisabled(!editable);
-    bool edited = false;
-    bool editing = false;
-    const float available = ImGui::GetContentRegionAvail().x;
-    const bool slider = ranged && available > u(verbose ? 490.0f : 285.0f);
+    const float draft_width = ImGui::GetContentRegionAvail().x;
+    const bool slider = ranged && (classic || draft_width > u(285));
     if (slider) {
-        ImGui::SetNextItemWidth(std::max(u(90), available - u(verbose ? 370.0f : 185.0f)));
-        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &draft.value,
-            &*control.low, &*control.high, id == ControlId::memory ? "%.0f" : "%.6g", ImGuiSliderFlags_NoInput)) {
+        ImGui::SetNextItemWidth(classic ? -1 : std::max(u(90), draft_width - u(120)));
+        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &draft.value, &*control.low, &*control.high,
+            id == ControlId::memory ? "%.0f" : "%.6g", ImGuiSliderFlags_NoInput)) {
             if (id == ControlId::memory) draft.value = std::round(draft.value);
             edited = true;
         }
         editing = ImGui::IsItemActive();
-        ImGui::SameLine();
+        if (!classic) ImGui::SameLine();
     }
+    if (classic) ImGui::TableNextColumn();
     if (draft.initialized) {
-        ImGui::SetNextItemWidth(std::min(u(verbose ? 130.0f : 105.0f), std::max(u(75), available - u(verbose ? 230.0f : 0.0f))));
-        double entered = draft.value;
-        if (ImGui::InputDouble("##value", &entered, 0, 0, "%.9g") && std::isfinite(entered)) {
-            draft.value = entered;
-            edited = true;
-        }
+        ImGui::SetNextItemWidth(classic ? -1 : std::min(u(105), std::max(u(75), draft_width)));
+        double value = draft.value;
+        if (ImGui::InputDouble("##value", &value, 0, 0, "%.9g") && std::isfinite(value)) { draft.value = value; edited = true; }
         editing = editing || ImGui::IsItemActive();
-        hint("Type an exact draft value; dragging memory uses whole MHz. Editing never writes hardware.");
-    } else {
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("--");
-    }
-    if (verbose) { ImGui::SameLine(); ImGui::TextUnformatted(control.unit.c_str()); }
+        hint("Editable request. Dragging changes only the draft; Apply writes it explicitly.");
+    } else ImGui::TextDisabled("--");
     ImGui::EndDisabled();
     draft.editing = editing;
     if (edited) draft.dirty = !draft.baseline || draft.value != *draft.baseline;
-    const bool in_range = std::isfinite(draft.value)
-        && (!control.low || draft.value >= *control.low) && (!control.high || draft.value <= *control.high);
-    if (verbose) ImGui::SameLine();
-    else ImGui::TableNextColumn();
+    if (classic) {
+        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 14.0f / 16.0f);
+        ImGui::TextUnformatted(classic_live_reading(snapshot, id).c_str());
+        ImGui::PopFont();
+        hint(("Configured request: " + number_text(control.current, control.unit.c_str()) + ". Live reading is separate.").c_str());
+    }
+    ImGui::TableNextColumn();
+    const bool in_range = std::isfinite(draft.value) && (!control.low || draft.value >= *control.low) && (!control.high || draft.value <= *control.high);
     ImGui::BeginDisabled(!editable || !state.controls_unlocked || !in_range);
-    if (ImGui::Button("Apply")) state.commands.push_back({Command::Operation::apply, id, draft.value});
-    ImGui::EndDisabled();
-    if (verbose) ImGui::SameLine();
-    else ImGui::TableNextColumn();
-    // Auto/Stock can be an explicit escape even when a current request cannot
-    // be captured. Its independent backend capability never follows a draft.
-    const bool stock_ready = control.stock_writable && snapshot.data.connected
-        && !snapshot.opening && !snapshot.busy && state.controls_unlocked;
-    ImGui::BeginDisabled(!stock_ready);
-    if (ImGui::Button(id == ControlId::fan ? "Auto" : "Stock"))
+    if (ImGui::Button("Apply", ImVec2(classic ? -1.0f : 0.0f, 0))) state.commands.push_back({Command::Operation::apply, id, draft.value});
+    ImGui::EndDisabled(); hint(control.detail.c_str());
+    ImGui::TableNextColumn();
+    ImGui::BeginDisabled(!control.stock_writable || !snapshot.data.connected || snapshot.opening || snapshot.busy || !state.controls_unlocked);
+    if (ImGui::Button(id == ControlId::fan ? "Auto" : "Stock", ImVec2(classic ? -1.0f : 0.0f, 0)))
         state.commands.push_back({Command::Operation::stock, id, control.stock.value_or(0)});
     ImGui::EndDisabled();
-    if (verbose)
-        ImGui::TextColored(control.availability == Availability::transient ? amber : muted,
-            "%s%s", availability_text(control.availability), control.writable ? "" : " / read-only");
-    if (!in_range && draft.initialized) hint("Draft is outside the reported range; Apply is disabled.");
-    if (!control.detail.empty() && verbose)
-        ImGui::TextWrapped("%s", control.detail.c_str());
-    if (verbose && ranged) ImGui::TextColored(muted, "Range: %s to %s",
-        number_text(control.low, control.unit.c_str()).c_str(), number_text(control.high, control.unit.c_str()).c_str());
-    ImGui::PopID();
+    ImGui::PopID(); ImGui::PopID();
 }
 
 void end_curve_drag(ViewState& state) {
@@ -787,17 +781,11 @@ void live_daily(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
     if (!short_view()) title(verbose ? "Control" : "Daily tuning", "Stage a request, then Apply. Undo restores the recorded request.");
     live_summary(snapshot);
-    ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
-    hint("Enable explicit Apply and Stock actions in this session. Editing a draft does not write.");
-    ImGui::SameLine();
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh readings")) state.refresh_requested = true;
     ImGui::EndDisabled();
     const char* names[] = {"Core offset", "Memory offset", "Board power", "Fan target", "Voltage boost"};
-    if (verbose) {
-        for (size_t i = 0; i < snapshot.data.controls.size(); ++i)
-            live_control_row(state, static_cast<ControlId>(i), names[i], true);
-    } else if (ImGui::BeginTable("daily_controls", 5, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+    if (ImGui::BeginTable("daily_controls", 5, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthFixed, u(120));
         ImGui::TableSetupColumn("Configured", ImGuiTableColumnFlags_WidthFixed, u(125));
         ImGui::TableSetupColumn("Draft", ImGuiTableColumnFlags_WidthStretch);
@@ -808,6 +796,11 @@ void live_daily(ViewState& state, bool verbose) {
             live_control_row(state, static_cast<ControlId>(i), names[i], false);
         ImGui::EndTable();
     }
+    ImGui::SeparatorText("NVVDD current limit");
+    draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
+    if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
+        draw_daily_rail_controls(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
+    if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
     if (!verbose && ImGui::CollapsingHeader("Control details")) {
         for (size_t i = 0; i < snapshot.data.controls.size(); ++i) {
             const auto& control = snapshot.data.controls[i];
@@ -1094,6 +1087,226 @@ void live_operations(const SessionSnapshot& snapshot) {
     ImGui::EndChild();
 }
 
+unsigned push_classic_palette() {
+    const std::pair<ImGuiCol, ImVec4> colors[] = {
+        {ImGuiCol_WindowBg, {0.137f, 0.137f, 0.137f, 1}},
+        {ImGuiCol_ChildBg, {0.137f, 0.137f, 0.137f, 1}},
+        {ImGuiCol_PopupBg, {0.137f, 0.137f, 0.137f, 1}},
+        {ImGuiCol_Text, {230.0f/255, 232.0f/255, 236.0f/255, 1}},
+        {ImGuiCol_TextDisabled, {139.0f/255, 144.0f/255, 153.0f/255, 1}},
+        {ImGuiCol_FrameBg, {0.20f, 0.20f, 0.216f, 1}},
+        {ImGuiCol_FrameBgHovered, {0.25f, 0.27f, 0.31f, 1}},
+        {ImGuiCol_FrameBgActive, {0.29f, 0.31f, 0.35f, 1}},
+        {ImGuiCol_Button, {0.20f, 0.20f, 0.216f, 1}},
+        {ImGuiCol_ButtonHovered, {0.26f, 0.28f, 0.32f, 1}},
+        {ImGuiCol_ButtonActive, {0.30f, 0.32f, 0.36f, 1}},
+        {ImGuiCol_Header, {40.0f/255, 66.0f/255, 105.0f/255, 1}},
+        {ImGuiCol_HeaderHovered, {50.0f/255, 82.0f/255, 128.0f/255, 1}},
+        {ImGuiCol_HeaderActive, {58.0f/255, 95.0f/255, 145.0f/255, 1}},
+        {ImGuiCol_SliderGrab, {0.16f, 0.37f, 0.49f, 1}},
+        {ImGuiCol_SliderGrabActive, {0.22f, 0.47f, 0.62f, 1}},
+        {ImGuiCol_CheckMark, {74.0f/255, 163.0f/255, 1, 1}},
+    };
+    for (const auto& item : colors) ImGui::PushStyleColor(item.first, item.second);
+    return static_cast<unsigned>(std::size(colors));
+}
+
+void classic_header(ViewState& state) {
+    const auto snapshot = state.live;
+    const auto* id = snapshot ? &snapshot->data.identity : nullptr;
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 26.0f / 16.0f);
+    ImGui::TextColored(ImVec4(74.0f/255, 163.0f/255, 1, 1), "Thermetery Druta 1.9.1");
+    ImGui::PopFont(); ImGui::SameLine();
+    ImGui::TextDisabled("card"); ImGui::SameLine();
+    const std::string selected = state.preview ? "Sample adapter (preview)"
+        : id && id->name[0] ? std::string(id->name) + "  " + snapshot->selected_slot : "Opening adapter...";
+    ImGui::SetNextItemWidth(std::min(u(420), std::max(u(160), ImGui::GetContentRegionAvail().x)));
+    ImGui::BeginDisabled(!snapshot || snapshot->busy || snapshot->opening);
+    ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 21.0f / 16.0f);
+    if (ImGui::BeginCombo("##adapter", selected.c_str())) {
+        if (snapshot) for (const auto& device : snapshot->devices) {
+            const auto name = device.name + "  " + device.slot;
+            if (ImGui::Selectable(name.c_str(), device.slot == snapshot->selected_slot)) state.select_slot = device.slot;
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PopFont(); ImGui::EndDisabled();
+    if (state.preview) ImGui::TextDisabled("Preview / sample data. No GPU session is connected.");
+    else if (id) ImGui::TextColored(id->admin ? secondary : amber, "%s  |  driver %s  |  vbios %s  |  %s",
+        id->name[0] ? id->name : "--", id->driver[0] ? id->driver : "--", id->vbios[0] ? id->vbios : "--",
+        id->admin ? "admin" : "NOT admin");
+    if (snapshot && (!snapshot->data.connected || snapshot->opening || snapshot->busy)) ImGui::TextWrapped("%s", snapshot->status.c_str());
+    if (id && id->pairing_error[0]) ImGui::TextColored(amber, "%s", id->pairing_error);
+    const bool ready = snapshot && snapshot->data.connected && !snapshot->busy && !snapshot->opening;
+    ImGui::BeginDisabled(!ready);
+    if (ImGui::Button("Save profile...")) state.save_profile_requested = true;
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled(!ready || !state.controls_unlocked);
+    if (ImGui::Button("Load profile...")) state.load_profile_requested = true;
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::Checkbox("Always refresh", &state.always_refresh); ImGui::SameLine();
+    if (ImGui::Button("Pause")) state.pause_requested = true;
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(u(150));
+    int presentation = 1;
+    if (ImGui::Combo("##presentation", &presentation, "Focused\0Classic / Verbose\0"))
+        state.presentation = presentation == 0 ? Presentation::focused : Presentation::classic;
+}
+
+void classic_tabs(ViewState& state) {
+    ImGui::PushID("legacy-tabs");
+    const std::pair<Page, const char*> tabs[] = {{Page::daily,"Control"}, {Page::advanced,"Advanced"}, {Page::monitor,"Monitor"}};
+    for (size_t i = 0; i < std::size(tabs); ++i) {
+        if (i) ImGui::SameLine(0, u(3));
+        const bool selected = state.page == tabs[i].first;
+        if (selected) ImGui::PushStyleColor(ImGuiCol_Button, {0.055f, 0.32f, 0.46f, 1});
+        if (ImGui::Button(tabs[i].second, ImVec2(u(80), 0))) state.page = tabs[i].first;
+        if (selected) ImGui::PopStyleColor();
+    }
+    ImGui::SameLine(0, u(3)); ImGui::BeginDisabled();
+    ImGui::Button("Timings (needs nvtune)"); ImGui::EndDisabled();
+    hint("Native timing workflow pending.");
+    ImGui::PopID();
+    ImGui::PushStyleColor(ImGuiCol_Separator, {0.07f, 0.37f, 0.53f, 1});
+    ImGui::Separator(); ImGui::PopStyleColor();
+}
+
+bool classic_knob_table(const char* id) {
+    if (!ImGui::BeginTable(id, 6, ImGuiTableFlags_SizingStretchProp)) return false;
+    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+    ImGui::TableSetupColumn("Slider", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+    ImGui::TableSetupColumn("Request", ImGuiTableColumnFlags_WidthFixed, u(66));
+    ImGui::TableSetupColumn("Live", ImGuiTableColumnFlags_WidthFixed, u(92));
+    ImGui::TableSetupColumn("Apply", ImGuiTableColumnFlags_WidthFixed, u(60));
+    ImGui::TableSetupColumn("Extra", ImGuiTableColumnFlags_WidthFixed, u(60));
+    return true;
+}
+
+void classic_control_summary(const SessionSnapshot& s) {
+    const auto& t = s.data.telemetry;
+    const auto reading = [&](uint64_t bit, double value, const char* unit) {
+        auto result = number_text(telemetry_value(s, bit, value), unit);
+        if ((s.telemetry_stale_mask & bit) && (t.present & bit)) result += " (stale)";
+        return result;
+    };
+    ImGui::Text("core %s  |  VRAM %s  |  Vcore %s  |  boost %s  |  P-state %s",
+        reading(DC_T_CORE, t.core, "MHz").c_str(), reading(DC_T_MEM, t.mem, "MHz driver").c_str(),
+        reading(DC_T_VCORE_MV, t.vcore_mv, "mV").c_str(), reading(DC_T_VBOOST, t.vboost_pct, "%").c_str(),
+        reading(DC_T_PSTATE, t.pstate, "").c_str());
+    if ((s.telemetry_stale_mask & t.present) || s.paused) ImGui::TextColored(amber, "Some displayed readings are stale.");
+    if (t.present & DC_T_VF_LOCKED) ImGui::TextColored(t.vf_locked_count ? teal : secondary, "V/F hold entries: %u%s",
+        t.vf_locked_count, (s.telemetry_stale_mask & DC_T_VF_LOCKED) ? " (stale)" : "");
+    else ImGui::TextDisabled("Hold state unverified");
+    ImGui::Separator();
+}
+
+void classic_daily(ViewState& state) {
+    if (!state.live) { ImGui::TextUnformatted("Opening adapter..."); return; }
+    const auto& s = *state.live;
+    classic_control_summary(s);
+    if (ImGui::BeginTable("classic-control-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        if (ImGui::CollapsingHeader("Clock offsets", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (classic_knob_table("classic-clock-offsets")) {
+                live_control_row(state, ControlId::core, "Core clock offset (MHz)", true);
+                live_control_row(state, ControlId::memory, "Memory offset (MHz true)", true);
+                ImGui::EndTable();
+            }
+            draw_clock_domain_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+        }
+        if (ImGui::CollapsingHeader("Limits", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (classic_knob_table("classic-power")) {
+                live_control_row(state, ControlId::power, "Power limit (W)", true); ImGui::EndTable();
+            }
+            draw_core_current_limit(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+            if (classic_knob_table("classic-limits")) {
+                live_control_row(state, ControlId::boost, "Core voltage boost (%)", true);
+                live_control_row(state, ControlId::fan, "Fan duty (%)", true);
+                ImGui::EndTable();
+            }
+            ImGui::TextDisabled("Configured power: %s | enforced: %s",
+                number_text(s.data.controls[static_cast<size_t>(ControlId::power)].current, "W").c_str(),
+                number_text(s.data.enforced_power_w, "W").c_str());
+        }
+        ImGui::TableNextColumn();
+        if (ImGui::CollapsingHeader("Rails", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextDisabled("Estimated limits; Initial restores the captured request.");
+            draw_daily_rail_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
+    if (ImGui::CollapsingHeader("V/F curve editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Button("Open V/F curve", ImVec2(u(220), 0))) {
+            state.curve_window_open = true; state.curve_window_focus_requested = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu points | staged editor opens in a large window", s.data.curve.size());
+    }
+    if (ImGui::Button("Revert local drafts")) state.revert_draft();
+    ImGui::SameLine(); ImGui::BeginDisabled(!state.controls_unlocked || !s.data.undo_available || !s.data.connected || s.busy || s.opening);
+    if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
+    ImGui::EndDisabled();
+}
+
+void classic_advanced(ViewState& state) {
+    const auto& s = *state.live;
+    if (!s.log.empty()) ImGui::TextColored(s.log.back().ok ? secondary : amber, "%s", s.log.back().message.c_str());
+    if (ImGui::CollapsingHeader("Power policies"))
+        draw_power_policy_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+    if (ImGui::CollapsingHeader("Registry / BIOS")) ImGui::TextDisabled("Native workflow pending");
+    if (ImGui::CollapsingHeader("Session controls"))
+        draw_advanced_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+    if (ImGui::CollapsingHeader("Diagnostics")) {
+        live_identity(s);
+        if (ImGui::Button("Refresh details")) state.refresh_requested = true;
+    }
+}
+
+void classic_monitor(const SessionSnapshot& s) {
+    const auto& t = s.data.telemetry;
+    if (!s.log.empty()) ImGui::TextColored(s.log.back().ok ? secondary : amber, "%s", s.log.back().message.c_str());
+    if (ImGui::BeginTable("classic-sensor-tiles", 6, ImGuiTableFlags_SizingStretchSame)) {
+        const char* labels[] = {"CORE CLOCK", "MEM CLOCK", "XBAR", "TEMPERATURE", "POWER", "VCORE"};
+        const uint64_t bits[] = {DC_T_CORE, DC_T_MEM, DC_T_XBAR, DC_T_TEMP_EDGE, DC_T_POWER_W, DC_T_VCORE_MV};
+        const double values[] = {double(t.core), double(t.mem), double(t.xbar), double(t.temp_edge), t.power_w, t.vcore_mv};
+        const char* units[] = {"MHz", "MHz driver", "MHz", "C", "W", "mV"};
+        for (size_t i = 0; i < std::size(labels); ++i) {
+            ImGui::TableNextColumn(); ImGui::TextDisabled("%s", labels[i]);
+            measured_value(s, "", bits[i], values[i], units[i]);
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::CollapsingHeader("POWER SPLIT & UTILIZATION", ImGuiTreeNodeFlags_DefaultOpen)) {
+        measured_value(s, "GPU", DC_T_UTIL_GPU, t.util_gpu, "%");
+        measured_value(s, "FB", DC_T_UTIL_FB, t.util_fb, "%");
+        measured_value(s, "Video", DC_T_UTIL_VID, t.util_vid, "%");
+    }
+    if (ImGui::CollapsingHeader("PCIE LINK", ImGuiTreeNodeFlags_DefaultOpen)) {
+        measured_value(s, "Generation", DC_T_PCIE_GEN, t.pcie_gen, "");
+        measured_value(s, "Width", DC_T_PCIE_WIDTH, t.pcie_width, "lanes");
+    }
+    if (ImGui::CollapsingHeader("STATE", ImGuiTreeNodeFlags_DefaultOpen)) {
+        measured_value(s, "P-state", DC_T_PSTATE, t.pstate, "");
+        measured_value(s, "Voltage boost", DC_T_VBOOST, t.vboost_pct, "%");
+        for (uint32_t i = 0; i < std::min(t.fan_count, uint32_t{32}); ++i)
+            ImGui::TextColored(s.fan_readings_stale || s.paused ? amber : secondary, "Fan %u: duty %s | speed %s%s", i,
+                number_text(t.fans[i].has_duty ? std::optional<double>(t.fans[i].duty) : std::nullopt, "%").c_str(),
+                number_text(t.fans[i].has_rpm ? std::optional<double>(t.fans[i].rpm) : std::nullopt, "RPM").c_str(),
+                s.fan_readings_stale || s.paused ? " (stale)" : "");
+    }
+    if (ImGui::CollapsingHeader("History")) live_monitor(s, false);
+}
+
+void classic_log(const SessionSnapshot& s) {
+    ImGui::Separator(); ImGui::TextDisabled("log  (newest line first)");
+    ImGui::BeginChild("classic-log", ImVec2(0, u(150)), true);
+    if (s.log.empty()) ImGui::TextDisabled("No tuning actions in this session.");
+    for (auto it = s.log.rbegin(); it != s.log.rend(); ++it)
+        ImGui::TextColored(it->ok ? secondary : ImVec4(1, 92.0f/255, 92.0f/255, 1), "%s", it->message.c_str());
+    ImGui::EndChild();
+}
+
 } // namespace
 
 bool ViewState::has_draft() const {
@@ -1170,6 +1383,22 @@ void draw(ViewState& state) {
         state.curve_window_focus_requested = true;
     }
     if (!state.preview) { sync_live_drafts(state); observe_curve(state); }
+    const bool classic = state.presentation == Presentation::classic;
+    unsigned classic_colors = 0;
+    if (classic) {
+        classic_colors = push_classic_palette();
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 16.0f / 18.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(u(6), u(6)));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(u(4), u(1)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(u(4), u(3)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(u(4), u(2)));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(u(3), u(2)));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 0);
+    }
     unsigned risk_colors = 0;
     if (!state.preview && state.live) {
         const auto risk = session_risk(state.live->data);
@@ -1183,7 +1412,7 @@ void draw(ViewState& state) {
         }
     }
     const bool compact = short_view();
-    if (compact) {
+    if (compact && !classic) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(u(8), u(4)));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(u(8), u(3)));
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(u(6), u(3)));
@@ -1194,13 +1423,22 @@ void draw(ViewState& state) {
         | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings
         | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar;
     ImGui::Begin("Druta workspace", nullptr, flags);
-    top_bar(state);
+    if (classic) classic_header(state); else top_bar(state);
     if (!state.preview && state.live) {
-        draw_mode_bar(*state.live, state.controls_unlocked, state.commands);
+        draw_mode_bar(*state.live, state.controls_unlocked, state.commands, classic, [&] { draw_i2c_gate(state); });
+        if (classic) {
+            ImGui::SameLine(0, u(16)); ImGui::BeginDisabled();
+            ImGui::Button("Reset controls (pending)"); ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button, {168.0f/255, 88.0f/255, 16.0f/255, 1});
+            ImGui::BeginDisabled(); ImGui::Button("Max it (pending)"); ImGui::EndDisabled();
+            ImGui::PopStyleColor();
+        }
         ImGui::Separator();
     }
-    const bool narrow = ImGui::GetContentRegionAvail().x < u(900);
-    if (narrow) {
+    if (classic) classic_tabs(state);
+    const bool narrow = classic || ImGui::GetContentRegionAvail().x < u(900);
+    if (narrow && !classic) {
         navigation(state, true);
         ImGui::Separator();
     }
@@ -1211,7 +1449,7 @@ void draw(ViewState& state) {
             : "Session-only tuning. Restore shortcut unavailable; use the taskbar.");
     const float footer_height = ImGui::CalcTextSize(footer, nullptr, false,
         ImGui::GetContentRegionAvail().x).y + ImGui::GetStyle().ItemSpacing.y * 2 + u(3);
-    const float log_height = !state.preview && state.live
+    const float log_height = !classic && !state.preview && state.live
         ? ImGui::GetTextLineHeightWithSpacing() * (state.live->log.empty() ? 1 : 3) + u(8) : 0;
     const float body_height = std::max(u(50), ImGui::GetContentRegionAvail().y - footer_height - log_height);
     if (!narrow) {
@@ -1224,22 +1462,24 @@ void draw(ViewState& state) {
     const bool verbose = state.presentation == Presentation::classic;
     if (!state.preview) {
         if (!state.live) ImGui::TextUnformatted("Waiting for the first session snapshot...");
-        else if (state.page == Page::daily) live_daily(state, verbose);
-        else if (state.page == Page::advanced) live_advanced(state, verbose);
-        else live_monitor(*state.live, verbose);
+        else if (state.page == Page::daily) { if (classic) classic_daily(state); else live_daily(state, false); }
+        else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
+        else { if (classic) classic_monitor(*state.live); else live_monitor(*state.live, false); }
+        if (classic && state.live && state.page == Page::daily) classic_log(*state.live);
     } else if (state.page == Page::daily) daily(state, verbose);
     else if (state.page == Page::advanced) advanced(verbose);
     else monitor(verbose);
     ImGui::EndChild();
-    if (!state.preview && state.live) live_operations(*state.live);
+    if (!classic && !state.preview && state.live) live_operations(*state.live);
     ImGui::Separator();
     ImGui::PushTextWrapPos(0);
     ImGui::TextColored(state.hotkey_available ? muted : amber, "%s", footer);
     ImGui::PopTextWrapPos();
     ImGui::End();
     draw_curve_window(state);
-    if (compact) ImGui::PopStyleVar(3);
+    if (compact && !classic) ImGui::PopStyleVar(3);
     if (risk_colors) ImGui::PopStyleColor(static_cast<int>(risk_colors));
+    if (classic) { ImGui::PopStyleVar(10); ImGui::PopFont(); ImGui::PopStyleColor(static_cast<int>(classic_colors)); }
 }
 
 } // namespace druta::ui

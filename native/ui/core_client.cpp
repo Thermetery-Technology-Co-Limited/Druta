@@ -42,6 +42,7 @@ class Client final : public IBackend {
     bool suppress_undo_ = false;
     bool rail_mode_ = false;
     std::unique_ptr<RailControls> rail_service_;
+    std::unique_ptr<I2cSession> i2c_session_;
     void remember(const Undo& u) { if (suppress_undo_) return; if (undo_.size() == 32) undo_.erase(undo_.begin()); undo_.push_back(u); }
     const char* label(ControlId c) const { switch (c) { case ControlId::core: return "core offset"; case ControlId::memory: return "memory offset"; case ControlId::fan: return "fan"; case ControlId::boost: return "voltage boost"; case ControlId::power: return "board power"; default: return "profile"; } }
     bool capture_fan(dc_fan_snapshot& snap) {
@@ -295,6 +296,31 @@ class Client final : public IBackend {
                 if (current_xoc(xoc) && api_.envelopes && api_.envelopes(&env) == DC_OK) { const double low = xoc || id.kind == AdvancedKind::msvdd ? -500.0 : -100.0; const double high = xoc || id.kind == AdvancedKind::msvdd ? env.rail_offset_xoc_max_mv : env.rail_offset_max_mv; if (std::isfinite(high) && high >= 0) { state.low = std::min(low, *state.current); state.high = std::max(high, *state.current); } }
             }
             if (id.kind == AdvancedKind::msvdd) { int32_t enabled = 0, xoc = 0; if (!api_.clkdom_flags || retry(api_.clkdom_flags, gpu_, &enabled, &xoc) != DC_OK) { state.availability = Availability::transient; state.writable = previous_writable; state.stock_writable = previous_stock; state.detail = "MSVDD opt-in state unreadable"; } else { state.writable = enabled != 0 && api_.lock && api_.unlock && api_.envelopes; state.stock_writable = api_.msvdd_reset && api_.lock && api_.unlock; state.detail = enabled ? "Experimental stored request; physical response unverified" : "Experimental MSVDD opt-in is disabled"; } }
+            if (id.kind == AdvancedKind::clock_domain) {
+                // These are Python frontend editing/typo ranges, not measured
+                // hardware limits; setters still validate the actual request.
+                const bool xoc = last_.xoc_known && last_.xoc_enabled;
+                double lo = -300.0, hi = 300.0;
+                const auto& core = last_.controls[index(ControlId::core)];
+                const auto& memory = last_.controls[index(ControlId::memory)];
+                if (id.domain == 2) {
+                    double mem_lo = -1000.0, mem_hi = 3000.0;
+                    if (memory.low && memory.high && std::isfinite(*memory.low) && std::isfinite(*memory.high) && *memory.low <= *memory.high) { mem_lo = std::trunc(*memory.low); mem_hi = std::trunc(*memory.high); }
+                    if (!xoc) { lo = mem_lo; hi = mem_hi; }
+                    else {
+                        uint32_t clock = 0;
+                        if ((last_.telemetry.present & DC_T_MEM_P0MAX) && last_.telemetry.mem_p0max) clock = last_.telemetry.mem_p0max;
+                        else if (last_.telemetry.present & DC_T_MEM) clock = last_.telemetry.mem;
+                        const double typo = std::max({std::abs(mem_hi), static_cast<double>(clock / 4), 1000.0});
+                        lo = -typo; hi = typo;
+                    }
+                } else if (xoc) {
+                    lo = -1000.0; hi = 1000.0;
+                    if (core.low && core.high && std::isfinite(*core.low) && std::isfinite(*core.high) && *core.low <= *core.high) { lo = *core.low; hi = *core.high; }
+                }
+                state.low = std::min(lo, *state.current); state.high = std::max(hi, *state.current);
+                state.detail += "; slider range is a software editing range, not a hardware limit";
+            }
         };
         if (!details) return;
         { auto old = rows; for (const auto& row : old) refresh(row.id, row.label); }
@@ -651,15 +677,19 @@ public:
         module_ = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (!module_) return;
 #define LOAD(member, name) api_.member = reinterpret_cast<decltype(api_.member)>(GetProcAddress(module_, #name))
+        LOAD(i2c.identity, dc_gpu_identity_get); LOAD(i2c.read, dc_i2c_read); LOAD(i2c.write, dc_i2c_write);
+        LOAD(i2c.lock, dc_gpu_lock); LOAD(i2c.unlock, dc_gpu_unlock); LOAD(i2c.clocks, dc_gpu_lockable_clocks);
+        LOAD(i2c.clamp, dc_gpu_clocks_lock); LOAD(i2c.release, dc_gpu_clocks_reset);
+        LOAD(i2c.clock_status, dc_gpu_clk_lock_status); LOAD(i2c.vf_status, dc_gpu_vf_lock_status); LOAD(i2c.telemetry, dc_gpu_read_telemetry);
         LOAD(rails.lock, dc_gpu_lock); LOAD(rails.unlock, dc_gpu_unlock); LOAD(rails.identity, dc_gpu_identity_get); LOAD(rails.limits, dc_rails_limits); LOAD(rails.fields, dc_rails_limit_fields); LOAD(rails.profile, dc_rails_profile); LOAD(rails.initial, dc_rails_initial_get); LOAD(rails.hold, dc_rails_hold_record_get); LOAD(rails.set_raw, dc_rails_set_limits_raw); LOAD(rails.reset, dc_rails_reset_limits); LOAD(planner.deflatten, dc_vfp_compute_deflatten); LOAD(planner.ramp, dc_vfp_compute_ramp); LOAD(planner.rephase, dc_vfp_compute_rephase); LOAD(planner.predict, dc_vfp_predict_curve); LOAD(abi_version, dc_abi_version); LOAD(enumerate, dc_enumerate_gpus); LOAD(open, dc_gpu_open); LOAD(close, dc_gpu_close); LOAD(identity, dc_gpu_identity_get);
         LOAD(telemetry, dc_gpu_read_telemetry); LOAD(capabilities, dc_gpu_capabilities_get); LOAD(range, dc_gpu_clock_offset_range_get); LOAD(scale, dc_gpu_mem_offset_scale); LOAD(step, dc_gpu_memory_offset_step_units); LOAD(set_offset, dc_gpu_clock_offset_set);
-        LOAD(lock, dc_gpu_lock); LOAD(unlock, dc_gpu_unlock); LOAD(power_bounds, dc_pl_bounds); LOAD(power_set, dc_pl_set); LOAD(power_message, dc_pl_message_get); LOAD(policy_read, dc_cl_power_policies_read); LOAD(policy_set, dc_cl_set_power_policy); LOAD(policy_message, dc_cl_policy_message_get); LOAD(pins_get, dc_cl_pins_get); LOAD(pins_set, dc_cl_pins_set); LOAD(envelopes, dc_request_envelopes_get); LOAD(reset_curve, dc_gpu_vf_curve_reset); LOAD(clock_step, dc_gpu_clock_step_khz); LOAD(max_rise, dc_gpu_max_rise_khz); LOAD(snapshot, dc_gpu_vf_delta_snapshot); LOAD(apply_deltas, dc_gpu_vf_deltas_apply); LOAD(fan_set, dc_gpu_fan_set); LOAD(fan_reset, dc_gpu_fan_reset); LOAD(fan_restore, dc_gpu_fan_restore); LOAD(boost_set, dc_gpu_voltage_boost_set); LOAD(fan_state, dc_gpu_fan_state_get); LOAD(fan_caps, dc_gpu_fan_capabilities_get); LOAD(boost, dc_gpu_voltage_boost_get); LOAD(clkdom_ok, dc_gpu_clkdom_ok); LOAD(clkdom_layout, dc_gpu_clkdom_layout); LOAD(clkdom_domains, dc_gpu_clkdom_domains); LOAD(clkdom_controls, dc_gpu_clkdom_controls_for_ui); LOAD(clkdom_offered, dc_gpu_clkdom_offset_slider_offered); LOAD(clkdom_label, dc_gpu_clkdom_control_label); LOAD(clkdom_requests, dc_gpu_clkdom_requests); LOAD(clkdom_set, dc_gpu_clkdom_offset_set); LOAD(rail_cap, dc_gpu_rail_offset_capability); LOAD(rail_read, dc_gpu_rail_offset_read); LOAD(rail_set, dc_gpu_rail_offset_set); LOAD(msvdd_reset, dc_gpu_msvdd_offset_reset); LOAD(clkdom_flags_set, dc_gpu_clkdom_flags_set); LOAD(clkdom_flags, dc_gpu_clkdom_flags_get); LOAD(curve_layout, dc_gpu_vf_layout); LOAD(curve, dc_gpu_vf_curve_read); LOAD(power, dc_pl_read); LOAD(enforced_power, dc_pl_enforced_read);
+        LOAD(lock, dc_gpu_lock); LOAD(unlock, dc_gpu_unlock); LOAD(power_bounds, dc_pl_bounds); LOAD(power_set, dc_pl_set); LOAD(power_message, dc_pl_message_get); LOAD(current_limits, dc_cl_get_current_limits); LOAD(policy_read, dc_cl_power_policies_read); LOAD(policy_set, dc_cl_set_power_policy); LOAD(policy_message, dc_cl_policy_message_get); LOAD(pins_get, dc_cl_pins_get); LOAD(pins_set, dc_cl_pins_set); LOAD(envelopes, dc_request_envelopes_get); LOAD(reset_curve, dc_gpu_vf_curve_reset); LOAD(clock_step, dc_gpu_clock_step_khz); LOAD(max_rise, dc_gpu_max_rise_khz); LOAD(snapshot, dc_gpu_vf_delta_snapshot); LOAD(apply_deltas, dc_gpu_vf_deltas_apply); LOAD(fan_set, dc_gpu_fan_set); LOAD(fan_reset, dc_gpu_fan_reset); LOAD(fan_restore, dc_gpu_fan_restore); LOAD(boost_set, dc_gpu_voltage_boost_set); LOAD(fan_state, dc_gpu_fan_state_get); LOAD(fan_caps, dc_gpu_fan_capabilities_get); LOAD(boost, dc_gpu_voltage_boost_get); LOAD(clkdom_ok, dc_gpu_clkdom_ok); LOAD(clkdom_layout, dc_gpu_clkdom_layout); LOAD(clkdom_domains, dc_gpu_clkdom_domains); LOAD(clkdom_controls, dc_gpu_clkdom_controls_for_ui); LOAD(clkdom_offered, dc_gpu_clkdom_offset_slider_offered); LOAD(clkdom_label, dc_gpu_clkdom_control_label); LOAD(clkdom_requests, dc_gpu_clkdom_requests); LOAD(clkdom_set, dc_gpu_clkdom_offset_set); LOAD(rail_cap, dc_gpu_rail_offset_capability); LOAD(rail_read, dc_gpu_rail_offset_read); LOAD(rail_set, dc_gpu_rail_offset_set); LOAD(msvdd_reset, dc_gpu_msvdd_offset_reset); LOAD(clkdom_flags_set, dc_gpu_clkdom_flags_set); LOAD(clkdom_flags, dc_gpu_clkdom_flags_get); LOAD(curve_layout, dc_gpu_vf_layout); LOAD(curve, dc_gpu_vf_curve_read); LOAD(power, dc_pl_read); LOAD(enforced_power, dc_pl_enforced_read);
 #undef LOAD
     }
 #endif
     ~Client() override { close();
 #ifdef _WIN32
-        if (module_) FreeLibrary(module_);
+        if (module_ && !gpu_) FreeLibrary(module_);
 #endif
     }
     PlannerApi planner_api() const override { return api_.planner; }
@@ -673,7 +703,8 @@ public:
         return result;
     }
     bool open(const std::string& slot, std::string& error) override {
-        close(); if (!valid()) { error = "Core DLL is missing required exports or has an incompatible ABI"; return false; }
+        close(); if (gpu_) { error="Owned control recovery must finish before changing GPU"; return false; }
+        if (!valid()) { error = "Core DLL is missing required exports or has an incompatible ABI"; return false; }
         if (slot.empty() || api_.open(slot.c_str(), &gpu_) != DC_OK || !gpu_) { error = "Could not open selected GPU"; return false; }
         opened_.size = sizeof(opened_);
         if (retry(api_.identity, gpu_, &opened_) != DC_OK || !opened_.slot[0] || !(opened_.nvapi_ok || opened_.nvml_ok) || opened_.pairing_error[0] || slot != opened_.slot) {
@@ -681,10 +712,25 @@ public:
         }
         last_.identity = opened_; last_.connected = true; rail_mode_ = false; last_.rail_mode_known = true; last_.rail_mode_enabled = false; rail_service_ = std::make_unique<RailControls>(api_.rails, gpu_, opened_);
         if (api_.clkdom_flags_set && api_.clkdom_flags && api_.clkdom_flags_set(gpu_, 0, 0) == DC_OK) { bool xoc = true; if (current_xoc(xoc) && !xoc) { last_.xoc_known = true; last_.xoc_enabled = false; } }
+        i2c_session_ = std::make_unique<I2cSession>(api_.i2c, gpu_, opened_);
         error.clear(); return true;
     }
-    void close() override { rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear(); }
+    ActionResult prepare_close() override {
+        if (i2c_session_ && i2c_session_->owned()) { auto result=i2c_session_->release(); last_.i2c=i2c_session_->data(); return result; }
+        ActionResult result; result.ok=true; return result;
+    }
+    std::optional<I2cViewData> i2c_state() const override {
+        if (!i2c_session_) return I2cViewData{};
+        auto state=i2c_session_->data();
+        if (i2c_session_->owned() && !state.clock_owned && !state.status.owned) state.status.recovery_pending=true;
+        return state;
+    }
+    void close() override {
+        if (!prepare_close().ok) return;
+        i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
+    }
     LiveData read(bool details) override {
+        if (i2c_session_) last_.i2c=i2c_session_->data();
         if (!gpu_) { last_.status = valid() ? "No GPU selected" : "Core DLL unavailable or incompatible"; return last_; }
         dc_gpu_identity id{}; if (!identity(id)) { last_.connected = false; last_.status = "GPU identity read failed or changed"; return last_; }
         last_.connected = true; last_.identity = id; last_.status.clear(); bool xoc_state = false; if (current_xoc(xoc_state)) { last_.xoc_known = true; last_.xoc_enabled = xoc_state; }
@@ -729,15 +775,40 @@ public:
         if (retry(api_.power, gpu_, &st, &has, &mw, &err) == DC_OK && has) {
             power.availability = Availability::available; power.current = mw / 1000.0; power.unit = "W";
             if (details) { PowerSnapshot captured; std::string reason; bool captured_ok = false;
-                if (power_api() && api_.lock(gpu_) == DC_OK) { captured_ok = power_capture(captured, reason); api_.unlock(gpu_); }
+                dc_current_row currents[32]{}; uint32_t current_count = 0; bool current_answered = false;
+                if (power_api() && api_.lock(gpu_) == DC_OK) {
+                    captured_ok = power_capture(captured, reason);
+                    if (captured_ok && api_.current_limits) {
+                        for (int attempt = 0; attempt < 2; ++attempt) { for (auto& row : currents) { row = {}; row.size = sizeof(row); } current_count = 0;
+                            if (api_.current_limits(gpu_, nullptr, nullptr, currents, 32, &current_count) == DC_OK && current_count > 0 && current_count <= 32) { current_answered = true; break; }
+                        }
+                    }
+                    api_.unlock(gpu_);
+                }
                 else reason = "Power policy interfaces or lock unavailable";
                 if (captured_ok) { power.writable = true; power.detail = "Configured request";
+                    const auto previous_policies = last_.power_policies;
                     last_.power_policies.clear();
-                    for (const auto& row : captured.rows) { PowerPolicy policy{}; policy.id = row.policy; policy.label = "Policy " + std::to_string(row.policy); policy.named_current = row.named_current != 0; policy.binding = policy_binding(row); policy.state.availability = Availability::available; policy.state.current = row.requested / 1000.0; policy.state.low = row.minimum / 1000.0; policy.state.high = row.maximum / 1000.0; policy.state.stock = row.default_value / 1000.0; policy.state.unit = row.unit == 0 ? "W" : row.unit == 1 ? "A" : "unknown"; policy.state.step = 0.001; policy.state.writable = !row.board && row.consistent && (row.writable || row.named_current) && (row.unit == 0 || row.unit == 1); policy.state.stock_writable = policy.state.writable && row.default_value >= row.minimum && row.default_value <= row.maximum; policy.state.detail = row.board ? "Board request is controlled separately" : row.consistent ? "Configured policy request" : "Policy record is inconsistent"; last_.power_policies.push_back(std::move(policy)); }
+                    unsigned candidates = 0; uint32_t candidate_id = 0;
+                    if (current_answered) for (uint32_t i = 0; i < current_count; ++i) {
+                        const auto& current = currents[i]; if (!std::memchr(current.label, 0, sizeof(current.label)) || std::strcmp(current.label, "Core current") != 0) continue;
+                        const auto it = std::find_if(captured.rows.begin(), captured.rows.end(), [&](const dc_policy_row& row) { return row.policy == current.policy && row.channel == current.channel && row.unit == 1 && row.named_current && row.consistent && row.minimum == current.minimum_ma && row.maximum == current.maximum_ma && row.requested == current.requested_ma; });
+                        if (it != captured.rows.end()) { ++candidates; candidate_id = current.policy; }
+                    }
+                    for (const auto& row : captured.rows) { PowerPolicy policy{}; policy.id = row.policy; policy.label = "Policy " + std::to_string(row.policy); policy.named_current = row.named_current != 0; policy.binding = policy_binding(row);
+                        if (current_answered) policy.core_current = candidates == 1 && candidate_id == row.policy;
+                        else if (row.named_current && row.unit == 1 && row.consistent) { auto old = std::find_if(previous_policies.begin(), previous_policies.end(), [&](const PowerPolicy& p) { return p.id == row.policy && p.binding == policy.binding && p.core_current; }); policy.core_current = old != previous_policies.end(); }
+                        if (policy.core_current) policy.label = "Core current (NVVDD)"; policy.state.availability = Availability::available; policy.state.current = row.requested / 1000.0; policy.state.low = row.minimum / 1000.0; policy.state.high = row.maximum / 1000.0; policy.state.stock = row.default_value / 1000.0; policy.state.unit = row.unit == 0 ? "W" : row.unit == 1 ? "A" : "unknown"; policy.state.step = 0.001; policy.state.writable = !row.board && row.consistent && (row.writable || row.named_current) && (row.unit == 0 || row.unit == 1); policy.state.stock_writable = policy.state.writable && row.default_value >= row.minimum && row.default_value <= row.maximum; policy.state.detail = row.board ? "Board request is controlled separately" : row.consistent ? "Configured policy request" : "Policy record is inconsistent"; last_.power_policies.push_back(std::move(policy)); }
                 } else { power.availability = Availability::transient; power.detail = reason; for (auto& policy : last_.power_policies) { policy.state.availability = Availability::transient; policy.state.detail = reason; } }
             }
-            if (st.pl_min_state == DC_CL_STATIC_VALUE) power.low = st.pl_min_mw / 1000.0;
-            if (st.pl_max_state == DC_CL_STATIC_VALUE) power.high = st.pl_max_mw / 1000.0;
+            if (st.pl_min_state == DC_CL_STATIC_VALUE) power.low = std::min(st.pl_min_mw / 1000.0, *power.current);
+            if (st.pl_max_state == DC_CL_STATIC_VALUE) power.high = std::max(st.pl_max_mw / 1000.0, *power.current);
+            if (last_.xoc_known && last_.xoc_enabled && api_.envelopes) { dc_request_envelopes env{}; env.size = sizeof(env);
+                if (api_.envelopes(&env) == DC_OK && env.power_limit_xoc_max_mw > 0 && env.power_limit_xoc_max_mw < UINT32_MAX && power.high) {
+                    power.high = std::max(*power.high, env.power_limit_xoc_max_mw / 1000.0);
+                    if (power.availability == Availability::available) power.detail = "XOC software envelope; the adapter's validated request route may allow less";
+                }
+            } else if (power.availability == Availability::available && power.detail.find("XOC software envelope;") == 0) power.detail = "Configured request";
             if (st.pl_def_state == DC_CL_STATIC_VALUE) power.stock = st.pl_def_mw / 1000.0;
         } else failure(power, !api_.power, "Configured power request unavailable");
         has = 0; mw = 0; if (retry(api_.enforced_power, gpu_, &has, &mw) == DC_OK && has) last_.enforced_power_w = mw / 1000.0; else last_.enforced_power_w.reset();
@@ -758,6 +829,11 @@ public:
     ActionResult execute(const Command& cmd) override {
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
+        if (cmd.operation >= Command::Operation::i2c_scan && cmd.operation <= Command::Operation::i2c_release) {
+            if (!i2c_session_) { result.message="I2C session unavailable"; return result; }
+            result=i2c_session_->execute(cmd); last_.i2c=i2c_session_->data(); return result;
+        }
+        if (i2c_session_ && i2c_session_->owned()) { result.message="Release the owned I2C request and clock clamp before other tuning writes"; return result; }
         if (cmd.operation == Command::Operation::set_rail_mode) {
             dc_gpu_identity id{}; if (!identity(id)) { result.message = "GPU identity unavailable; rail mode unchanged"; return result; }
             rail_mode_ = cmd.enabled; last_.rail_mode_known = true; last_.rail_mode_enabled = rail_mode_; result.ok = true; result.message = rail_mode_ ? "Rail limits session mode enabled" : "Rail limits session mode disabled"; return result;
