@@ -1,6 +1,7 @@
 /* Druta - Copyright (C) 2026 Thermetery Technology Co Limited
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "i2c_session.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -62,6 +63,15 @@ dc_status DC_CALL typed_write(dc_gpu*,uint32_t family,uint32_t port,uint32_t add
     }
     regs[static_cast<int>(reg)]=data[0]; return DC_OK;
 }
+dc_status DC_CALL icx_arch(dc_gpu*,uint32_t* out) {*out=7;return DC_OK;}
+dc_status DC_CALL icx_read(dc_gpu*,uint32_t port,uint32_t addr,uint32_t reg,uint8_t* out,uint32_t count,dc_error*) {
+    if(port!=1 || addr!=0x2d || !out || count==0) return DC_E_UNAVAILABLE;
+    std::fill(out,out+count,0); out[0]=static_cast<uint8_t>(count-1);
+    if(reg==0xb1 && count==6) {out[1]=0xfc;out[2]=0x2d;out[3]=0x13;return DC_OK;}
+    if(reg==0x19 && count==10) {out[1]=1;out[2]=180;out[8]=4;out[9]=1;return DC_OK;}
+    if((reg==0x1a || reg==0x1b || reg==0x1c) && count==3) {if(reg==0x1c){out[1]=6;out[2]=6;}return DC_OK;}
+    return DC_E_UNAVAILABLE;
+}
 dc_status DC_CALL clock_table(dc_gpu*,dc_clock_row* rows,size_t capacity,size_t* count) {
     *count=2; if (!rows || capacity<2) return DC_E_BUFFER;
     rows[0].mem_mhz=1000; rows[0].count=1; rows[0].graphics[0]=210;
@@ -91,7 +101,13 @@ void select_gate(I2cSession& s) {
 }
 }
 int main() {
-    setup(); I2cSession s(api(),reinterpret_cast<dc_gpu*>(1),identity);
+    setup(); int handovers=0; bool deny_handover=false;
+    auto hooked_api=api(); hooked_api.before_clock_acquire=[&](std::string& reason) {
+        ++handovers; if(deny_handover){reason="Frequency release refused";return false;} return true;
+    };
+    I2cSession s(hooked_api,reinterpret_cast<dc_gpu*>(1),identity);
+    auto no_selection=command(Command::Operation::i2c_apply); no_selection.value=900;
+    CHECK(!s.execute(no_selection).ok && handovers==0 && writes==0);
     CHECK(s.data().available && reads==0 && writes==0 && !s.owned());
     CHECK(s.data().control_profiles.size()==2);
     CHECK(s.data().control_profiles[1].available && s.data().control_profiles[1].presets_mv.empty());
@@ -106,7 +122,9 @@ int main() {
     const auto& profile=s.data().control_profiles[1];
     CHECK(profile.step_mv==6.25 && !profile.presets_mv.empty());
     for(double value:profile.presets_mv) CHECK(value>=*s.data().status.min_mv && value<=*s.data().status.max_mv && std::floor(value/profile.step_mv)==value/profile.step_mv);
-    foreign_vf=true; auto refused=s.execute(command(Command::Operation::i2c_verify));
+    deny_handover=true; const auto denied=s.execute(command(Command::Operation::i2c_verify));
+    CHECK(!denied.ok && denied.message=="Frequency release refused" && handovers==1 && writes==0 && held==0);
+    deny_handover=false; foreign_vf=true; auto refused=s.execute(command(Command::Operation::i2c_verify));
     CHECK(!refused.ok && writes==0 && held==0); foreign_vf=false;
     auto verified=s.execute(command(Command::Operation::i2c_verify));
     CHECK(verified.ok && s.data().verified && !s.owned() && held==0);
@@ -134,7 +152,8 @@ int main() {
     CHECK(!invalid.ok && writes==before_refusal_writes && !s.owned() && held==0);
     apply.value=900;
     CHECK(s.execute(apply).ok && s.owned() && held==333 && regs[0x21]==144 && (regs[0xe1]&0x10));
-    apply.value=925; CHECK(s.execute(apply).ok && regs[0x21]==148);
+    const int owned_handovers=handovers;
+    apply.value=925; CHECK(s.execute(apply).ok && regs[0x21]==148 && handovers==owned_handovers);
     const auto before_release=events.size(); CHECK(s.execute(command(Command::Operation::i2c_release)).ok);
     CHECK(!s.owned() && held==0 && regs[0x21]==120 && regs[0xe1]==0x4200);
     CHECK(events.size()>=before_release+3 && events[events.size()-3]=="mode" && events[events.size()-2]=="command" && events.back()=="release");
@@ -172,19 +191,22 @@ int main() {
     CHECK(ambiguous.data().candidates.size()==2 && !ambiguous.data().selected && writes==0 && held==0);
     setup(); nct_mode=true; wanted_port=1; wanted_addr=0x15;
     regs={{0x5d,0x39},{0x5e,0x33},{5,0},{1,0},{2,0},{3,0}};
+    int readonly_handovers=0;
     auto typed_api=api(); typed_api.read_bytes=block_read; typed_api.controller_write=typed_write;
+    typed_api.before_clock_acquire=[&](std::string&){++readonly_handovers;return false;};
     I2cSession typed(typed_api,reinterpret_cast<dc_gpu*>(1),identity);
     auto early_gate=command(Command::Operation::i2c_gate); early_gate.enabled=true;
     CHECK(typed.execute(early_gate).ok && reads==0 && writes==0 && typed_writes==0 && identity_reads==0 && lock_depth==0);
     auto nct_select=command(Command::Operation::i2c_select); nct_select.i2c_route=I2cRoute{1,0x15}; nct_select.i2c_family=I2cFamily::nct3933;
     CHECK(typed.execute(nct_select).ok && typed.data().family==I2cFamily::nct3933 && typed.data().gate);
+    CHECK(typed.execute(command(Command::Operation::i2c_verify)).ok && readonly_handovers==0);
     auto nct_apply=command(Command::Operation::i2c_apply); nct_apply.i2c_field="out1"; nct_apply.value=20;
     nct_apply.i2c_selection_revision=typed.data().selection_revision;
     CHECK(typed.execute(nct_apply).ok && typed_writes==1 && regs[1]==0x82 && typed.owned());
     CHECK(typed.execute(command(Command::Operation::i2c_release)).ok && typed_writes==2 && regs[1]==0 && !typed.owned());
     auto stale=nct_apply; CHECK(typed.execute(nct_select).ok && typed.data().selection_revision!=stale.i2c_selection_revision);
     const int stale_reads=reads, stale_writes=typed_writes;
-    CHECK(!typed.execute(stale).ok && reads==stale_reads && typed_writes==stale_writes && !typed.owned());
+    CHECK(!typed.execute(stale).ok && reads==stale_reads && typed_writes==stale_writes && !typed.owned() && readonly_handovers==0);
     nct_apply.i2c_selection_revision=typed.data().selection_revision;
     CHECK(typed.execute(nct_apply).ok && typed.owned());
     auto stale_gate=command(Command::Operation::i2c_gate); stale_gate.enabled=false; stale_gate.i2c_selection_revision=stale.i2c_selection_revision;
@@ -218,6 +240,15 @@ int main() {
     CHECK(!typed.execute(wrong_zero).ok && typed_writes==before_zero_refusal);
     auto gate_off=command(Command::Operation::i2c_gate); gate_off.enabled=false; CHECK(typed.execute(gate_off).ok);
     CHECK(!typed.execute(zero).ok && typed_writes==before_zero_refusal);
+    CHECK(readonly_handovers==0); // NCT writes and refused gated actions do not acquire a clock.
+    setup(); auto icx_api=api(); icx_api.read_bytes=icx_read; icx_api.architecture=icx_arch;
+    int icx_handovers=0; icx_api.before_clock_acquire=[&](std::string&){++icx_handovers;return false;};
+    I2cSession icx(icx_api,reinterpret_cast<dc_gpu*>(1),identity);
+    auto icx_select=command(Command::Operation::i2c_select); icx_select.i2c_family=I2cFamily::icx; icx_select.i2c_route=I2cRoute{1,0x2d};
+    CHECK(icx.execute(icx_select).ok);
+    CHECK(icx.execute(command(Command::Operation::i2c_verify)).ok && icx_handovers==0 && writes==0);
+    auto icx_apply=command(Command::Operation::i2c_apply);icx_apply.i2c_field="nvvdd";icx_apply.value=950;
+    CHECK(!icx.execute(icx_apply).ok && icx_handovers==0); // gate-off refusal precedes handover
     CHECK(I2cControls::nominal_presets(900.1,906.24).empty());
     CHECK(I2cControls::nominal_presets(-1,1000).empty());
     CHECK(I2cControls::nominal_presets(0,4000).empty());

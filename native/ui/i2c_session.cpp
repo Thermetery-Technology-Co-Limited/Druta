@@ -178,6 +178,10 @@ bool I2cSession::clamp(std::string& reason) {
     if (!bound() || !api_.clocks || !api_.clamp || !api_.release || !api_.clock_status || !api_.vf_status || !api_.telemetry) {
         reason="Low-clock ownership interfaces unavailable"; return false;
     }
+    if (api_.before_clock_acquire && !api_.before_clock_acquire(reason)) {
+        if (reason.empty()) reason="Clock handover was refused";
+        return false;
+    }
     dc_vf_lock_status vf{}; dc_clk_lock_status lock{};
     if (api_.vf_status(gpu_,0,0,&vf)!=DC_OK || vf.error[0] || vf.locked ||
         api_.clock_status(gpu_,&lock)!=DC_OK || lock.error[0] || lock.locked) {
@@ -387,6 +391,13 @@ ActionResult I2cSession::execute(const Command& cmd) {
             if(controller_->needs_clock_clamp() && cmd.operation!=Command::Operation::i2c_verify && !clamp(reason)){refresh();data_.message=reason;return failure(reason);}
             const ControllerContext context{data_.gate,xoc()};
             if(cmd.operation==Command::Operation::i2c_verify && !readonly_verify) {
+                if (verify_hold_->owned()) return failure("Verification hold is already active or needs recovery");
+                if (!api_.verify_hold.architecture || !api_.verify_hold.telemetry)
+                    return failure("Verification hold interfaces unavailable");
+                if (!data_.clock_owned && api_.before_clock_acquire && !api_.before_clock_acquire(reason)) {
+                    if (reason.empty()) reason="Clock handover was refused";
+                    return failure(reason);
+                }
                 const bool needs_load=data_.family==I2cFamily::mp2888 || data_.family==I2cFamily::mp29816;
                 std::optional<double> loaded_voltage;
                 if(needs_load) {

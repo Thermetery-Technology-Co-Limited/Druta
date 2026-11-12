@@ -25,6 +25,7 @@ struct Fake : IBackend {
     std::atomic<bool> telemetry_failure{false}, throw_action{false}, undo_available{false};
     std::atomic<bool> throw_reads{false}, throw_after_action{false}, fail_gate{false};
     std::atomic<bool> i2c_owned{false}, fail_cleanup{false}, missing_i2c_state{false};
+    std::atomic<bool> frequency_owned{false}, missing_frequency{false}, throw_frequency_getter{false};
     std::atomic<bool> tuning_owned{false}, missing_tuning{false}, maintenance_fail{false}, hold_maintenance{false};
     std::atomic<bool> missing_identity{false}, mismatched_identity{false}, identity_no_api{false};
     std::atomic<bool> empty_enumeration{false}, replacement_uuid{false};
@@ -45,7 +46,7 @@ struct Fake : IBackend {
     ActionResult prepare_close() override {
         record("prepare_close"); ActionResult r; r.ok=!fail_cleanup.load();
         r.message=r.ok ? "released" : "recovery required";
-        if (r.ok) i2c_owned=false; return r;
+        if (r.ok) { i2c_owned=false; frequency_owned=false; } return r;
     }
     bool maintenance_needed() const override { return tuning_owned.load(); }
     std::optional<TuningState> tuning_state() const override {
@@ -55,6 +56,12 @@ struct Fake : IBackend {
         ++maintenance_count;
         if (hold_maintenance.exchange(false)) { SetEvent(maintenance_entered); WaitForSingleObject(maintenance_release, INFINITE); }
         ActionResult r; r.ok=!maintenance_fail.load(); r.message=r.ok ? "" : "hold needs attention"; return r;
+    }
+    std::optional<FrequencyLockData> frequency_state() const override {
+        if (throw_frequency_getter.load()) throw 1;
+        if (missing_frequency.load()) return {};
+        FrequencyLockData d; if (frequency_owned.load()) { d.ownership.mode=FrequencyLockMode::nvml; d.ownership.confirmed=true; }
+        return d;
     }
     std::optional<I2cViewData> i2c_state() const override {
         if (missing_i2c_state.load()) return {};
@@ -107,6 +114,9 @@ struct Fake : IBackend {
     ActionResult execute(const Command& cmd) override {
         record("execute"); if (hold_action.exchange(false)) block();
         if (cmd.operation == Command::Operation::i2c_zero_nct_outputs) i2c_owned=true;
+        if (cmd.operation == Command::Operation::frequency_lock_apply || cmd.operation == Command::Operation::frequency_lock_max ||
+            cmd.operation == Command::Operation::frequency_legacy_p0_max_fan) frequency_owned=true;
+        if (cmd.operation == Command::Operation::frequency_lock_release) frequency_owned=false;
         if (throw_action.exchange(false)) { undo_available = true; throw 1; }
         if (cmd.operation == Command::Operation::hold_curve_point) tuning_owned=true;
         if (cmd.operation == Command::Operation::release_hold) tuning_owned=false;
@@ -358,6 +368,38 @@ int main() {
     CHECK(zero_session.submit(release_i2c,zero_session.snapshot()->generation));
     CHECK(until([&] { auto p=zero_session.snapshot(); return !p->busy && !p->i2c_ownership_uncertain && !p->data.i2c.clock_owned; }));
     zero_session.begin_shutdown(); CHECK(until([&] { return zero_session.finished(); }));
+    // General frequency ownership is independent of V/F hold maintenance.
+    auto frequency_fake_owned=std::make_unique<Fake>(); auto* frequency_fake=frequency_fake_owned.get();
+    Session frequency_session(std::move(frequency_fake_owned), [] {}); frequency_session.start("a");
+    CHECK(until([&] { return !frequency_session.snapshot()->history.empty(); }));
+    frequency_session.set_paused(true);
+    Command frequency_apply{}; frequency_apply.operation=Command::Operation::frequency_lock_apply;
+    frequency_fake->stall_action(); CHECK(frequency_session.submit(frequency_apply,frequency_session.snapshot()->generation));
+    CHECK(WaitForSingleObject(frequency_fake->entered,2000)==WAIT_OBJECT_0);
+    CHECK(!frequency_session.select_device("b"));
+    SetEvent(frequency_fake->release);
+    CHECK(until([&] {auto p=frequency_session.snapshot();return !p->busy && p->data.frequency.ownership.needs_cleanup();}));
+    CHECK(!frequency_session.snapshot()->frequency_ownership_uncertain && !frequency_session.select_device("b"));
+    const int frequency_reads=frequency_fake->total_reads.load(), frequency_maintenance=frequency_fake->maintenance_count.load();
+    Sleep(1100);
+    CHECK(frequency_fake->total_reads.load()==frequency_reads && frequency_fake->maintenance_count.load()==frequency_maintenance);
+    Command frequency_release{}; frequency_release.operation=Command::Operation::frequency_lock_release;
+    CHECK(frequency_session.submit(frequency_release,frequency_session.snapshot()->generation));
+    CHECK(until([&] {auto p=frequency_session.snapshot();return !p->busy && !p->data.frequency.ownership.needs_cleanup();}));
+    // A throw after acquisition and a failing telemetry read still publish the
+    // independent frequency owner; a missing getter must not erase it.
+    frequency_fake->throw_action=true; frequency_fake->throw_reads=true;
+    CHECK(frequency_session.submit(frequency_apply,frequency_session.snapshot()->generation));
+    CHECK(until([&] {auto p=frequency_session.snapshot();return !p->busy && !p->data.connected && p->data.frequency.ownership.needs_cleanup();}));
+    CHECK(!frequency_session.select_device("b"));
+    frequency_fake->throw_frequency_getter=true;
+    CHECK(frequency_session.submit(frequency_release,frequency_session.snapshot()->generation));
+    CHECK(until([&] {auto p=frequency_session.snapshot();return !p->busy && p->frequency_ownership_uncertain;}));
+    CHECK(frequency_session.snapshot()->data.frequency.ownership.needs_cleanup() && !frequency_session.select_device("b"));
+    frequency_fake->throw_frequency_getter=false;
+    CHECK(frequency_session.submit(frequency_release,frequency_session.snapshot()->generation));
+    CHECK(until([&] {auto p=frequency_session.snapshot();return !p->busy && !p->frequency_ownership_uncertain && !p->data.frequency.ownership.needs_cleanup();}));
+    frequency_fake->throw_reads=false; frequency_session.begin_shutdown(); CHECK(until([&] {return frequency_session.finished();}));
     auto fourth_owned=std::make_unique<Fake>(); auto* fourth=fourth_owned.get();
     Session maintained(std::move(fourth_owned), [] {}); maintained.start("a");
     CHECK(until([&] { return !maintained.snapshot()->history.empty(); }));

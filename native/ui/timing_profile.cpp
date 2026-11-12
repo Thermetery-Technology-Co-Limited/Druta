@@ -102,4 +102,21 @@ std::vector<TimingProfileRequest> validate_timing_profile(const ProfileJson& p,c
     }
     return result;
 }
+ProfileJson capture_timing_editor_profile(const dc_gpu_identity& id,const TimingSnapshot& s,const std::vector<TimingRequest>& staged){
+    validate_snapshot(id,s);std::vector<TimingRequest> values;
+    for(const auto& f:s.fields){
+        if(f.structural||f.inferred||f.overlapping)continue;
+        const auto w=std::find_if(s.broadcast.begin(),s.broadcast.end(),[&](const auto& word){return word.name==f.reg;});
+        if(w==s.broadcast.end()||(!w->confidence.empty()&&w->confidence!="DOCUMENTED"))continue;
+        bool overlap=false;for(const auto& other:s.fields)if(&other!=&f&&other.reg==f.reg&&other.lo<=f.hi&&f.lo<=other.hi)overlap=true;
+        if(!overlap)values.push_back({f.name,(w->value>>f.lo)&f.maximum});
+    }
+    std::set<std::string> seen;for(const auto& request:staged){
+        if(!seen.insert(request.field).second)fail("Duplicate staged timing field");
+        (void)bind(s,request);const auto found=std::find_if(values.begin(),values.end(),[&](const auto& r){return r.field==request.field;});
+        if(found==values.end())fail("Staged field has no qualified captured value");found->value=request.value;
+    }
+    std::sort(values.begin(),values.end(),[](const auto& a,const auto& b){return a.field<b.field;});
+    return capture_timing_profile(id,s,values);
+}
 }

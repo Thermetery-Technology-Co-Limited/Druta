@@ -25,17 +25,17 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Rail/power selection workspace and its partial-failure Undo implemented/tested. Broader catalog, Python rail/power format import, cross-scope composition and conflict review remain open |
-| General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Open |
-| Advanced read-only PERF groups and power arbitration diagnostics | Open |
+| General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
+| Advanced read-only PERF groups and power arbitration diagnostics | Explicit independent PERF group capture implemented in fourth checkpoint. Power arbitration table-acquisition/decoder integration remains open |
 | Advanced power feedback/integral bounds, selected-field restoration | Open |
 | Voltage gate, VF monotonicity/smoothing | Open |
 | Voltage offset/request tables, REL bounds | Open |
 | Voltage constants and device switch delays | Open |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Open |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
-| Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Open |
-| Timing multiple staged fields, selected-bit transaction, captured restore | Open |
-| Timing profile save/load staged only | Pure typed profile capture/validation module tested in third checkpoint; UI/staging and batch integration remain open |
+| Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Helper/process/parse diagnostics and raw-word/selected-field comparison improved in fourth checkpoint. Rich decoded units and partition-divergence qualification remain open |
+| Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
+| Timing profile save/load staged only | Implemented in fourth checkpoint: native typed save with staged overlay, validated load into local fields, explicit whole Preview/Apply; physical timing-write qualification remains open |
 | Bounded owned-P0 capture and qualifying-band auto-capture | Open |
 | Classic I2C per-family geometry/order/help and auto-open on discovery | Implemented/tested in second checkpoint across all six controller families; physical qualification remains controller-specific |
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
@@ -46,6 +46,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 
 Second checkpoint: [implementation and validation evidence](2026-11-12-parity-second-increment.md).
 Third checkpoint: [menus, selected profiles and validation evidence](2026-11-12-parity-third-increment.md).
+Fourth checkpoint: [clock ownership, timing batches and PERF diagnostics](2026-11-12-parity-fourth-increment.md).
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated

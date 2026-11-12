@@ -6,6 +6,7 @@
 #include "scoped_profile.h"
 #include "clock_monitor_service.h"
 #include "timing_model.h"
+#include "timing_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -41,6 +42,8 @@ class Client final : public IBackend {
     dc_gpu* gpu_ = nullptr;
     dc_gpu_identity opened_{};
     LiveData last_{};
+    std::unique_ptr<PerfViewService> perf_;
+    std::unique_ptr<FrequencyLock> frequency_;
     ClockMonitorService clock_monitor_;
     std::optional<uint32_t> clock_architecture_;
     bool clock_architecture_attempted_ = false, clock_step_measured_ = false;
@@ -66,6 +69,7 @@ class Client final : public IBackend {
     std::unique_ptr<TimingsService> timings_;
     TimingViewData timing_data_;
     std::optional<TimingPlan> timing_undo_;
+    std::optional<TimingBatchPlan> timing_batch_undo_;
     void remember(const Undo& u) { if (suppress_undo_) return; if (undo_.size() == 32) undo_.erase(undo_.begin()); undo_.push_back(u); }
     const char* label(ControlId c) const { switch (c) { case ControlId::core: return "core offset"; case ControlId::memory: return "memory offset"; case ControlId::fan: return "fan"; case ControlId::boost: return "voltage boost"; case ControlId::power: return "board power"; default: return "profile"; } }
     bool capture_fan(dc_fan_snapshot& snap) {
@@ -884,6 +888,81 @@ class Client final : public IBackend {
         const auto r=tuning_->release(); last_.tuning=tuning_->state();
         out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
     }
+    ActionResult release_frequency() {
+        ActionResult out; out.ok=true;
+        if (!frequency_) return out;
+        const auto r=frequency_->release(); last_.frequency=frequency_->data();
+        out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
+    }
+    ActionResult frequency_action(const Command& cmd) {
+        ActionResult out;
+        if (!frequency_) { out.message="Frequency lock service unavailable"; return out; }
+        if (cmd.operation==Command::Operation::frequency_lock_release) return release_frequency();
+        last_.frequency=frequency_->read();
+        if (cmd.operation==Command::Operation::frequency_lock_refresh) {
+            out.ok=last_.frequency.tables_current || last_.frequency.legacy_known;
+            out.message=last_.frequency.message; return out;
+        }
+        const bool legacy=cmd.operation==Command::Operation::frequency_legacy_p0_max_fan;
+        if (legacy ? (!last_.frequency.legacy_known || !last_.frequency.legacy_available) : !last_.frequency.nvml_capable) {
+            out.message=last_.frequency.message; return out;
+        }
+        // Validate the intended acquisition before releasing a working owner.
+        // The service repeats these checks after handover, under its GPU lock.
+        if (!legacy) {
+            const auto& f=last_.frequency;
+            const auto low=cmd.operation==Command::Operation::frequency_lock_max ? f.maximum_mhz.value_or(0) : cmd.frequency_min_mhz;
+            const auto high=cmd.operation==Command::Operation::frequency_lock_max ? f.maximum_mhz.value_or(0) : cmd.frequency_max_mhz;
+            if (!f.tables_current || !f.minimum_mhz || !f.maximum_mhz || low<*f.minimum_mhz || low>high || high>*f.maximum_mhz) {
+                out.message="Frequency range is outside current lockable bounds; existing owners retained"; return out;
+            }
+            bool i2c_clock=false;
+            if (i2c_session_) { const auto& i=i2c_session_->data();
+                i2c_clock=i.clock_owned && f.current && f.current->minimum==i.clock_mhz && f.current->maximum==i.clock_mhz;
+            }
+            if (!f.current_known || (f.current && !i2c_clock && f.ownership.mode!=FrequencyLockMode::nvml)) {
+                out.message="Competing frequency state is unreadable or foreign; existing owners retained"; return out;
+            }
+            dc_vf_lock_status vf{};
+            // NVML range locking has an independent request channel. Missing
+            // V/F capability must not remove a qualified frequency control.
+            if (api_.tuning.vf_status && retry(api_.tuning.vf_status,gpu_,0,0u,&vf)==DC_OK && !vf.error[0] &&
+                vf.locked && (!tuning_ || !tuning_->state().owned)) {
+                out.message="A foreign V/F hold is active; existing owners retained"; return out;
+            }
+        }
+        // Capture the fan Undo before changing either half of this combined action.
+        dc_fan_snapshot fan_before{};
+        if (legacy) {
+            dc_fan_capabilities caps{}; caps.size=sizeof(caps);
+            if (!api_.fan_set || !api_.fan_restore || retry(api_.fan_caps,gpu_,&caps)!=DC_OK || !caps.manual ||
+                caps.min>100 || caps.max!=100 || !capture_fan(fan_before)) {
+                out.message="Fresh manual fan capability and captured requests are required for P0 + maximum fan"; return out;
+            }
+        }
+        if (i2c_session_ && i2c_session_->owned()) {
+            out=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!out.ok) return out;
+        }
+        if (tuning_ && tuning_->state().maintenance_needed()) { out=release_hold(); if (!out.ok) return out; }
+        const bool retained_legacy=frequency_->data().ownership.mode==FrequencyLockMode::legacy_p0 &&
+            frequency_->data().ownership.confirmed && !frequency_->data().ownership.recovery;
+        const auto r=legacy ? frequency_->hold_legacy_p0() :
+            cmd.operation==Command::Operation::frequency_lock_max ? frequency_->lock_max() :
+            frequency_->apply(cmd.frequency_min_mhz,cmd.frequency_max_mhz);
+        last_.frequency=frequency_->data(); out.ok=r.ok; out.may_have_changed|=r.may_have_changed; out.message=r.message;
+        if (legacy && out.ok) {
+            // The established fan path independently captures and verifies its
+            // request immediately before writing, retaining its typed Undo.
+            Command fan; fan.operation=Command::Operation::apply; fan.control=ControlId::fan; fan.value=100;
+            const auto applied=execute(fan);
+            out.ok=applied.ok; out.may_have_changed|=applied.may_have_changed; out.message+="; "+applied.message;
+            if (!applied.ok && !retained_legacy) {
+                const auto released=release_frequency(); out.may_have_changed|=released.may_have_changed;
+                out.message+="; "+released.message;
+            }
+        }
+        return out;
+    }
     bool locks_clear(std::string& why) {
         dc_vf_lock_status vf{}; dc_clk_lock_status clock{};
         if (!api_.tuning.vf_status || !api_.tuning.clock_status || retry(api_.tuning.vf_status,gpu_,0,0u,&vf)!=DC_OK || vf.error[0] ||
@@ -1019,9 +1098,15 @@ class Client final : public IBackend {
     }
     ActionResult timing_action(const Command& cmd) {
         ActionResult out;
-        auto publish = [&] { timing_data_.undo_available = timing_undo_.has_value(); last_.timings = std::make_shared<TimingViewData>(timing_data_); };
+        auto publish = [&] {
+            timing_data_.undo_available = timing_undo_.has_value() || timing_batch_undo_.has_value();
+            timing_data_.initial_available = timings_ && timings_->initial_snapshot().has_value();
+            timing_data_.identity=opened_;
+            timing_data_.helper_token=timing_transport_ ? timing_transport_->token() : "";
+            last_.timings = std::make_shared<TimingViewData>(timing_data_);
+        };
         if (cmd.operation == Command::Operation::timings_select_helper) {
-            if (timing_undo_) { out.message = "Undo the selected timing edit before changing helpers"; return out; }
+            if (timing_undo_ || timing_batch_undo_) { out.message = "Undo the selected timing edit before changing helpers"; return out; }
             if (cmd.timing_helper_path.empty()) { out.message = "Select an absolute nvtune helper path"; return out; }
             auto transport = make_timing_transport(cmd.timing_helper_path);
             std::string why;
@@ -1035,16 +1120,18 @@ class Client final : public IBackend {
         } else if (!timings_) { out.message="Choose the nvtune helper first";
         } else if (cmd.operation == Command::Operation::timings_read) {
             timing_data_.preview.reset();
+            timing_data_.batch_preview.reset(); ++timing_data_.capture_revision;
             auto fresh=timings_->capture(); out.ok=fresh.ok; out.message=fresh.message;
             if (fresh.ok) timing_data_.snapshot=std::move(fresh);
             else { timing_data_.snapshot.ok=false; timing_data_.snapshot.message=out.message; }
         } else if (cmd.operation == Command::Operation::timings_preview) {
+            timing_data_.batch_preview.reset();
             timing_data_.preview=timings_->preview(cmd.timing_field,cmd.timing_value);
             out.ok=timing_data_.preview->ok; out.message=timing_data_.preview->message;
         } else if (cmd.operation == Command::Operation::timings_apply) {
             if (!timing_data_.preview || !timing_data_.preview->ok || timing_data_.preview->field!=cmd.timing_field || timing_data_.preview->value!=cmd.timing_value) {
                 out.message="Preview the selected field and value before Apply";
-            } else if (timing_undo_) { out.message="Undo the previous timing edit before applying another";
+            } else if (timing_undo_ || timing_batch_undo_) { out.message="Undo the previous timing edit before applying another";
             } else {
                 const auto r=timings_->apply(*timing_data_.preview,[&](const TimingPlan& p) { timing_undo_=p; publish(); });
                 out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
@@ -1053,13 +1140,59 @@ class Client final : public IBackend {
                 if (r.may_have_changed) timing_data_.snapshot=timings_->capture();
             }
         } else if (cmd.operation == Command::Operation::timings_undo) {
-            if (!timing_undo_) { out.message="No timing edit to undo";
+            if (timing_batch_undo_) {
+                const auto r=timings_->restore(*timing_batch_undo_);
+                out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
+                if (r.ok) timing_batch_undo_.reset();
+                timing_data_.preview.reset(); timing_data_.batch_preview.reset();
+                timing_data_.snapshot=timings_->capture(); ++timing_data_.capture_revision;
+            } else if (!timing_undo_) { out.message="No timing edit to undo";
             } else {
                 const auto r=timings_->restore(*timing_undo_);
                 out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
                 if (r.ok) timing_undo_.reset();
                 timing_data_.preview.reset(); timing_data_.snapshot=timings_->capture();
             }
+        } else if (cmd.operation == Command::Operation::timings_preview_batch) {
+            timing_data_.preview.reset();
+            if (!cmd.timing_editor) { out.message="No staged timing fields"; }
+            else {
+                timing_data_.batch_preview=timings_->preview(cmd.timing_editor->fields);
+                out.ok=timing_data_.batch_preview->ok; out.message=timing_data_.batch_preview->message;
+            }
+        } else if (cmd.operation == Command::Operation::timings_apply_batch || cmd.operation == Command::Operation::timings_restore_initial) {
+            const bool initial=cmd.operation==Command::Operation::timings_restore_initial;
+            bool matched=initial;
+            if (!initial && cmd.timing_editor && timing_data_.batch_preview && timing_data_.batch_preview->ok) {
+                const auto& plans=timing_data_.batch_preview->fields;
+                const auto& requests=cmd.timing_editor->fields;
+                matched=plans.size()==requests.size();
+                for (const auto& plan:plans) if (matched) {
+                    matched=std::count_if(requests.begin(),requests.end(),[&](const auto& request) {
+                        return request.field==plan.field && request.value==plan.value;
+                    })==1;
+                }
+            }
+            if (!matched) { out.message="Preview every staged timing field before Apply"; }
+            else if (timing_undo_ || timing_batch_undo_) { out.message="Undo the previous timing edit before applying another"; }
+            else {
+                const auto before=[&](const TimingBatchPlan& saved) { timing_batch_undo_=saved; publish(); };
+                const auto r=initial ? timings_->restore_initial(before) : timings_->apply(*timing_data_.batch_preview,before);
+                out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
+                if (r.undo) timing_batch_undo_=r.undo;
+                else if (!r.may_have_changed) timing_batch_undo_.reset();
+                timing_data_.batch_preview.reset(); timing_data_.preview.reset();
+                if (r.may_have_changed) { timing_data_.snapshot=timings_->capture(); ++timing_data_.capture_revision; }
+            }
+        } else if (cmd.operation == Command::Operation::timings_save_profile) {
+            try {
+                if (cmd.profile_path.empty() || !cmd.timing_editor) throw std::runtime_error("Choose timing fields and a profile path");
+                auto fresh=timings_->capture(); dc_gpu_identity id{};
+                if (!fresh.ok || !identity(id)) throw std::runtime_error(fresh.ok ? "GPU identity unavailable" : fresh.message);
+                timing_data_.snapshot=fresh; ++timing_data_.capture_revision;
+                write_profile(cmd.profile_path,capture_timing_editor_profile(id,fresh,cmd.timing_editor->fields));
+                out.ok=true; out.message="Timing profile saved; loading stages fields for explicit Preview and Apply";
+            } catch (const std::exception& error) { out.message=std::string("Timing profile save failed: ")+error.what(); }
         }
         timing_data_.message=out.message; publish(); return out;
     }
@@ -1073,6 +1206,14 @@ public:
         if (!module_) return;
 #define LOAD(member, name) api_.member = reinterpret_cast<decltype(api_.member)>(GetProcAddress(module_, #name))
         LOAD(clock_classify, dc_clock_domains_classify);
+        LOAD(frequency.lock, dc_gpu_lock); LOAD(frequency.unlock, dc_gpu_unlock); LOAD(frequency.identity, dc_gpu_identity_get);
+        LOAD(frequency.architecture, dc_gpu_architecture); LOAD(frequency.export_address, dc_export_address);
+        LOAD(frequency.capabilities, dc_gpu_capabilities_get); LOAD(frequency.lockable_clocks, dc_gpu_lockable_clocks);
+        LOAD(frequency.clock_status, dc_gpu_clk_lock_status); LOAD(frequency.clocks_lock, dc_gpu_clocks_lock);
+        LOAD(frequency.last_lock, dc_gpu_clocks_last_lock); LOAD(frequency.clocks_reset, dc_gpu_clocks_reset);
+        LOAD(frequency.legacy_supported, dc_legacy_p0_supported); LOAD(frequency.legacy_owned, dc_legacy_p0_owned);
+        LOAD(frequency.legacy_hold, dc_legacy_p0_hold); LOAD(frequency.legacy_release, dc_legacy_p0_release);
+        LOAD(perf.identity, dc_gpu_identity_get); LOAD(perf.read_group, dc_perf_read_group);
         LOAD(planner.hard_deflatten, dc_vfp_compute_hard_deflatten);
         LOAD(reset_all, dc_gpu_reset_all);
         LOAD(tuning.lock, dc_gpu_lock); LOAD(tuning.unlock, dc_gpu_unlock); LOAD(tuning.identity, dc_gpu_identity_get);
@@ -1129,14 +1270,23 @@ public:
         }
         last_.identity = opened_; last_.connected = true; rail_mode_ = false; last_.rail_mode_known = true; last_.rail_mode_enabled = false; rail_service_ = std::make_unique<RailControls>(api_.rails, gpu_, opened_);
         if (api_.clkdom_flags_set && api_.clkdom_flags && api_.clkdom_flags_set(gpu_, 0, 0) == DC_OK) { bool xoc = true; if (current_xoc(xoc) && !xoc) { last_.xoc_known = true; last_.xoc_enabled = false; } }
-        i2c_session_ = std::make_unique<I2cSession>(api_.i2c, gpu_, opened_);
+        auto i2c_api=api_.i2c;
+        i2c_api.before_clock_acquire=[this](std::string& why) {
+            if (!frequency_ || !frequency_->needs_cleanup()) return true;
+            const auto result=release_frequency(); why=result.message; return result.ok;
+        };
+        i2c_session_ = std::make_unique<I2cSession>(std::move(i2c_api), gpu_, opened_);
         tuning_ = std::make_unique<TuningActions>(api_.tuning, gpu_, opened_);
+        frequency_ = std::make_unique<FrequencyLock>(api_.frequency, gpu_, opened_);
+        perf_ = std::make_unique<PerfViewService>(api_.perf, gpu_, opened_);
+        last_.perf_diagnostics = std::make_shared<PerfViewModel>(perf_->model());
         error.clear(); return true;
     }
     ActionResult prepare_close() override {
         if (timings_ && timings_->pending()) { ActionResult r; r.message="Timing helper is still running; keeping the session open until its exit is confirmed"; return r; }
         if (i2c_session_ && i2c_session_->owned()) { auto result=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!result.ok) return result; }
-        if (maintenance_needed()) return release_hold();
+        if (tuning_ && tuning_->state().maintenance_needed()) { const auto result=release_hold(); if (!result.ok) return result; }
+        if (frequency_ && frequency_->needs_cleanup()) return release_frequency();
         ActionResult result; result.ok=true; return result;
     }
     bool maintenance_needed() const override {
@@ -1145,6 +1295,7 @@ public:
         const auto s=tuning_->state(); return s.owned || s.headroom || s.recovery;
     }
     std::optional<TuningState> tuning_state() const override { return tuning_ ? tuning_->state() : TuningState{}; }
+    std::optional<FrequencyLockData> frequency_state() const override { return frequency_ ? frequency_->data() : FrequencyLockData{}; }
     ActionResult maintain() override {
         ActionResult out; out.ok=true; if (!maintenance_needed()) return out;
         if (timings_ && timings_->pending()) { out.ok=false; out.message="Waiting for timing helper exit; further operations are blocked"; return out; }
@@ -1161,12 +1312,15 @@ public:
         if (!prepare_close().ok) return;
         clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false;
         clock_step_measured_ = false; clock_step_khz_ = 0; clock_sample_ = 0;
-        timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_data_={};
+        timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_batch_undo_.reset(); timing_data_={};
         tuning_.reset();
+        frequency_.reset();
+        perf_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
     }
     LiveData read(bool details) override {
         if (tuning_) last_.tuning=tuning_->state();
+        if (frequency_) last_.frequency=details ? frequency_->read() : frequency_->data();
         last_.hold_available=api_.tuning.lock && api_.tuning.unlock && api_.tuning.identity && api_.tuning.vf_set && api_.tuning.vf_clear && api_.tuning.vf_status && api_.tuning.clock_status && api_.tuning.recovery_pending && api_.tuning.recover;
         last_.reset_controls_available=api_.reset_all && api_.tuning.vf_status && api_.tuning.clock_status;
         last_.max_it_available=last_.hold_available && api_.planner.ramp && api_.planner.predict && api_.fan_set && api_.fan_restore && api_.boost_set && power_api() && api_.apply_deltas;
@@ -1286,6 +1440,15 @@ public:
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
+        if (is_frequency_operation(cmd.operation)) return frequency_action(cmd);
+        if (cmd.operation == Command::Operation::refresh_perf_diagnostics) {
+            if (!perf_) { result.message = "PERF diagnostics unavailable"; return result; }
+            last_.perf_diagnostics = std::make_shared<PerfViewModel>(perf_->refresh());
+            result.ok = std::all_of(last_.perf_diagnostics->groups.begin(), last_.perf_diagnostics->groups.end(),
+                [](const auto& group) { return group.freshness == PerfFreshness::current; });
+            result.message = result.ok ? "PERF diagnostics refreshed" : "PERF diagnostics refreshed; inspect individual group status";
+            return result;
+        }
         if (is_i2c_operation(cmd.operation)) {
             if (!i2c_session_) { result.message="I2C session unavailable"; return result; }
             // I2C validates the selected controller and owns its own temporary
@@ -1314,15 +1477,19 @@ public:
             } catch (const std::exception& error) { result.message = std::string("V/F profile save failed: ") + error.what(); }
             return result;
         }
+        if ((cmd.operation==Command::Operation::reset_controls || cmd.operation==Command::Operation::max_it ||
+             cmd.operation==Command::Operation::hold_curve_point) && frequency_ && frequency_->needs_cleanup()) {
+            result=release_frequency(); if (!result.ok) return result;
+        }
         if (cmd.operation==Command::Operation::reset_controls) return reset_action();
         if (i2c_session_ && i2c_session_->owned()) { result.message="Release the owned I2C request and clock clamp before other tuning writes"; return result; }
         if (cmd.operation==Command::Operation::max_it) return max_action(cmd);
         if (cmd.operation==Command::Operation::hold_curve_point) return hold_action(cmd);
         if (cmd.operation==Command::Operation::undo && maintenance_needed()) { result=release_hold(); if (!result.ok) return result; }
-        if (maintenance_needed() && cmd.operation!=Command::Operation::save_profile && !(cmd.operation>=Command::Operation::timings_select_helper && cmd.operation<=Command::Operation::timings_undo)) {
+        if (maintenance_needed() && cmd.operation!=Command::Operation::save_profile && !is_timing_operation(cmd.operation)) {
             result.message="Release the owned V/F hold before changing tuning requests"; return result;
         }
-        if (cmd.operation >= Command::Operation::timings_select_helper && cmd.operation <= Command::Operation::timings_undo) return timing_action(cmd);
+        if (is_timing_operation(cmd.operation)) return timing_action(cmd);
         if (cmd.operation == Command::Operation::save_profile || cmd.operation == Command::Operation::load_profile) return profile_action(cmd);
         if (cmd.operation == Command::Operation::apply_scoped_profile) return scoped_action(cmd);
         if (cmd.operation == Command::Operation::apply_curve || cmd.operation == Command::Operation::reset_curve) return curve_action(cmd, false);

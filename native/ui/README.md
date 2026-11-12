@@ -17,6 +17,24 @@ Python frontend parity and Vista/7 qualification remain open.
 
 ## Live controls and profiles
 
+- **Clocks → Frequency locks / legacy P0** shows current-adapter lockable lists,
+  explicit minimum/maximum and lock-max requests, and independently qualified
+  legacy P0 plus maximum fan. Requests snap down to the top-memory clock table;
+  its maximum is not the V/F boost ceiling. Owned handover is checked before
+  acquisition. Release never blindly resets a foreign range; uncertain writes
+  retain recovery. P0 release leaves fan policy unchanged; fan Undo/Auto remain
+  explicit. Clock ownership alone adds no periodic maintenance while paused.
+- **Timings** supports several local fields, a whole-selection preview and Apply,
+  issued-field Undo, and a separate captured-initial restore. Native profiles
+  save understood fields with staged overrides; loading only stages them.
+  Fresh helper identity, GPU identity, qualified operating band and selected
+  geometry must match. Unknown register bits are preserved, and an externally
+  changed selected value refuses Undo. This does not qualify physical timing
+  writes on an untested adapter.
+- **Advanced → PERF diagnostics** explicitly captures limits, controller and
+  policy groups. Each group reports its own status and retains stale last-good
+  results after read failure. Opening the page does not poll these groups.
+  Power arbitration diagnostics are still pending.
 - Daily provides core/memory and additional clock/voltage offsets, configured
   board-power request, fan target/Auto, voltage boost and the independently
   identified NVVDD core-current request. Qualified rail limits have a separate

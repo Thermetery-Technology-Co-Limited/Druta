@@ -59,5 +59,12 @@ int main() {
     bad_id=id; bad_id.pairing_error[0]='x'; CHECK(rejected(doc,bad_id,s));
     bool capture_rejected=false; try { (void)capture_timing_profile(id,s,{{"tA",2},{"tA",2}}); } catch(const std::runtime_error&) {capture_rejected=true;}
     CHECK(capture_rejected && s.broadcast[0].value==0xa5a51234);
+    const auto editor=capture_timing_editor_profile(id,s,{{"tB",99}});
+    const auto editor_fields=validate_timing_profile(editor,id,s);
+    CHECK(editor_fields.size()==3&&editor_fields[0].field=="tA"&&editor_fields[0].value==4);
+    CHECK(editor_fields[1].field=="tB"&&editor_fields[1].value==99&&editor_fields[2].value==0x65);
+    CHECK(!editor.contains("registers"));
+    auto current_only=capture_timing_editor_profile(id,s,{});CHECK(validate_timing_profile(current_only,id,s).size()==3);
+    bool duplicate_staged=false;try{capture_timing_editor_profile(id,s,{{"tA",1},{"tA",2}});}catch(const std::runtime_error&){duplicate_staged=true;}CHECK(duplicate_staged);
     std::printf("timing_profile_test: %u checks passed\n",checks);
 }

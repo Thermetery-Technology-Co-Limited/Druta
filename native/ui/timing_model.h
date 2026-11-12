@@ -11,6 +11,11 @@ struct TimingViewData {
     std::wstring helper_path;
     TimingSnapshot snapshot;
     std::optional<TimingPlan> preview;
+    std::optional<TimingBatchPlan> batch_preview;
+    bool initial_available=false;
+    std::uint64_t capture_revision=0;
+    dc_gpu_identity identity{};
+    std::string helper_token;
     bool undo_available = false;
     std::string message;
 };

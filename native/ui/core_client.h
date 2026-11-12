@@ -4,9 +4,12 @@
 #include "backend.h"
 #include "rail_controls.h"
 #include "i2c_session.h"
+#include "perf_view_model.h"
 namespace druta::ui {
 // Injected table also permits deterministic tests without loading a driver.
 struct CoreApi {
+    FrequencyLockApi frequency{};
+    PerfViewApi perf{};
     TuningApi tuning{};
     decltype(&dc_gpu_reset_all) reset_all = nullptr;
     I2cApi i2c{};

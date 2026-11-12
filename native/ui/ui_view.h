@@ -8,6 +8,7 @@
 #include "shunt_view.h"
 #include "app_actions.h"
 #include "scoped_profile_view.h"
+#include "frequency_lock_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -35,6 +36,7 @@ struct ViewState {
     bool hotkey_available = true;
     AppActionsState app_actions;
     ScopedProfileViewState scoped_profile_view;
+    FrequencyLockViewState frequency_view;
     float core_offset_mhz = 0.0f;
     float memory_offset_mhz = 0.0f;
     float power_limit_w = 310.0f;
@@ -59,6 +61,7 @@ struct ViewState {
     bool save_curve_profile_requested = false, load_curve_profile_requested = false;
     std::string curve_profile_status;
     bool timing_helper_requested = false;
+    bool timing_save_profile_requested = false, timing_load_profile_requested = false;
     TimingsViewState timings_view;
     ShuntViewState shunt;
     bool hold_headroom = true;

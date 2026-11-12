@@ -522,4 +522,16 @@ final selected readback, partial-failure retention and unrelated-pin conflict
 protection. Bounds follow the backend's current/initial rail expansion. The
 workspace does not introduce polling or automatic profile replay. A pure timing
 profile validation module is prepared and tested separately; its UI/batch-write
-integration remains open rather than being counted as completed timing parity.
+integration remained open at that checkpoint rather than being counted as completed timing parity.
+
+The fourth parity increment connects general frequency requests, legacy P0 plus
+fan, native timing profiles and multi-field timing transactions in both skins.
+Clock ownership is independent of V/F maintenance: only a qualified acquisition
+causes handover, and an unresolved release blocks it. Read-only I2C verification
+does not release a frequency request. Timing Undo contains only dispatched or
+possibly dispatched fields; explicit restore preserves other bits and refuses
+an independently changed selected value. Captured-initial timings are scoped to
+the helper, adapter and qualified operating band, not labelled factory defaults.
+PERF groups now have explicit independent read-only captures and stale status.
+Power arbitration, richer timing diagnostics and the other open ledger rows
+remain separate work; see [fourth checkpoint](ui/validation/2026-11-12-parity-fourth-increment.md).

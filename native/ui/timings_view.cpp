@@ -64,12 +64,42 @@ TimingsHelperSuggestion suggest_timing_helper() {
 }
 void sync_timings_view(TimingsViewState& state,const TimingViewData* data,std::uint64_t generation) {
     if (!state.initialized || state.generation!=generation) { state={};state.initialized=true;state.generation=generation; }
+    if(data){
+        if((!state.observed_helper.empty()&&state.observed_helper!=data->helper_path)||
+            (!state.observed_token.empty()&&!data->helper_token.empty()&&state.observed_token!=data->helper_token)){
+            state.staged.clear();state.field.clear();state.message="Timing helper changed; staged fields cleared.";
+        }
+        state.observed_helper=data->helper_path;state.observed_token=data->helper_token;
+    }
     if (data && data->snapshot.ok && !state.field.empty() && !field(*data,state.field)) state.field.clear();
 }
 bool select_timing_field(TimingsViewState& state,const TimingViewData& data,const std::string& name) {
     const auto* f=field(data,name); if(!f || !data.snapshot.ok || f->lo>f->hi || f->hi>=32)return false;
     const auto* w=word(data,*f); if(!w)return false;
-    state.field=name;state.value=(w->value>>f->lo)&f->maximum;return true;
+    state.field=name;state.value=(w->value>>f->lo)&f->maximum;
+    const auto staged=std::find_if(state.staged.begin(),state.staged.end(),[&](const auto& r){return r.field==name;});
+    if(staged!=state.staged.end())state.value=staged->value;return true;
+}
+bool stage_timing_field(TimingsViewState& state,const TimingViewData& data,const std::string& name,uint32_t value){
+    const auto* f=field(data,name);if(!f||!editable(data,*f)||value>f->maximum){state.message="Field cannot be staged from this capture.";return false;}
+    auto staged=state.staged;const auto found=std::find_if(staged.begin(),staged.end(),[&](const auto& r){return r.field==name;});
+    if(found==staged.end())staged.push_back({name,value});else found->value=value;
+    std::sort(staged.begin(),staged.end(),[](const auto& a,const auto& b){return a.field<b.field;});state.staged=std::move(staged);state.message="Staged locally; preview the whole selection before Apply.";return true;
+}
+bool stage_timing_profile(const ProfileJson& document,const TimingViewData& data,TimingsViewState& state){
+    try{auto fields=validate_timing_profile(document,data.identity,data.snapshot);state.staged=std::move(fields);
+        state.message="Timing profile staged. Preview and Apply remain explicit.";return true;
+    }catch(const std::exception& error){state.message=error.what();return false;}
+}
+bool can_preview_timing_batch(const TimingsViewState& state,const TimingViewData* data,bool busy){
+    if(!data||busy||state.staged.empty())return false;
+    for(const auto& request:state.staged){const auto* f=field(*data,request.field);if(!f||!editable(*data,*f)||request.value>f->maximum)return false;}return true;
+}
+bool can_apply_timing_batch(const TimingsViewState& state,const TimingViewData* data,bool busy,bool unlocked){
+    if(!unlocked||!can_preview_timing_batch(state,data,busy)||!data->batch_preview||!data->batch_preview->ok||data->batch_preview->no_change||data->batch_preview->fields.size()!=state.staged.size())return false;
+    for(const auto& r:state.staged){const auto& fields=data->batch_preview->fields;
+        if(std::none_of(fields.begin(),fields.end(),[&](const auto& f){return f.field==r.field&&f.value==r.value;}))return false;}
+    return true;
 }
 bool can_preview_timing(const TimingsViewState& state,const TimingViewData* data,bool busy,bool unlocked) {
     if(!data||busy||!unlocked||state.field.empty())return false;
@@ -92,11 +122,15 @@ TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* dat
     if(!data->message.empty()) ImGui::TextWrapped("%s",data->message.c_str());
     ImGui::BeginDisabled(busy||!unlocked||!data->undo_available);
     if(ImGui::Button("Undo timing write")){Command c{};c.operation=Command::Operation::timings_undo;out.commands.push_back(c);} ImGui::EndDisabled();
-    if(!data->snapshot.ok){ImGui::TextDisabled("No current timing capture");return out;}
+    if(!state.message.empty())ImGui::TextWrapped("%s",state.message.c_str());
+    ImGui::BeginDisabled(busy||!unlocked||!data->initial_available);
+    if(ImGui::Button("Restore captured initial")){Command c{};c.operation=Command::Operation::timings_restore_initial;out.commands.push_back(c);}ImGui::EndDisabled();
+    ImGui::TextWrapped("Captured initial means this connection's first qualified capture, not factory defaults. Values are decoded broadcast fields; partition agreement and nanoseconds are not established by this raw helper capture.");
+    if(!data->snapshot.ok)ImGui::TextDisabled("No current timing capture. Read timings to retry; staged edits are retained.");
     ImGui::Text("Adapter %s | %s | memory %s | top band %s",data->snapshot.slot.c_str(),data->snapshot.codename.c_str(),
         data->snapshot.memory_clock_stable?"stable":"unconfirmed",data->snapshot.top_band?"yes":"not established");
-    if(ImGui::BeginTable("timing_fields",4,ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg|ImGuiTableFlags_ScrollY,ImVec2(0,220))) {
-        ImGui::TableSetupColumn("Field");ImGui::TableSetupColumn("Cycles");ImGui::TableSetupColumn("Register");ImGui::TableSetupColumn("Details");ImGui::TableHeadersRow();
+    if(data->snapshot.ok&&ImGui::BeginTable("timing_fields",4,ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg|ImGuiTableFlags_ScrollY,ImVec2(0,220))) {
+        ImGui::TableSetupColumn("Field");ImGui::TableSetupColumn("Captured value");ImGui::TableSetupColumn("Register");ImGui::TableSetupColumn("Details");ImGui::TableHeadersRow();
         for(const auto& f:data->snapshot.fields){
             ImGui::TableNextRow();ImGui::TableSetColumnIndex(0);
             if(ImGui::Selectable(f.name.c_str(),state.field==f.name,ImGuiSelectableFlags_SpanAllColumns)) select_timing_field(state,*data,f.name);
@@ -108,13 +142,35 @@ TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* dat
     }
     if(!state.field.empty()) {
         ImGui::Text("Selected: %s",state.field.c_str()); ImGui::SetNextItemWidth(140);
-        ImGui::InputScalar("Cycles",ImGuiDataType_U32,&state.value);
+        ImGui::InputScalar("Field value",ImGuiDataType_U32,&state.value);
+        const auto* selected=field(*data,state.field);
+        ImGui::BeginDisabled(busy||!selected||!editable(*data,*selected)||state.value>selected->maximum);
+        if(ImGui::Button("Stage field"))stage_timing_field(state,*data,state.field,state.value);ImGui::EndDisabled();
+        ImGui::SameLine();
         ImGui::BeginDisabled(!can_preview_timing(state,data,busy,unlocked));
         if(ImGui::Button("Preview timing")){Command c{};c.operation=Command::Operation::timings_preview;c.timing_field=state.field;c.timing_value=state.value;out.commands.push_back(c);} ImGui::EndDisabled();
         ImGui::SameLine();ImGui::BeginDisabled(!can_apply_timing(state,data,busy,unlocked));
         if(ImGui::Button("Apply timing")){Command c{};c.operation=Command::Operation::timings_apply;c.timing_field=state.field;c.timing_value=state.value;out.commands.push_back(c);} ImGui::EndDisabled();
     }
-    if(data->preview && data->preview->ok) ImGui::TextWrapped("Preview %s: %u -> %u cycles; selected bits only",data->preview->field.c_str(),data->preview->prior,data->preview->value);
+    if(data->preview && data->preview->ok) ImGui::TextWrapped("Preview %s: %u -> %u; selected bits only",data->preview->field.c_str(),data->preview->prior,data->preview->value);
+    ImGui::SeparatorText("Staged timing fields");
+    if(state.staged.empty())ImGui::TextDisabled("No staged timing fields.");
+    for(size_t i=0;i<state.staged.size();++i){const auto& r=state.staged[i];ImGui::PushID(static_cast<int>(i));
+        const auto* f=field(*data,r.field);const auto* w=f?word(*data,*f):nullptr;
+        if(f&&w&&f->lo<=f->hi&&f->hi<32)ImGui::Text("%s: %u -> %u",r.field.c_str(),(w->value>>f->lo)&f->maximum,r.value);
+        else ImGui::Text("%s: -- -> %u (refresh required)",r.field.c_str(),r.value);
+        ImGui::SameLine();if(ImGui::SmallButton("Remove")){state.staged.erase(state.staged.begin()+static_cast<std::ptrdiff_t>(i));ImGui::PopID();break;}ImGui::PopID();
+    }
+    if(ImGui::Button("Revert staged edits"))state.staged.clear();ImGui::SameLine();
+    ImGui::BeginDisabled(!can_preview_timing_batch(state,data,busy));
+    if(ImGui::Button("Preview all staged")){auto request=std::make_shared<TimingEditorRequest>();request->fields=state.staged;
+        Command c{};c.operation=Command::Operation::timings_preview_batch;c.timing_editor=std::move(request);out.commands.push_back(std::move(c));}ImGui::EndDisabled();ImGui::SameLine();
+    ImGui::BeginDisabled(!can_apply_timing_batch(state,data,busy,unlocked));
+    if(ImGui::Button("Apply all staged")){auto request=std::make_shared<TimingEditorRequest>();request->fields=state.staged;
+        Command c{};c.operation=Command::Operation::timings_apply_batch;c.timing_editor=std::move(request);out.commands.push_back(std::move(c));}ImGui::EndDisabled();
+    ImGui::BeginDisabled(busy||!data->snapshot.ok||!data->snapshot.top_band);if(ImGui::Button("Save timing profile..."))out.save_profile=true;ImGui::EndDisabled();ImGui::SameLine();
+    ImGui::BeginDisabled(busy);if(ImGui::Button("Load timing profile..."))out.load_profile=true;ImGui::EndDisabled();
+    if(data->batch_preview&&!data->batch_preview->message.empty())ImGui::TextWrapped("%s",data->batch_preview->message.c_str());
     return out;
 }
 }

@@ -138,14 +138,204 @@ dc_status DC_CALL test_reset(dc_gpu*, dc_cl_confirm_fn, void*, dc_cl_policy_inpu
     *count = 2; std::memcpy(steps[0].name, "core offset", sizeof("core offset")); steps[0].ok = 1;
     std::memcpy(steps[1].name, "fan", sizeof("fan")); steps[1].ok = reset_step_failure ? 0 : 1; return DC_OK;
 }
+int perf_group_reads=0; bool perf_partial_failure=false;
+dc_status DC_CALL perf_read_group(dc_gpu*,const char* name,uint32_t attempts,dc_perf_group_result* result,dc_error* error) {
+    ++perf_group_reads; CHECK(attempts==2 && result->size==sizeof(*result) && result->snapshot.size==sizeof(result->snapshot));
+    if (perf_partial_failure && std::strcmp(name,"cf_policy")==0) {
+        result->status=DC_PERF_STATUS_FAILED; error->kind=DC_ERR_TRANSIENT; std::strcpy(error->message,"temporary failure"); return DC_OK;
+    }
+    result->has_target=1; std::strcpy(result->slot,"0000:02:00.0"); result->architecture=7;
+    result->status=DC_PERF_STATUS_EMPTY; result->snapshot.capacity=1; std::strcpy(result->snapshot.group,name); return DC_OK;
+}
+bool freq_locked=false, freq_reset_fails=false; uint32_t freq_min=0,freq_max=0; int freq_sets=0,freq_resets=0;
+dc_status DC_CALL freq_arch(dc_gpu*,uint32_t* value) {*value=7;return DC_OK;}
+dc_status DC_CALL freq_export(const char*,const char*,void** out) {*out=reinterpret_cast<void*>(1);return DC_OK;}
+dc_status DC_CALL freq_caps(dc_gpu*,dc_capabilities* c) {c->present=DC_C_GFX_MIN|DC_C_GFX_MAX;c->gfx_min=300;c->gfx_max=900;return DC_OK;}
+dc_status DC_CALL freq_table(dc_gpu*,dc_clock_row* rows,size_t capacity,size_t* count) {
+    *count=1; if(!rows || capacity==0)return DC_OK;
+    rows[0].mem_mhz=7000;rows[0].count=3;rows[0].graphics[0]=300;rows[0].graphics[1]=600;rows[0].graphics[2]=900;return DC_OK;
+}
+dc_status DC_CALL freq_status(dc_gpu*,dc_clk_lock_status* status) {
+    *status={};status->locked=freq_locked;status->min_mhz=freq_min;status->max_mhz=freq_max;return DC_OK;
+}
+dc_status DC_CALL freq_set(dc_gpu*,int64_t low,int64_t high,dc_outcome* out) {
+    ++freq_sets;freq_min=static_cast<uint32_t>(low);freq_max=static_cast<uint32_t>(high);freq_locked=true;out->ok=1;return DC_OK;
+}
+dc_status DC_CALL freq_last(dc_gpu*,uint32_t* low,uint32_t* high) {*low=freq_min;*high=freq_max;return DC_OK;}
+dc_status DC_CALL freq_reset(dc_gpu*,int32_t,dc_outcome* out) {
+    ++freq_resets;if(freq_reset_fails){out->ok=0;return DC_E_FAILED;}freq_locked=false;out->ok=1;return DC_OK;
+}
 CoreApi api() { CoreApi a{}; a.abi_version = version; a.enumerate = enumerate; a.open = open_gpu; a.close = close_gpu; a.identity = identity; a.range = range; a.scale = scale; a.step = step; a.set_offset = setter; a.clock_step = clock_step; a.snapshot = snapshot; a.apply_deltas = deltas; a.curve_layout = curve_layout; a.curve = curve_read; a.envelopes = envelopes; a.reset_curve = curve_reset; a.fan_state = fan_get; a.fan_caps = fan_caps; a.fan_set = fan_set; a.fan_reset = fan_reset; a.fan_restore = fan_restore; a.boost = boost_get; a.boost_set = boost_set; return a; }
 Command command(Command::Operation op, double value = 0) { return {op, ControlId::memory, value}; }
+#if defined(_MSC_VER)
+#define TEST_NOINLINE __declspec(noinline)
+#else
+#define TEST_NOINLINE __attribute__((noinline))
+#endif
+TEST_NOINLINE void perf_frequency_integration_tests() {
+    std::string error;
+    // Diagnostics use only explicit refresh; ordinary read retains a prior
+    // immutable publication, including a partial refresh with stale data.
+    auto integration_api=api(); integration_api.perf.identity=identity; integration_api.perf.read_group=perf_read_group;
+    integration_api.lock=lock_gpu;integration_api.unlock=unlock_gpu;
+    integration_api.tuning.lock=lock_gpu;integration_api.tuning.unlock=unlock_gpu;integration_api.tuning.identity=identity;
+    integration_api.tuning.vf_status=tuning_vf_status;integration_api.tuning.clock_status=tuning_clock_status;
+    integration_api.tuning.vf_set=tuning_vf_set;integration_api.tuning.vf_clear=tuning_vf_clear;
+    integration_api.tuning.recovery_pending=tuning_recovery;integration_api.tuning.recover=tuning_recover;
+    integration_api.tuning.headroom_record=tuning_record;
+    integration_api.frequency.lock=lock_gpu;integration_api.frequency.unlock=unlock_gpu;integration_api.frequency.identity=identity;
+    integration_api.frequency.architecture=freq_arch;integration_api.frequency.export_address=freq_export;
+    integration_api.frequency.capabilities=freq_caps;integration_api.frequency.lockable_clocks=freq_table;
+    integration_api.frequency.clock_status=freq_status;integration_api.frequency.clocks_lock=freq_set;
+    integration_api.frequency.last_lock=freq_last;integration_api.frequency.clocks_reset=freq_reset;
+    auto integrated=create_core_backend_for_test(integration_api);CHECK(integrated->open("0000:02:00.0",error));
+    integrated->read(false);integrated->read(true);CHECK(perf_group_reads==0);
+    Command perf_refresh{};perf_refresh.operation=Command::Operation::refresh_perf_diagnostics;
+    CHECK(integrated->execute(perf_refresh).ok && perf_group_reads==3);
+    const auto prior_perf=integrated->read(false).perf_diagnostics;
+    CHECK(prior_perf && prior_perf->groups[2].freshness==PerfFreshness::current);
+    perf_partial_failure=true;CHECK(!integrated->execute(perf_refresh).ok && perf_group_reads==6);
+    const auto partial_perf=integrated->read(false).perf_diagnostics;
+    CHECK(partial_perf && partial_perf->groups[2].freshness==PerfFreshness::stale && partial_perf->groups[2].snapshot
+        && prior_perf->groups[2].freshness==PerfFreshness::current && perf_group_reads==6);
+    perf_partial_failure=false;
+    Command frequency{};frequency.operation=Command::Operation::frequency_lock_apply;frequency.frequency_min_mhz=600;frequency.frequency_max_mhz=900;
+    CHECK(integrated->execute(frequency).ok && freq_sets==1 && freq_locked);
+    auto owned_frequency=integrated->frequency_state();
+    CHECK(owned_frequency && owned_frequency->ownership.needs_cleanup() && owned_frequency->ownership.confirmed);
+    const auto hold_input=integrated->read(true);
+    freq_reset_fails=true; Command competing{};competing.operation=Command::Operation::hold_curve_point;
+    competing.expected_curve=hold_input.curve; competing.expected_curve_freq_div=hold_input.curve_freq_div;
+    competing.hold_point_index=3; competing.hold_headroom=false;
+    const int prior_resets=freq_resets;test_vf_held=false;
+    CHECK(!integrated->execute(competing).ok && freq_resets==prior_resets+1 && freq_locked && !test_vf_held);
+    CHECK(!integrated->prepare_close().ok && integrated->frequency_state()->ownership.needs_cleanup());
+    freq_reset_fails=false;CHECK(integrated->prepare_close().ok && !freq_locked && !integrated->frequency_state()->ownership.needs_cleanup());
+    const int after_owned_release=freq_resets;integrated->close();CHECK(freq_resets==after_owned_release);
+    // A foreign request never becomes this client's cleanup responsibility.
+    freq_locked=true;freq_min=300;freq_max=600;
+    auto foreign_client=create_core_backend_for_test(integration_api);CHECK(foreign_client->open("0000:02:00.0",error));
+    foreign_client->read(true);CHECK(!foreign_client->frequency_state()->ownership.needs_cleanup());
+    CHECK(foreign_client->prepare_close().ok);foreign_client->close();CHECK(freq_locked && freq_resets==after_owned_release);
+    freq_locked=false;freq_min=freq_max=0;
+}
+TEST_NOINLINE void scoped_client_tests(const CoreApi& rail_api, const wchar_t* directory, const Command& undo) {
+    std::string error;
+    // Scoped profiles capture fresh selected requests and use one grouped Undo.
+    wchar_t scoped_path[MAX_PATH]{}; CHECK(GetTempFileNameW(directory,L"scp",0,scoped_path)!=0);
+    Command prepare_scoped{}; prepare_scoped.operation=Command::Operation::prepare_scoped_profile;
+    Command save_scoped{}; save_scoped.operation=Command::Operation::save_scoped_profile; save_scoped.profile_path=scoped_path;
+    Command apply_scoped{}; apply_scoped.operation=Command::Operation::apply_scoped_profile;
+    auto selection=[](std::vector<ScopedKey> keys) {
+        auto request=std::make_shared<ScopedProfileRequest>(); request->selection=std::move(keys); return request;
+    };
+    auto document=[](ProfileJson json) {
+        auto request=std::make_shared<ScopedProfileRequest>(); request->document=std::move(json); return request;
+    };
+    auto scoped_client=create_core_backend_for_test(rail_api); CHECK(scoped_client->open("0000:02:00.0",error));
+    board=200000; peer=100; pinned_value=100; pin_present=true; raw_limits[1][2]=700;
+    const int scoped_rail_writes=rail_set_calls, scoped_power_writes=power_writes, scoped_policy_writes=policy_writes, scoped_pin_writes=pin_writes;
+    table_fail=true; CHECK(scoped_client->execute(prepare_scoped).ok);
+    auto catalog=scoped_client->read(false).scoped_profiles; CHECK(catalog!=nullptr);
+    save_scoped.scoped_profile=selection({ScopedKey::rail_field(1,2)});
+    raw_limits[1][2]=800; // changed after catalog: Save must re-read the configured request.
+    CHECK(scoped_client->execute(save_scoped).ok); auto scoped_rail=read_profile(scoped_path);
+    CHECK(scoped_rail["entries"].size()==1 && scoped_rail["entries"][0]["value"]==800);
+    CHECK(rail_set_calls==scoped_rail_writes && power_writes==scoped_power_writes && policy_writes==scoped_policy_writes && pin_writes==scoped_pin_writes);
+    scoped_rail["entries"][0]["value"]=900; apply_scoped.scoped_profile=document(scoped_rail);
+    CHECK(!scoped_client->execute(apply_scoped).ok && rail_set_calls==scoped_rail_writes); // Rail mode remains off.
+    table_fail=false; raw_limits[1][2]=700;
+    CHECK(scoped_client->execute(prepare_scoped).ok); catalog=scoped_client->read(false).scoped_profiles;
+    CHECK(catalog!=nullptr);
+    save_scoped.scoped_profile=selection({ScopedKey::board_power(),ScopedKey::policy_request(1)});
+    board=250000; peer=250; pinned_value=250;
+    CHECK(scoped_client->execute(save_scoped).ok); auto scoped_power=read_profile(scoped_path);
+    CHECK(scoped_power["entries"].size()==2 && power_writes==scoped_power_writes && policy_writes==scoped_policy_writes && pin_writes==scoped_pin_writes);
+    board=200000; peer=100; pinned_value=100; pin_present=true;
+    auto reject_scoped=[&](ProfileJson value) {
+        const int p=power_writes, q=policy_writes, r=rail_set_calls, pins=pin_writes;
+        apply_scoped.scoped_profile=document(std::move(value));
+        CHECK(!scoped_client->execute(apply_scoped).ok && power_writes==p && policy_writes==q && rail_set_calls==r && pin_writes==pins);
+    };
+    auto invalid_scoped=scoped_power; invalid_scoped["target"]["uuid"]="GPU-other"; reject_scoped(invalid_scoped);
+    invalid_scoped=scoped_power; invalid_scoped["entries"][1]["binding"]="changed"; reject_scoped(invalid_scoped);
+    invalid_scoped=scoped_power; invalid_scoped["entries"][1]["value"]=true; reject_scoped(invalid_scoped);
+    // An external rail update after aggregate capture must not be overwritten
+    // or become a stale grouped Undo baseline.
+    Command scoped_rail_gate{}; scoped_rail_gate.operation=Command::Operation::set_rail_mode; scoped_rail_gate.enabled=true;
+    CHECK(scoped_client->execute(scoped_rail_gate).ok);
+    apply_scoped.scoped_profile=document(scoped_rail); rail_limits_calls=0; rail_request_flip_at=4;
+    const int before_rail_race=rail_set_calls; auto raced_rail=scoped_client->execute(apply_scoped);
+    CHECK(!raced_rail.ok && !raced_rail.may_have_changed && rail_set_calls==before_rail_race && raw_limits[1][2]==850);
+    rail_request_flip_at=0; raw_limits[1][2]=700;
+    // Change an observed policy after capture but before the first board writer.
+    mutate_power_at_policy_read=policy_reads+2; apply_scoped.scoped_profile=document(scoped_power);
+    const int before_power_race=power_writes, before_policy_race=policy_writes;
+    const auto raced_power=scoped_client->execute(apply_scoped);
+    CHECK(!raced_power.ok && !raced_power.may_have_changed && power_writes==before_power_race && policy_writes==before_policy_race && peer==101);
+    mutate_power_at_policy_read=0; peer=100;
+    policy_external_test=true; apply_scoped.scoped_profile=document(scoped_power);
+    auto scoped_result=scoped_client->execute(apply_scoped);
+    CHECK(scoped_result.ok && board==250000 && peer==250 && pin_present && pinned_value==250);
+    CHECK(scoped_client->read(false).undo_available && scoped_client->execute(undo).ok);
+    CHECK(board==200000 && peer==100 && pin_present && pinned_value==100);
+    // Board setter changes the selected policy from 100 to 200 even though its
+    // requested profile value was already 100; it must be explicitly reasserted.
+    auto coupled=scoped_power; coupled["entries"][1]["value"]=100;
+    apply_scoped.scoped_profile=document(coupled); const int before_reassert=policy_writes;
+    CHECK(scoped_client->execute(apply_scoped).ok && board==250000 && peer==100 && pin_present && pinned_value==100 && policy_writes>before_reassert);
+    CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pinned_value==100);
+    // A selected policy failure after board dispatch retains the original group Undo.
+    peer_fail=true; apply_scoped.scoped_profile=document(scoped_power);
+    auto failed_scoped=scoped_client->execute(apply_scoped);
+    CHECK(!failed_scoped.ok && failed_scoped.may_have_changed && scoped_client->read(false).undo_available);
+    peer_fail=false; CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pin_present && pinned_value==100);
+    // A policy setter can perturb the board after its own successful write;
+    // final verification must catch that coupled change and retain Undo.
+    policy_change_board=true; auto changed_scoped=scoped_client->execute(apply_scoped);
+    CHECK(!changed_scoped.ok && changed_scoped.may_have_changed && scoped_client->read(false).undo_available);
+    policy_change_board=false; CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pin_present && pinned_value==100);
+    // Board-only Undo must not erase an unrelated pin changed after Apply.
+    auto board_only=scoped_power; board_only["entries"].erase(1);
+    apply_scoped.scoped_profile=document(board_only); CHECK(scoped_client->execute(apply_scoped).ok && board==250000);
+    pinned_value=111; const int prior_guard_pins=pin_writes, prior_guard_board=power_writes;
+    const auto guarded_undo=scoped_client->execute(undo);
+    CHECK(!guarded_undo.ok && scoped_client->read(false).undo_available && pin_writes==prior_guard_pins
+        && power_writes==prior_guard_board && board==250000 && pinned_value==111);
+    pinned_value=100; CHECK(scoped_client->execute(undo).ok && board==200000 && pin_present && pinned_value==100);
+    policy_external_test=false; CHECK(DeleteFileW(scoped_path)!=0);
+    // The adapter-derived rail range includes existing requests outside the
+    // ordinary 650..1200 mV bounds and the captured initial lower request.
+    auto bounds_client=create_core_backend_for_test(rail_api); CHECK(bounds_client->open("0000:02:00.0",error));
+    const auto rail_key=ScopedKey::rail_field(1,2);
+    auto capture_bounds=[&]() -> ScopedCurrent {
+        CHECK(bounds_client->execute(prepare_scoped).ok);
+        const auto snap=bounds_client->read(false).scoped_profiles; CHECK(snap!=nullptr);
+        if (snap) {
+            const auto found=std::find_if(snap->entries.begin(),snap->entries.end(),[&](const auto& row){return row.key==rail_key;});
+            CHECK(found!=snap->entries.end()); if (found!=snap->entries.end()) return *found;
+        }
+        return {};
+    };
+    const int bounds_writes=rail_set_calls; rail_base=900; override_rail_initial=false;
+    raw_limits[1][2]=-300000; auto low_rail=capture_bounds();
+    CHECK(low_rail.value==-300000 && low_rail.low==-300000 && low_rail.high==300000 && low_rail.fresh);
+    raw_limits[1][2]=350000; auto high_rail=capture_bounds();
+    CHECK(high_rail.value==350000 && high_rail.low==-250000 && high_rail.high==350000 && high_rail.fresh);
+    raw_limits[1][2]=700; override_rail_initial=true; rail_initial_override=-320000;
+    auto initial_low_rail=capture_bounds();
+    CHECK(initial_low_rail.value==700 && initial_low_rail.low==-320000 && initial_low_rail.high==300000 && initial_low_rail.fresh);
+    CHECK(rail_set_calls==bounds_writes);
+    override_rail_initial=false; rail_initial_override=0; raw_limits[1][2]=700;
+}
+#undef TEST_NOINLINE
 }
 int main() {
     std::string error;
     auto missing = api(); missing.identity = nullptr;
     CHECK(!create_core_backend_for_test(missing)->open("0000:02:00.0", error));
     no_device = true; auto absent = create_core_backend_for_test(api()); CHECK(!absent->open("0000:02:00.0", error)); no_device = false;
+    perf_frequency_integration_tests();
     auto b = create_core_backend_for_test(api()); CHECK(b->open("0000:02:00.0", error));
     auto initial = b->read(false); CHECK(initial.connected); CHECK(initial.controls[1].current == 20.0); CHECK(initial.controls[2].availability == Availability::unsupported);
     range_fail = 1; CHECK(b->read(false).controls[1].current == 20.0);
@@ -312,112 +502,7 @@ int main() {
     CHECK(rb->execute(rail_command).ok && raw_limits[1][2] == 1234); rail_gate.enabled = false; CHECK(rb->execute(rail_gate).ok && !rb->read(false).rail_mode_enabled);
     rail_fields_fail = true; rail_view = rb->read(true); CHECK(!rail_view.rail_controls[0].state.writable && rail_view.rail_writable); rail_fields_fail = false;
     flags_fail = true; rail_command.operation = Command::Operation::stock; CHECK(rb->execute(rail_command).ok && raw_limits[1][2] == 700); flags_fail = false;
-    // Scoped profiles capture fresh selected requests and use one grouped Undo.
-    wchar_t scoped_path[MAX_PATH]{}; CHECK(GetTempFileNameW(directory,L"scp",0,scoped_path)!=0);
-    Command prepare_scoped{}; prepare_scoped.operation=Command::Operation::prepare_scoped_profile;
-    Command save_scoped{}; save_scoped.operation=Command::Operation::save_scoped_profile; save_scoped.profile_path=scoped_path;
-    Command apply_scoped{}; apply_scoped.operation=Command::Operation::apply_scoped_profile;
-    auto selection=[](std::vector<ScopedKey> keys) {
-        auto request=std::make_shared<ScopedProfileRequest>(); request->selection=std::move(keys); return request;
-    };
-    auto document=[](ProfileJson json) {
-        auto request=std::make_shared<ScopedProfileRequest>(); request->document=std::move(json); return request;
-    };
-    auto scoped_client=create_core_backend_for_test(rail_api); CHECK(scoped_client->open("0000:02:00.0",error));
-    board=200000; peer=100; pinned_value=100; pin_present=true; raw_limits[1][2]=700;
-    const int scoped_rail_writes=rail_set_calls, scoped_power_writes=power_writes, scoped_policy_writes=policy_writes, scoped_pin_writes=pin_writes;
-    table_fail=true; CHECK(scoped_client->execute(prepare_scoped).ok);
-    auto catalog=scoped_client->read(false).scoped_profiles; CHECK(catalog!=nullptr);
-    save_scoped.scoped_profile=selection({ScopedKey::rail_field(1,2)});
-    raw_limits[1][2]=800; // changed after catalog: Save must re-read the configured request.
-    CHECK(scoped_client->execute(save_scoped).ok); auto scoped_rail=read_profile(scoped_path);
-    CHECK(scoped_rail["entries"].size()==1 && scoped_rail["entries"][0]["value"]==800);
-    CHECK(rail_set_calls==scoped_rail_writes && power_writes==scoped_power_writes && policy_writes==scoped_policy_writes && pin_writes==scoped_pin_writes);
-    scoped_rail["entries"][0]["value"]=900; apply_scoped.scoped_profile=document(scoped_rail);
-    CHECK(!scoped_client->execute(apply_scoped).ok && rail_set_calls==scoped_rail_writes); // Rail mode remains off.
-    table_fail=false; raw_limits[1][2]=700;
-    CHECK(scoped_client->execute(prepare_scoped).ok); catalog=scoped_client->read(false).scoped_profiles;
-    CHECK(catalog!=nullptr);
-    save_scoped.scoped_profile=selection({ScopedKey::board_power(),ScopedKey::policy_request(1)});
-    board=250000; peer=250; pinned_value=250;
-    CHECK(scoped_client->execute(save_scoped).ok); auto scoped_power=read_profile(scoped_path);
-    CHECK(scoped_power["entries"].size()==2 && power_writes==scoped_power_writes && policy_writes==scoped_policy_writes && pin_writes==scoped_pin_writes);
-    board=200000; peer=100; pinned_value=100; pin_present=true;
-    auto reject_scoped=[&](ProfileJson value) {
-        const int p=power_writes, q=policy_writes, r=rail_set_calls, pins=pin_writes;
-        apply_scoped.scoped_profile=document(std::move(value));
-        CHECK(!scoped_client->execute(apply_scoped).ok && power_writes==p && policy_writes==q && rail_set_calls==r && pin_writes==pins);
-    };
-    auto invalid_scoped=scoped_power; invalid_scoped["target"]["uuid"]="GPU-other"; reject_scoped(invalid_scoped);
-    invalid_scoped=scoped_power; invalid_scoped["entries"][1]["binding"]="changed"; reject_scoped(invalid_scoped);
-    invalid_scoped=scoped_power; invalid_scoped["entries"][1]["value"]=true; reject_scoped(invalid_scoped);
-    // An external rail update after aggregate capture must not be overwritten
-    // or become a stale grouped Undo baseline.
-    Command scoped_rail_gate{}; scoped_rail_gate.operation=Command::Operation::set_rail_mode; scoped_rail_gate.enabled=true;
-    CHECK(scoped_client->execute(scoped_rail_gate).ok);
-    apply_scoped.scoped_profile=document(scoped_rail); rail_limits_calls=0; rail_request_flip_at=4;
-    const int before_rail_race=rail_set_calls; auto raced_rail=scoped_client->execute(apply_scoped);
-    CHECK(!raced_rail.ok && !raced_rail.may_have_changed && rail_set_calls==before_rail_race && raw_limits[1][2]==850);
-    rail_request_flip_at=0; raw_limits[1][2]=700;
-    // Change an observed policy after capture but before the first board writer.
-    mutate_power_at_policy_read=policy_reads+2; apply_scoped.scoped_profile=document(scoped_power);
-    const int before_power_race=power_writes, before_policy_race=policy_writes;
-    const auto raced_power=scoped_client->execute(apply_scoped);
-    CHECK(!raced_power.ok && !raced_power.may_have_changed && power_writes==before_power_race && policy_writes==before_policy_race && peer==101);
-    mutate_power_at_policy_read=0; peer=100;
-    policy_external_test=true; apply_scoped.scoped_profile=document(scoped_power);
-    auto scoped_result=scoped_client->execute(apply_scoped);
-    CHECK(scoped_result.ok && board==250000 && peer==250 && pin_present && pinned_value==250);
-    CHECK(scoped_client->read(false).undo_available && scoped_client->execute(undo).ok);
-    CHECK(board==200000 && peer==100 && pin_present && pinned_value==100);
-    // Board setter changes the selected policy from 100 to 200 even though its
-    // requested profile value was already 100; it must be explicitly reasserted.
-    auto coupled=scoped_power; coupled["entries"][1]["value"]=100;
-    apply_scoped.scoped_profile=document(coupled); const int before_reassert=policy_writes;
-    CHECK(scoped_client->execute(apply_scoped).ok && board==250000 && peer==100 && pin_present && pinned_value==100 && policy_writes>before_reassert);
-    CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pinned_value==100);
-    // A selected policy failure after board dispatch retains the original group Undo.
-    peer_fail=true; apply_scoped.scoped_profile=document(scoped_power);
-    auto failed_scoped=scoped_client->execute(apply_scoped);
-    CHECK(!failed_scoped.ok && failed_scoped.may_have_changed && scoped_client->read(false).undo_available);
-    peer_fail=false; CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pin_present && pinned_value==100);
-    // A policy setter can perturb the board after its own successful write;
-    // final verification must catch that coupled change and retain Undo.
-    policy_change_board=true; auto changed_scoped=scoped_client->execute(apply_scoped);
-    CHECK(!changed_scoped.ok && changed_scoped.may_have_changed && scoped_client->read(false).undo_available);
-    policy_change_board=false; CHECK(scoped_client->execute(undo).ok && board==200000 && peer==100 && pin_present && pinned_value==100);
-    // Board-only Undo must not erase an unrelated pin changed after Apply.
-    auto board_only=scoped_power; board_only["entries"].erase(1);
-    apply_scoped.scoped_profile=document(board_only); CHECK(scoped_client->execute(apply_scoped).ok && board==250000);
-    pinned_value=111; const int prior_guard_pins=pin_writes, prior_guard_board=power_writes;
-    const auto guarded_undo=scoped_client->execute(undo);
-    CHECK(!guarded_undo.ok && scoped_client->read(false).undo_available && pin_writes==prior_guard_pins
-        && power_writes==prior_guard_board && board==250000 && pinned_value==111);
-    pinned_value=100; CHECK(scoped_client->execute(undo).ok && board==200000 && pin_present && pinned_value==100);
-    policy_external_test=false; CHECK(DeleteFileW(scoped_path)!=0);
-    // The adapter-derived rail range includes existing requests outside the
-    // ordinary 650..1200 mV bounds and the captured initial lower request.
-    auto bounds_client=create_core_backend_for_test(rail_api); CHECK(bounds_client->open("0000:02:00.0",error));
-    const auto rail_key=ScopedKey::rail_field(1,2);
-    auto capture_bounds=[&]() -> ScopedCurrent {
-        CHECK(bounds_client->execute(prepare_scoped).ok);
-        const auto snap=bounds_client->read(false).scoped_profiles; CHECK(snap!=nullptr);
-        if (snap) {
-            const auto found=std::find_if(snap->entries.begin(),snap->entries.end(),[&](const auto& row){return row.key==rail_key;});
-            CHECK(found!=snap->entries.end()); if (found!=snap->entries.end()) return *found;
-        }
-        return {};
-    };
-    const int bounds_writes=rail_set_calls; rail_base=900; override_rail_initial=false;
-    raw_limits[1][2]=-300000; auto low_rail=capture_bounds();
-    CHECK(low_rail.value==-300000 && low_rail.low==-300000 && low_rail.high==300000 && low_rail.fresh);
-    raw_limits[1][2]=350000; auto high_rail=capture_bounds();
-    CHECK(high_rail.value==350000 && high_rail.low==-250000 && high_rail.high==350000 && high_rail.fresh);
-    raw_limits[1][2]=700; override_rail_initial=true; rail_initial_override=-320000;
-    auto initial_low_rail=capture_bounds();
-    CHECK(initial_low_rail.value==700 && initial_low_rail.low==-320000 && initial_low_rail.high==300000 && initial_low_rail.fresh);
-    CHECK(rail_set_calls==bounds_writes);
-    override_rail_initial=false; rail_initial_override=0; raw_limits[1][2]=700;
+    scoped_client_tests(rail_api,directory,undo);
     fan_mode = 0; fan_auto = false; fan_level = 40; fan_refuse = true; fan.value = 60; fan.operation = Command::Operation::apply;
     CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_refuse = false;
     fan_post_fail = true; CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_post_fail = false;

@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui_view.h"
+#include "perf_diagnostics_view.h"
 #include "session.h"
 #include "i2c_view.h"
 #include "classic_layout.h"
@@ -1173,6 +1174,19 @@ void live_identity(const SessionSnapshot& snapshot) {
     if (identity.pairing_error[0]) ImGui::TextWrapped("Pairing: %s", identity.pairing_error);
 }
 
+void live_perf_panel(ViewState& state) {
+    const auto& snapshot=*state.live;
+    if (ImGui::CollapsingHeader("PERF diagnostics")) {
+        ImGui::BeginDisabled(snapshot.busy || snapshot.opening || !snapshot.data.connected);
+        const PerfViewModel empty{};
+        if (draw_perf_diagnostics(snapshot.data.perf_diagnostics ? *snapshot.data.perf_diagnostics : empty)) {
+            Command command; command.operation=Command::Operation::refresh_perf_diagnostics;
+            state.commands.push_back(command);
+        }
+        ImGui::EndDisabled();
+    }
+}
+
 void live_advanced(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
     title("Advanced", "Stage a selected request, then Apply. Details explain reported capabilities.");
@@ -1180,10 +1194,13 @@ void live_advanced(ViewState& state, bool verbose) {
     if (ImGui::Button("Refresh details")) state.refresh_requested = true;
     ImGui::SameLine();
     if (ImGui::Button("Reconnect")) state.reconnect_requested = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Frequency locks...")) state.frequency_view.open=true;
     ImGui::EndDisabled();
     if (!verbose) draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::additional_memory);
     draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
+    live_perf_panel(state);
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
     if (ImGui::CollapsingHeader("Control capabilities", flags)) {
         const char* names[] = {"Core offset", "Memory offset", "Board power", "Fan target", "Voltage boost"};
@@ -1499,6 +1516,7 @@ void classic_advanced(ViewState& state) {
         live_identity(s);
         if (ImGui::Button("Refresh details")) state.refresh_requested = true;
     }
+    live_perf_panel(state);
     }
     ImGui::EndChild();
 }
@@ -1543,6 +1561,8 @@ void classic_page_content(ViewState& state, Page page) {
         auto output = draw_timings(state.timings_view, s.data.timings.get(), s.generation,
             s.busy || !s.data.connected, state.controls_unlocked);
         state.timing_helper_requested |= output.choose_helper;
+        state.timing_save_profile_requested |= output.save_profile;
+        state.timing_load_profile_requested |= output.load_profile;
         state.commands.insert(state.commands.end(), output.commands.begin(), output.commands.end());
     }
 }
@@ -1791,6 +1811,8 @@ void draw(ViewState& state) {
             const auto& s=*state.live;
             auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy || !s.data.connected,state.controls_unlocked);
             state.timing_helper_requested|=output.choose_helper;
+            state.timing_save_profile_requested|=output.save_profile;
+            state.timing_load_profile_requested|=output.load_profile;
             state.commands.insert(state.commands.end(),output.commands.begin(),output.commands.end());
         }
         else { if (classic) classic_monitor(*state.live,state.shunt); else live_monitor(*state.live, false,state.shunt); }
@@ -1805,6 +1827,31 @@ void draw(ViewState& state) {
     ImGui::PopTextWrapPos();
     ImGui::End();
     draw_app_actions_windows(state);
+    if (state.live) {
+        const auto& snapshot=*state.live;
+        FrequencyLockViewContext context;
+        context.generation=snapshot.generation; context.slot=snapshot.selected_slot; context.uuid=snapshot.data.identity.uuid;
+        context.connected=snapshot.data.connected; context.busy=snapshot.busy || snapshot.opening;
+        context.unlocked=state.controls_unlocked;
+        const auto& i2c=snapshot.data.i2c;
+        const auto& clock=snapshot.data.frequency;
+        context.other_owned_clock=i2c.clock_owned && clock.current_known && clock.current &&
+            clock.current->minimum==i2c.clock_mhz && clock.current->maximum==i2c.clock_mhz;
+        context.fan_manual_available=snapshot.data.controls[static_cast<size_t>(ControlId::fan)].writable;
+        context.live_core_mhz=telemetry_value(snapshot,DC_T_CORE,snapshot.data.telemetry.core);
+        for (const auto& intent:draw_frequency_lock(state.frequency_view,snapshot.data.frequency,context)) {
+            Command command;
+            switch(intent.action) {
+            case FrequencyLockAction::refresh: command.operation=Command::Operation::frequency_lock_refresh; break;
+            case FrequencyLockAction::apply: command.operation=Command::Operation::frequency_lock_apply; break;
+            case FrequencyLockAction::lock_max: command.operation=Command::Operation::frequency_lock_max; break;
+            case FrequencyLockAction::legacy_p0_max_fan: command.operation=Command::Operation::frequency_legacy_p0_max_fan; break;
+            case FrequencyLockAction::release: command.operation=Command::Operation::frequency_lock_release; break;
+            }
+            command.frequency_min_mhz=intent.minimum_mhz; command.frequency_max_mhz=intent.maximum_mhz;
+            state.commands.push_back(command);
+        }
+    }
     if (state.live) draw_scoped_profile_workspace(state.scoped_profile_view, *state.live, state.controls_unlocked, state.commands);
     if (classic) classic_floating_pages(state);
     draw_curve_window(state);

@@ -6,6 +6,7 @@
 #include "i2c_controls.h"
 #include "i2c_driver.h"
 #include "tuning_actions.h"
+#include "frequency_lock.h"
 #include <array>
 #include <memory>
 #include <optional>
@@ -17,6 +18,8 @@ struct TimingViewData;
 struct ClockMonitorData;
 struct ScopedSnapshot;
 struct ScopedProfileRequest;
+struct PerfViewModel;
+struct TimingEditorRequest;
 enum class ControlId { core, memory, power, fan, boost, count };
 enum class Availability { unknown, available, unsupported, transient };
 struct ControlState {
@@ -57,6 +60,8 @@ struct I2cViewData {
     uint64_t prepared_preset_revision = 0;
 };
 struct LiveData {
+    FrequencyLockData frequency;
+    std::shared_ptr<const PerfViewModel> perf_diagnostics;
     // Explicitly captured profile catalog; ordinary polling does not recapture it.
     std::shared_ptr<const ScopedSnapshot> scoped_profiles;
     std::shared_ptr<const ClockMonitorData> clock_monitor;
@@ -97,7 +102,9 @@ struct Command {
         i2c_recipe, i2c_reset, i2c_prepare_profile, i2c_save_profile, i2c_load_profile, i2c_stage_captured, i2c_apply_profile, i2c_release,
         timings_select_helper, timings_read, timings_preview, timings_apply, timings_undo,
         max_it, reset_controls, hold_curve_point, release_hold, save_curve_profile, i2c_zero_nct_outputs,
-        prepare_scoped_profile, save_scoped_profile, apply_scoped_profile };
+        prepare_scoped_profile, save_scoped_profile, apply_scoped_profile, refresh_perf_diagnostics,
+        frequency_lock_apply, frequency_lock_max, frequency_legacy_p0_max_fan, frequency_lock_release, frequency_lock_refresh,
+        timings_preview_batch, timings_apply_batch, timings_restore_initial, timings_save_profile };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -111,8 +118,10 @@ struct Command {
     std::wstring profile_path;
     std::shared_ptr<const ScopedProfileRequest> scoped_profile;
     std::wstring timing_helper_path;
+    std::shared_ptr<const TimingEditorRequest> timing_editor;
     std::string timing_field;
     uint32_t timing_value = 0;
+    int64_t frequency_min_mhz = 0, frequency_max_mhz = 0;
     double curve_cap_mv = 1100, curve_floor_mv = 1000;
     uint32_t hold_point_index = 0;
     bool hold_headroom = true;
@@ -139,6 +148,13 @@ inline bool is_i2c_operation(Command::Operation operation) {
     return (operation >= Command::Operation::i2c_scan && operation <= Command::Operation::i2c_release)
         || operation == Command::Operation::i2c_zero_nct_outputs;
 }
+inline bool is_frequency_operation(Command::Operation operation) {
+    return operation >= Command::Operation::frequency_lock_apply && operation <= Command::Operation::frequency_lock_refresh;
+}
+inline bool is_timing_operation(Command::Operation operation) {
+    return (operation >= Command::Operation::timings_select_helper && operation <= Command::Operation::timings_undo) ||
+        (operation >= Command::Operation::timings_preview_batch && operation <= Command::Operation::timings_save_profile);
+}
 class IBackend {
 public:
     virtual ~IBackend() = default;
@@ -150,6 +166,7 @@ public:
     virtual std::optional<I2cViewData> i2c_state() const { return {}; } // worker state only, no hardware reads
     virtual bool maintenance_needed() const { return false; }
     virtual std::optional<TuningState> tuning_state() const { return {}; }
+    virtual std::optional<FrequencyLockData> frequency_state() const { return {}; }
     virtual ActionResult maintain() { ActionResult r; r.ok = true; return r; }
     virtual LiveData read(bool details) = 0;
     virtual ActionResult execute(const Command& command) = 0;

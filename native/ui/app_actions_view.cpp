@@ -51,6 +51,12 @@ void draw_app_actions_menu(ViewState& state) {
         if(ImGui::MenuItem("Shunt mod (corrected power)..."))state.shunt.open=true;
         ImGui::EndMenu();
     }
+    if(ImGui::BeginMenu("Clocks")) {
+        ImGui::BeginDisabled(state.preview || !state.live);
+        if(ImGui::MenuItem("Frequency locks / legacy P0..."))state.frequency_view.open=true;
+        ImGui::EndDisabled();
+        ImGui::EndMenu();
+    }
     if(ImGui::BeginMenu("Help")) {
         if(ImGui::MenuItem("Keyboard shortcuts"))actions.shortcuts_open=true;
         if(ImGui::MenuItem("Licences / bundled sources"))actions.licences_open=true;

@@ -289,6 +289,40 @@ struct App {
             if (GetOpenFileNameW(&dialog) && view.live) { druta::ui::Command c; c.operation=druta::ui::Command::Operation::timings_select_helper; c.timing_helper_path=path; session->submit(c,view.live->generation); }
             policy.note_activity(now_seconds());
         }
+        if (view.timing_save_profile_requested || view.timing_load_profile_requested) {
+            const bool save=view.timing_save_profile_requested;
+            view.timing_save_profile_requested=view.timing_load_profile_requested=false;
+            const auto before=session->snapshot(); const auto staged=view.timings_view.staged;
+            wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog);
+            dialog.hwndOwner=window; dialog.lpstrFile=path; dialog.nMaxFile=static_cast<DWORD>(std::size(path));
+            dialog.lpstrFilter=L"Druta timing profile (*.json)\0*.json\0\0"; dialog.lpstrDefExt=L"json";
+            dialog.lpstrTitle=save ? L"Save captured timings with staged fields" : L"Load timing fields into draft";
+            dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
+            const BOOL selected=save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog);
+            if (selected) {
+                try {
+                    const auto current=session->snapshot();
+                    if (current->generation!=before->generation || !before->data.timings || !current->data.timings ||
+                        current->data.timings->helper_path!=before->data.timings->helper_path ||
+                        current->data.timings->helper_token!=before->data.timings->helper_token)
+                        throw std::runtime_error("Timing helper or adapter changed while choosing the profile");
+                    if (save) {
+                        auto request=std::make_shared<druta::ui::TimingEditorRequest>(); request->fields=staged;
+                        druta::ui::Command command; command.operation=druta::ui::Command::Operation::timings_save_profile;
+                        command.profile_path=path; command.timing_editor=std::move(request);
+                        if (!session->submit(command,before->generation)) throw std::runtime_error("Session is busy; timings were not saved");
+                        view.timings_view.message="Capturing timings; save result appears in the operation log.";
+                    } else {
+                        const auto document=druta::ui::read_profile(path);
+                        const auto fresh=session->snapshot();
+                        if (fresh->generation!=before->generation || !fresh->data.timings)
+                            throw std::runtime_error("Selected session changed while loading timings");
+                        druta::ui::stage_timing_profile(document,*fresh->data.timings,view.timings_view);
+                    }
+                } catch (const std::exception& error) { view.timings_view.message=error.what(); }
+            } else if (const auto error=CommDlgExtendedError()) view.timings_view.message="Timing profile dialog failed (Windows error "+std::to_string(error)+").";
+            policy.note_activity(now_seconds());
+        }
         if (view.save_profile_requested || view.load_profile_requested) {
             const bool save = view.save_profile_requested;
             view.save_profile_requested = view.load_profile_requested = false;

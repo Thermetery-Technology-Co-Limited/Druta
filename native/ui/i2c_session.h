@@ -23,6 +23,9 @@ struct I2cApi {
     decltype(&dc_gpu_vf_lock_status) vf_status = nullptr;
     decltype(&dc_gpu_read_telemetry) telemetry = nullptr;
     std::function<void(unsigned)> sleep;
+    // Called immediately before acquiring a new clock/verification hold.
+    // A false result leaves the selected controller and clock untouched.
+    std::function<bool(std::string&)> before_clock_acquire;
     I2cVerifyHoldApi verify_hold;
 };
 // Worker-owned: no bus polling from telemetry or rendering. Controller release

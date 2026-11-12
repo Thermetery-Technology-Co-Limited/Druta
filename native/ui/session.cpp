@@ -142,7 +142,9 @@ struct Session::Impl {
         catch (...) { failed = true; }
         std::optional<TuningState> tuning;
         std::optional<bool> needs_maintenance;
+        std::optional<FrequencyLockData> frequency;
         try { tuning = backend->tuning_state(); needs_maintenance = backend->maintenance_needed(); } catch (...) {}
+        try { frequency = backend->frequency_state(); } catch (...) {}
         Guard guard(lock);
         if (stopping || generation != state.generation) return false;
         ++state.completed_reads;
@@ -193,6 +195,11 @@ struct Session::Impl {
             if (needs_maintenance) state.tuning_ownership_uncertain = *needs_maintenance && !tuning->maintenance_needed();
         }
         else fresh.tuning=state.data.tuning;
+        if (frequency) { fresh.frequency=*frequency; state.frequency_ownership_uncertain=false; }
+        else {
+            fresh.frequency=state.data.frequency;
+            if (state.data.frequency.ownership.needs_cleanup()) state.frequency_ownership_uncertain=true;
+        }
         if ((needs_maintenance && *needs_maintenance) || fresh.tuning.maintenance_needed() || state.tuning_ownership_uncertain) {
             maintenance_active = true;
             if (!maintenance_due) maintenance_due = GetTickCount64() + 1000;
@@ -327,6 +334,10 @@ struct Session::Impl {
                 try { owned_tuning=backend->tuning_state(); needed=backend->maintenance_needed(); needed_known=true; } catch (...) {}
                 const bool tuning_action=task.operation==Command::Operation::max_it || task.operation==Command::Operation::reset_controls || task.operation==Command::Operation::hold_curve_point || task.operation==Command::Operation::release_hold;
                 const bool i2c_action=is_i2c_operation(task.operation);
+                const bool frequency_action=is_frequency_operation(task.operation);
+                const bool frequency_mutation=frequency_action && task.operation!=Command::Operation::frequency_lock_refresh;
+                std::optional<FrequencyLockData> owned_frequency;
+                try { owned_frequency=backend->frequency_state(); } catch (...) {}
                 std::optional<I2cViewData> owned_i2c;
                 if (i2c_action) { try { owned_i2c=backend->i2c_state(); } catch (...) {} }
                 bool current;
@@ -345,6 +356,8 @@ struct Session::Impl {
                         maintenance_active = (needed_known && needed) || state.data.tuning.maintenance_needed() || state.tuning_ownership_uncertain;
                         if (maintenance_active && !maintenance_due) maintenance_due = GetTickCount64() + 1000;
                         if (!maintenance_active) { maintenance_due = 0; maintenance_error.clear(); }
+                        if (owned_frequency) { state.data.frequency=*owned_frequency; state.frequency_ownership_uncertain=false; }
+                        else if (frequency_mutation || state.data.frequency.ownership.needs_cleanup()) state.frequency_ownership_uncertain=true;
                         if (i2c_action) {
                             if (owned_i2c) { state.data.i2c=*owned_i2c; state.i2c_ownership_uncertain=false; }
                             else if (task.operation==Command::Operation::i2c_apply || task.operation==Command::Operation::i2c_verify || task.operation==Command::Operation::i2c_release || task.operation==Command::Operation::i2c_zero_nct_outputs)
@@ -396,7 +409,8 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       const auto& i2c=impl_->state.data.i2c;
       const bool tuning_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::max_it || impl_->command.operation==Command::Operation::reset_controls || impl_->command.operation==Command::Operation::hold_curve_point || impl_->command.operation==Command::Operation::release_hold);
       const bool i2c_busy=impl_->state.busy && is_i2c_operation(impl_->command.operation);
-      if (i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
+      const bool frequency_busy=impl_->state.busy && is_frequency_operation(impl_->command.operation);
+      if (frequency_busy || impl_->state.frequency_ownership_uncertain || impl_->state.data.frequency.ownership.needs_cleanup() || i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
           impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
       }
       impl_->backend_opened = false; impl_->read_retries = 0;
@@ -409,6 +423,7 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
       impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
       impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false; impl_->state.last_action_log_id = 0;
+      impl_->state.frequency_ownership_uncertain = false;
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return true;
 }
@@ -450,7 +465,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
       else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
-      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold)))) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
