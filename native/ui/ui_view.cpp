@@ -432,7 +432,8 @@ void sync_live_drafts(ViewState& state) {
         state.drafts = {};
         state.draft_generation = snapshot.generation;
         state.generation_initialized = true;
-        state.controls_unlocked = false;
+        // Unlock is a presentation preference. Discard adapter-specific drafts,
+        // but preserve an explicit lock choice across session changes.
     }
     for (size_t i = 0; i < state.drafts.size(); ++i) {
         auto& draft = state.drafts[i];
@@ -638,7 +639,7 @@ void select_curve_point(ViewState& state, uint32_t index) {
 
 void curve_keyboard(ViewState& state) {
     const auto& io = ImGui::GetIO();
-    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)
         || io.AppFocusLost || io.WantTextInput || state.curve_entry_editing || ImGui::IsAnyItemActive()) return;
     auto& editor = state.curve_draft;
     const auto& points = editor.draft();
@@ -688,7 +689,7 @@ void interactive_curve_plot(ViewState& state) {
         return;
     }
     if (state.curve_drag_point && (!ImGui::IsMouseDown(ImGuiMouseButton_Left)
-        || ImGui::GetIO().AppFocusLost || !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))) end_curve_drag(state);
+        || ImGui::GetIO().AppFocusLost || !ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))) end_curve_drag(state);
     const auto saved_input = ImPlot::GetInputMap();
     auto& input = ImPlot::GetInputMap();
     input.Pan = state.curve_drag_point ? 4 : ImGuiMouseButton_Left;
@@ -829,7 +830,7 @@ void live_daily(ViewState& state, bool verbose) {
     }
 }
 
-void live_curve_workspace(ViewState& state, bool verbose) {
+void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false) {
     const auto& snapshot = *state.live;
     auto& editor = state.curve_draft;
     const auto& points = editor.draft();
@@ -878,8 +879,10 @@ void live_curve_workspace(ViewState& state, bool verbose) {
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh curve")) state.refresh_requested = true;
     ImGui::EndDisabled();
-    ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
-    ImGui::SameLine();
+    if (!embedded) {
+        ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
+        ImGui::SameLine();
+    }
     const bool ready = snapshot.data.connected && !snapshot.busy && !snapshot.opening
         && !snapshot.curve_stale && snapshot.curve_revision != 0 && snapshot.data.curve_freq_div != 0 && state.controls_unlocked;
     ImGui::BeginDisabled(!ready || !snapshot.data.curve_writable || !editor.can_apply());
@@ -900,7 +903,7 @@ void live_curve_workspace(ViewState& state, bool verbose) {
     ImGui::BeginDisabled(!state.controls_unlocked || !snapshot.data.connected || !snapshot.data.undo_available || snapshot.busy || snapshot.opening);
     if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::core, 0});
     ImGui::EndDisabled();
-    if (ImGui::CollapsingHeader("Curve shape tools")) {
+    if (ImGui::CollapsingHeader("Curve shape tools", embedded ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Cap (mV)", &state.curve_cap_mv, 0, 0, "%.3f");
         ImGui::SameLine(); ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Ramp floor (mV)", &state.curve_floor_mv, 0, 0, "%.3f");
         std::optional<CurvePlanKind> kind;
@@ -965,7 +968,7 @@ void live_curve_workspace(ViewState& state, bool verbose) {
 void draw_curve_window(ViewState& state) {
     if (state.curve_drag_point && (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::GetIO().AppFocusLost))
         end_curve_drag(state);
-    if (!state.curve_window_open) { end_curve_drag(state); return; }
+    if (!state.curve_window_open) { if (!state.curve_inline_active) end_curve_drag(state); return; }
     const auto display = ImGui::GetIO().DisplaySize;
     const ImVec2 maximum(std::max(320.0f, display.x - u(16)), std::max(240.0f, display.y - u(16)));
     ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(u(640), maximum.x), std::min(u(480), maximum.y)), maximum);
@@ -1245,10 +1248,22 @@ void classic_daily(ViewState& state) {
     if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
     if (ImGui::CollapsingHeader("V/F curve editor", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::Button("Open V/F curve", ImVec2(u(220), 0))) {
+            end_curve_drag(state);
             state.curve_window_open = true; state.curve_window_focus_requested = true;
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("%zu points | staged editor opens in a large window", s.data.curve.size());
+        ImGui::TextDisabled("%zu points%s", s.data.curve.size(), state.curve_window_open ? " | editing in separate window" : "");
+        if (!state.curve_window_open) {
+            // A separate child scopes WASD to the editor while the parent scrolls
+            // normally past the curve and operation log. Its height is independent
+            // of scroll position, so scrolling cannot make the editor grow.
+            const float height = std::clamp(ImGui::GetIO().DisplaySize.y * 0.5f, u(540), u(820));
+            if (ImGui::BeginChild("inline-vf-editor", ImVec2(0, height), false)) {
+                state.curve_inline_active = true;
+                live_curve_workspace(state, true, true);
+            }
+            ImGui::EndChild();
+        }
     }
     if (ImGui::Button("Revert local drafts")) state.revert_draft();
     ImGui::SameLine(); ImGui::BeginDisabled(!state.controls_unlocked || !s.data.undo_available || !s.data.connected || s.busy || s.opening);
@@ -1384,6 +1399,7 @@ void apply_theme(float scale) {
 }
 
 void draw(ViewState& state) {
+    state.curve_inline_active = false;
     if (state.page == Page::curve) {
         state.page = Page::daily;
         state.curve_window_open = true;

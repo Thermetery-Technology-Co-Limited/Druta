@@ -45,3 +45,24 @@ preceded the final whitespace/test-INI cleanup and CLI help-text addition. The
 Max it and I2C checks preceded the curve-geometry correction; the controller
 write/restoration protocol did not change afterward. These distinctions avoid
 claiming that every hardware path was rerun against the final binary.
+
+## Follow-up: unlocked startup and integrated Classic curve
+
+Controls now start unlocked, while an explicit user lock survives layout and
+adapter changes in the current application. Classic / Verbose embeds the live
+V/F editor beneath the tuning controls, with the same draggable dots, WASD +
+Shift, staged shape tools and explicit Apply. Opening the optional separate
+window moves the editor there; closing it returns to the integrated editor.
+Only the focused editor consumes curve keys, and drafts survive this move.
+
+Release build and import audit passed. The UI suite passed 797 checks, including
+inline mouse dragging, keyboard edits, focus isolation, popup transitions,
+unlocked startup without writes and explicit lock preservation. The curve and
+import-policy suites also passed. A read-only 2200×1800 live capture on the same
+RTX 3070 Ti was visually checked: unlock was selected, all 127 curve points were
+present inline, and the four NVVDD sliders remained visible. No tuning write was
+issued by this capture.
+
+Follow-up UI EXE SHA-256:
+`9A8530B778A7492B45BEB5C3E45D5F70E54A1B5EE4E826F5FE10ED9B231851A0`.
+Earlier build hashes and hardware tests above remain historical evidence.

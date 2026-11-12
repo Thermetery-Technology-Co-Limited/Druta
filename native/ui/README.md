@@ -5,8 +5,10 @@ point editor and owned holds, Monitor, qualified Advanced controls, native I2C
 manual commands and a Timings helper workflow. **Focused** and
 **Classic** share drafts, snapshots, command queue and Undo. Classic uses a
 composition based on Druta 1.9.1; it is more than a verbose-text option. Both
-presentations retain the resizable V/F editor popup. Changing presentation never
-opens another GPU or applies a draft. The fixture shell remains available with
+presentations retain the resizable V/F editor popup; Classic also embeds the
+editable curve below the tuning controls, as in the Python interface. Opening
+the separate window moves the shared editor there until it closes. Changing
+presentation never opens another GPU or applies a draft. The fixture shell remains available with
 `--preview`.
 
 This is an implemented development milestone in
@@ -30,15 +32,17 @@ Python frontend parity and Vista/7 qualification remain open.
   ramp and an owned V/F hold. Reset reports individual outcomes and any state it
   could not capture. The live Reset/Undo retest restored all 127 curve requests
   and all 19 power-policy requests on the tested adapter.
-- Draft edits never write. Unlock controls, then use the selected row's Apply
-  or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
+- Controls start unlocked. An explicit lock choice stays in effect while switching
+  adapters or layouts in the same application. Draft edits never write; use the
+  selected row's Apply or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
   values in the adapter-reported scale. Configured requests remain separate from
   live readings, enforced power and unavailable/stale values.
 - **Undo hardware write** restores captured state, including the full prior
   V/F table for core-offset writes and explicitly pinned policies for coupled
   power actions. Unpinned peer requests remain driver-derived. Fan Undo restores requested levels and policies, not merely
   observed RPM. Partial or uncertain outcomes remain in the operation log.
-- **V/F curve** opens a large resizable popup: drag a point or type its absolute
+- **V/F curve** is integrated in Classic and opens a large resizable popup in
+  Focused (also available from Classic): drag a point or type its absolute
   physical frequency and use Set MHz. Current curve, draft and a fresh
   operating point are distinct. The current adapter's verified frequency divisor
   converts physical MHz to raw delta units. Undo edit and Revert are local;

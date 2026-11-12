@@ -195,8 +195,8 @@ void curve_workspace(Presentation presentation) {
     live->data.curve.clear();
     live->data.curve_freq_div = 0;
     frame(state, 1920, 1400);
-    check(state.curve_draft.baseline().empty() && !state.curve_draft.dirty() && !state.controls_unlocked,
-        "new adapter/session clears curve edits and unlock without replay");
+    check(state.curve_draft.baseline().empty() && !state.curve_draft.dirty() && state.controls_unlocked,
+        "new adapter/session clears curve edits while preserving unlock preference without replay");
 }
 
 void compact_layout() {
@@ -346,23 +346,96 @@ void compact_curve_layout() {
     apply_theme(1);
 }
 
-void press_key(ViewState& state, ImGuiKey key, bool shift = false, bool control = false) {
+void press_key(ViewState& state, ImGuiKey key, bool shift = false, bool control = false, float width = 1366, float height = 900) {
     auto& io = ImGui::GetIO();
     io.DeltaTime = control ? 0.5f : 1.0f / 60.0f; // Honor legacy Undo's 0.4s repeat bound.
     io.AddKeyEvent(ImGuiMod_Shift, shift);
     io.AddKeyEvent(ImGuiMod_Ctrl, control);
     io.AddKeyEvent(key, true);
-    frame(state, 1366, 900, false);
+    frame(state, width, height, false);
     io.AddKeyEvent(key, false);
     io.AddKeyEvent(ImGuiMod_Shift, false);
     io.AddKeyEvent(ImGuiMod_Ctrl, false);
-    frame(state, 1366, 900, false);
+    frame(state, width, height, false);
     io.DeltaTime = 1.0f / 60.0f;
 }
 
 ImPlotPlot* popup_plot() {
     auto* window = ImGui::FindWindowByName("V/F curve editor###druta_curve_editor");
     return window ? ImPlot::GetCurrentContext()->Plots.GetByKey(window->GetID("##live_curve")) : nullptr;
+}
+
+ImGuiWindow* inline_curve_window() {
+    auto* root = ImGui::FindWindowByName("Druta workspace");
+    if (!root) return nullptr;
+    for (auto* body : ImGui::GetCurrentContext()->Windows) {
+        if (body->ParentWindow != root || body->ChildId != root->GetID("workspace")) continue;
+        for (auto* child : ImGui::GetCurrentContext()->Windows)
+            if (child->ParentWindow == body && child->ChildId == body->GetID("inline-vf-editor")) return child;
+    }
+    return nullptr;
+}
+
+ImPlotPlot* inline_plot() {
+    auto* window = inline_curve_window();
+    return window ? ImPlot::GetCurrentContext()->Plots.GetByKey(window->GetID("##live_curve")) : nullptr;
+}
+
+void inline_curve_input() {
+    ViewState state; state.preview = false; state.presentation = Presentation::classic;
+    auto live = snapshot();
+    live->data.curve_freq_div = 2; live->data.curve_step_khz = 15000;
+    live->data.curve_writable = true; state.live = live;
+    frame(state, 1920, 1400, false); frame(state, 1920, 1400, false);
+    auto* root = ImGui::FindWindowByName("Druta workspace");
+    if (root) for (auto* body : ImGui::GetCurrentContext()->Windows)
+        if (body->ParentWindow == root && body->ChildId == root->GetID("workspace"))
+            ImGui::SetScrollY(body, body->ScrollMax.y);
+    frame(state, 1920, 1400, false);
+    auto* window = inline_curve_window();
+    auto* plot = inline_plot();
+    check(window && window->Active && plot && state.curve_inline_active && !state.curve_window_open,
+        "Classic Daily displays the live curve editor inline by default");
+    check(state.commands.empty(), "displaying the inline editor does not write to hardware");
+    if (!window || !plot) return;
+    ImGui::SetWindowFocus(window->Name); frame(state, 1920, 1400, false);
+    press_key(state, ImGuiKey_W, false, false, 1920, 1400);
+    check(state.curve_draft.draft()[0].delta_khz == 30000, "inline W stages one reported physical bin");
+    press_key(state, ImGuiKey_W, true, false, 1920, 1400);
+    check(state.curve_draft.draft()[0].delta_khz == 120000, "inline Shift+W stages three physical bins");
+    press_key(state, ImGuiKey_D, false, false, 1920, 1400);
+    check(state.selected_curve_point == live->data.curve[1].idx, "inline D selects the next point");
+    press_key(state, ImGuiKey_A, false, false, 1920, 1400);
+    press_key(state, ImGuiKey_S, true, false, 1920, 1400);
+    check(state.selected_curve_point == live->data.curve[0].idx && state.curve_draft.draft()[0].delta_khz == 30000,
+        "inline A and Shift+S select and edit locally");
+    ImGui::SetWindowFocus("Druta workspace"); frame(state, 1920, 1400, false);
+    press_key(state, ImGuiKey_W, false, false, 1920, 1400);
+    check(state.curve_draft.draft()[0].delta_khz == 30000, "background inline editor cannot consume WASD");
+
+    plot = inline_plot();
+    const auto before = state.curve_draft.draft()[1];
+    const ImVec2 dot(plot->Axes[ImAxis_X1].PlotToPixels(before.volt_mv),
+        plot->Axes[ImAxis_Y1].PlotToPixels(before.freq_mhz));
+    auto& io = ImGui::GetIO();
+    io.AddMousePosEvent(dot.x, dot.y); frame(state, 1920, 1400, false);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true); frame(state, 1920, 1400, false);
+    check(state.curve_drag_point && *state.curve_drag_point == before.idx, "inline mouse-down grabs the selected curve point");
+    io.AddMousePosEvent(dot.x, dot.y - 70); frame(state, 1920, 1400, false);
+    io.AddMousePosEvent(1950, 1450); io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    frame(state, 1920, 1400, false);
+    check(!state.curve_drag_point && state.curve_draft.draft()[1].delta_khz != before.delta_khz,
+        "inline drag stages a local edit and ends on release outside the editor");
+    const auto retained = state.curve_draft.draft()[1].delta_khz;
+    state.curve_window_open = true; frame(state, 1920, 1400, false);
+    auto* popup = ImGui::FindWindowByName("V/F curve editor###druta_curve_editor");
+    check(!state.curve_inline_active && popup && popup->Active && popup_plot()
+        && state.curve_draft.draft()[1].delta_khz == retained,
+        "opening the popup replaces the inline editor and preserves its draft");
+    state.curve_window_open = false; frame(state, 1920, 1400, false);
+    window = inline_curve_window();
+    check(state.curve_inline_active && window && window->Active && state.curve_draft.draft()[1].delta_khz == retained
+        && state.commands.empty(), "closing the popup returns to one inline editor without applying the draft");
 }
 
 void popup_input(Presentation presentation) {
@@ -829,7 +902,9 @@ void draft_behavior() {
     state.live = live;
     auto& memory = live->data.controls[static_cast<size_t>(ControlId::memory)];
     auto& draft = state.drafts[static_cast<size_t>(ControlId::memory)];
+    check(state.controls_unlocked, "tuning controls start unlocked");
     frame(state);
+    check(state.commands.empty(), "unlocked startup does not dispatch hardware writes");
     check(!draft.initialized, "missing configured memory request does not create a zero baseline");
     memory.current = 1.25;
     frame(state);
@@ -868,14 +943,23 @@ void draft_behavior() {
     const auto text = frame(state);
     check(draft.initialized && near(draft.value, 5.25), "transient state retains established draft");
     check(contains(text, "last read"), "transient uncertainty remains visible without a repeated diagnostics paragraph");
-    state.controls_unlocked = true;
+    ImGui::ActivateItemByID(header_button("Unlock controls"));
+    frame(state);
+    check(!state.controls_unlocked, "user can explicitly lock controls");
     draft.value = 10;
     draft.dirty = true;
     live->generation = 2;
     memory.current = -2;
     frame(state);
     check(near(draft.value, -2) && !draft.dirty, "new session discards old adapter target");
-    check(!state.controls_unlocked, "new session resets tuning unlock");
+    check(!state.controls_unlocked, "new session preserves an explicit tuning lock");
+    memory.availability = Availability::available;
+    state.presentation = Presentation::focused;
+    draft.value = 10; draft.dirty = true;
+    frame(state);
+    ImGui::ActivateItemByID(control_button(ControlId::memory, "Apply"));
+    frame(state);
+    check(state.commands.empty(), "explicit lock continues to block Apply after a generation change");
     check(state.commands.empty() && !state.select_slot && !state.refresh_requested && !state.reconnect_requested
         && !state.save_profile_requested && !state.load_profile_requested,
         "rendering and readback never create requests implicitly");
@@ -893,6 +977,7 @@ void explicit_profile_intents_and_stock() {
     frame(state, 1920, 1400);
     check(state.save_profile_requested && state.commands.empty(), "Save emits only an explicit dialog intent and needs no tuning unlock");
     state.save_profile_requested = false;
+    state.controls_unlocked = false;
     ImGui::ActivateItemByID(header_button("Load profile..."));
     frame(state, 1920, 1400);
     check(!state.load_profile_requested, "Load remains disabled while tuning controls are locked");
@@ -1054,6 +1139,7 @@ int main() {
     explicit_profile_intents_and_stock();
     curve_workspace(Presentation::focused);
     curve_workspace(Presentation::classic);
+    inline_curve_input();
     popup_input(Presentation::focused);
     popup_input(Presentation::classic);
     curve_apply_acknowledgement(Presentation::focused);

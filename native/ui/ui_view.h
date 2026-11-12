@@ -36,7 +36,7 @@ struct ViewState {
     float fan_percent = 30.0f;
 
     bool preview = true;
-    bool controls_unlocked = false;
+    bool controls_unlocked = true;
     std::shared_ptr<const SessionSnapshot> live;
     bool refresh_requested = false;
     bool reconnect_requested = false;
@@ -67,6 +67,7 @@ struct ViewState {
     bool curve_entry_dirty = false;
     bool curve_entry_editing = false;
     bool curve_window_open = false;
+    bool curve_inline_active = false; // Recomputed each frame; only one editor is drawn.
     bool curve_window_focus_requested = false;
     bool curve_fit_requested = true;
     std::optional<uint32_t> curve_drag_point;

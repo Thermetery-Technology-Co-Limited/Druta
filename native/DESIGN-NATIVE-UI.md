@@ -243,7 +243,11 @@ Undo includes the original curve; power Undo includes understood peer requests a
 fan Undo retains policy as well as level. Their independent capabilities keep
 partial/transient reads separate from unsupported operations. Focused uses
 compact rows; Classic uses the 1.9.1-style composition with the same drafts and
-commands. Both retain the V/F editor popup.
+commands. Classic embeds the editable V/F curve beneath the tuning controls;
+both retain the optional large editor window, sharing one draft and selection.
+Controls start unlocked; an explicit lock choice survives adapter and layout
+changes within the application. Neither unlocking nor opening an editor writes
+hardware or enables XOC, Rail limits or I2C automatically.
 
 The curve workspace uses the verified divisor for physical-MHz editing and raw
 point requests. The expanded popup has large outlined dots, vertical drag, WASD,
