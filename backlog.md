@@ -1,10 +1,24 @@
 # Native frontend parity backlog
 
-Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [nineteenth increment](native/ui/validation/2026-11-13-parity-nineteenth-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
+Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twentieth increment](native/ui/validation/2026-11-13-parity-twentieth-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
 
 Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
 
-## Just completed: optional CUDA timing capture
+## At a glance
+
+Current order: finish installed-offset evidence, then the authorized persistent power-weight workflow, then reconcile the remaining review and validation gaps. Unresolved firmware research stays separate from implemented independent controls. Completed work is checked and struck through; work in progress stays unchecked.
+
+| Workstream | Status | Remaining checklist items |
+| --- | --- | ---: |
+| Current-ROM voltage evidence and installed offsets | Core provider shipped; offsets/layout gaps open | 3 |
+| Persistent power relationship weights | Queued | 8 |
+| Unresolved semantics and final parity reconciliation | Open | 5 |
+| Scoped hardware and legacy Windows validation | Open | 3 |
+| Completed implementation and release-note checkpoints | 25 checked entries | 0 |
+
+**19 open checklist items; 25 completed.** The twentieth increment integrates the ROM getter, graph parser, retained-request capture and production provider for understood layouts. All 122 suites and 22 renderer phases pass. The current 3070 Ti ROM selector layout is still unqualified in both this port and the Python reference; that limitation remains open below.
+
+## Completed: optional CUDA timing capture
 
 Source and acceptance: [CUDA capture map](native/ui/validation/2026-11-13-cuda-capture-port-map.md). [Nineteenth-checkpoint evidence](native/ui/validation/2026-11-13-parity-nineteenth-increment.md): 118 suites and 22 renderer phases pass. This 3070 Ti produced a stable 9427 MHz P2 raw diagnostic below the qualified top band; it did not produce a qualified timing-write snapshot. Lower-P2 qualification remains open below.
 
@@ -14,17 +28,18 @@ Source and acceptance: [CUDA capture map](native/ui/validation/2026-11-13-cuda-c
 - [x] ~~Finish both-skin capture/cancel/status/diagnostic integration, including locked-controls workload use without authorizing tuning holds. Preserve current stable top-band qualification and distinguish qualified P0/P2 from raw below-band diagnostics.~~
 - [x] ~~Run the integrated build, blocked-child/cancel/early-exit/failure tests, existing I2C warmup regression tests and renderer checks; record the checkpoint.~~ The bound covers process/wait ownership, not preemption of a hung parent driver/kernel call.
 
-## Next: production voltage evidence providers
+## Voltage evidence: shipped foundation and remaining work
 
-Implementation contract: [native evidence provider map](native/ui/validation/2026-11-13-native-evidence-provider-map.md). Existing injectable writers and raw definitions do not provide the missing production semantics.
+Implementation contract: [native evidence provider map](native/ui/validation/2026-11-13-native-evidence-provider-map.md). Implemented scope and limitations: [twentieth checkpoint](native/ui/validation/2026-11-13-parity-twentieth-increment.md).
 
-- [ ] Add the typed, paired-target current-ROM getter with bounded buffer/descriptor validation, matching read pairs and distinct absent/transient/malformed/identity outcomes.
-- [ ] Port the pure ROM ownership/table/graph parser: BIT/EFI relocation and bounds, voltage roles, clock roots, sharing, aliases, cycles and dangling references. Derive roles from the current image rather than equation ordinals or board constants.
-- [ ] Expose bounded read-only loaded-equation, rail-policy and retained-request captures; preserve unknown fields as comparison evidence. Distinguish optional getter absence from a selected getter failing.
-- [ ] Wire `VoltageLimitsApi::equation_evidence` to independently matched ROM graph, loaded equations, policies and retained requests. Complete production REL/constants read, selected requests, exact readback, Undo and manual profiles/catalog through those qualified paths.
+- [x] ~~Add the typed, paired-target current-ROM getter with bounded buffer/descriptor validation, matching read pairs and distinct absent/transient/malformed/identity outcomes.~~
+- [x] ~~Port the pure ROM ownership/table/graph parser: BIT/EFI relocation and bounds, voltage roles, clock roots, sharing, aliases, cycles and dangling references. Derive roles from the current image rather than equation ordinals or board constants.~~
+- [x] ~~Expose bounded read-only loaded-equation, rail-policy and retained-request captures; preserve unknown fields as comparison evidence. Distinguish optional getter absence from a selected getter failing.~~
+- [x] ~~Wire `VoltageLimitsApi::equation_evidence` to independently matched ROM graph, loaded equations, policies and retained requests; connect understood REL/constants to the existing selected Apply/readback/Undo/manual-profile paths.~~ This closes wiring for the qualified layouts, not the remaining layout research below.
+- [ ] Qualify additional ROM selector/VFE layouts and complete runtime equation mappings from evidence. The current 3070 Ti's selector header is `20 05 11 01`; the traced parser understands `30 05 41`. Runtime mappings for active ROM equation kinds 2/3/4 are also unresolved. Preserve independent rail requests/device delays and raw definitions while these semantic layouts remain unqualified.
 - [ ] Implement a separately bounded installed-scaffold receipt reader and fresh variable inventory. Reconstruct and verify original/current graph, retained packets, original roots and installed heads; reject stale/forged evidence.
 - [ ] Wire the distinct installed-head offset provider and exact signed selected writer/readback/Undo/profile path. Preserve the original chain and retained requests; never substitute an absolute constant or replay receipt packets. Scaffold installation/activation is not authorized by this session-only provider work.
-- [ ] Validate alternate layouts/identities, partial independent families, transient retention, unknown-byte drift, precision and partial recovery; record production wiring plus integration/UI evidence before closing the semantic voltage gaps.
+- [x] ~~Validate understood alternate layouts/identities, partial independent families, transient retention, malformed failures, unknown-byte drift and graph/inventory changes; record production wiring, integration and renderer evidence.~~ [Twentieth checkpoint](native/ui/validation/2026-11-13-parity-twentieth-increment.md); physical voltage effects and broader semantic layouts remain open.
 
 ## Next: persistent power relationship-weight exception
 
@@ -69,7 +84,7 @@ These are specific remaining capabilities or evidence dependencies, not a reques
 ## Scoped validation still to record
 
 - [ ] Qualify physical controller/timing/voltage/clock effects only for the adapters, controller recipes and operating points actually exercised. Preserve the existing MP2888 evidence scope; mock coverage of other families is not live qualification. Record any unsupported layout independently rather than inventing board/driver gates.
-- [ ] Record actual selected-device PnP restart and relaunch validation with no tuning replay; the helper implementation/read-only tests do not establish physical restart success.
+- [ ] Record actual selected-device PnP restart and relaunch validation; the helper implementation/read-only tests do not establish physical restart success. Ordinary tuning remains session-only; restart persistence is not a validation objective.
 - [ ] Run the applicable native build/execution and recovery checks on Vista/7 branches. Compare with current main refusal/validation logic and report differences; do not retain obsolete refusals as presumed legacy necessities.
 
 ## Separate release-note cleanup

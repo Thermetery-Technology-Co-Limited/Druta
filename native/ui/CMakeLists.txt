@@ -43,7 +43,7 @@ add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp c
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
   i2c_icx.cpp i2c_mp2888_offset.cpp i2c_mp29816.cpp icx_preset.cpp i2c_verify_hold.cpp i2c_warmup.cpp
   tuning_actions.cpp timings_service.cpp timing_transport.cpp perf_view_model.cpp frequency_lock.cpp
-  power_arbitration_service.cpp power_integral_service.cpp voltage_policy_service.cpp voltage_tables_service.cpp voltage_limits_service.cpp power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
+  power_arbitration_service.cpp power_integral_service.cpp voltage_policy_service.cpp voltage_tables_service.cpp voltage_limits_service.cpp voltage_evidence_provider.cpp vbios_voltage_graph.cpp power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
 add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
 add_library(druta_ui_clock_monitor STATIC clock_monitor_model.cpp clock_monitor_service.cpp)
 target_link_libraries(druta_ui_clock_monitor PUBLIC druta_ui_options)
@@ -119,6 +119,11 @@ endif()
 add_executable(druta-ui-client-test tests/core_client_test.cpp)
 target_link_libraries(druta-ui-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
+foreach(voltage_evidence_test IN ITEMS vbios_voltage_graph voltage_evidence_provider)
+  add_executable(druta-ui-${voltage_evidence_test}-test tests/${voltage_evidence_test}_test.cpp)
+  target_link_libraries(druta-ui-${voltage_evidence_test}-test PRIVATE druta_ui_session)
+  add_test(NAME druta-ui-${voltage_evidence_test} COMMAND druta-ui-${voltage_evidence_test}-test)
+endforeach()
 add_executable(druta-ui-policy-profile-client-test tests/policy_profile_client_test.cpp)
 target_link_libraries(druta-ui-policy-profile-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-policy-profile-client COMMAND druta-ui-policy-profile-client-test)

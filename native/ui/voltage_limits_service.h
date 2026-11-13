@@ -5,6 +5,7 @@
 #include "profile_io.h"
 #include "profile_selection.h"
 #include <functional>
+#include <stdexcept>
 #include <vector>
 namespace druta::ui {
 enum class VoltageLimitKind {rel,alt,ov,vmin,switch_delay};
@@ -20,9 +21,13 @@ struct VoltageEquationRole {
     std::vector<uint8_t> info_row,control_identity;
     int64_t stored_lower=0,stored_value=0;
     std::vector<VoltageEquationRoot> roots;
+    VoltagePolicyAvailability availability=VoltagePolicyAvailability::available;
+    std::string message;
 };
 struct VoltageEquationRail {
     bool present=false;
+    VoltagePolicyAvailability availability=VoltagePolicyAvailability::unsupported;
+    std::string message;
     // REL, ALT, OV, VMIN, effective; boost is independently reported.
     std::array<int64_t,5> policy{};std::array<int64_t,4> offsets{};int64_t boost_uv=0;
 };
@@ -37,12 +42,17 @@ struct VoltageEquationEvidence {
     std::vector<uint8_t> policy_identity,rail_requests,clock_requests,computed_curve;
     bool retained_requests_qualified=false;
 };
+struct VoltageEquationEvidenceError:std::runtime_error {
+    VoltagePolicyAvailability kind;
+    VoltageEquationEvidenceError(const std::string& message,VoltagePolicyAvailability value)
+        :std::runtime_error(message),kind(value){}
+};
 struct VoltageLimitsApi {
     VoltagePolicyApi transport;
     decltype(&dc_nvapi_interface_present) interface_present=nullptr;
-    // Missing native semantic dependency: fresh ROM role/dependency inspection
-    // plus independently read policy and retained-request receipts. The host
-    // must not label arbitrary E8192 ordinals as REL/ALT/OV/VMIN.
+    // Fresh ROM role/dependency inspection plus independent policy and retained
+    // request receipts. Production binds this per opened session; injected
+    // clients may provide the same evidence contract without a driver.
     std::function<VoltageEquationEvidence(dc_gpu*,const VoltageEquationPackets&)> equation_evidence;
 };
 struct VoltageLimitRow {

@@ -2203,6 +2203,16 @@ public:
         LOAD(voltage_tables.rails_deltas, dc_rails_deltas); LOAD(voltage_tables.rails_refresh, dc_rails_refresh);
         LOAD(voltage_tables.boost, dc_gpu_voltage_boost_get); LOAD(voltage_tables.interface_present, dc_nvapi_interface_present);
         LOAD(voltage_limits.interface_present, dc_nvapi_interface_present);
+        api_.voltage_evidence.target=api_.voltage_policy;
+        LOAD(voltage_evidence.image, dc_gpu_vbios_image_get);
+        LOAD(voltage_evidence.peers, dc_voltage_peers_read);
+        LOAD(voltage_evidence.sha256, dc_sha256_hex);
+        LOAD(voltage_evidence.blocks, dc_rails_blocks);
+        LOAD(voltage_evidence.state, dc_rails_state);
+        LOAD(voltage_evidence.deltas, dc_rails_deltas);
+        LOAD(voltage_evidence.caches, dc_rails_caches_get);
+        LOAD(voltage_evidence.refresh, dc_rails_refresh);
+        LOAD(voltage_evidence.interface_present, dc_nvapi_interface_present);
         const auto request_set=reinterpret_cast<decltype(&dc_rails_request_packet_set)>(GetProcAddress(module_,"dc_rails_request_packet_set"));
         if (request_set) api_.voltage_tables.public_set=[request_set](dc_gpu* gpu,uint8_t* bytes,size_t length,int32_t& status,dc_error& error) {
             return request_set(gpu,bytes,length,&status,&error);
@@ -2290,7 +2300,12 @@ public:
         last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
         last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
         voltage_tables_=std::make_unique<VoltageTablesService>(api_.voltage_tables,gpu_,opened_);
-        voltage_limits_=std::make_unique<VoltageLimitsService>(api_.voltage_limits,gpu_,opened_);
+        auto limits_api=api_.voltage_limits;
+        // Keep explicitly injected providers for tests/experiments. Production
+        // creates a new target-bound read-only provider for each opened session.
+        if(!limits_api.equation_evidence)
+            limits_api.equation_evidence=make_voltage_equation_provider(api_.voltage_evidence,opened_);
+        voltage_limits_=std::make_unique<VoltageLimitsService>(std::move(limits_api),gpu_,opened_);
         last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());
         last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
         error.clear(); return true;

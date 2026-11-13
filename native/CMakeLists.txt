@@ -146,6 +146,8 @@ add_library(drutacore_impl STATIC
   src/backend/client_power_controller.cpp
   src/backend/perf_diagnostics.cpp
   src/backend/clock_bios.cpp
+  src/backend/vbios_image.cpp
+  src/backend/voltage_peers.cpp
   src/backend/power_arbitration.cpp
   src/backend/rail_limits.cpp
   src/backend/rails.cpp
@@ -189,6 +191,8 @@ add_library(drutacore SHARED
   src/core/abi_client_power_controller.cpp
   src/core/abi_perf_diagnostics.cpp
   src/core/abi_clock_bios.cpp
+  src/core/abi_vbios_image.cpp
+  src/core/abi_voltage_peers.cpp
   src/core/abi_power_arbitration.cpp
   src/core/abi_rail_limits.cpp
   src/core/abi_rails.cpp
@@ -259,3 +263,13 @@ target_include_directories(drutacore-rails-request-packet-test PRIVATE include s
 target_link_libraries(drutacore-rails-request-packet-test PRIVATE drutacore drutacore_impl druta_options)
 druta_windows_binary(drutacore-rails-request-packet-test)
 add_test(NAME drutacore-rails-request-packet COMMAND drutacore-rails-request-packet-test)
+add_executable(drutacore-vbios-image-test tests/vbios_image_test.cpp)
+target_include_directories(drutacore-vbios-image-test PRIVATE include src)
+target_link_libraries(drutacore-vbios-image-test PRIVATE drutacore drutacore_impl druta_options)
+druta_windows_binary(drutacore-vbios-image-test)
+add_test(NAME drutacore-vbios-image COMMAND drutacore-vbios-image-test)
+add_executable(drutacore-voltage-peers-test tests/voltage_peers_test.cpp)
+target_include_directories(drutacore-voltage-peers-test PRIVATE include src)
+target_link_libraries(drutacore-voltage-peers-test PRIVATE drutacore drutacore_impl druta_options)
+druta_windows_binary(drutacore-voltage-peers-test)
+add_test(NAME drutacore-voltage-peers COMMAND drutacore-voltage-peers-test)

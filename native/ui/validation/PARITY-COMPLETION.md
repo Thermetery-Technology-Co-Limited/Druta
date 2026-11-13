@@ -30,8 +30,8 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
 | Voltage gate, VF monotonicity/smoothing | Fifth: independent admission/VF reads, selected requests, atomic-prior-aware recovery, Undo and captured-initial requests. Ninth adds selected native profiles and released Python gate/flag imports with staged explicit Apply; 87-suite and 20-phase renderer validation passed. Current 3070 Ti read-only evidence recorded; physical effects remain unproven |
-| Voltage offset/request tables, REL bounds | Seventh: all six request fields, complete preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Scaffold offsets and semantic REL remain open pending native current-ROM graph + installed-receipt/policy providers; no persistent scaffold activation |
-| Voltage constants and device switch delays | Seventh: independent typed device-delay controls, exact readback, Undo and native profiles implemented/tested. Loaded VFE definitions are inspectable; production semantic constants remain open pending current-ROM role/graph and retained-request provider |
+| Voltage offset/request tables, REL bounds | Seventh: six request fields, preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Twentieth: production ROM/graph/policy/retained-request provider integrated for understood layouts; remaining selector/runtime mappings and installed-scaffold offsets stay open; no persistent scaffold activation |
+| Voltage constants and device switch delays | Seventh: independent typed device delays, exact readback, Undo and native profiles implemented/tested. Twentieth: production factory/provider wiring and REL/ALT/OV/VMIN Apply/Undo/manual profiles tested with injected transports. Current 3070 Ti ROM selector layout remains explicitly unqualified; loaded definitions and independent delay/request paths stay available |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Thirteenth adds qualified adaptive/idle, exclusive GR/counted-request, and opposite ELCG/SLCG handovers; unknown adaptive prior, simultaneous shared GR/count ownership and BLCG ENABLE remain unqualified. 95/95 suites and 22 read-only renderer phases passed. Physical effects remain adapter-specific |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
 | Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
@@ -84,11 +84,13 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the nineteenth increment
+## Remaining scope after the twentieth increment
 
-- Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
-  providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
-  records existing captures and missing bounded interfaces; it is not an implementation.
+- Remaining ROM selector/runtime equation mappings and installed-scaffold
+  receipt/policy evidence for signed offsets. The [twentieth checkpoint](2026-11-13-parity-twentieth-increment.md)
+  records the production ROM/graph/retained-request provider, 122 passing suites
+  and the current 3070 Ti layout limit. The [provider map](2026-11-13-native-evidence-provider-map.md)
+  is the historical contract; installed-offset recognition remains unimplemented.
 - Persistent relationship-weight exception: selected preview, journal, exact registry
   projection, explicit refresh, image/INFO verification and three-way removal. The
   [port map](2026-11-13-relationship-weight-port-map.md) retains all stages and failures.

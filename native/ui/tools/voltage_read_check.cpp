@@ -21,11 +21,17 @@ int wmain(int argc,wchar_t** argv) {
     report["requests"]={{"ok",table_result.ok},{"may_have_changed",table_result.may_have_changed},{"message",table_result.message}};
     if(tables){report["requests"]["complete"]=tables->requests_complete;report["requests"]["rows"]=ProfileJson::array();
         for(const auto& row:tables->rows)report["requests"]["rows"].push_back({{"rail",row.key.rail},{"field",row.key.field},{"available",row.availability==VoltagePolicyAvailability::available},{"writable",row.writable},{"stale",row.stale},{"message",row.message}});}
-    command.operation=Command::Operation::voltage_limits_read;command.voltage_families=2;
+    command.operation=Command::Operation::voltage_limits_read;command.voltage_families=3;
     const auto device_result=backend->execute(command);
     const auto limits=backend->read(false).voltage_limits;
     report["devices"]={{"ok",device_result.ok},{"may_have_changed",device_result.may_have_changed},{"message",device_result.message}};
-    if(limits){report["devices"]["rows"]=ProfileJson::array();for(const auto& row:limits->rows)report["devices"]["rows"].push_back({{"index",row.key.index},{"available",row.availability==VoltagePolicyAvailability::available},{"writable",row.writable},{"stale",row.stale},{"message",row.message}});}
+    if(limits){report["devices"]["rows"]=ProfileJson::array();
+        report["equations"]={{"count",limits->equation_count},{"definitions_stale",limits->definitions_stale},{"message",limits->equations_message},{"rows",ProfileJson::array()}};
+        for(const auto& row:limits->rows){ProfileJson item={{"kind",static_cast<int>(row.key.kind)},{"rail",row.key.rail},{"index",row.key.index},{"available",row.availability==VoltagePolicyAvailability::available},{"availability",static_cast<int>(row.availability)},{"writable",row.writable},{"stale",row.stale},{"message",row.message}};
+            if(row.value)item["value"]=*row.value;if(row.lower)item["lower"]=*row.lower;
+            if(row.stored_value)item["stored_value"]=*row.stored_value;if(row.stored_lower)item["stored_lower"]=*row.stored_lower;
+            if(row.reported)item["reported"]=*row.reported;
+            report[row.key.kind==VoltageLimitKind::switch_delay?"devices":"equations"]["rows"].push_back(std::move(item));}}
     const auto closed=backend->prepare_close();backend->close();
     report["close_ok"]=closed.ok;std::puts(report.dump(2).c_str());
     return table_result.may_have_changed||device_result.may_have_changed||!closed.ok ? 1 : 0;

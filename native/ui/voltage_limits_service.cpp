@@ -29,15 +29,15 @@ std::string hex(const Bytes& b){static constexpr char digits[]="0123456789abcdef
 const char* kind_name(VoltageLimitKind k){switch(k){case VoltageLimitKind::rel:return "REL bounds";case VoltageLimitKind::alt:return "ALT addend";case VoltageLimitKind::ov:return "OV constant";case VoltageLimitKind::vmin:return "VMIN constant";case VoltageLimitKind::switch_delay:return "Switch delay";}return "Unknown";}
 Bytes identity_control(Bytes bytes,bool rel){for(size_t at:rel?std::vector<size_t>{4,8}:std::vector<size_t>{4,8,0x10})put(bytes,at,0);return bytes;}
 struct Guard{VoltagePolicyApi& api;dc_gpu* gpu;bool held;Guard(VoltagePolicyApi& a,dc_gpu* g):api(a),gpu(g),held(a.lock&&a.unlock&&a.lock(g)==DC_OK){}~Guard(){if(held)api.unlock(gpu);}};
-struct Capture{bool device=false;dc_target target{};Bytes info,control;dc_rm_transport transport{};std::optional<VoltageEquationEvidence> evidence;};
+struct Capture{bool device=false;dc_target target{};Bytes info,control;dc_rm_transport transport{};std::optional<VoltageEquationEvidence> evidence;Availability evidence_availability=Availability::unsupported;std::string evidence_message;};
 struct Record{VoltageLimitRequest request;int64_t before=0;std::optional<int64_t> before_lower;dc_rm_transport transport{};};
 bool same_record(const Record& a,const Record& b){return a.request.key==b.request.key&&a.request.binding==b.request.binding&&a.request.value==b.request.value&&a.request.lower==b.request.lower&&a.before==b.before&&a.before_lower==b.before_lower;}
 bool same_records(const std::vector<Record>& a,const std::vector<Record>& b){if(a.size()!=b.size())return false;for(size_t i=0;i<a.size();++i)if(!same_record(a[i],b[i]))return false;return true;}
 std::string role_token(const VoltageEquationRole& r){std::ostringstream s;s<<int(r.key.kind)<<':'<<r.key.rail<<':'<<r.key.index<<':'<<r.next<<':'<<r.variable<<':'<<r.graph_complete<<':'<<r.shared<<':'<<r.affected_clock_roots<<':'<<r.stored_lower<<':'<<r.stored_value<<':'<<hex(r.info_row)<<':'<<hex(r.control_identity);for(const auto& root:r.roots){s<<'/'<<root.rail<<':'<<root.equation<<':'<<root.alt;for(auto i:root.dependencies)s<<','<<i;}return s.str();}
 bool same_evidence(const VoltageEquationEvidence& a,const VoltageEquationEvidence& b){
  if(!term_equal(a.target,b.target)||a.image_sha256!=b.image_sha256||a.boost_percent!=b.boost_percent||a.policy_identity!=b.policy_identity||a.rail_requests!=b.rail_requests||a.clock_requests!=b.clock_requests||a.retained_requests_qualified!=b.retained_requests_qualified)return false;
- if(a.roles.size()!=b.roles.size())return false;for(size_t i=0;i<a.roles.size();++i)if(role_token(a.roles[i])!=role_token(b.roles[i]))return false;
- for(size_t i=0;i<2;++i)if(a.rails[i].present!=b.rails[i].present||a.rails[i].policy!=b.rails[i].policy||a.rails[i].offsets!=b.rails[i].offsets||a.rails[i].boost_uv!=b.rails[i].boost_uv)return false;
+ if(a.roles.size()!=b.roles.size())return false;for(size_t i=0;i<a.roles.size();++i)if(a.roles[i].availability!=b.roles[i].availability||role_token(a.roles[i])!=role_token(b.roles[i]))return false;
+ for(size_t i=0;i<2;++i)if(a.rails[i].present!=b.rails[i].present||a.rails[i].availability!=b.rails[i].availability||a.rails[i].policy!=b.rails[i].policy||a.rails[i].offsets!=b.rails[i].offsets||a.rails[i].boost_uv!=b.rails[i].boost_uv)return false;
  return true; // evaluated curve is observed, not a stable request baseline
 }
 }
@@ -77,15 +77,27 @@ struct VoltageLimitsService::Impl {
   if(p[16])fail("Voltage RM request rejected: "+std::to_string(p[16]),p[16]==0x1F||p[16]==0x56?Availability::unsupported:Availability::transient);
   Bytes result(bytes,bytes+size);if(payload&&result!=*payload)fail("Voltage SET changed its caller-owned request");if(mask&&!std::equal(mask->begin(),mask->end(),result.begin()+4))fail("Voltage CONTROL changed its requested inventory");return result;
  }
- Capture once(bool device,const dc_rm_transport* fixed=nullptr){Capture c;c.device=device;c.target=bind();c.transport=fixed?*fixed:transport();
+ Capture once(bool device,const dc_rm_transport* fixed=nullptr,bool with_evidence=true){Capture c;c.device=device;c.target=bind();c.transport=fixed?*fixed:transport();
   if(!device&&(!api.interface_present||!api.interface_present(gpu,0x8D49471C)||!api.interface_present(gpu,0x4C75C9FE)))fail("VFE definition GET exports unavailable",Availability::unsupported);
   c.info=call(device?dev_info:eq_info,device?0x708:eq_info_size,c.transport);Bytes mask(c.info.begin()+4,c.info.begin()+(device?8:4+1024));
   c.control=call(device?dev_control:eq_control,device?0x188:eq_control_size,c.transport,nullptr,&mask);
   if(c.info[0]!=c.control[0]||!std::equal(mask.begin(),mask.end(),c.control.begin()+4))fail("Voltage INFO/CONTROL group or inventory disagrees");
-  if(!device&&api.equation_evidence){VoltageEquationPackets packets{c.target,c.info,c.control};c.evidence=api.equation_evidence(gpu,packets);if(!term_equal(c.evidence->target,c.target))fail("ROM/policy evidence belongs to a different voltage target");}
+  if(!device&&with_evidence&&api.equation_evidence){
+   try{VoltageEquationPackets packets{c.target,c.info,c.control};c.evidence=api.equation_evidence(gpu,packets);if(!term_equal(c.evidence->target,c.target))fail("ROM/policy evidence belongs to a different voltage target");c.evidence_availability=Availability::available;}
+   catch(const VoltageEquationEvidenceError& e){c.evidence_availability=e.kind;c.evidence_message=e.what();}
+  }
   bind();return c;
  }
- Capture fresh(bool device,const dc_rm_transport* fixed=nullptr){for(int attempt=0;attempt<2;++attempt){try{const auto a=once(device,fixed),b=once(device,fixed);if(a.info!=b.info||a.control!=b.control||a.evidence.has_value()!=b.evidence.has_value()||(a.evidence&&!same_evidence(*a.evidence,*b.evidence)))fail("Voltage state changed between fresh captures",Availability::transient);return b;}
+ Capture fresh(bool device,const dc_rm_transport* fixed=nullptr){for(int attempt=0;attempt<2;++attempt){try{const auto a=once(device,fixed);
+   // Keep raw definition inspection independent of unavailable semantic
+   // dependencies. A malformed/unsupported provider is not called again;
+   // only transient provider failures receive the bounded read-only retry.
+   auto b=once(device,fixed,a.evidence_message.empty());
+   if(!a.evidence_message.empty()){b.evidence_availability=a.evidence_availability;b.evidence_message=a.evidence_message;}
+   if(a.info!=b.info||a.control!=b.control)fail("Voltage definitions changed between fresh captures",Availability::transient);
+   if(b.evidence_message.empty()&&(a.evidence.has_value()!=b.evidence.has_value()||(a.evidence&&!same_evidence(*a.evidence,*b.evidence))))fail("Voltage evidence changed between fresh captures",Availability::transient);
+   if(!b.evidence&&b.evidence_availability==Availability::transient&&!attempt)fail(b.evidence_message,Availability::transient);
+   return b;}
    catch(const Error& e){if(e.kind!=Availability::transient||attempt)throw;if(!fixed&&api.transport.reset_transport)api.transport.reset_transport(gpu,DC_TRANSPORT_POWER);}
    catch(const std::exception& e){if(attempt)fail(e.what(),Availability::transient);if(!fixed&&api.transport.reset_transport)api.transport.reset_transport(gpu,DC_TRANSPORT_POWER);}}
   fail("Bounded voltage read failed",Availability::transient);
@@ -100,15 +112,17 @@ struct VoltageLimitsService::Impl {
   }
   data.equation_count=0;data.definitions.clear();for(uint32_t i=0;i<8192;++i)if(term_present(c.info,i)){++data.equation_count;VoltageLimitsData::Definition definition;definition.index=i;const size_t at=eq_header+i*eq_info_stride,ct=eq_header+i*eq_control_stride;definition.type=c.info[at];definition.next=u16(c.info,at+2);definition.variable=c.info[at+0x6D];
    try{if((definition.type!=3&&definition.type!=6)||c.info[at+0x6C]!=definition.type||c.control[ct]!=definition.type||c.control[ct+0x7C]!=definition.type||c.info[at+0x6E]!=2)fail("Definition type/output layout unqualified",Availability::unsupported);definition.lower=uv(c.control,ct+4);definition.value=uv(c.control,ct+8,definition.type==6);if(*definition.lower>*definition.value)fail("Definition bounds reversed");definition.message="Loaded definition; semantic ROM role unbound";}catch(const std::exception& e){definition.message=e.what();}data.definitions.push_back(std::move(definition));}
-  if(!c.evidence){data.equations_message="VFE definitions captured; native current-ROM role/graph and policy receipt binding unavailable";return rows;}
+  if(!c.evidence){data.equations_message=c.evidence_message.empty()?"VFE definitions captured; native current-ROM role/graph and policy receipt binding unavailable":"VFE definitions captured; "+c.evidence_message;return rows;}
   const auto& evidence=*c.evidence;if(evidence.roles.size()>8)fail("Voltage role manifest has too many semantic roots");
   for(const auto& role:evidence.roles){VoltageLimitRow row;row.key=role.key;row.label=(role.key.rail==0?"NVVDD ":"MSVDD ")+std::string(kind_name(role.key.kind));
    try{if(std::count_if(evidence.roles.begin(),evidence.roles.end(),[&](const auto& r){return r.key==role.key;})!=1)fail("Duplicate voltage role identity");qualify(c,role,row);row.writable=true;row.availability=Availability::available;}catch(const Error& e){row.availability=e.kind;row.message=e.what();}rows.push_back(std::move(row));}
   return rows;
  }
  void qualify(const Capture& c,const VoltageEquationRole& role,VoltageLimitRow& row){const auto& ev=*c.evidence;const auto& key=role.key;const bool rel=key.kind==VoltageLimitKind::rel;
+  if(role.availability!=Availability::available)fail(role.message.empty()?"Selected ROM role could not be qualified":role.message,role.availability);
   if(key.kind==VoltageLimitKind::switch_delay||key.rail>1||key.index>=8192||!role.graph_complete||role.affected_clock_roots||(!rel&&role.shared))fail("Equation role needs a complete, independent ROM graph binding",Availability::unsupported);
-  if(ev.image_sha256.size()!=64||ev.image_sha256.find_first_not_of("0123456789abcdef")!=std::string::npos||!ev.retained_requests_qualified||ev.policy_identity.empty()||!ev.rails[key.rail].present)fail("Current image, retained requests or independent rail policy binding unavailable",Availability::unsupported);
+  if(!ev.rails[key.rail].present)fail(ev.rails[key.rail].message.empty()?"Independent selected rail policy binding unavailable":ev.rails[key.rail].message,ev.rails[key.rail].availability);
+  if(ev.image_sha256.size()!=64||ev.image_sha256.find_first_not_of("0123456789abcdef")!=std::string::npos||!ev.retained_requests_qualified||ev.policy_identity.empty())fail("Current image or retained request binding unavailable",Availability::unsupported);
   if(ev.boost_percent&&(*ev.boost_percent<0||*ev.boost_percent>100))fail("Retained boost request is not a canonical percentage");
   for(const auto& rail:ev.rails)if(rail.present){for(auto value:rail.policy)if(value<1||uint64_t(value)>UINT32_MAX)fail("Reported policy is not canonical positive microvolts");for(auto offset:rail.offsets)if(offset<INT32_MIN||offset>INT32_MAX)fail("Retained policy offset is not signed microvolts");if(rail.boost_uv<0||uint64_t(rail.boost_uv)>UINT32_MAX)fail("Reported boost offset is malformed");}
   Bytes stored(4);put_uv(stored,0,role.stored_value,key.kind!=VoltageLimitKind::alt);if(rel){put_uv(stored,0,role.stored_lower);if(role.stored_lower>role.stored_value)fail("Stored ROM REL bounds are reversed");}
@@ -133,8 +147,8 @@ struct VoltageLimitsService::Impl {
     if(row.writable&&row.value){const bool same=old!=data.rows.end()&&old->binding==row.binding;row.initial_value=same?old->initial_value:row.value;row.initial_lower=same?old->initial_lower:row.lower;}
     else if(old!=data.rows.end()&&old->value){const auto message=row.message;const auto availability=row.availability;row=*old;row.stale=true;row.writable=false;row.message=message;row.availability=availability;retained=true;}}
   for(const auto& old:data.rows)if((old.key.kind==VoltageLimitKind::switch_delay)==c.device&&std::none_of(rows.begin(),rows.end(),[&](const auto& r){return r.key==old.key;})){
-    auto stale=old;stale.stale=true;stale.writable=false;stale.availability=c.device?Availability::unsupported:Availability::transient;
-    stale.message=c.device?"Device absent from current inventory; retained last-good reading":"Current ROM role evidence did not reconfirm this control; retained last-good reading";rows.push_back(std::move(stale));retained=true;}
+    auto stale=old;stale.stale=true;stale.writable=false;stale.availability=c.device?Availability::unsupported:(!c.evidence_message.empty()?c.evidence_availability:Availability::transient);
+    stale.message=c.device?"Device absent from current inventory; retained last-good reading":(!c.evidence_message.empty()?c.evidence_message+"; retained last-good reading":"Current ROM role evidence did not reconfirm this control; retained last-good reading");rows.push_back(std::move(stale));retained=true;}
   data.rows.erase(std::remove_if(data.rows.begin(),data.rows.end(),[&](const auto& r){return (r.key.kind==VoltageLimitKind::switch_delay)==c.device;}),data.rows.end());data.rows.insert(data.rows.end(),rows.begin(),rows.end());
   if(c.device)data.devices_message="Read "+std::to_string(data.device_count)+" voltage devices; only qualified PWM delays are writable";
   else {data.definitions_stale=false;if(c.evidence)data.equations_message="Read "+std::to_string(data.equation_count)+" loaded equations with current ROM role evidence";}

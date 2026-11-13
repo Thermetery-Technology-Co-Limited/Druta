@@ -10,6 +10,7 @@
 #include "voltage_policy_service.h"
 #include "voltage_tables_service.h"
 #include "voltage_limits_service.h"
+#include "voltage_evidence_provider.h"
 #include "power_saving_service.h"
 #include "clock_gating_service.h"
 namespace druta::ui {
@@ -22,6 +23,7 @@ struct CoreApi {
     VoltagePolicyApi voltage_policy{};
     VoltageTablesApi voltage_tables{};
     VoltageLimitsApi voltage_limits{};
+    VoltageEvidenceApi voltage_evidence{};
     PowerSavingApi power_saving{};
     ClockGatingApi clock_gating{};
     TuningApi tuning{};

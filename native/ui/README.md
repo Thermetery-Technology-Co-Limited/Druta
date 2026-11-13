@@ -384,8 +384,8 @@ another board.
 
 The preceding observations are historical, adapter-specific qualification.
 Subsequent checkpoints below implement Monitor, saving controls and selected
-profile composition. Current implementation gaps are native ROM/role and
-installed-scaffold evidence providers plus the narrow persistent relationship-
+profile composition. Current implementation gaps are additional ROM/runtime
+layout qualification, installed-scaffold evidence and the narrow persistent relationship-
 weight workflow. Physical timing/controller effects, actual device restart and
 Vista/7 execution retain their scoped validation limits. See the current
 [completion ledger](validation/PARITY-COMPLETION.md) and [backlog](../../backlog.md).
@@ -484,10 +484,14 @@ preserves unrelated fields, and verifies the full result. Undo, captured-initial
 Restore and recovery remain explicit. Selected native profiles save typed values;
 Load stages a draft and never enables a gate or applies settings automatically.
 
-Scaffold offsets and semantic REL/constants remain unavailable until the native
-ROM graph and installed-definition receipt paths are implemented. Reading loaded
-VFE ordinals does not qualify them as a particular voltage role. Device delays
-have an independent capability path and remain usable when those roles are absent.
+Semantic REL/constants now have a production current-ROM graph, independent
+policy and retained-request provider for the understood layouts. Complete loaded
+graph identity must match before a role becomes writable; reading numeric VFE
+ordinals alone is insufficient. The tested 3070 Ti selector layout remains
+unqualified in both this port and the Python reference. Installed-scaffold offset
+evidence is still pending. Device delays and ordinary rail requests retain their
+independent capability paths. See the [twentieth checkpoint](validation/2026-11-13-parity-twentieth-increment.md)
+for the qualified scope, tests and read-only hardware results.
 
 **Capture at performance band** validates the selected timing helper and uses
 qualified current P0 first. With tuning unlocked it can acquire a temporary
