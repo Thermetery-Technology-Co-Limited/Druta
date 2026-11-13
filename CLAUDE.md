@@ -8,6 +8,11 @@ newer standing instruction, bring the other one up to date.
 
 ## Session-only tuning
 
+The current session is for released Python 1.9.1 UI/behavior parity and the
+user's explicit layout differences. Follow AGENTS.md: no purely theoretical
+issues, improvements beyond that scope, or closed GitHub issues. Check issue
+state before issue-linked work; keep broader research/qualification deferred.
+
 Undo and manual saved-profile integration for qualified controls are now in
 scope, as recorded in AGENTS.md. Unresolved control research remains separate.
 

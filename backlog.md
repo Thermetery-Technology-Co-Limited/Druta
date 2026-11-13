@@ -4,23 +4,33 @@ Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native ch
 
 Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
 
+## Session scope
+
+Work only on concrete missing or mismatched functionality from released Python
+1.9.1, plus the user-approved layout differences. Do not pursue purely theoretical
+issues, improvements beyond parity, or closed GitHub issues. Check an issue's
+current state before starting work linked to it. Necessary tests/readback for
+an actual port remain part of that port.
+
+The deferred section below preserves limitations and previous validation requests
+without treating them as active parity tasks or marking them complete.
+
 ## At a glance
 
-Current order: finish installed-offset selected writes and verification, then the authorized persistent power-weight workflow, then reconcile the remaining review and validation gaps. Unresolved firmware research stays separate from implemented independent controls. Completed work is checked and struck through; work in progress stays unchecked.
+Current order: finish installed-offset selected writes, port the released power-weight workflow, then reconcile the original review against the release. Completed work is checked and struck through; work in progress stays unchecked. Broader research and validation campaigns are deferred.
 
 | Workstream | Status | Remaining checklist items |
 | --- | --- | ---: |
-| Current-ROM voltage evidence and installed offsets | Providers and offset inspection shipped; writes/layout gaps open | 2 |
+| Installed voltage offsets | Released selected-write/Undo/profile path remains | 1 |
 | Persistent power relationship weights | Queued | 8 |
-| Unresolved semantics and final parity reconciliation | Open | 5 |
-| Scoped hardware and legacy Windows validation | Open | 3 |
+| Final released-parity reconciliation | Queued | 1 |
 | Completed implementation and release-note checkpoints | 26 checked entries | 0 |
 
-**18 open checklist items; 26 completed.** The twenty-first increment adds bounded installed-receipt parsing, fresh variable/equation capture and explicit read-only offset recognition in both skins. All 127 suites and 22 renderer phases pass. This 3070 Ti has no installed scaffold receipt, and its ROM selector layout remains unqualified in both this port and the Python reference. Offset Apply/Undo/profiles and those layout limitations remain open below.
+**10 active parity checklist items; 26 completed; 8 deferred outside this session.** The twenty-first increment adds bounded installed-receipt parsing, fresh variable/equation capture and explicit read-only offset recognition in both skins. All 127 suites and 22 renderer phases pass. This 3070 Ti has no installed scaffold receipt, and its ROM selector layout remains unqualified in both this port and the Python reference. Offset Apply/Undo/profiles remain active below; expanding the layouts understood by the Python reference is deferred.
 
 ## Completed: optional CUDA timing capture
 
-Source and acceptance: [CUDA capture map](native/ui/validation/2026-11-13-cuda-capture-port-map.md). [Nineteenth-checkpoint evidence](native/ui/validation/2026-11-13-parity-nineteenth-increment.md): 118 suites and 22 renderer phases pass. This 3070 Ti produced a stable 9427 MHz P2 raw diagnostic below the qualified top band; it did not produce a qualified timing-write snapshot. Lower-P2 qualification remains open below.
+Source and acceptance: [CUDA capture map](native/ui/validation/2026-11-13-cuda-capture-port-map.md). [Nineteenth-checkpoint evidence](native/ui/validation/2026-11-13-parity-nineteenth-increment.md): 118 suites and 22 renderer phases pass. This 3070 Ti produced a stable 9427 MHz P2 raw diagnostic below the qualified top band; it did not produce a qualified timing-write snapshot. Lower-P2 qualification beyond the released operating band is deferred.
 
 - [x] ~~Integrate the optional exact-BDF CUDA child, shared driver loader and owned process/job cleanup. Missing CUDA DLL/exports leave direct/manual capture available with a specific reason.~~
 - [x] ~~Integrate direct-P0-first → permitted owned hold → workload fallback; capture while load remains active. Require verified cleanup before fallback after an uncertain hold; preserve existing foreign/owned requests.~~
@@ -35,8 +45,7 @@ Implementation contract: [native evidence provider map](native/ui/validation/202
 - [x] ~~Add the typed, paired-target current-ROM getter with bounded buffer/descriptor validation, matching read pairs and distinct absent/transient/malformed/identity outcomes.~~
 - [x] ~~Port the pure ROM ownership/table/graph parser: BIT/EFI relocation and bounds, voltage roles, clock roots, sharing, aliases, cycles and dangling references. Derive roles from the current image rather than equation ordinals or board constants.~~
 - [x] ~~Expose bounded read-only loaded-equation, rail-policy and retained-request captures; preserve unknown fields as comparison evidence. Distinguish optional getter absence from a selected getter failing.~~
-- [x] ~~Wire `VoltageLimitsApi::equation_evidence` to independently matched ROM graph, loaded equations, policies and retained requests; connect understood REL/constants to the existing selected Apply/readback/Undo/manual-profile paths.~~ This closes wiring for the qualified layouts, not the remaining layout research below.
-- [ ] Qualify additional ROM selector/VFE layouts and complete runtime equation mappings from evidence. The current 3070 Ti's selector header is `20 05 11 01`; the traced parser understands `30 05 41`. Runtime mappings for active ROM equation kinds 2/3/4 are also unresolved. Preserve independent rail requests/device delays and raw definitions while these semantic layouts remain unqualified.
+- [x] ~~Wire `VoltageLimitsApi::equation_evidence` to independently matched ROM graph, loaded equations, policies and retained requests; connect understood REL/constants to the existing selected Apply/readback/Undo/manual-profile paths.~~ This closes wiring for the released understood layouts; broader layout research is deferred.
 - [x] ~~Implement a separately bounded installed-scaffold receipt reader and fresh variable inventory. Reconstruct and verify original/current graph, retained equation packets, original roots and installed heads; reject stale/forged evidence.~~ [Twenty-first checkpoint](native/ui/validation/2026-11-13-parity-twenty-first-increment.md): explicit inspection is wired through the production factory and both skins. Captured values remain read-only; independent policy/clock/rail preservation for writes is the next item.
 - [ ] Connect the recognized installed heads to the exact signed selected writer/readback/Undo/profile path, with fresh independent policy effects and retained clock/rail request verification. Preserve the original chain and unknown fields; never substitute an absolute constant or replay receipt packets. Scaffold installation/activation is not authorized by this session-only provider work.
 - [x] ~~Validate understood alternate layouts/identities, partial independent families, transient retention, malformed failures, unknown-byte drift and graph/inventory changes; record production wiring, integration and renderer evidence.~~ [Twentieth checkpoint](native/ui/validation/2026-11-13-parity-twentieth-increment.md); physical voltage effects and broader semantic layouts remain open.
@@ -54,14 +63,10 @@ Bounded authorized scope and source: [relationship-weight map](native/ui/validat
 - [ ] Implement explicit three-way removal/recovery of transaction-owned names only, restoring exact prior type/value or absence, preserving unrelated additions and refusing third-value conflicts. Refresh and verify original image/INFO afterward.
 - [ ] Add read/preview/apply/verify/removal/recovery UI and adversarial transaction tests; integrate the production adapters and record scoped runtime validation. Keep general persistent BIOS/registry editing outside this narrow exception.
 
-## Semantic qualifications still unresolved
+## Final parity reconciliation
 
-These are specific remaining capabilities or evidence dependencies, not a request to disable implemented independent controls or to infer support from local hardware.
+Use the released source and the original reviews to find concrete omissions. Do not convert unsupported release behavior or speculative combinations into new implementation tasks.
 
-- [ ] Establish a typed known prior for adaptive-policy cases that currently report it unknown before permitting reversible writes in those cases.
-- [ ] Resolve simultaneous shared GR/count ownership semantics and BLCG ENABLE before offering those presently unqualified combinations/modes. Existing exclusive GR/count and qualified clock-mode handovers remain implemented ([thirteenth evidence](native/ui/validation/2026-11-13-parity-thirteenth-increment.md)).
-- [ ] Resolve lower-P2 timing-band equivalence only from authoritative layout evidence or independently bound current-adapter observations. The CUDA port must retain the current top-band floor until then; no developer-board clock exceptions.
-- [ ] Retain explicit composition limits where iCX's floor clamp conflicts with timing or another controller. Extend only after dependency/preflight/readback/Undo semantics are qualified; ordinary qualified iCX composition is complete ([seventeenth evidence](native/ui/validation/2026-11-13-parity-seventeenth-increment.md)).
 - [ ] After the provider increments, reconcile every applicable original-review row and advertised profile scope against current behavior and evidence. The [historical profile audit](native/ui/validation/2026-11-13-profile-scope-gap-map.md) predates completed imports; do not reopen those implementations or count the remaining provider-dependent scopes as ported.
 
 ## Completed implementation checkpoints
@@ -81,11 +86,27 @@ These are specific remaining capabilities or evidence dependencies, not a reques
 - [x] ~~Qualified iCX-last composition, controller-first Undo, typed partial recovery and retired-lifecycle protection.~~ [Seventeenth checkpoint](native/ui/validation/2026-11-13-parity-seventeenth-increment.md).
 - [x] ~~Full-profile Unicode power labels, immutable retained completion delivery, current identity qualification and conflict-aware chained metadata Undo independent of hardware failure.~~ [Eighteenth checkpoint](native/ui/validation/2026-11-13-parity-eighteenth-increment.md): 114 suites, 22 renderer phases and the documented read-only metadata probe passed.
 
-## Scoped validation still to record
+## Deferred outside this parity session
 
-- [ ] Qualify physical controller/timing/voltage/clock effects only for the adapters, controller recipes and operating points actually exercised. Preserve the existing MP2888 evidence scope; mock coverage of other families is not live qualification. Record any unsupported layout independently rather than inventing board/driver gates.
-- [ ] Record actual selected-device PnP restart and relaunch validation; the helper implementation/read-only tests do not establish physical restart success. Ordinary tuning remains session-only; restart persistence is not a validation objective.
-- [ ] Run the applicable native build/execution and recovery checks on Vista/7 branches. Compare with current main refusal/validation logic and report differences; do not retain obsolete refusals as presumed legacy necessities.
+These are unresolved or previously requested follow-ups, not completed work and
+not blockers to matching the released UI/behavior. Existing limitations remain
+visible. Do not work on these during this session without new direction:
+
+- Additional ROM/VFE layouts and runtime mappings beyond the released parser.
+  Both versions reject the documented 3070 Ti selector layout.
+- Adaptive-policy restoration where the prior value is unknown: further ownership
+  qualification, not an established missing released path.
+- Simultaneous shared GR/count ownership and BLCG ENABLE. The released Python
+  implementation documents the ownership limitation and explicitly refuses BLCG ENABLE.
+- Lower-P2 timing-band equivalence beyond the release's existing qualification band.
+- Expanding iCX composition to timing or another controller. This is broader than
+  the released profile workflow.
+- Broad physical qualification across other controllers, adapters and operating
+  points. Retain existing scoped evidence; validate a concrete port when needed.
+- A separate physical PnP restart/relaunch validation campaign. The implemented
+  workflow remains available; ordinary tuning must remain session-only.
+- Vista/7 branch build/runtime/recovery validation. This prior compatibility
+  request is deferred, not cancelled or claimed complete.
 
 ## Separate release-note cleanup
 

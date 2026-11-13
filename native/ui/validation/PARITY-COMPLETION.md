@@ -5,6 +5,13 @@ and [Focused inventory](2026-11-12-focused-port-inventory.md), using Python rele
 `fa6ee83` as the reference. The original inventories remain revision-pinned.
 This ledger records subsequent completion evidence without narrowing their scope.
 
+Session scope clarified by the user on 2026-11-13: implement concrete released
+Python 1.9.1 UI/behavior gaps and the explicit layout requests. Do not work on
+purely theoretical issues, improvements beyond parity, or closed GitHub issues.
+The current [backlog](../../../backlog.md) separates active parity work from
+deferred research and broader validation. Historical limitations below remain
+recorded; deferred work is neither complete nor an active-session blocker.
+
 ## Required work
 
 | Requirement | Current status / evidence |
