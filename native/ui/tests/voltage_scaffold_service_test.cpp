@@ -27,7 +27,8 @@ int main(){
     CHECK(service.state().requests_complete);
     const auto row=find();const VoltageTableRequest request{row.key,0,row.binding,row.value};
     CHECK(!service.apply(request).ok&&device.sets==before_sets);
-    bool rejected=false;try{capture_voltage_tables_profile(service.state(),{row.key});}catch(const std::exception&){rejected=true;}CHECK(rejected);
+    const auto saved=capture_voltage_tables_profile(service.state(),{row.key});
+    CHECK(saved.at("format")=="druta-native-voltage-offsets"&&stage_voltage_tables_profile(saved,service.state()).front().value==-25000);
     mode=1;CHECK(!service.read(2).offsets_recognized&&find().stale&&find().value==-25000&&find().availability==VoltagePolicyAvailability::transient);
     CHECK(service.state().requests_complete&&calls==2);
     mode=0;CHECK(service.read(2).offsets_recognized&&!find().stale);

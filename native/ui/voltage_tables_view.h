@@ -15,7 +15,7 @@ struct VoltageTablesDraft {
 };
 struct VoltageTablesViewState {
     bool initialized=false;uint64_t generation=0;
-    std::vector<VoltageTablesDraft> drafts;std::vector<VoltageTableRequest> staged;
+    std::vector<VoltageTablesDraft> drafts;std::vector<VoltageTableRequest> staged,offsets_staged;
     std::string status;
 };
 std::optional<int32_t> parse_voltage_table_mv(const std::string& text);

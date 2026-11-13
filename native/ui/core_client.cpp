@@ -3,6 +3,8 @@
 #include "core_client.h"
 #include "fan_profile.h"
 #include "profile_io.h"
+#include "voltage_offsets_profile.h"
+#include "voltage_offsets_capture.h"
 #include "curve_profile.h"
 #include "scoped_profile.h"
 #include "profile_catalog.h"
@@ -119,15 +121,17 @@ class Client final : public IBackend {
                 out.message=data.message;
             } else if (cmd.operation==Command::Operation::voltage_tables_save) {
                 if (!cmd.voltage_table_selection || cmd.profile_path.empty()) throw std::runtime_error("Choose voltage fields and a profile path");
-                const auto& fresh=voltage_tables_->read();
-                write_profile(cmd.profile_path,capture_voltage_tables_profile(fresh,*cmd.voltage_table_selection));
+                const auto& fresh=voltage_tables_->read(cmd.voltage_families);
+                write_profile(cmd.profile_path,cmd.voltage_families==2?capture_voltage_offsets_profile(fresh,*cmd.voltage_table_selection):capture_voltage_tables_profile(fresh,*cmd.voltage_table_selection));
                 out.ok=true; out.message="Selected voltage requests saved; no settings applied";
             } else {
                 VoltageTablesResult result;
                 if (cmd.operation==Command::Operation::voltage_tables_apply && cmd.voltage_table_requests) result=voltage_tables_->apply(*cmd.voltage_table_requests);
                 else if (cmd.operation==Command::Operation::voltage_tables_restore && cmd.voltage_table_selection && cmd.voltage_table_selection->size()==1) result=voltage_tables_->restore_initial(cmd.voltage_table_selection->front());
-                else if (cmd.operation==Command::Operation::voltage_tables_undo) result=voltage_tables_->undo();
-                else if (cmd.operation==Command::Operation::voltage_tables_recover) result=voltage_tables_->recover();
+                // Older callers use the default read mask (3); their Undo
+                // still belongs to requests. Offsets require explicit family 2.
+                else if (cmd.operation==Command::Operation::voltage_tables_undo) result=voltage_tables_->undo(cmd.voltage_families==3?1:cmd.voltage_families);
+                else if (cmd.operation==Command::Operation::voltage_tables_recover) result=voltage_tables_->recover(cmd.voltage_families==3?1:cmd.voltage_families);
                 else throw std::runtime_error("Missing or invalid voltage request table operation");
                 out.ok=result.ok; out.may_have_changed=result.may_have_changed; out.message=result.message;
             }
@@ -1596,7 +1600,7 @@ class Client final : public IBackend {
             // preflight. A lower-only file may rely on another file's upper.
             std::vector<PowerIntegralRequest> integral_requests;std::optional<PowerIntegralData> integral_data;
             std::optional<VoltagePolicyRequest> admission_request,vf_request;
-            std::vector<VoltageTableRequest> table_requests;std::shared_ptr<const VoltageTablesData> table_data;
+            std::vector<VoltageTableRequest> table_requests,offset_requests;
             std::vector<VoltageLimitRequest> limit_requests;std::shared_ptr<const VoltageLimitsData> limit_data;
             std::vector<PowerSavingRequest> saving_requests;std::shared_ptr<const PowerSavingData> saving_data;
             std::vector<ClockGatingRequest> gating_requests;std::shared_ptr<const ClockGatingData> gating_data;
@@ -1617,9 +1621,10 @@ class Client final : public IBackend {
                 }
                 if(plan.scope==ProfileScope::voltage_tables){
                     if(!voltage_tables_)throw std::runtime_error("Voltage request service unavailable");
-                    if(!table_data)table_data=std::make_shared<VoltageTablesData>(voltage_tables_->read(1));
-                    const auto requests=stage_voltage_tables_profile(plan.document,*table_data);
-                    table_requests.insert(table_requests.end(),requests.begin(),requests.end());continue;
+                    const bool offsets=plan.document.value("format",ProfileJson())=="druta-native-voltage-offsets"||plan.document.value("scope",ProfileJson())=="voltage_offsets";
+                    const auto fresh=std::make_shared<VoltageTablesData>(voltage_tables_->read(offsets?2u:1u));
+                    const auto requests=offsets?stage_voltage_offsets_profile(plan.document,*fresh):stage_voltage_tables_profile(plan.document,*fresh);
+                    auto& selected=offsets?offset_requests:table_requests;selected.insert(selected.end(),requests.begin(),requests.end());continue;
                 }
                 if(plan.scope==ProfileScope::voltage_limits){
                     if(!voltage_limits_)throw std::runtime_error("Voltage definitions/device delay service unavailable");
@@ -1678,10 +1683,10 @@ class Client final : public IBackend {
                 const auto checked=voltage_policy_->preview(*selected);last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());
                 if(!checked.ok)throw std::runtime_error(checked.message);CatalogPrepared plan;plan.scope=ProfileScope::voltage_policy;plan.name=selected->selection==1?"Voltage admission":"Selected VF flags";plan.voltage_policy=selected;plans.push_back(std::move(plan));
             }
-            if(!table_requests.empty()){
-                CatalogPrepared plan;plan.scope=ProfileScope::voltage_tables;plan.name="Selected voltage requests";
-                const auto projected=admission_request&&(admission_request->values&voltage_admission)?std::optional<bool>(true):std::nullopt;
-                plan.voltage_tables=voltage_tables_->preview(table_requests,projected);
+            for(const bool offsets:{false,true}){const auto& selected=offsets?offset_requests:table_requests;if(selected.empty())continue;
+                CatalogPrepared plan;plan.scope=ProfileScope::voltage_tables;plan.name=offsets?"Selected installed policy offsets":"Selected voltage requests";
+                const auto projected=!offsets&&admission_request&&(admission_request->values&voltage_admission)?std::optional<bool>(true):std::nullopt;
+                plan.voltage_tables=voltage_tables_->preview(selected,projected);
                 if(!plan.voltage_tables->ok)throw std::runtime_error(plan.voltage_tables->message);plans.push_back(std::move(plan));
             }
             if(!limit_requests.empty()){
@@ -2302,6 +2307,7 @@ public:
         last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
         last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
         auto tables_api=api_.voltage_tables;
+        if(!tables_api.offsets_api.capture){tables_api.offsets_api.transport=api_.voltage_limits;tables_api.offsets_api.capture=make_voltage_offsets_capture(api_.voltage_evidence,opened_);}
         if(!tables_api.scaffold_read)
             tables_api.scaffold_read=make_voltage_scaffold_provider(api_.voltage_evidence,opened_);
         voltage_tables_=std::make_unique<VoltageTablesService>(std::move(tables_api),gpu_,opened_);

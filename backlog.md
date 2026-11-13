@@ -1,6 +1,6 @@
 # Native frontend parity backlog
 
-Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-first increment](native/ui/validation/2026-11-13-parity-twenty-first-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
+Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-second increment](native/ui/validation/2026-11-13-parity-twenty-second-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
 
 Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
 
@@ -17,16 +17,16 @@ without treating them as active parity tasks or marking them complete.
 
 ## At a glance
 
-Current order: finish installed-offset selected writes, port the released power-weight workflow, then reconcile the original review against the release. Completed work is checked and struck through; work in progress stays unchecked. Broader research and validation campaigns are deferred.
+Current order: port the released power-weight workflow, then reconcile the original review against the release. Completed work is checked and struck through; work in progress stays unchecked. Broader research and validation campaigns are deferred.
 
 | Workstream | Status | Remaining checklist items |
 | --- | --- | ---: |
-| Installed voltage offsets | Released selected-write/Undo/profile path remains | 1 |
+| Installed voltage offsets | Selected-write/Undo/profile path implemented and tested | 0 |
 | Persistent power relationship weights | Queued | 8 |
 | Final released-parity reconciliation | Queued | 1 |
-| Completed implementation and release-note checkpoints | 26 checked entries | 0 |
+| Completed implementation and release-note checkpoints | 27 checked entries | 0 |
 
-**10 active parity checklist items; 26 completed; 8 deferred outside this session.** The twenty-first increment adds bounded installed-receipt parsing, fresh variable/equation capture and explicit read-only offset recognition in both skins. All 127 suites and 22 renderer phases pass. This 3070 Ti has no installed scaffold receipt, and its ROM selector layout remains unqualified in both this port and the Python reference. Offset Apply/Undo/profiles remain active below; expanding the layouts understood by the Python reference is deferred.
+**9 active parity checklist items; 27 completed; 8 deferred outside this session.** The twenty-second increment connects recognized installed offsets to signed selected Apply/readback, initial Restore, Undo/recovery and manual native/Python profiles in both skins. All 134 suites and 22 renderer phases pass. This 3070 Ti has no installed scaffold receipt, so physical offset writes are not qualified by this checkpoint. Expanding the layouts understood by the Python reference remains deferred.
 
 ## Completed: optional CUDA timing capture
 
@@ -46,8 +46,8 @@ Implementation contract: [native evidence provider map](native/ui/validation/202
 - [x] ~~Port the pure ROM ownership/table/graph parser: BIT/EFI relocation and bounds, voltage roles, clock roots, sharing, aliases, cycles and dangling references. Derive roles from the current image rather than equation ordinals or board constants.~~
 - [x] ~~Expose bounded read-only loaded-equation, rail-policy and retained-request captures; preserve unknown fields as comparison evidence. Distinguish optional getter absence from a selected getter failing.~~
 - [x] ~~Wire `VoltageLimitsApi::equation_evidence` to independently matched ROM graph, loaded equations, policies and retained requests; connect understood REL/constants to the existing selected Apply/readback/Undo/manual-profile paths.~~ This closes wiring for the released understood layouts; broader layout research is deferred.
-- [x] ~~Implement a separately bounded installed-scaffold receipt reader and fresh variable inventory. Reconstruct and verify original/current graph, retained equation packets, original roots and installed heads; reject stale/forged evidence.~~ [Twenty-first checkpoint](native/ui/validation/2026-11-13-parity-twenty-first-increment.md): explicit inspection is wired through the production factory and both skins. Captured values remain read-only; independent policy/clock/rail preservation for writes is the next item.
-- [ ] Connect the recognized installed heads to the exact signed selected writer/readback/Undo/profile path, with fresh independent policy effects and retained clock/rail request verification. Preserve the original chain and unknown fields; never substitute an absolute constant or replay receipt packets. Scaffold installation/activation is not authorized by this session-only provider work.
+- [x] ~~Implement a separately bounded installed-scaffold receipt reader and fresh variable inventory. Reconstruct and verify original/current graph, retained equation packets, original roots and installed heads; reject stale/forged evidence.~~ [Twenty-first checkpoint](native/ui/validation/2026-11-13-parity-twenty-first-increment.md): explicit inspection is wired through the production factory and both skins. The next completed item adds independent policy/clock/rail preservation for selected writes.
+- [x] ~~Connect the recognized installed heads to the exact signed selected writer/readback/Undo/profile path, with fresh independent policy effects and retained clock/rail request verification. Preserve the original chain and unknown fields; never substitute an absolute constant or replay receipt packets.~~ [Twenty-second checkpoint](native/ui/validation/2026-11-13-parity-twenty-second-increment.md): both-skin actions, actual CoreClient routing and native/Python catalog round trips pass with injected transports. Scaffold installation/activation and physical writes on this card are not supplied by this work.
 - [x] ~~Validate understood alternate layouts/identities, partial independent families, transient retention, malformed failures, unknown-byte drift and graph/inventory changes; record production wiring, integration and renderer evidence.~~ [Twentieth checkpoint](native/ui/validation/2026-11-13-parity-twentieth-increment.md); physical voltage effects and broader semantic layouts remain open.
 
 ## Next: persistent power relationship-weight exception

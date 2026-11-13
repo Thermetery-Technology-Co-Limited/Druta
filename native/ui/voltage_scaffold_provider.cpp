@@ -68,7 +68,7 @@ struct Provider {
    const auto recognized=recognize_installed_voltage_scaffold(plan,current_image,loaded);if(!recognized.ok)fail("Installed scaffold recognition failed: "+recognized.message);
    const auto final_directory=host.state_directory?host.state_directory():default_directory();require(final_directory==directory,"Scaffold state directory changed during read");const auto final_windows=windows(gpu,target);require(same_windows(selected_windows,final_windows),"Scaffold Windows target changed during read");
    const auto final_receipt=receipt(gpu,directory,target,final_windows);require(fingerprint(final_receipt)==binding,"Scaffold receipt changed during read");bound(gpu,target);
-   VoltageScaffoldRead result;result.target=target;result.heads=recognized.heads;result.receipt_binding=binding;result.image_sha256=hash(current_image);result.message="Installed signed offset requests inspected; no write/profile authority";return result;
+   VoltageScaffoldRead result;result.target=target;result.heads=recognized.heads;result.equations=std::make_shared<const VoltageEquationPackets>(std::move(loaded));result.receipt_binding=binding;result.image_sha256=hash(current_image);result.message="Installed signed offset requests inspected; no write/profile authority";return result;
   }catch(const VoltageEquationEvidenceError&){throw;}catch(const std::exception& error){fail(error.what());}
  }
 };

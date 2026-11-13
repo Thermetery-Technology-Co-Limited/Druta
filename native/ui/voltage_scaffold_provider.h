@@ -7,6 +7,7 @@ namespace druta::ui {
 struct VoltageScaffoldRead {
  dc_target target{};std::vector<InstalledVoltageScaffoldHead> heads;
  std::string receipt_binding,image_sha256,message;
+ std::shared_ptr<const VoltageEquationPackets> equations;
 };
 struct VoltageScaffoldHostApi {
  std::function<std::wstring()> state_directory;

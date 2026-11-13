@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "voltage_tables_service.h"
+#include "voltage_offsets_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -27,6 +28,10 @@ void put(std::vector<uint8_t>& bytes,size_t at,uint32_t value){for(size_t i=0;i<
 size_t public_at(uint32_t rail,uint32_t field){return 0x48+static_cast<size_t>(rail)*0x54+4+static_cast<size_t>(field)*4;}
 size_t native_at(uint32_t rail,uint32_t field){return 12+static_cast<size_t>(rail)*32+4+static_cast<size_t>(field)*4;}
 bool valid_key(const VoltageTableKey& key){return key.family==VoltageTableFamily::requests && key.rail<2 && key.field<6;}
+bool offset_document(const ProfileJson& document){return document.contains("format")?document["format"]=="druta-native-voltage-offsets":document.contains("scope")&&document["scope"]=="voltage_offsets";}
+uint32_t selected_family(const std::vector<VoltageTableRequest>& requests){if(requests.empty())return 0;uint32_t family=0;for(const auto& r:requests){if(r.key.family==VoltageTableFamily::requests)family|=1;else if(r.key.family==VoltageTableFamily::offsets)family|=2;else return 0;}return family;}
+std::vector<VoltageOffsetRequest> offset_requests(const std::vector<VoltageTableRequest>& requests){std::vector<VoltageOffsetRequest> out;for(const auto& r:requests)out.push_back({{r.key.rail,static_cast<VbiosVoltageRole>(r.key.field)},r.value,r.binding,r.expected?std::optional<int64_t>(*r.expected):std::nullopt});return out;}
+VoltageTablesResult table_result(const VoltageOffsetsResult& r){return {r.ok,r.may_have_changed,r.rollback_verified,r.message};}
 std::string hex(const std::vector<uint8_t>& bytes){constexpr char digits[]="0123456789abcdef";std::string out;out.reserve(bytes.size()*2);
     for(uint8_t value:bytes){out.push_back(digits[value>>4]);out.push_back(digits[value&15]);}return out;}
 bool same_identity(const dc_gpu_identity& a,const dc_gpu_identity& b){return a.size==sizeof(a)&&b.size==sizeof(b)&&text(a.slot)&&text(b.slot)&&text(a.uuid)&&text(b.uuid)
@@ -46,11 +51,13 @@ bool operator==(const VoltageTableKey& a,const VoltageTableKey& b){return a.fami
 struct VoltageTablesPlan::State {
     std::shared_ptr<int> session;
     std::vector<TableRecord> selected;
+    std::optional<VoltageOffsetsPlan> offsets;
 };
 struct VoltageTablesReceipt::State {
     std::shared_ptr<int> session;
     std::vector<TableRecord> issued,previous_undo;
     std::weak_ptr<State> previous_external;
+    std::optional<VoltageOffsetsReceipt> offsets;
 };
 struct VoltageTablesService::Impl {
     struct Snapshot {
@@ -64,6 +71,7 @@ struct VoltageTablesService::Impl {
     using Record=TableRecord;
     VoltageTablesApi api;dc_gpu* gpu;dc_gpu_identity target;std::optional<dc_target> bound_target;
     VoltagePolicyService gate;
+    std::unique_ptr<VoltageOffsetsService> offsets;
     VoltageTablesData data;
     std::map<std::string,int32_t> initial;
     std::vector<Record> undo,recovery,previous_undo;
@@ -71,6 +79,7 @@ struct VoltageTablesService::Impl {
     std::weak_ptr<VoltageTablesReceipt::State> external;
     std::weak_ptr<VoltageTablesReceipt::State> previous_external;
     Impl(VoltageTablesApi a,dc_gpu* g,const dc_gpu_identity& id):api(std::move(a)),gpu(g),target(id),gate(api.transport,g,id){data.identity=id;
+        if(api.offsets_api.capture)offsets=std::make_unique<VoltageOffsetsService>(api.offsets_api,g,id);
         data.offsets_message="Read installed offsets to verify this adapter's scaffold receipt and current definitions.";}
     void bind(){
         const auto& a=api.transport;if(!a.identity||!a.bind||!a.architecture_supported)fail("Paired voltage table interfaces unavailable",VoltagePolicyAvailability::unsupported);
@@ -122,8 +131,8 @@ struct VoltageTablesService::Impl {
             for(double value:{row.reliability,row.alt_reliability,row.overvoltage,row.effective,row.vmin})microvolts(value,true);
             const double boost_uv=row.boost_mv*1000;
             if(!std::isfinite(boost_uv)||boost_uv<0||boost_uv>UINT32_MAX||std::abs(boost_uv-std::nearbyint(boost_uv))>0.000001)fail("Independent reported boost metadata has unknown units");
-            const double offsets[]={delta.reliability,delta.alt_reliability,delta.overvoltage,delta.vmin};
-            for(uint32_t field=0;field<4;++field)if(microvolts(offsets[field],false)!=signed_word(raw,public_at(rail,field)))fail("Public rail requests disagree with independent offsets",VoltagePolicyAvailability::transient);
+            const double request_offsets[]={delta.reliability,delta.alt_reliability,delta.overvoltage,delta.vmin};
+            for(uint32_t field=0;field<4;++field)if(microvolts(request_offsets[field],false)!=signed_word(raw,public_at(rail,field)))fail("Public rail requests disagree with independent offsets",VoltagePolicyAvailability::transient);
             s.public_rows[rail]=std::move(raw);s.policy_type[rail]=policy;s.control_type[rail]=type;s.present|=1u<<rail;
         }catch(const Failure& error){s.issues[rail]=error.what();}
         if(!s.present)fail("No independently paired rail requests",VoltagePolicyAvailability::transient);
@@ -151,7 +160,21 @@ struct VoltageTablesService::Impl {
         for(auto& row:data.rows)if(row.key.family==VoltageTableFamily::requests){row.stale=row.value.has_value();row.writable=false;row.availability=kind;row.message=message;}flags();}
     void stale_offsets(VoltagePolicyAvailability kind,const std::string& message){data.offsets_recognized=false;data.offsets_message=message;
         for(auto& row:data.rows)if(row.key.family==VoltageTableFamily::offsets){row.stale=row.value.has_value();row.writable=false;row.availability=kind;row.message=message;}}
+    void publish_offsets(){const auto& source=offsets->state();
+        data.rows.erase(std::remove_if(data.rows.begin(),data.rows.end(),[](const auto& row){return row.key.family==VoltageTableFamily::offsets;}),data.rows.end());
+        data.offsets_recognized=false;
+        for(const auto& r:source.rows){VoltageTableRow row;row.key={VoltageTableFamily::offsets,r.key.rail,static_cast<uint32_t>(r.key.role)};
+            row.label=(r.key.rail?"MSVDD ":"NVVDD ")+std::string(fields[row.key.field])+" offset";row.binding=r.binding;row.message=r.message;
+            row.availability=r.availability;row.stale=r.stale;row.writable=r.writable;
+            if(r.value_uv)row.value=static_cast<int32_t>(*r.value_uv);if(r.initial_uv)row.initial=static_cast<int32_t>(*r.initial_uv);row.reported=r.reported_uv;
+            data.offsets_recognized|=!r.stale&&r.availability==VoltagePolicyAvailability::available;
+            data.rows.push_back(std::move(row));}
+        if(source.target)data.target=source.target;data.offsets_message=source.message;
+        data.offset_undo_available=source.undo_available;data.offset_recovery_pending=source.recovery_pending;flags();
+    }
+    VoltageTablesResult offset_result(const VoltageOffsetsResult& result){publish_offsets();data.message=result.message;data.offsets_message=result.message;return table_result(result);}
     void read_offsets(){
+        if(offsets){offsets->read();publish_offsets();return;}
         if(!api.scaffold_read)fail("Installed scaffold receipt reader unavailable",VoltagePolicyAvailability::unsupported);
         bind();const auto captured=api.scaffold_read(gpu);bind();const auto& current=*bound_target;
         if(captured.target.size!=sizeof(captured.target)||!text(captured.target.slot)||std::strcmp(captured.target.slot,current.slot)
@@ -168,7 +191,7 @@ struct VoltageTablesService::Impl {
             VoltageTableRow row;row.key=key;row.label=(head.rail?"MSVDD ":"NVVDD ")+std::string(fields[field])+" offset";
             row.value=static_cast<int32_t>(head.value_uv);row.binding=captured.receipt_binding+":"+captured.image_sha256+":"+std::to_string(head.index);
             row.availability=VoltagePolicyAvailability::available;row.writable=false;
-            row.message="Installed definition recognized; selected Apply, Undo and profiles are pending independent policy/request verification.";
+            row.message="Installed definition recognized; independent selected-write evidence is unavailable.";
             fresh.push_back(std::move(row));
         }
         data.rows.erase(std::remove_if(data.rows.begin(),data.rows.end(),[](const auto& row){return row.key.family==VoltageTableFamily::offsets;}),data.rows.end());
@@ -276,12 +299,22 @@ const VoltageTablesData& VoltageTablesService::read(uint32_t families){auto& p=*
 }
 VoltageTablesPlan VoltageTablesService::preview(const std::vector<VoltageTableRequest>& requests,std::optional<bool> projected){auto& p=*impl_;VoltageTablesPlan plan;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){plan.message="GPU lock unavailable";return plan;}
+    const auto family=selected_family(requests);if(family!=1){
+        if(family!=2||!p.offsets){plan.message="Select one available voltage family per transaction";return plan;}
+        auto offset=p.offsets->preview(offset_requests(requests));p.publish_offsets();plan.ok=offset.ok;plan.message=offset.message;
+        if(offset.ok){auto state=std::make_shared<VoltageTablesPlan::State>();state->session=p.session;state->offsets=std::move(offset);plan.state=std::move(state);}return plan;
+    }
     try{const auto before=p.sample();p.publish(before);auto state=std::make_shared<VoltageTablesPlan::State>();state->session=p.session;
         state->selected=p.qualify(before,requests,projected);plan.state=std::move(state);plan.ok=true;plan.message="All selected request fields qualified without writes";
     }catch(const std::exception& error){plan.message=error.what();}return plan;
 }
 VoltageTablesResult VoltageTablesService::apply_profile(const VoltageTablesPlan& plan,const std::function<void(const VoltageTablesReceipt&)>& before_write){auto& p=*impl_;VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){result.message="GPU lock unavailable";return result;}
+    if(plan.ok&&plan.state&&plan.state->session==p.session&&plan.state->offsets&&p.offsets){
+        return p.offset_result(p.offsets->apply_profile(*plan.state->offsets,[&](const VoltageOffsetsReceipt& selected){
+            VoltageTablesReceipt receipt;receipt.state=std::make_shared<VoltageTablesReceipt::State>();receipt.state->session=p.session;receipt.state->offsets=selected;if(before_write)before_write(receipt);
+        }));
+    }
     VoltageTablesReceipt receipt;
     try{if(!plan.ok||!plan.state||plan.state->session!=p.session)fail("Voltage table plan belongs to another service session");
         std::vector<VoltageTableRequest> requests;for(const auto& r:plan.state->selected)requests.push_back({r.key,r.after,r.binding,r.before});
@@ -308,18 +341,21 @@ VoltageTablesResult VoltageTablesService::apply_profile(const VoltageTablesPlan&
 }
 VoltageTablesResult VoltageTablesService::verify(const VoltageTablesPlan& plan){auto& p=*impl_;VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){result.message="GPU lock unavailable";return result;}
+    if(plan.ok&&plan.state&&plan.state->session==p.session&&plan.state->offsets&&p.offsets)return p.offset_result(p.offsets->verify(*plan.state->offsets));
     try{if(!plan.ok||!plan.state||plan.state->session!=p.session)fail("Voltage table plan belongs to another service session");
         const auto now=p.sample();p.publish(now);p.exact(now,plan.state->selected,false);result.ok=true;result.message="All selected desired requests verified";
     }catch(const std::exception& error){result.message=error.what();}return result;
 }
 VoltageTablesResult VoltageTablesService::verify(const VoltageTablesReceipt& receipt,bool original){auto& p=*impl_;VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){result.message="GPU lock unavailable";return result;}
+    if(receipt.state&&receipt.state->session==p.session&&receipt.state->offsets&&p.offsets)return p.offset_result(p.offsets->verify(*receipt.state->offsets,original));
     try{if(!receipt.state||receipt.state->session!=p.session||receipt.state->issued.empty())fail("Voltage table receipt belongs to another service session or has no issued requests");
         const auto now=p.sample();p.publish(now);p.exact(now,receipt.state->issued,original);result.ok=true;result.message="Issued selected requests verified";
     }catch(const std::exception& error){result.message=error.what();}return result;
 }
 VoltageTablesResult VoltageTablesService::restore(const VoltageTablesReceipt& receipt){auto& p=*impl_;VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){result.message="GPU lock unavailable";return result;}
+    if(receipt.state&&receipt.state->session==p.session&&receipt.state->offsets&&p.offsets)return p.offset_result(p.offsets->restore(*receipt.state->offsets));
     if(!receipt.state||receipt.state->session!=p.session||receipt.state->issued.empty()){result.message="Voltage table receipt belongs to another service session or has no issued requests";return result;}
     const bool active=p.external.lock()==receipt.state;
     if(!p.recovery.empty()&&!active){result.message="Resolve another selected recovery before restoring this receipt";return result;}
@@ -331,6 +367,11 @@ VoltageTablesResult VoltageTablesService::restore(const VoltageTablesReceipt& re
 }
 VoltageTablesResult VoltageTablesService::apply(const VoltageTableRequest& request){return apply(std::vector<VoltageTableRequest>{request});}
 VoltageTablesResult VoltageTablesService::apply(const std::vector<VoltageTableRequest>& requests){auto& p=*impl_;VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
+    const auto family=selected_family(requests);if(family!=1){
+        if(!guard.held)return {false,false,false,"GPU lock unavailable"};
+        if(family!=2||!p.offsets)return {false,false,false,"Select one available voltage family per transaction"};
+        return p.offset_result(p.offsets->apply(offset_requests(requests)));
+    }
     if(!guard.held){result.message="GPU lock unavailable";return result;}if(!p.recovery.empty()){result.message="Recover pending selected requests before another Apply";return result;}
     if(requests.empty()||requests.size()>12){result.message="Select one or more understood request fields";return result;}
     std::vector<Impl::Record> changed;bool started=false;
@@ -353,21 +394,23 @@ VoltageTablesResult VoltageTablesService::apply(const std::vector<VoltageTableRe
             if(result.rollback_verified){p.undo=p.previous_undo;p.previous_undo.clear();p.external=p.previous_external;p.previous_external.reset();result.message+="; prior selected fields restored and verified";}else result.message+="; selected recovery pending: "+why;
         }else if(started&&!result.may_have_changed){p.external=p.previous_external;p.previous_external.reset();}}p.data.message=result.message;p.flags();return result;
 }
-VoltageTablesResult VoltageTablesService::recover(){auto& p=*impl_;if(!p.recovery.empty())if(auto receipt=p.external.lock())return restore({receipt});VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);if(!guard.held){result.message="GPU lock unavailable";return result;}
+VoltageTablesResult VoltageTablesService::recover(uint32_t families){auto& p=*impl_;if(families!=1){if(families==2&&p.offsets)return p.offset_result(p.offsets->recover());return {false,false,false,"Select one available voltage family for recovery"};}if(!p.recovery.empty())if(auto receipt=p.external.lock())return restore({receipt});VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);if(!guard.held){result.message="GPU lock unavailable";return result;}
     if(p.recovery.empty()){result.ok=true;result.message="No selected request recovery pending";return result;}
     result.may_have_changed=true;std::string why;result.ok=p.repair(p.recovery,why);result.rollback_verified=result.ok;
     if(result.ok){p.undo=p.previous_undo;p.previous_undo.clear();p.external=p.previous_external;p.previous_external.reset();result.message="Prior selected requests restored and verified";}else result.message="Selected recovery pending: "+why;
     p.data.message=result.message;p.flags();return result;
 }
-VoltageTablesResult VoltageTablesService::undo(){auto& p=*impl_;if(!p.recovery.empty())return recover();if(auto receipt=p.external.lock())return restore({receipt});VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
+VoltageTablesResult VoltageTablesService::undo(uint32_t families){auto& p=*impl_;if(families!=1){if(families==2&&p.offsets)return p.offset_result(p.offsets->undo());return {false,false,false,"Select one available voltage family for Undo"};}if(!p.recovery.empty())return recover();if(auto receipt=p.external.lock())return restore({receipt});VoltageTablesResult result;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){result.message="GPU lock unavailable";return result;}if(p.undo.empty()){result.message="No voltage request Undo";return result;}
     p.recovery=p.undo;p.previous_undo.clear();p.undo.clear();result.may_have_changed=true;std::string why;result.ok=p.repair(p.recovery,why);
     result.message=result.ok?"Prior selected requests restored; current unselected fields preserved":"Selected Undo recovery pending: "+why;p.data.message=result.message;p.flags();return result;
 }
 VoltageTablesResult VoltageTablesService::restore_initial(const VoltageTableKey& key){auto& p=*impl_;const auto found=std::find_if(p.data.rows.begin(),p.data.rows.end(),[&](const auto& row){return row.key==key;});
+    if(key.family==VoltageTableFamily::offsets){if(!p.offsets)return {false,false,false,"Installed offset writer unavailable"};return p.offset_result(p.offsets->restore_initial({key.rail,static_cast<VbiosVoltageRole>(key.field)}));}
     if(found==p.data.rows.end()||!found->initial)return {false,false,false,"Read a qualified captured initial request first"};return apply({key,*found->initial,found->binding,found->value});
 }
 ProfileJson capture_voltage_tables_profile(const VoltageTablesData& data,const std::vector<VoltageTableKey>& selection){
+    if(!selection.empty()&&selection.front().family==VoltageTableFamily::offsets)return capture_voltage_offsets_profile(data,selection);
     if(!text(data.identity.uuid)||!text(data.identity.slot)||!data.identity.uuid[0]||!data.requests_complete||selection.empty())throw std::runtime_error("Qualified complete inventory, target and explicit fields required");
     ProfileJson rows=ProfileJson::array();std::vector<VoltageTableKey> seen;
     for(const auto& key:selection){const auto row=std::find_if(data.rows.begin(),data.rows.end(),[&](const auto& r){return r.key==key;});
@@ -397,13 +440,13 @@ TableProfile parse_table_profile(const ProfileJson& d){TableProfile p;
     }return p;
 }
 }
-ProfileSelection describe_voltage_tables_profile(const ProfileJson& d){return parse_table_profile(d).selection;}
-ProfileJson select_voltage_tables_profile(const ProfileJson& d,const std::vector<std::string>& targets){const auto parsed=parse_table_profile(d);if(targets.empty())fail("Select voltage request targets");std::vector<std::string> seen;for(const auto& t:targets){if(std::find(parsed.selection.targets.begin(),parsed.selection.targets.end(),t)==parsed.selection.targets.end()||std::find(seen.begin(),seen.end(),t)!=seen.end())fail("Unknown or duplicate selected voltage target");seen.push_back(t);}auto out=d;
+ProfileSelection describe_voltage_tables_profile(const ProfileJson& d){if(offset_document(d))return describe_voltage_offsets_profile(d);return parse_table_profile(d).selection;}
+ProfileJson select_voltage_tables_profile(const ProfileJson& d,const std::vector<std::string>& targets){if(offset_document(d))return select_voltage_offsets_profile(d,targets);const auto parsed=parse_table_profile(d);if(targets.empty())fail("Select voltage request targets");std::vector<std::string> seen;for(const auto& t:targets){if(std::find(parsed.selection.targets.begin(),parsed.selection.targets.end(),t)==parsed.selection.targets.end()||std::find(seen.begin(),seen.end(),t)!=seen.end())fail("Unknown or duplicate selected voltage target");seen.push_back(t);}auto out=d;
     if(!parsed.python){ProfileJson entries=ProfileJson::array();for(size_t i=0;i<parsed.entries.size();++i)if(std::find(seen.begin(),seen.end(),parsed.selection.targets[i])!=seen.end())entries.push_back(d["fields"][i]);out["fields"]=std::move(entries);}
     else {auto& rails=out["voltage_requests"]["rails"];for(auto rail=rails.begin();rail!=rails.end();){auto& values=rail.value()["offsets_uv"];for(auto value=values.begin();value!=values.end();){uint32_t field=6;for(uint32_t i=0;i<6;++i)if(value.key()==fields[i])field=i;VoltageTableKey key{VoltageTableFamily::requests,rail.key()=="0"?0u:1u,field};if(std::find(seen.begin(),seen.end(),table_target(key))==seen.end())value=values.erase(value);else ++value;}if(values.empty())rail=rails.erase(rail);else ++rail;}}
     (void)parse_table_profile(out);return out;
 }
-std::vector<VoltageTableRequest> stage_voltage_tables_profile(const ProfileJson& document,const VoltageTablesData& data){const auto parsed=parse_table_profile(document);if(!text(data.identity.uuid)||!text(data.identity.slot)||!data.identity.slot[0]||parsed.selection.slot!=data.identity.slot||(!parsed.selection.uuid.empty()&&parsed.selection.uuid!=data.identity.uuid))fail("Voltage request profile target differs");
+std::vector<VoltageTableRequest> stage_voltage_tables_profile(const ProfileJson& document,const VoltageTablesData& data){if(offset_document(document))return stage_voltage_offsets_profile(document,data);const auto parsed=parse_table_profile(document);if(!text(data.identity.uuid)||!text(data.identity.slot)||!data.identity.slot[0]||parsed.selection.slot!=data.identity.slot||(!parsed.selection.uuid.empty()&&parsed.selection.uuid!=data.identity.uuid))fail("Voltage request profile target differs");
     if(parsed.adapter){if(!data.target||data.target->size!=sizeof(dc_target)||(*parsed.adapter)[0]!=data.target->architecture||(*parsed.adapter)[1]!=data.target->device_id||(*parsed.adapter)[2]!=data.target->subsystem_id)fail("Saved complete adapter identity changed");}
     std::vector<VoltageTableRequest> requests;for(const auto& entry:parsed.entries){const auto row=std::find_if(data.rows.begin(),data.rows.end(),[&](const auto& r){return r.key==entry.key;});if(row==data.rows.end()||!row->value||row->stale||row->availability!=VoltagePolicyAvailability::available||row->binding.empty()||row->policy_type!=entry.policy||row->control_type!=entry.control)fail("Current selected voltage request is unavailable or changed identity");
         if(parsed.python){const auto expected_name=row->policy_type==(entry.key.rail==0?1u:3u)?(entry.key.rail==0?"NVVDD":"MSVDD"):"Rail "+std::to_string(entry.key.rail);if(entry.name!=expected_name)fail("Saved rail name no longer matches current discriminator");}

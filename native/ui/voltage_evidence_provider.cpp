@@ -142,15 +142,9 @@ struct Provider {
   out.info_row.assign(info,info+0x70);out.control_identity.assign(control,control+0x80);
   for(const auto offset:rel?std::vector<size_t>{4,8}:std::vector<size_t>{4,8,0x10})std::fill_n(out.control_identity.begin()+offset,4,uint8_t{0});
  }
- VoltageEquationEvidence once(dc_gpu* gpu,const VoltageEquationPackets& packets){
-  if(!api.image||!api.sha256||!api.peers||!api.blocks||!api.state||!api.deltas||!api.caches||!api.interface_present)fail("Native voltage evidence dependency unavailable",Availability::unsupported);
-  require(packets.info.size()==0xe0408&&packets.control.size()==0x100408,"Loaded equation packet geometry invalid");
-  require(packets.info[0]==packets.control[0]&&std::equal(packets.info.begin()+4,packets.info.begin()+0x404,packets.control.begin()+4),"Loaded equation inventories differ");
-  VoltageEquationEvidence result;result.target=binding(gpu,packets.target);auto bytes=image(gpu,result.target);const auto graph=parse_vbios_voltage_graph(bytes);
-  if(!graph.ok)fail("Current ROM voltage inspection failed: "+graph.message,graph.message.find("Unrecognized")!=std::string::npos?Availability::unsupported:Availability::invalid);
-  immutable_graph(graph,packets);
-  char hash[65]{};if(api.sha256(bytes.data(),bytes.size(),hash)!=DC_OK)fail("Current ROM SHA256 unavailable",Availability::unsupported);
-  require(hash[64]==0&&std::strlen(hash)==64&&std::string(hash).find_first_not_of("0123456789abcdef")==std::string::npos,"Current ROM SHA256 malformed");result.image_sha256=hash;
+ VoltageEquationEvidence retained(dc_gpu* gpu,const dc_target& expected){
+  if(!gpu||!api.peers||!api.blocks||!api.state||!api.deltas||!api.caches||!api.interface_present)fail("Retained voltage evidence interfaces unavailable",Availability::unsupported);
+  VoltageEquationEvidence result;result.target=binding(gpu,expected);
   auto peers=std::make_unique<dc_voltage_peers>();peers->size=sizeof(*peers);dc_error error{};error.size=sizeof(error);
   if(api.peers(gpu,peers.get(),&error)!=DC_OK)fail("Retained clock request capture failed",kind(error));require(peers->size==sizeof(*peers)&&same_target(peers->target,result.target),"Retained clock requests identify another target");
   const auto packet=[&](const dc_voltage_peer_packet& p,const uint8_t* raw,size_t capacity,bool computed){
@@ -165,6 +159,18 @@ struct Provider {
   if(peers->voltage_boost.state==DC_VOLTAGE_PEER_AVAILABLE){require(peers->voltage_boost.length==40&&peers->voltage_boost_percent>=0&&peers->voltage_boost_percent<=100,"Boost request geometry or percentage malformed");result.boost_percent=peers->voltage_boost_percent;}
   else require(peers->voltage_boost.length==0,"Absent/unsupported voltage boost request has data");
   append(result.clock_requests,peers->voltage_boost.state);append(result.clock_requests,static_cast<uint32_t>(peers->voltage_boost.status));
+  result.retained_requests_qualified=true;binding(gpu,result.target);return result;
+ }
+ VoltageEquationEvidence once(dc_gpu* gpu,const VoltageEquationPackets& packets){
+  if(!api.image||!api.sha256||!api.peers||!api.blocks||!api.state||!api.deltas||!api.caches||!api.interface_present)fail("Native voltage evidence dependency unavailable",Availability::unsupported);
+  require(packets.info.size()==0xe0408&&packets.control.size()==0x100408,"Loaded equation packet geometry invalid");
+  require(packets.info[0]==packets.control[0]&&std::equal(packets.info.begin()+4,packets.info.begin()+0x404,packets.control.begin()+4),"Loaded equation inventories differ");
+  VoltageEquationEvidence result;result.target=binding(gpu,packets.target);auto bytes=image(gpu,result.target);const auto graph=parse_vbios_voltage_graph(bytes);
+  if(!graph.ok)fail("Current ROM voltage inspection failed: "+graph.message,graph.message.find("Unrecognized")!=std::string::npos?Availability::unsupported:Availability::invalid);
+  immutable_graph(graph,packets);
+  char hash[65]{};if(api.sha256(bytes.data(),bytes.size(),hash)!=DC_OK)fail("Current ROM SHA256 unavailable",Availability::unsupported);
+  require(hash[64]==0&&std::strlen(hash)==64&&std::string(hash).find_first_not_of("0123456789abcdef")==std::string::npos,"Current ROM SHA256 malformed");result.image_sha256=hash;
+  auto retained_result=retained(gpu,result.target);retained_result.image_sha256=std::move(result.image_sha256);result=std::move(retained_result);
   for(const auto& role:graph.roles){if(role.role==VbiosVoltageRole::info_vmin)continue;VoltageEquationRole row;
    row.key={role.role==VbiosVoltageRole::rel?VoltageLimitKind::rel:role.role==VbiosVoltageRole::alt?VoltageLimitKind::alt:role.role==VbiosVoltageRole::ov?VoltageLimitKind::ov:VoltageLimitKind::vmin,role.rail,role.equation};
    row.graph_complete=role.graph_complete;row.shared=role.shared;row.affected_clock_roots=!role.affected_clock_roots.empty();
@@ -187,6 +193,12 @@ struct Provider {
   return once(gpu,packets);
  }
 };
+}
+VoltageEquationEvidence capture_voltage_retained_evidence(const VoltageEvidenceApi& api,const dc_gpu_identity& opened,dc_gpu* gpu,const dc_target& expected){
+ if(!api.target.lock||!api.target.unlock)fail("Voltage evidence lock interface unavailable",Availability::unsupported);
+ if(api.target.lock(gpu)!=DC_OK)fail("Voltage evidence lock unavailable",Availability::transient);
+ struct Unlock {const VoltagePolicyApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api.target,gpu};
+ Provider provider(api,opened);return provider.retained(gpu,expected);
 }
 std::function<VoltageEquationEvidence(dc_gpu*,const VoltageEquationPackets&)> make_voltage_equation_provider(VoltageEvidenceApi api,const dc_gpu_identity& target){
  auto provider=std::make_shared<Provider>(std::move(api),target);return [provider](dc_gpu* gpu,const VoltageEquationPackets& packets){return (*provider)(gpu,packets);};

@@ -45,6 +45,7 @@ add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp c
   tuning_actions.cpp timings_service.cpp timing_transport.cpp perf_view_model.cpp frequency_lock.cpp
   power_arbitration_service.cpp power_integral_service.cpp voltage_policy_service.cpp voltage_tables_service.cpp voltage_limits_service.cpp voltage_evidence_provider.cpp vbios_voltage_graph.cpp
   installed_voltage_scaffold.cpp voltage_variable_capture.cpp voltage_scaffold_receipt.cpp voltage_scaffold_provider.cpp
+  voltage_offsets_service.cpp voltage_offsets_capture.cpp voltage_offsets_profile.cpp
   power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
 add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
 add_library(druta_ui_clock_monitor STATIC clock_monitor_model.cpp clock_monitor_service.cpp)
@@ -121,7 +122,7 @@ endif()
 add_executable(druta-ui-client-test tests/core_client_test.cpp)
 target_link_libraries(druta-ui-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
-foreach(voltage_evidence_test IN ITEMS vbios_voltage_graph voltage_evidence_provider installed_voltage_scaffold voltage_variable_capture voltage_scaffold_receipt voltage_scaffold_provider voltage_scaffold_service)
+foreach(voltage_evidence_test IN ITEMS vbios_voltage_graph voltage_evidence_provider installed_voltage_scaffold voltage_variable_capture voltage_scaffold_receipt voltage_scaffold_provider voltage_scaffold_service voltage_retained_evidence voltage_offsets_capture voltage_offsets_service voltage_offsets_profile voltage_offsets_tables voltage_offsets_client)
   add_executable(druta-ui-${voltage_evidence_test}-test tests/${voltage_evidence_test}_test.cpp)
   target_link_libraries(druta-ui-${voltage_evidence_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${voltage_evidence_test} COMMAND druta-ui-${voltage_evidence_test}-test)
@@ -227,6 +228,9 @@ add_test(NAME druta-ui-perf-model COMMAND druta-ui-perf-model-test)
 add_executable(druta-ui-perf-view-test tests/perf_diagnostics_view_test.cpp)
 target_link_libraries(druta-ui-perf-view-test PRIVATE druta_ui_app_actions)
 add_test(NAME druta-ui-perf-view COMMAND druta-ui-perf-view-test)
+add_executable(druta-ui-voltage-offsets-view-test tests/voltage_offsets_view_test.cpp)
+target_link_libraries(druta-ui-voltage-offsets-view-test PRIVATE druta_ui_app_actions)
+add_test(NAME druta-ui-voltage-offsets-view COMMAND druta-ui-voltage-offsets-view-test)
 foreach(advanced_service power_arbitration power_integral voltage_policy voltage_tables voltage_limits power_saving clock_gating)
   add_executable(druta-ui-${advanced_service}-service-test tests/${advanced_service}_service_test.cpp)
   target_link_libraries(druta-ui-${advanced_service}-service-test PRIVATE druta_ui_session)

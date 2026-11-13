@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "voltage_tables_view.h"
+#include "voltage_offsets_profile.h"
 #include <imgui.h>
 #include <algorithm>
 #include <cctype>
@@ -9,6 +10,7 @@ namespace druta::ui {
 namespace {
 std::string mv(int32_t value){const int64_t magnitude=value<0?-static_cast<int64_t>(value):value;
     char buffer[64];std::snprintf(buffer,sizeof(buffer),"%s%lld.%03lld",value<0?"-":"",static_cast<long long>(magnitude/1000),static_cast<long long>(magnitude%1000));return buffer;}
+std::string policy_mv(int64_t value){const uint64_t magnitude=value<0?static_cast<uint64_t>(-(value+1))+1:static_cast<uint64_t>(value);char buffer[64];std::snprintf(buffer,sizeof(buffer),"%s%llu.%03llu",value<0?"-":"",static_cast<unsigned long long>(magnitude/1000),static_cast<unsigned long long>(magnitude%1000));return buffer;}
 void seed(VoltageTablesDraft& draft,const VoltageTableRow& row){if(row.value){const auto value=mv(*row.value);std::snprintf(draft.text.data(),draft.text.size(),"%s",value.c_str());}draft.expected=row.value;draft.binding=row.binding;}
 }
 std::optional<int32_t> parse_voltage_table_mv(const std::string& text){
@@ -39,7 +41,7 @@ void sync_voltage_tables_view(VoltageTablesViewState& state,const VoltageTablesD
     }
 }
 bool stage_voltage_tables_document(VoltageTablesViewState& state,const ProfileJson& document,const VoltageTablesData& data){
-    try{auto staged=stage_voltage_tables_profile(document,data);state.staged=std::move(staged);state.status="Profile staged; review selected requests and press Apply staged profile";return true;}
+    try{const bool offsets=document.value("format",ProfileJson())=="druta-native-voltage-offsets"||document.value("scope",ProfileJson())=="voltage_offsets";auto staged=offsets?stage_voltage_offsets_profile(document,data):stage_voltage_tables_profile(document,data);if(offsets)state.offsets_staged=std::move(staged);else state.staged=std::move(staged);state.status=offsets?"Offset profile staged; review and press Apply staged offsets":"Profile staged; review selected requests and press Apply staged profile";return true;}
     catch(const std::exception& error){state.status=error.what();return false;}
 }
 std::vector<VoltageTablesIntent> draw_voltage_tables_controls(VoltageTablesViewState& state,const VoltageTablesData* data,uint64_t generation,bool busy,bool unlocked,bool classic){
@@ -66,7 +68,7 @@ std::vector<VoltageTablesIntent> draw_voltage_tables_controls(VoltageTablesViewS
             ImGui::TableSetColumnIndex(4);ImGui::Checkbox("Include",&draft->include);ImGui::PopID();ImGui::PopID();
         }ImGui::EndTable();
     }
-    std::vector<VoltageTableKey> selected;for(const auto& draft:state.drafts)if(draft.include)selected.push_back(draft.key);
+    std::vector<VoltageTableKey> selected;for(const auto& draft:state.drafts)if(draft.include&&draft.key.family==VoltageTableFamily::requests)selected.push_back(draft.key);
     ImGui::BeginDisabled(busy||!data||selected.empty());if(ImGui::Button("Save selected requests profile"))out.push_back({VoltageTablesIntent::Operation::save_profile,1,{},selected});ImGui::EndDisabled();
     ImGui::SameLine();ImGui::BeginDisabled(busy);if(ImGui::Button("Load requests profile"))out.push_back({VoltageTablesIntent::Operation::load_profile,1,{},{}});ImGui::EndDisabled();
     if(!state.staged.empty()){
@@ -82,14 +84,30 @@ std::vector<VoltageTablesIntent> draw_voltage_tables_controls(VoltageTablesViewS
     if(ImGui::Button("Recover selected voltage requests"))out.push_back({VoltageTablesIntent::Operation::recover,1,{},{}});ImGui::EndDisabled();
     if(data&&!data->message.empty())ImGui::TextWrapped("%s",data->message.c_str());if(!state.status.empty())ImGui::TextWrapped("%s",state.status.c_str());
     if(ImGui::CollapsingHeader("Policy scaffold offsets")){
+        ImGui::PushID("installed-offsets");
         ImGui::BeginDisabled(busy);if(ImGui::Button("Read installed offsets"))out.push_back({VoltageTablesIntent::Operation::read,2,{},{}});ImGui::EndDisabled();
         if(data){ImGui::TextWrapped("%s",data->offsets_message.c_str());
-            for(const auto& row:data->rows)if(row.key.family==VoltageTableFamily::offsets){
-                ImGui::Text("%s: %s mV%s",row.label.c_str(),row.value?mv(*row.value).c_str():"unavailable",row.stale?" (stale)":"");
-                if(!row.message.empty()&&ImGui::IsItemHovered())ImGui::SetTooltip("%s",row.message.c_str());
+            if(ImGui::BeginTable("offset-fields",5,ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_BordersInnerH)){
+                ImGui::TableSetupColumn("Policy");ImGui::TableSetupColumn("Offset / reported (mV)");ImGui::TableSetupColumn("Stage (mV)");ImGui::TableSetupColumn("Action");ImGui::TableSetupColumn("Profile");ImGui::TableHeadersRow();
+                for(const auto& row:data->rows)if(row.key.family==VoltageTableFamily::offsets){auto draft=std::find_if(state.drafts.begin(),state.drafts.end(),[&](const auto& d){return d.key==row.key;});if(draft==state.drafts.end())continue;
+                    ImGui::PushID(static_cast<int>(row.key.rail));ImGui::PushID(static_cast<int>(row.key.field));ImGui::TableNextRow();ImGui::TableSetColumnIndex(0);ImGui::TextWrapped("%s",row.label.c_str());
+                    ImGui::TableSetColumnIndex(1);ImGui::Text("%s%s",row.value?mv(*row.value).c_str():"unavailable",row.stale?" (stale)":"");if(!row.message.empty()&&ImGui::IsItemHovered())ImGui::SetTooltip("%s",row.message.c_str());if(row.reported)ImGui::TextDisabled("Policy %s",policy_mv(*row.reported).c_str());
+                    ImGui::TableSetColumnIndex(2);ImGui::SetNextItemWidth(-1);ImGui::BeginDisabled(busy);if(ImGui::InputText("##mv",draft->text.data(),draft->text.size()))draft->dirty=true;ImGui::EndDisabled();
+                    const auto parsed=parse_voltage_table_mv(draft->text.data());const bool ready=!busy&&unlocked&&row.writable&&!row.stale&&!data->offset_recovery_pending;
+                    ImGui::TableSetColumnIndex(3);ImGui::BeginDisabled(!ready||!parsed);if(ImGui::Button("Apply")){out.push_back({VoltageTablesIntent::Operation::apply,2,{{row.key,*parsed,draft->binding,draft->expected}}, {}});draft->dirty=false;}ImGui::EndDisabled();ImGui::SameLine();ImGui::BeginDisabled(!ready||!row.initial);if(ImGui::Button("Restore initial"))out.push_back({VoltageTablesIntent::Operation::restore_initial,2,{}, {row.key}});ImGui::EndDisabled();
+                    ImGui::TableSetColumnIndex(4);ImGui::Checkbox("Include",&draft->include);ImGui::PopID();ImGui::PopID();
+                }ImGui::EndTable();
             }
         }
-        ImGui::TextDisabled("Inspection only. Offset Apply, Undo and profiles are pending.");
+        std::vector<VoltageTableKey> offsets_selected;for(const auto& d:state.drafts)if(d.include&&d.key.family==VoltageTableFamily::offsets)offsets_selected.push_back(d.key);
+        ImGui::BeginDisabled(busy||!data||offsets_selected.empty());if(ImGui::Button("Save selected offsets profile"))out.push_back({VoltageTablesIntent::Operation::save_profile,2,{},offsets_selected});ImGui::EndDisabled();ImGui::SameLine();ImGui::BeginDisabled(busy);if(ImGui::Button("Load offsets profile"))out.push_back({VoltageTablesIntent::Operation::load_profile,2,{},{}});ImGui::EndDisabled();
+        if(!state.offsets_staged.empty()){
+            ImGui::Text("Staged offsets: %zu selected fields",state.offsets_staged.size());if(ImGui::CollapsingHeader("Review staged offsets"))for(const auto& r:state.offsets_staged)ImGui::Text("Rail %u %s: %s mV",r.key.rail,r.key.field<4?std::array<const char*,4>{"REL","ALT","OV","VMIN"}[r.key.field]:"unknown",mv(static_cast<int32_t>(r.value)).c_str());
+            const bool ready=!busy&&unlocked&&data&&data->offsets_recognized&&!data->offset_recovery_pending&&std::all_of(state.offsets_staged.begin(),state.offsets_staged.end(),[&](const auto& r){return std::any_of(data->rows.begin(),data->rows.end(),[&](const auto& row){return row.key==r.key&&row.writable&&!row.stale;});});
+            ImGui::BeginDisabled(!ready);if(ImGui::Button("Apply staged offsets"))out.push_back({VoltageTablesIntent::Operation::apply,2,state.offsets_staged,{}});ImGui::EndDisabled();ImGui::SameLine();if(ImGui::Button("Discard staged offsets"))state.offsets_staged.clear();
+        }
+        ImGui::BeginDisabled(busy||!data||!data->offset_undo_available||data->offset_recovery_pending);if(ImGui::Button("Undo installed offsets"))out.push_back({VoltageTablesIntent::Operation::undo,2,{},{}});ImGui::EndDisabled();ImGui::SameLine();ImGui::BeginDisabled(busy||!data||!data->offset_recovery_pending);if(ImGui::Button("Recover installed offsets"))out.push_back({VoltageTablesIntent::Operation::recover,2,{},{}});ImGui::EndDisabled();
+        ImGui::TextDisabled("Signed definition requests; reported policy is not measured voltage.");ImGui::PopID();
     }
     if(ImGui::CollapsingHeader("Voltage table details"))ImGui::TextWrapped("Signed whole-microvolt software requests, shown in mV. Readback is not measured voltage; VCRIT effective thresholds remain unverified. Every Apply preserves boost, the other five fields and every other active rail from a fresh complete capture. Admission is separate and is never enabled here. Initial means this session's first qualified read. Profiles load as drafts and require explicit Apply; no startup or post-reset replay occurs.");
     ImGui::PopID();return out;

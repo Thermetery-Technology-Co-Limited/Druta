@@ -5,6 +5,7 @@
 #include "profile_io.h"
 #include "profile_selection.h"
 #include "voltage_scaffold_provider.h"
+#include "voltage_offsets_service.h"
 #include <functional>
 #include <vector>
 namespace druta::ui {
@@ -17,6 +18,7 @@ struct VoltageTableRow {
     VoltagePolicyAvailability availability=VoltagePolicyAvailability::unknown;
     bool stale=false,writable=false;
     std::optional<int32_t> value,initial;
+    std::optional<int64_t> reported;
     uint32_t policy_type=0,control_type=0;
 };
 struct VoltageTablesData {
@@ -25,6 +27,7 @@ struct VoltageTablesData {
     std::optional<dc_target> target;
     std::vector<VoltageTableRow> rows;
     bool requests_complete=false,offsets_recognized=false,undo_available=false,recovery_pending=false;
+    bool offset_undo_available=false,offset_recovery_pending=false;
     std::optional<bool> gate_enabled;
     std::optional<int32_t> boost_percent;
     std::string requests_message,offsets_message,message;
@@ -50,9 +53,10 @@ struct VoltageTablesApi {
     // DC_E_UNAVAILABLE guarantees no dispatch; every other result may follow
     // a SET. status is the original NvAPI result, not inferred success.
     std::function<dc_status(dc_gpu*,uint8_t*,size_t,int32_t&,dc_error&)> public_set;
-    // Explicit read-only recognition. These heads remain outside the public
-    // six-word request writer and profile catalog until separately qualified.
+    // Read-only fallback when independent selected-write evidence is absent.
     std::function<VoltageScaffoldRead(dc_gpu*)> scaffold_read;
+    // Installed definitions use their own singleton writer, never public_set.
+    VoltageOffsetsApi offsets_api;
 };
 // Worker-owned, opened-UUID bound. Complete request preservation is mandatory
 // for the public six-word SET; partial inventories remain independently readable.
@@ -69,8 +73,8 @@ public:
     VoltageTablesResult restore(const VoltageTablesReceipt&);
     VoltageTablesResult verify(const VoltageTablesPlan&);
     VoltageTablesResult verify(const VoltageTablesReceipt&,bool original=false);
-    VoltageTablesResult undo();
-    VoltageTablesResult recover();
+    VoltageTablesResult undo(uint32_t families=1);
+    VoltageTablesResult recover(uint32_t families=1);
     VoltageTablesResult restore_initial(const VoltageTableKey&);
     const VoltageTablesData& state() const;
 private:struct Impl;std::unique_ptr<Impl> impl_;
