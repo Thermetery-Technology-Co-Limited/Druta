@@ -12,4 +12,8 @@ struct PythonNct3933Profile {
 // Strict, pure parsing of the full snapshot's i2c object. Throws on unknown
 // controller/format; configuration is comparison-only, never a write request.
 PythonNct3933Profile parse_python_nct3933_profile(const ProfileJson& i2c);
+struct PythonUp9512rProfile { I2cRoute route{};std::string profile,rail,recipe_sha256;std::array<uint8_t,5> offsets_mv{};bool enabled=false; };
+struct PythonNcp4206Profile { I2cRoute route{};std::string profile,rail,recipe_sha256;uint8_t command=0;bool enabled=false; };
+PythonUp9512rProfile parse_python_up9512r_profile(const ProfileJson& i2c);
+PythonNcp4206Profile parse_python_ncp4206_profile(const ProfileJson& i2c);
 }

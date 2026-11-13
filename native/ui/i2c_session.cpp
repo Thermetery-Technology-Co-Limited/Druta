@@ -10,6 +10,8 @@
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
+#include <variant>
+#include <type_traits>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -20,11 +22,12 @@ struct I2cProfilePlanState {
     I2cRoute route{};
     std::string recipe;
     uint64_t selection_revision=0;
-    Nct3933Plan driver;
+    I2cFamily family=I2cFamily::unknown;
+    std::variant<Nct3933Plan,Up9512rPlan,Ncp4206Plan> driver;
 };
 struct I2cProfileReceiptState {
     std::shared_ptr<const I2cProfilePlanState> plan;
-    Nct3933Receipt driver;
+    std::variant<Nct3933Receipt,Up9512rReceipt,Ncp4206Receipt> driver;
 };
 namespace {
 ActionResult failure(const std::string& message) { ActionResult r; r.message=message; return r; }
@@ -468,7 +471,7 @@ ActionResult I2cSession::restore_icx_profile(const IcxProfilePlan& plan) {
 }
 bool I2cSession::profile_bound(const I2cProfilePlanState& plan) const {
     const auto& id=plan.identity;
-    return plan.owner==profile_owner_ && bound() && data_.family==I2cFamily::nct3933 && controller_ && data_.selected
+    return plan.owner==profile_owner_ && bound() && data_.family==plan.family && controller_ && data_.selected
         && id.size==sizeof(id) && terminated(id.uuid,sizeof(id.uuid)) && terminated(id.slot,sizeof(id.slot)) && id.uuid[0]
         && std::strcmp(id.uuid,identity_.uuid)==0 && std::strcmp(id.slot,identity_.slot)==0
         && id.nvapi_handle==identity_.nvapi_handle && id.nvapi_devid==identity_.nvapi_devid && id.nvapi_subsys==identity_.nvapi_subsys
@@ -480,18 +483,39 @@ ActionResult I2cSession::preflight_i2c_profile(const ProfileJson& document,I2cPr
     if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for controller profile preflight");
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
     try {
-        const auto saved=parse_python_nct3933_profile(document);
-        if(!bound() || data_.family!=I2cFamily::nct3933 || !data_.selected || !controller_ || !data_.gate || !data_.verified || !api_.controller_write)
-            return failure("Select the saved NCT3933 controller and enable I2C before profile preflight");
+        if(!bound() || !data_.selected || !controller_)
+            return failure("Explicitly select the saved controller before profile preflight");
         if(owned())return failure("Release existing I2C requests before an independent controller profile");
-        if(saved.route.port!=data_.selected->port || saved.route.addr7!=data_.selected->addr7 || data_.control_profile!="controller")
-            return failure("Saved controller route or recipe differs from the explicitly selected controller");
         auto plan=std::make_shared<I2cProfilePlanState>();plan->owner=profile_owner_;plan->identity=identity_;plan->route=*data_.selected;
-        plan->recipe=data_.control_profile;plan->selection_revision=data_.selection_revision;
-        const auto checked=controller_->preview_nct3933({saved.outputs,saved.configuration},saved.selection,plan->driver);
+        plan->recipe=data_.control_profile;plan->selection_revision=data_.selection_revision;plan->family=data_.family;
+        const auto route_matches=[&](I2cRoute route){return route.port==plan->route.port && route.addr7==plan->route.addr7 && plan->recipe=="controller";};
+        // uP's released matching path is a read-only comparison, including locked
+        // controllers. Its driver admits changed requests only after all gates.
+        if(data_.family!=I2cFamily::up9512r && (!data_.gate || !data_.verified || !api_.controller_write))
+            return failure("Enable I2C and verify the selected controller before profile preflight");
+        I2cResult checked;
+        switch(data_.family) {
+        case I2cFamily::nct3933: {
+            const auto saved=parse_python_nct3933_profile(document);
+            if(!route_matches(saved.route))return failure("Saved controller route or recipe differs from the selected controller");
+            Nct3933Plan typed;checked=controller_->preview_nct3933({saved.outputs,saved.configuration},saved.selection,typed);plan->driver=typed;break;
+        }
+        case I2cFamily::up9512r: {
+            const auto saved=parse_python_up9512r_profile(document);
+            if(!route_matches(saved.route))return failure("Saved controller route or recipe differs from the selected controller");
+            Up9512rControl desired;desired.enabled=saved.enabled;std::copy(saved.offsets_mv.begin(),saved.offsets_mv.end(),desired.offsets_mv.begin());
+            Up9512rPlan typed;checked=controller_->preview_up9512r(desired,{data_.gate && bool(api_.controller_write),xoc()},typed);plan->driver=typed;break;
+        }
+        case I2cFamily::ncp4206: {
+            const auto saved=parse_python_ncp4206_profile(document);
+            if(!route_matches(saved.route))return failure("Saved controller route or recipe differs from the selected controller");
+            Ncp4206Plan typed;checked=controller_->preview_ncp4206({saved.enabled,saved.command},xoc(),typed);plan->driver=typed;break;
+        }
+        default:return failure("This selected controller has no qualified full-tune profile adapter yet");
+        }
         if(!checked.ok)return result(checked);
         if(!profile_bound(*plan))return failure("Controller profile binding changed during preflight");
-        out.state=std::move(plan);auto action=failure("Exact NCT output bytes and configuration qualified; no write or clock request");action.ok=true;return action;
+        out.state=std::move(plan);auto action=result(checked);action.message="Exact saved controller state qualified; no write or clock request";return action;
     }catch(const std::exception& error){return failure(std::string("Controller profile preflight: ")+error.what());}
 }
 ActionResult I2cSession::apply_i2c_profile(const I2cProfilePlan& plan,const std::function<void(const I2cProfileReceipt&)>& journal) {
@@ -499,12 +523,21 @@ ActionResult I2cSession::apply_i2c_profile(const I2cProfilePlan& plan,const std:
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
     ActionResult action;bool issued=false;
     try {
-        if(!plan.state || !profile_bound(*plan.state) || !data_.gate || !data_.verified || !api_.controller_write || owned())
+        if(!plan.state || !profile_bound(*plan.state) || owned())
             return failure("Controller profile binding, gate or independent ownership changed");
-        action=result(controller_->apply_nct3933(plan.state->driver,{data_.gate,xoc()},[&](const Nct3933Receipt& receipt){
+        if(plan.state->family!=I2cFamily::up9512r && (!data_.gate || !data_.verified || !api_.controller_write))
+            return failure("Controller profile gate or response verification changed");
+        const auto save=[&](const auto& receipt){
             auto stored=std::make_shared<I2cProfileReceiptState>();stored->plan=plan.state;stored->driver=receipt;
             if(journal)journal({stored});profile_receipt_=stored;issued=true;
-        }));
+        };
+        const ControllerContext context{data_.gate && bool(api_.controller_write),xoc()};
+        action=result(std::visit([&](const auto& typed){
+            using T=std::decay_t<decltype(typed)>;
+            if constexpr(std::is_same_v<T,Nct3933Plan>)return controller_->apply_nct3933(typed,context,save);
+            else if constexpr(std::is_same_v<T,Up9512rPlan>)return controller_->apply_up9512r(typed,context,save);
+            else return controller_->apply_ncp4206(typed,context,save);
+        },plan.state->driver));
         action.may_have_changed=action.may_have_changed || issued;refresh();return action;
     }catch(const std::exception& error){action.message=std::string("Controller profile Apply: ")+error.what();action.may_have_changed=issued || owned();refresh();return action;}
 }
@@ -512,14 +545,24 @@ ActionResult I2cSession::verify_i2c_profile(const I2cProfilePlan& plan) {
     if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for controller profile verification");
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
     if(!plan.state || !profile_bound(*plan.state))return failure("Controller profile verification binding changed");
-    try{return result(controller_->verify_nct3933(plan.state->driver));}
+    try{return result(std::visit([&](const auto& typed){
+        using T=std::decay_t<decltype(typed)>;
+        if constexpr(std::is_same_v<T,Nct3933Plan>)return controller_->verify_nct3933(typed);
+        else if constexpr(std::is_same_v<T,Up9512rPlan>)return controller_->verify_up9512r(typed);
+        else return controller_->verify_ncp4206(typed);
+    },plan.state->driver));}
     catch(const std::exception& error){return failure(std::string("Controller profile verification: ")+error.what());}
 }
 ActionResult I2cSession::verify_i2c_profile(const I2cProfileReceipt& receipt,bool original) {
     if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for controller receipt verification");
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
     if(!receipt.state || !receipt.state->plan || !profile_bound(*receipt.state->plan))return failure("Controller receipt verification binding changed");
-    try{return result(controller_->verify_nct3933(receipt.state->driver,original));}
+    try{return result(std::visit([&](const auto& typed){
+        using T=std::decay_t<decltype(typed)>;
+        if constexpr(std::is_same_v<T,Nct3933Receipt>)return controller_->verify_nct3933(typed,original);
+        else if constexpr(std::is_same_v<T,Up9512rReceipt>)return controller_->verify_up9512r(typed,original);
+        else return controller_->verify_ncp4206(typed,original);
+    },receipt.state->driver));}
     catch(const std::exception& error){return failure(std::string("Controller receipt verification: ")+error.what());}
 }
 ActionResult I2cSession::restore_i2c_profile(const I2cProfileReceipt& receipt) {
@@ -527,7 +570,12 @@ ActionResult I2cSession::restore_i2c_profile(const I2cProfileReceipt& receipt) {
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
     if(!receipt.state || !receipt.state->plan || !profile_bound(*receipt.state->plan))return failure("Controller Undo belongs to another session, route or selection");
     ActionResult action;
-    try {action=result(controller_->restore_nct3933(receipt.state->driver));if(action.ok&&profile_receipt_==receipt.state)profile_receipt_.reset();refresh();return action;}
+    try {action=result(std::visit([&](const auto& typed){
+        using T=std::decay_t<decltype(typed)>;
+        if constexpr(std::is_same_v<T,Nct3933Receipt>)return controller_->restore_nct3933(typed);
+        else if constexpr(std::is_same_v<T,Up9512rReceipt>)return controller_->restore_up9512r(typed);
+        else return controller_->restore_ncp4206(typed);
+    },receipt.state->driver));if(action.ok&&profile_receipt_==receipt.state)profile_receipt_.reset();refresh();return action;}
     catch(const std::exception& error){action.message=std::string("Controller profile Undo: ")+error.what();action.may_have_changed=owned();refresh();return action;}
 }
 ActionResult I2cSession::release() {
