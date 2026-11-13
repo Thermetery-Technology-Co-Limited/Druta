@@ -1673,7 +1673,8 @@ void classic_page_content(ViewState& state, Page page) {
     else if (page == Page::timings) {
         const auto& s = *state.live;
         auto output = draw_timings(state.timings_view, s.data.timings.get(), s.generation,
-            s.busy || !s.data.connected, state.controls_unlocked);
+            s.busy, state.controls_unlocked, s.data.connected);
+        state.timing_capture_cancel_requested |= output.cancel_capture;
         state.timing_helper_requested |= output.choose_helper;
         state.timing_save_profile_requested |= output.save_profile;
         state.timing_load_profile_requested |= output.load_profile;
@@ -1923,7 +1924,8 @@ void draw(ViewState& state) {
         else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
         else if (state.page == Page::timings) {
             const auto& s=*state.live;
-            auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy || !s.data.connected,state.controls_unlocked);
+            auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy,state.controls_unlocked,s.data.connected);
+            state.timing_capture_cancel_requested|=output.cancel_capture;
             state.timing_helper_requested|=output.choose_helper;
             state.timing_save_profile_requested|=output.save_profile;
             state.timing_load_profile_requested|=output.load_profile;

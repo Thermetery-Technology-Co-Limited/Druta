@@ -127,6 +127,7 @@ struct ViewState {
     int i2c_scan_scope = 0;
     bool i2c_save_profile_requested = false, i2c_load_profile_requested = false;
     bool i2c_cancel_requested = false;
+    bool timing_capture_cancel_requested = false;
     std::vector<std::pair<std::string, ControlDraft>> i2c_field_drafts;
     std::vector<I2cField> i2c_field_cache;
     uint64_t i2c_draft_generation = 0, i2c_draft_selection_revision = 0;

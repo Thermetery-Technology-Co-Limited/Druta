@@ -160,6 +160,7 @@ struct Command {
     std::string timing_field;
     uint32_t timing_value = 0;
     uint64_t timing_generation = 0;
+    bool timing_allow_hold = true;
     int64_t frequency_min_mhz = 0, frequency_max_mhz = 0;
     uint32_t integral_policy = 0, integral_raw = 0;
     bool integral_upper = false;
@@ -229,6 +230,7 @@ public:
     // Installed before the worker starts. Only read-only discovery observes
     // cancellation; restoration and hardware writes always finish normally.
     virtual void configure_i2c_discovery(std::function<bool()>, std::function<void(const I2cDiscoveryProgress&)>, const std::wstring&) {}
+    virtual void configure_timing_capture_cancellation(std::function<bool()>) {}
     virtual std::vector<Device> enumerate() = 0;
     virtual bool open(const std::string& slot, std::string& error) = 0;
     virtual void close() = 0;

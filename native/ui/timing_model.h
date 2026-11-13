@@ -3,6 +3,7 @@
 #pragma once
 #include "timings_service.h"
 #include "timing_diagnostics.h"
+#include "timing_capture.h"
 #include <optional>
 #include <string>
 namespace druta::ui {
@@ -19,6 +20,10 @@ struct TimingViewData {
     std::string helper_token;
     bool undo_available = false;
     bool capture_hold_pending = false;
+    bool capture_running = false;
+    bool capture_workload_pending = false;
+    TimingCaptureMethod capture_method = TimingCaptureMethod::none;
+    std::optional<TimingSnapshot> capture_diagnostic;
     std::string message;
 };
 }

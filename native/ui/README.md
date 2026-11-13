@@ -122,32 +122,35 @@ estimate. Raw driver watts remain visible and are always used for power Apply.
 ## Native I2C controller path
 
 On 64-bit processes, the core can use the NVAPI Ex I2C transport for explicit
-controller discovery and reads. The current native writer supports the MP2888A
-candidate's manual PMBus command (`0x21`) and its mode bit in `0xE1`; a
-fingerprint is a candidate, not a unique model identification or a physical
-rail assignment. Scan and Read are user actions, not ordinary telemetry polls.
-The panel offers IC discovery, friendly candidate selection and the compiled
-manual PMBus recipe; manual port/address entry is under Advanced routing. An
+controller discovery and reads. Native family paths cover MP2888 manual/coarse
+offset recipes, MP29816, NCT3933, uP9512R, NCP4206 and iCX through their separately
+qualified protocols. A fingerprint is a candidate, not a unique model
+identification or a physical rail assignment. Scan and Read are user actions,
+not ordinary telemetry polls. The panel offers IC discovery, friendly candidate
+selection and compiled recipes; manual port/address entry is under Advanced routing. An
 explicit scan selects a sole candidate; ambiguous results require selection.
 Nominal request presets come from the qualified live command range/grid and
 only stage a target. They are neither measured voltages nor factory defaults.
-Other legacy controller families and the MP2888A VID-offset method remain
-unimplemented in the native UI. The transport refuses the existing nonvolatile and password command blocklist.
+An implemented family does not qualify every recipe or layout; unknown methods
+remain unavailable. The transport retains its nonvolatile/password command refusals.
 The 32-bit Ex packet path is not qualified and declines these I2C operations;
 that limitation does not disable the rest of the core.
 
-Writing requires the I2C session gate and a successful response Verify. The
-explicit Verify button can arm the selected controller and verify in one action;
-scan, candidate/recipe selection and preset selection never verify or apply
-automatically. Verify
-owns a driver-enumerated low-clock clamp while it performs a bounded A–B–A
-controller-response test, and restores the captured controller state before
-releasing its clamp. Apply likewise keeps the clamp until Release restores the
-owned controller request. A failed or uncertain restoration retains recovery
-and prevents switching GPUs or closing the session until it can be resolved.
-Controller readback is not an independent physical-voltage measurement. I2C
-settings are excluded from native profiles and are never automatically applied
-at startup, after a driver reset, or by loading a profile.
+Mutating requests require the I2C session gate and the selected recipe's current
+identity, configuration, limits and verification checks. Scan, selection and
+presets never verify or apply automatically. Recipes that require a low-clock
+clamp own that request explicitly and restore controller state before releasing
+it; independently qualified recipes do not acquire an unrelated clamp. Matching
+no-effect profile paths retain their source-backed exemptions. Release restores
+only owned requests. Failed or uncertain restoration retains recovery and blocks
+conflicting selection/close until resolved. Controller readback is not an
+independent physical-voltage measurement, and mock protocol coverage is not live
+qualification of every family.
+
+Daily profile files exclude I2C state. Typed standalone I2C profiles and selected
+full-tune/catalog imports use separate fresh preflight, explicit Apply and
+issued-only restoration paths described below. Load stages only; no controller
+request is automatically applied at startup or after a driver reset.
 
 Profiles are UTF-8 JSON, limited to 1 MiB, with duplicate-key rejection and
 same-directory flushed temporary-file replacement. Save has no tuning side
@@ -379,13 +382,13 @@ These are configured-request/lifecycle observations for the tested adapter and
 operating point, not additional physical-voltage qualification or constants for
 another board.
 
-Remaining replacement work includes timing-write/restoration qualification,
-other I2C controller methods/devices,
-registry/VBIOS relationship overrides, power saving, configurable
-Monitor workflows, full profiles and Vista/7 qualification. Keep the Python
-frontend and experiment facade available during migration. See the
-[plan checkpoint](../DESIGN-NATIVE-UI.md#continuation-checkpoint-live-daily-actions-and-manual-curve-edits)
-for the implementation boundary.
+The preceding observations are historical, adapter-specific qualification.
+Subsequent checkpoints below implement Monitor, saving controls and selected
+profile composition. Current implementation gaps are native ROM/role and
+installed-scaffold evidence providers plus the narrow persistent relationship-
+weight workflow. Physical timing/controller effects, actual device restart and
+Vista/7 execution retain their scoped validation limits. See the current
+[completion ledger](validation/PARITY-COMPLETION.md) and [backlog](../../backlog.md).
 
 ### Device menus and selected-request profiles
 
@@ -486,14 +489,34 @@ ROM graph and installed-definition receipt paths are implemented. Reading loaded
 VFE ordinals does not qualify them as a particular voltage role. Device delays
 have an independent capability path and remain usable when those roles are absent.
 
-**Capture at P0 (temporary hold)** validates the timing helper first, uses an
-existing qualifying operating point or requests a temporary legacy/V/F hold,
-then waits up to six seconds for observed P0 and the current adapter's top memory
-band. It releases only its own temporary request afterward. A failed release
-keeps recovery visible and prevents switching adapters. This command does not
-change the fan, board power, curve shape or rail headroom. There is currently no
-CUDA load fallback. **Auto-capture on stable P0 entry** uses two fresh ordinary
-telemetry samples and acquires no hold; Pause and minimized refresh policy apply.
+**Capture at performance band** validates the selected timing helper and uses
+qualified current P0 first. With tuning unlocked it can acquire a temporary
+legacy/V/F hold and wait up to six seconds. Otherwise, or after verified cleanup
+of an unsuccessful hold, it can run an optional CUDA copy workload on the exact
+selected PCI device. Capture occurs while the workload is active. Locked controls
+permit the workload but never a tuning hold. Qualified P0/P2 uses the current
+adapter's existing top-band checks; below-band registers remain raw diagnostics.
+
+The optional `druta-ui-timing-cuda.exe` must remain beside `druta-ui.exe`; the
+normal UI build includes it. The child loads the installed CUDA driver from the
+Windows system directory; no CUDA toolkit is needed. Missing exports or helper
+files produce a specific failure without disabling ordinary timing reads.
+One 60-second capture deadline covers workload and timing-helper waits; owned
+process termination has a separate bounded cleanup grace. An unconfirmed exit
+retains recovery and blocks conflicting controls. Parent driver/kernel calls
+cannot be forcibly preempted by this process deadline.
+
+Cancel, Pause and close signal cancellation immediately. Only this capture's
+workload and temporary hold are released; fan, board power, curve shape and rail
+headroom are unchanged. Resume does not restart a workload. **Auto-capture on
+stable P0 entry** uses ordinary telemetry only and never starts CUDA or a hold.
+
+The [nineteenth checkpoint](validation/2026-11-13-parity-nineteenth-increment.md)
+records the integrated build, 118 passing suites and 22 renderer phases. On the
+documented Windows 10 adapter, the live fallback captured stable P2 at 9427 MHz
+below its qualified top band and correctly retained diagnostic-only registers;
+the exact-BDF worker also passed owned cleanup. This is not qualified timing-write
+evidence, a lower-P2-band equivalence claim, or validation on other adapters/OSes.
 
 **Policy workspace...** offers labels tied to the adapter and policy binding,
 plus selected maximum previews. It lists skipped policies and uses fresh selected
@@ -617,6 +640,24 @@ current-DAC settings apply as a separately selected scope after explicit live
 controller selection and I2C opt-in. The released recipe hash, route, identity
 and saved configuration must qualify; configuration is never written. Exact
 output bytes and their issued originals are retained for Apply and Undo.
-Other full-tune I2C formats and power-name annotation execution remain pending
-and must be explicitly omitted to apply other selected fields; they are never
-silently discarded.
+Selected full-tune imports also retain uP9512R's five offsets and enable,
+NCP4206's raw VID command and enable, and exact coarse MP2888/MP29816 offsets.
+They validate the released recipe, fresh route/configuration and representable
+units; they do not flatten the saved state to a scalar voltage. Qualified legacy
+controller requests compose in voltage/controller-before-clock order and restore
+before ordinary grouped Undo. iCX composes last with compatible ordinary requests
+and restores first; timing and a second controller remain incompatible with its
+retained floor clamp. See [fourteenth](validation/2026-11-13-parity-fourteenth-increment.md),
+[fifteenth](validation/2026-11-13-parity-fifteenth-increment.md),
+[sixteenth](validation/2026-11-13-parity-sixteenth-increment.md) and
+[seventeenth](validation/2026-11-13-parity-seventeenth-increment.md) evidence.
+
+Full-tune power names are separately selected display metadata with fresh
+adapter/policy/channel/type matching, Unicode validation and immutable UI-thread
+completion delivery. Selected-edit conflicts are preserved, chained metadata
+Undo is independent of hardware failure, and failed note-file saves remain
+visibly unsaved with explicit retry. Metadata-only operations do not require
+tuning unlock or working ordinary telemetry when paired identity remains valid.
+See the [eighteenth checkpoint](validation/2026-11-13-parity-eighteenth-increment.md).
+Unknown or unqualified selected source scopes still refuse before effects; they
+are never silently discarded. None of these imports authorizes startup/reset replay.

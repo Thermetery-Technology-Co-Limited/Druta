@@ -28,6 +28,16 @@ add_library(druta_ui_vendor STATIC
 target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/implot)
 target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
 
+add_library(druta_ui_cuda STATIC cuda_driver.cpp timing_cuda_process.cpp)
+target_link_libraries(druta_ui_cuda PUBLIC druta_ui_options advapi32)
+target_include_directories(druta_ui_cuda PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+add_executable(druta-ui-timing-cuda timing_cuda_worker_main.cpp)
+target_link_libraries(druta-ui-timing-cuda PRIVATE druta_ui_cuda)
+if(MSVC)
+  target_compile_options(druta_ui_cuda PRIVATE /W4 /WX)
+  target_link_options(druta-ui-timing-cuda PRIVATE /SUBSYSTEM:CONSOLE,6.00)
+endif()
+
 add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
   profile_catalog.cpp controller_profile_order.cpp semantic_policy_profile.cpp saving_profile.cpp fan_profile.cpp python_scoped_profile.cpp python_full_profile.cpp python_i2c_profile.cpp ../src/core/sha256.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp policy_annotation_profile.cpp
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
@@ -46,7 +56,7 @@ target_include_directories(druta_ui_risk PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(druta_ui_planner PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(druta_ui_curve_draft PUBLIC druta_ui_options)
 target_include_directories(druta_ui_curve_draft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(druta_ui_session PUBLIC druta_ui_options druta_ui_planner druta_ui_curve_draft druta_ui_clock_monitor advapi32)
+target_link_libraries(druta_ui_session PUBLIC druta_ui_options druta_ui_planner druta_ui_curve_draft druta_ui_clock_monitor druta_ui_cuda advapi32)
 target_include_directories(druta_ui_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(druta_ui_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 add_library(druta_ui_shunt STATIC shunt_model.cpp shunt_view.cpp)
@@ -65,6 +75,12 @@ if(MSVC)
   target_compile_options(druta_ui_scoped_profile_view PRIVATE /W4 /WX)
 endif()
 add_executable(druta-ui WIN32 main.cpp ui_view.cpp advanced_view.cpp i2c_view.cpp timings_view.cpp)
+add_dependencies(druta-ui druta-ui-timing-cuda)
+foreach(cuda_test process worker)
+  add_executable(druta-ui-timing-cuda-${cuda_test}-test tests/timing_cuda_${cuda_test}_test.cpp)
+  target_link_libraries(druta-ui-timing-cuda-${cuda_test}-test PRIVATE druta_ui_cuda)
+  add_test(NAME druta-ui-timing-cuda-${cuda_test} COMMAND druta-ui-timing-cuda-${cuda_test}-test)
+endforeach()
 target_link_libraries(druta-ui PRIVATE druta_ui_session druta_ui_curve_draft druta_ui_risk druta_ui_planner druta_ui_shunt druta_ui_monitor)
 target_link_libraries(druta-ui PRIVATE druta_ui_vendor d3d9 user32 gdi32 dwmapi imm32 shell32 comdlg32)
 target_link_libraries(druta-ui PRIVATE druta_ui_app_actions druta_ui_scoped_profile_view)
@@ -216,7 +232,7 @@ foreach(advanced_service power_arbitration power_integral voltage_policy voltage
   target_link_libraries(druta-ui-${advanced_service}-view-test PRIVATE druta_ui_app_actions)
   add_test(NAME druta-ui-${advanced_service}-view COMMAND druta-ui-${advanced_service}-view-test)
 endforeach()
-foreach(parity_test policy_workspace timing_capture timing_capture_service voltage_services_integration timing_capture_session timing_capture_client auxiliary_session device_restart device_recovery saving_services_integration)
+foreach(parity_test policy_workspace timing_capture timing_capture_service voltage_services_integration timing_capture_session timing_capture_client timing_capture_cancel timing_transport auxiliary_session device_restart device_recovery saving_services_integration)
   add_executable(druta-ui-${parity_test}-test tests/${parity_test}_test.cpp)
   target_link_libraries(druta-ui-${parity_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${parity_test} COMMAND druta-ui-${parity_test}-test)
@@ -293,6 +309,9 @@ add_executable(druta-ui-voltage-read-check tools/voltage_read_check.cpp)
 target_link_libraries(druta-ui-voltage-read-check PRIVATE druta_ui_session)
 add_executable(druta-ui-annotation-read-check tools/annotation_read_check.cpp)
 target_link_libraries(druta-ui-annotation-read-check PRIVATE druta_ui_session)
+add_executable(druta-ui-timing-cuda-read-check tools/timing_cuda_read_check.cpp)
+target_link_libraries(druta-ui-timing-cuda-read-check PRIVATE druta_ui_session)
+add_dependencies(druta-ui-timing-cuda-read-check druta-ui-timing-cuda)
 add_executable(druta-ui-advanced-live-read tools/advanced_live_read.cpp)
 target_link_libraries(druta-ui-advanced-live-read PRIVATE druta_ui_session)
 add_executable(druta-ui-advanced-services-integration-test tests/advanced_services_integration_test.cpp)
@@ -324,6 +343,15 @@ add_custom_command(OUTPUT ${audit_stamp}
   COMMAND ${CMAKE_COMMAND} -E touch ${audit_stamp}
   DEPENDS druta-ui tools/audit_imports.py ../tools/check_imports.py VERBATIM)
 add_custom_target(druta-ui-import-audit ALL DEPENDS ${audit_stamp})
+set(cuda_audit_stamp ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/cuda-imports-ok)
+add_custom_command(OUTPUT ${cuda_audit_stamp}
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${cuda_audit_stamp}
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_imports.py
+    $<TARGET_FILE:druta-ui-timing-cuda> --subsystem console
+    --report ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/cuda-imports.json
+  COMMAND ${CMAKE_COMMAND} -E touch ${cuda_audit_stamp}
+  DEPENDS druta-ui-timing-cuda tools/audit_imports.py ../tools/check_imports.py VERBATIM)
+add_custom_target(druta-ui-cuda-import-audit ALL DEPENDS ${cuda_audit_stamp})
 add_test(NAME druta-ui-import-policy
   COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_audit_imports.py)
 set_tests_properties(druta-ui-import-policy PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..)

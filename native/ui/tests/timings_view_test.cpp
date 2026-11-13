@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "timings_view.h"
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <cstdio>
 #include <cstdlib>
 using namespace druta::ui;
@@ -13,6 +14,11 @@ int main(){
  TimingField b;b.name="TRAIN";b.reg="CONFIG0";b.lo=0;b.hi=7;b.maximum=255;b.structural=true;
  data.snapshot.fields={a,b};data.snapshot.broadcast={{"CONFIG0","DOCUMENTED",0x1000,0xABCD182D}};
  TimingsViewState state;sync_timings_view(state,&data,17);
+ CHECK(can_capture_timing(&data,false)); // hold permission is independent of read-only workload availability
+ CHECK(!can_capture_timing(&data,true)&&!can_capture_timing(nullptr,false));
+ data.capture_workload_pending=true;CHECK(!can_capture_timing(&data,false));data.capture_workload_pending=false;
+ data.capture_hold_pending=true;CHECK(!can_capture_timing(&data,false));data.capture_hold_pending=false;
+ data.capture_running=true;CHECK(!can_capture_timing(&data,false));data.capture_running=false;
  CHECK(!can_preview_timing(state,&data,false,true));CHECK(select_timing_field(state,data,"FAW")&&state.value==24);
  CHECK(can_preview_timing(state,&data,false,true)&&!can_apply_timing(state,&data,false,true));
  state.value=25;TimingPlan plan;plan.ok=true;plan.field="FAW";plan.value=25;data.preview=plan;
@@ -46,7 +52,38 @@ int main(){
  data.helper_token="two";sync_timings_view(state,&data,18);CHECK(state.staged.empty());
  ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DisplaySize=ImVec2(1024,768);io.DeltaTime=1.0f/60;
  unsigned char* pixels=nullptr;int w=0,h=0;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
- ImGui::NewFrame();ImGui::Begin("test");auto result=draw_timings(state,&data,18,false,true);ImGui::End();ImGui::Render();
- CHECK(result.commands.empty()&&!result.choose_helper);ImGui::DestroyContext();
+ auto raw=data.snapshot;raw.ok=true;raw.top_band=false;raw.memory_before_mhz=raw.memory_after_mhz=5000;raw.pstate_before=raw.pstate_after=2;
+ raw.broadcast={{"DIAGNOSTIC_ONLY","RAW",0x1040,0xDEADBEEF}};raw.fields[0].name="DIAGFIELD";raw.message="Below current top band";data.capture_diagnostic=raw;
+ CHECK(select_timing_field(state,data,"FAW"));const auto selected=state.field;const auto value=state.value;const auto main_word=data.snapshot.broadcast.front().value;
+ ImGui::NewFrame();ImGui::SetNextWindowSize(ImVec2(1000,740));ImGui::Begin("test");
+ ImGui::GetStateStorage()->SetInt(ImGui::GetID("Inspect raw capture diagnostic"),1);
+ ImGui::LogToBuffer();auto result=draw_timings(state,&data,18,false,true);const std::string log=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();ImGui::End();ImGui::Render();
+ CHECK(result.commands.empty()&&!result.choose_helper&&!result.save_profile&&!result.load_profile&&!result.cancel_capture);
+ CHECK(log.find("DIAGNOSTIC_ONLY")!=std::string::npos&&log.find("0xDEADBEEF")!=std::string::npos);
+ CHECK(log.find("5000 -> 5000 MHz")!=std::string::npos&&log.find("P2 to P2")!=std::string::npos);
+ CHECK(log.find("does not authorize timing writes")!=std::string::npos);
+ CHECK(state.field==selected&&state.value==value&&state.staged.empty()&&data.snapshot.broadcast.front().value==main_word&&data.snapshot.top_band);
+ CHECK(!select_timing_field(state,data,"DIAGFIELD"));
+ data.capture_diagnostic.reset();
+ const auto press_disconnected=[&](const char* label,bool busy,bool unlocked){
+     const auto* window=ImGui::FindWindowByName("test");CHECK(window);
+     ImGui::ActivateItemByID(ImHashStr(label,0,window->ID));
+     ImGui::NewFrame();ImGui::SetNextWindowSize(ImVec2(1000,740));ImGui::Begin("test");ImGui::LogToBuffer();
+     auto output=draw_timings(state,&data,18,busy,unlocked,false);ImGui::LogFinish();ImGui::End();ImGui::Render();return output;
+ };
+ data.capture_workload_pending=true;
+ auto cleanup=press_disconnected("Release timing capture resources",false,false);
+ CHECK(cleanup.commands.size()==1&&cleanup.commands.front().operation==Command::Operation::timings_release_capture_hold);
+ CHECK(press_disconnected("Release timing capture resources",true,true).commands.empty());
+ data.capture_workload_pending=false;data.capture_hold_pending=true;
+ cleanup=press_disconnected("Release timing capture resources",false,false);
+ CHECK(cleanup.commands.size()==1&&cleanup.commands.front().operation==Command::Operation::timings_release_capture_hold);
+ data.capture_hold_pending=false;state.value=25;
+ CHECK(press_disconnected("Read timings",false,true).commands.empty());
+ CHECK(press_disconnected("Capture at performance band",false,true).commands.empty());
+ CHECK(press_disconnected("Apply timing",false,true).commands.empty());
+ data.capture_running=true;auto cancel=press_disconnected("Cancel timing capture",true,false);
+ CHECK(cancel.cancel_capture&&cancel.commands.empty());
+ ImGui::DestroyContext();
  std::printf("timings_view_test: %u checks passed\n",checks);
 }

@@ -14,6 +14,7 @@
 #include "timing_model.h"
 #include "timing_profile.h"
 #include "timing_capture.h"
+#include "timing_cuda_process.h"
 #include <thread>
 #include <algorithm>
 #include <cmath>
@@ -262,12 +263,79 @@ class Client final : public IBackend {
     std::wstring route_cache_path_;
     std::unique_ptr<TuningActions> tuning_;
     std::unique_ptr<TimingTransport> timing_transport_;
+    std::unique_ptr<TimingCudaProcess> timing_cuda_;
+    std::function<bool()> timing_capture_cancelled_;
     std::unique_ptr<TimingsService> timings_;
     TimingViewData timing_data_;
     std::optional<TimingPlan> timing_undo_;
     std::optional<TimingBatchPlan> timing_batch_undo_;
     enum class TimingOwner { none, vf, legacy };
     TimingOwner timing_owner_=TimingOwner::none;
+    ActionResult release_timing_capture_resources() {
+        if(timing_cuda_ && timing_cuda_->pending()) {
+            const auto stopped=timing_cuda_->stop(200,1000);
+            timing_data_.capture_workload_pending=timing_cuda_->pending();
+            if(timing_data_.capture_workload_pending){ActionResult out;out.message=stopped.message+"; CUDA worker exit remains unconfirmed";return out;}
+        }
+        timing_data_.capture_workload_pending=false;
+        if(timings_ && timings_->pending()){ActionResult out;out.message="Timing helper exit remains unconfirmed";return out;}
+        return release_timing_hold();
+    }
+    TimingCaptureAction timing_workload(const TimingCaptureTarget& target,
+        const std::shared_ptr<const TimingCaptureControl>& control,
+        const std::function<std::optional<TimingBandObservation>()>& observe,
+        const std::function<TimingCaptureAction()>& capture) {
+        TimingCaptureAction result;
+        if(control->stopped()) {result.message="Timing workload cancelled or deadline expired";return result;}
+        if(!timing_cuda_) {
+            wchar_t filename[32768]{};const auto count=GetModuleFileNameW(nullptr,filename,32768);
+            if(!count||count>=32768){result.message="Could not locate the timing CUDA worker";return result;}
+            std::wstring path(filename,count);const auto slash=path.find_last_of(L"\\/");
+            if(slash==std::wstring::npos){result.message="Timing CUDA worker requires an absolute path";return result;}
+            timing_cuda_=make_timing_cuda_process(path.substr(0,slash+1)+L"druta-ui-timing-cuda.exe");
+        }
+        if(!timing_cuda_||timing_cuda_->pending()){result.message="Previous CUDA worker exit is unconfirmed";return result;}
+        auto finish=[&]{
+            const auto ended=timing_cuda_->stop(200,1000);
+            timing_data_.capture_workload_pending=timing_cuda_->pending();
+            if(!ended.ok||timing_data_.capture_workload_pending){result.ok=false;result.message+="; "+ended.message;}
+            if(result.ok)try{
+                (void)observe(); // Cleanup may outlive the last captured identity/helper bracket.
+                if(control->stopped())throw std::runtime_error("Capture cancelled or deadline expired during CUDA cleanup");
+            }catch(const std::exception& error){result.ok=false;result.message+="; "+std::string(error.what());}
+            return result;
+        };
+        try {
+            // Target/helper identity is checked before launch and every sample.
+            (void)observe();
+            if(control->stopped()){result.message="Timing workload cancelled before launch";return result;}
+            if(!timing_cuda_->start(target.slot,control->remaining_ms(60000),result.message))return finish();
+            using Clock=TimingCaptureControl::Clock;
+            const auto startup=std::min(control->deadline,Clock::now()+std::chrono::seconds(15));
+            auto running=[&]{const auto state=timing_cuda_->poll();
+                if(state.finished||!timing_cuda_->pending())throw std::runtime_error(state.message.empty()?"CUDA workload ended early":state.message);
+                return state.copying;};
+            auto pause=[&](unsigned ms){const auto end=std::min(control->deadline,Clock::now()+std::chrono::milliseconds(ms));
+                while(Clock::now()<end&&!control->stopped()){if(!running())throw std::runtime_error("CUDA workload stopped copying");std::this_thread::sleep_for(std::chrono::milliseconds(10));}};
+            bool copying=false;
+            while(!control->stopped()&&Clock::now()<startup){if(running()){copying=true;break;}std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+            if(!copying)throw std::runtime_error(control->stopped()?"CUDA startup cancelled or timed out":"CUDA workload did not start within fifteen seconds");
+            const auto settle=std::min(control->deadline,Clock::now()+std::chrono::seconds(15));
+            std::optional<uint32_t> previous;unsigned stable=0;
+            while(!control->stopped()&&Clock::now()<settle){
+                if(!running())throw std::runtime_error("CUDA workload stopped before timing capture");
+                const auto sample=observe();const auto memory=sample?sample->memory_mhz:std::optional<uint32_t>{};
+                if(memory&&*memory>0&&previous&&*memory==*previous)++stable;else stable=0;
+                previous=memory;if(stable>=2)break;pause(400);
+            }
+            if(control->stopped())throw std::runtime_error("CUDA timing capture cancelled or deadline expired");
+            if(stable<2)throw std::runtime_error("Memory clock did not settle during CUDA workload");
+            if(!running())throw std::runtime_error("CUDA workload ended before timing capture");
+            result=capture();
+            if(control->stopped()||!running()){result.ok=false;result.message+="; CUDA workload ended, was cancelled or expired during capture";}
+            return finish();
+        }catch(const std::exception& e){result.ok=false;result.message=e.what();return finish();}
+    }
     ActionResult release_timing_hold() {
         ActionResult out; out.ok=true;
         if(timing_owner_==TimingOwner::vf) out=release_hold();
@@ -280,12 +348,22 @@ class Client final : public IBackend {
         ActionResult out;
         if(!timings_ || !timing_transport_){out.message="Choose the timing helper first";return out;}
         if(timing_owner_!=TimingOwner::none){out.message="Release the previous temporary timing hold first";return out;}
+        if(timing_cuda_&&timing_cuda_->pending()){out.message="Confirm the previous CUDA worker exit first";return out;}
+        auto control=std::make_shared<TimingCaptureControl>();
+        control->deadline=TimingCaptureControl::Clock::now()+std::chrono::seconds(60);control->cancelled=timing_capture_cancelled_;
+        if(control->stopped()){out.message="Timing capture cancelled before starting";return out;}
+        timing_transport_->set_capture_control(control);
+        struct ClearControl {TimingTransport& transport;~ClearControl(){transport.set_capture_control({});}} clear{*timing_transport_};
+        timing_data_.capture_diagnostic.reset();timing_data_.capture_method=TimingCaptureMethod::none;
+        timing_data_.snapshot.ok=false;timing_data_.snapshot.message="Fresh timing capture pending";
+        timing_data_.preview.reset();timing_data_.batch_preview.reset();++timing_data_.capture_revision;
         std::string helper_error;
         if(!timing_transport_->pin(helper_error)){out.message=helper_error;return out;}
         struct Unpin {TimingTransport& transport;~Unpin(){transport.unpin();}} pin{*timing_transport_};
         // Establish helper/target/layout readiness before requesting any hold.
         auto initial=timings_->capture_pinned();
         if(!initial.ok){out.message=initial.message;return out;}
+        timing_data_.capture_diagnostic=initial;
         const TimingCaptureTarget target{cmd.timing_generation,opened_.uuid,opened_.slot,timing_transport_->token()};
         bool hold_attempted=false;
         TimingCaptureCallbacks callbacks;
@@ -310,8 +388,11 @@ class Client final : public IBackend {
             if(f.ownership.recovery || (f.ownership.needs_cleanup()&&!f.ownership.confirmed))return TimingHoldState::uncertain;
             if(f.ownership.confirmed)return TimingHoldState::owned;
             if(f.current)return TimingHoldState::foreign;
+            if(!opened_.nvapi_ok)return TimingHoldState::none;
             dc_vf_lock_status vf{};dc_clk_lock_status clock{};
-            if(retry(api_.tuning.vf_status,gpu_,0,0u,&vf)!=DC_OK || vf.error[0] || retry(api_.tuning.clock_status,gpu_,&clock)!=DC_OK || clock.error[0])return TimingHoldState::uncertain;
+            const auto vs=api_.tuning.vf_status?retry(api_.tuning.vf_status,gpu_,0,0u,&vf):DC_E_UNAVAILABLE;
+            const auto cs=api_.tuning.clock_status?retry(api_.tuning.clock_status,gpu_,&clock):DC_E_UNAVAILABLE;
+            if((vs!=DC_OK&&vs!=DC_E_UNAVAILABLE)||(cs!=DC_OK&&cs!=DC_E_UNAVAILABLE)||vf.error[0]||clock.error[0])return TimingHoldState::uncertain;
             return vf.locked||clock.locked ? TimingHoldState::foreign : TimingHoldState::none;
         };
         callbacks.acquire=[&] {
@@ -337,16 +418,25 @@ class Client final : public IBackend {
             if(!result.cleanup_required)timing_owner_=TimingOwner::none;
             return result;
         };
-        callbacks.release=[&]{const auto released=release_timing_hold();return TimingCaptureAction{released.ok,released.message};};
-        callbacks.capture=[&]{auto fresh=timings_->capture_pinned();const bool qualified=fresh.ok&&fresh.top_band&&fresh.pstate_before==uint32_t{0}&&fresh.pstate_after==uint32_t{0};
-            if(qualified)timing_data_.snapshot=std::move(fresh);
-            return TimingCaptureAction{qualified,qualified?"Timings captured in stable P0":fresh.message};};
+        callbacks.release=[&]{if(timings_->pending())return TimingCaptureAction{false,"Timing helper exit is unconfirmed; temporary hold retained"};const auto released=release_timing_hold();return TimingCaptureAction{released.ok,released.message};};
+        std::optional<TimingSnapshot> candidate;
+        const auto capture=[&](bool loaded){auto fresh=timings_->capture_pinned();
+            const bool state=fresh.pstate_before&&fresh.pstate_after&&fresh.pstate_before==fresh.pstate_after&&
+                (*fresh.pstate_before==0||(loaded&&*fresh.pstate_before==2));
+            const bool qualified=fresh.ok&&fresh.top_band&&state;
+            if(fresh.ok)timing_data_.capture_diagnostic=fresh;
+            if(qualified)candidate=fresh;
+            return TimingCaptureAction{qualified,qualified?"Timings captured in stable P"+std::to_string(*fresh.pstate_before):fresh.message+"; raw diagnostic only, current top memory band unqualified",fresh.ok};};
+        callbacks.capture=[&]{return capture(false);};
+        callbacks.capture_loaded=[&]{return capture(true);};
+        callbacks.workload=[&](const auto& action){return timing_workload(target,control,callbacks.observe,action);};
         callbacks.sleep_ms=[](unsigned ms){std::this_thread::sleep_for(std::chrono::milliseconds(ms));};
-        const auto result=capture_qualified_timings(target,callbacks);
+        const auto result=capture_qualified_timings(target,callbacks,{cmd.timing_allow_hold,control});
+        timing_data_.capture_method=result.method;
+        if(result.ok&&candidate)timing_data_.snapshot=std::move(*candidate);
         out.ok=result.ok;out.may_have_changed=hold_attempted;out.message=result.message;
         if(hold_attempted&&!result.cleanup_pending)out.message+="; temporary hold released";
         timing_data_.capture_hold_pending=result.cleanup_pending;
-        timing_data_.preview.reset();timing_data_.batch_preview.reset();++timing_data_.capture_revision;
         if(!result.ok)timing_data_.snapshot.ok=false;
         return out;
     }
@@ -1992,7 +2082,7 @@ class Client final : public IBackend {
             TimingsApi a; a.identity=api_.identity; a.telemetry=api_.telemetry; a.capabilities=api_.capabilities; a.lock=api_.lock; a.unlock=api_.unlock;
             timings_ = std::make_unique<TimingsService>(a,gpu_,opened_,*timing_transport_);
             out.ok=true; out.message="Timing helper selected; Read fields captures this adapter";
-        } else if (cmd.operation==Command::Operation::timings_release_capture_hold) { out=release_timing_hold();
+        } else if (cmd.operation==Command::Operation::timings_release_capture_hold) { out=release_timing_capture_resources();
         } else if (!timings_) { out.message="Choose the nvtune helper first";
         } else if (cmd.operation==Command::Operation::timings_capture_p0) { out=capture_p0(cmd);
         } else if (cmd.operation == Command::Operation::timings_read) {
@@ -2074,7 +2164,8 @@ class Client final : public IBackend {
         timing_data_.message=out.message; publish(); return out;
     }
 public:
-    explicit Client(CoreApi api) : api_(api) {}
+    explicit Client(CoreApi api,std::unique_ptr<TimingCudaProcess> workload={}) : api_(api),timing_cuda_(std::move(workload)) {}
+    void configure_timing_capture_cancellation(std::function<bool()> cancelled) override {timing_capture_cancelled_=std::move(cancelled);}
 #ifdef _WIN32
     explicit Client(const std::wstring& path) {
         // A fully qualified path is mandatory; never search for a same-named DLL.
@@ -2204,8 +2295,9 @@ public:
         last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
         error.clear(); return true;
     }
-    bool auxiliary_cleanup_needed()const override{return (power_saving_&&power_saving_->has_owned_requests())||(clock_gating_&&clock_gating_->needs_cleanup());}
+    bool auxiliary_cleanup_needed()const override{return (timing_cuda_&&timing_cuda_->pending())||(power_saving_&&power_saving_->has_owned_requests())||(clock_gating_&&clock_gating_->needs_cleanup());}
     ActionResult prepare_close() override {
+        if(timing_cuda_&&timing_cuda_->pending()){const auto result=release_timing_capture_resources();if(!result.ok)return result;}
         if(power_saving_&&power_saving_->has_owned_requests()){
             const auto result=power_saving_->release_owned();last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
             if(!result.ok||power_saving_->has_owned_requests()){ActionResult out;out.message=result.message+"; owned requests still require release";out.may_have_changed=result.may_have_changed;return out;}
@@ -2222,6 +2314,7 @@ public:
         ActionResult result; result.ok=true; return result;
     }
     bool maintenance_needed() const override {
+        if(timing_cuda_&&timing_cuda_->pending())return true;
         if (timings_ && timings_->pending()) return true;
         if (!tuning_) return false;
         const auto s=tuning_->state(); return s.owned || s.headroom || s.recovery;
@@ -2230,7 +2323,13 @@ public:
     std::optional<FrequencyLockData> frequency_state() const override { return frequency_ ? frequency_->data() : FrequencyLockData{}; }
     ActionResult maintain() override {
         ActionResult out; out.ok=true; if (!maintenance_needed()) return out;
+        if(timing_cuda_&&timing_cuda_->pending()){
+            const auto stopped=timing_cuda_->stop(0,20);timing_data_.capture_workload_pending=timing_cuda_->pending();
+            last_.timings=std::make_shared<TimingViewData>(timing_data_);
+            if(timing_data_.capture_workload_pending){out.ok=false;out.message=stopped.message+"; waiting for owned CUDA worker exit";return out;}
+        }
         if (timings_ && timings_->pending()) { out.ok=false; out.message="Waiting for timing helper exit; further operations are blocked"; return out; }
+        if(!tuning_)return out;
         const auto r=tuning_->maintain(); last_.tuning=tuning_->state();
         out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
     }
@@ -2410,7 +2509,8 @@ public:
         if (!gpu_) { result.message = "No GPU selected"; return result; }
         if((cmd.operation==Command::Operation::apply_catalog_profile||cmd.operation==Command::Operation::preflight_catalog_profile)&&cmd.catalog_profile&&annotation_only(*cmd.catalog_profile))
             return catalog_action(cmd);
-        if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
+        if(timing_cuda_&&timing_cuda_->pending()&&cmd.operation!=Command::Operation::timings_release_capture_hold){result.message="CUDA worker exit is unconfirmed; release capture resources before another operation";return result;}
+        if (timings_ && timings_->pending() && cmd.operation!=Command::Operation::timings_release_capture_hold) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
         if(timing_owner_!=TimingOwner::none && cmd.operation!=Command::Operation::timings_release_capture_hold) {
             result.message="Release the retained temporary timing hold before another operation";return result;
         }
@@ -2723,6 +2823,7 @@ public:
 };
 }
 std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api) { return std::make_unique<Client>(api); }
+std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api,std::unique_ptr<TimingCudaProcess> workload) { return std::make_unique<Client>(api,std::move(workload)); }
 std::unique_ptr<IBackend> create_core_backend(const std::wstring& path) {
 #ifdef _WIN32
     return std::make_unique<Client>(path);

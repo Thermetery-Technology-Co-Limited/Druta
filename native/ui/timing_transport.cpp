@@ -12,6 +12,15 @@ namespace {
 class NativeTransport final : public TimingTransport {
     std::wstring path_; HANDLE file_=INVALID_HANDLE_VALUE; std::string token_;
     mutable HANDLE pending_process_=nullptr;
+    std::shared_ptr<const TimingCaptureControl> capture_control_;
+    bool stopped(TimingProcessResult& result) const {
+        if(!capture_control_||!capture_control_->stopped())return false;
+        result.timed_out=capture_control_->expired();
+        const std::string reason=capture_control_->cancellation_requested()?"Timing capture cancelled":"Timing capture deadline expired";
+        if(result.error.empty())result.error=reason;
+        else if(result.error.find(reason)==std::string::npos)result.error+="; "+reason;
+        return true;
+    }
     static bool digest(HANDLE file,std::string& out) {
         HCRYPTPROV provider=0; HCRYPTHASH hash=0; bool ok=false;
         if (!CryptAcquireContextW(&provider,nullptr,nullptr,PROV_RSA_AES,CRYPT_VERIFYCONTEXT)) return false;
@@ -39,12 +48,14 @@ class NativeTransport final : public TimingTransport {
 public:
     explicit NativeTransport(std::wstring path) : path_(std::move(path)) {}
     ~NativeTransport() override { unpin(); if (pending_process_) CloseHandle(pending_process_); }
+    void set_capture_control(std::shared_ptr<const TimingCaptureControl> control) override { capture_control_=std::move(control); }
     bool pending() const override {
         if (!pending_process_) return false;
         if (WaitForSingleObject(pending_process_,0)!=WAIT_OBJECT_0) return true;
         CloseHandle(pending_process_); pending_process_=nullptr; return false;
     }
     bool pin(std::string& error) override {
+        TimingProcessResult stopped_result;if(stopped(stopped_result)){error=stopped_result.error;return false;}
         if (pending()) { error="Previous helper process has not exited"; return false; }
         unpin();
         const bool absolute=path_.size()>=3 && ((path_[1]==L':' && (path_[2]==L'\\' || path_[2]==L'/')) || (path_[0]==L'\\' && path_[1]==L'\\'));
@@ -55,6 +66,7 @@ public:
             error="Could not pin the helper executable against modification"; unpin(); return false;
         }
         std::string hash; if (!digest(file_,hash)) { error="Could not fingerprint the helper"; unpin(); return false; }
+        if(stopped(stopped_result)){error=stopped_result.error;unpin();return false;}
         token_=file_token(info)+":"+hash; return true;
     }
     bool unchanged(std::string& error) override {
@@ -68,6 +80,7 @@ public:
     void unpin() override { if (file_!=INVALID_HANDLE_VALUE) CloseHandle(file_); file_=INVALID_HANDLE_VALUE; token_.clear(); }
     TimingProcessResult run(TimingCommand op,const std::string& slot,const std::string& field,uint32_t value,bool commit_flag,bool preview_flag) override {
         TimingProcessResult result; std::string error;
+        if(stopped(result))return result;
         if (pending()) { result.error="Previous helper process has not exited"; return result; }
         if (!unchanged(error)) { result.error=error; return result; }
         static const std::regex slot_re("^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\\.[0-7]$");
@@ -97,18 +110,20 @@ public:
         SetHandleInformation(rd,HANDLE_FLAG_INHERIT,0);
         STARTUPINFOW si{}; si.cb=sizeof(si); si.dwFlags=STARTF_USESTDHANDLES; si.hStdOutput=wr; si.hStdError=wr; si.hStdInput=GetStdHandle(STD_INPUT_HANDLE);
         PROCESS_INFORMATION pi{}; std::vector<wchar_t> cmd(args.begin(),args.end()); cmd.push_back(0);
+        if(stopped(result)){CloseHandle(wr);CloseHandle(rd);return result;}
         if (!CreateProcessW(path_.c_str(),cmd.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&pi)) {
             CloseHandle(wr); CloseHandle(rd); result.error="Could not start selected helper"; return result;
         }
         result.launched=true; CloseHandle(wr); const ULONGLONG start=GetTickCount64();
         bool running=true, failed=false;
         while (running) {
+            if(stopped(result)){failed=true;break;}
             DWORD available=0; if (!PeekNamedPipe(rd,nullptr,0,nullptr,&available,nullptr)) available=0;
             if (available) {
                 char buf[4096]; DWORD got=0; const DWORD count=available<sizeof(buf)?available:static_cast<DWORD>(sizeof(buf));
                 if (ReadFile(rd,buf,count,&got,nullptr) && got) result.output.append(buf,got);
                 if (result.output.size()>1024*1024) { result.error="Helper output exceeded limit"; failed=true; break; }
-            } else if (WaitForSingleObject(pi.hProcess,20)==WAIT_OBJECT_0) {
+            } else if (WaitForSingleObject(pi.hProcess,capture_control_?capture_control_->remaining_ms(20):20)==WAIT_OBJECT_0) {
                 DWORD remaining=0;
                 if (!PeekNamedPipe(rd,nullptr,0,nullptr,&remaining,nullptr) || !remaining) running=false;
             }
@@ -116,7 +131,8 @@ public:
         }
         if (failed) {
             TerminateProcess(pi.hProcess,1);
-            if (WaitForSingleObject(pi.hProcess,5000)!=WAIT_OBJECT_0) {
+            // Cleanup has its own bounded grace after the capture deadline.
+            if (WaitForSingleObject(pi.hProcess,capture_control_?1000:5000)!=WAIT_OBJECT_0) {
                 pending_process_=pi.hProcess; pi.hProcess=nullptr;
                 result.error+="; helper exit unconfirmed";
             }
@@ -124,6 +140,7 @@ public:
         DWORD code=1; if (pi.hProcess) GetExitCodeProcess(pi.hProcess,&code); result.exit_code=code;
         CloseHandle(pi.hThread); if (pi.hProcess) CloseHandle(pi.hProcess); CloseHandle(rd);
         if (!unchanged(error)) result.error=error;
+        stopped(result);
         if(op==TimingCommand::save && result.launched && !result.timed_out && !result.exit_code && result.error.empty()) {
             HANDLE file=CreateFileW(temp.path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
             LARGE_INTEGER size{};

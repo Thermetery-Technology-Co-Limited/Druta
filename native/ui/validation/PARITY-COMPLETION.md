@@ -21,7 +21,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Ctrl+H initiation/release, typing/stale/dirty guards, ownership/status | Implemented/tested in `4c6f1f5` |
 | Legacy Classic keyboard scope and curve plot guides/nudge buttons | Implemented/tested/rendered in second checkpoint; Focused remains editor-local |
 | Continuous curve consequences, parameter organization, acknowledged hard de-flatten | Implemented/tested in second checkpoint; software predictions remain distinct from measurements |
-| Manual V/F profiles, identity/geometry validation, stage/preview/explicit Apply | Implemented/tested in second checkpoint; standalone scope, not full-tune composition |
+| Manual V/F profiles, identity/geometry validation, stage/preview/explicit Apply | Implemented/tested in second checkpoint; thirteenth adds selected indexed full-tune composition bound to fresh current geometry |
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; unqualified board-only Python power snapshots are refused before writes. Seventeenth adds qualified iCX composition as described below. Fourteenth adds timing plus ordinary/additional memory composition with timing first, memory-first Undo and frozen baselines; 100/100 suites and 22 read-only renderer phases passed |
@@ -37,8 +37,8 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
 | Timing profile save/load staged only | Fourth: native typed save with staged overlay, validated load into local fields, explicit whole Preview/Apply. Ninth adds released Python timing, `nvtune-profile-1` and field-exchange imports with current-helper aliases and qualification; 87-suite and 20-phase renderer validation passed. Physical timing-write qualification remains open |
-| Bounded owned-P0 capture and qualifying-band auto-capture | Seventh: scoped helper pin, observed P0/current-adapter band, bounded temporary hold and owned-only cleanup, switch exclusion/recovery and telemetry-only auto-capture implemented/tested. No CUDA workload fallback or new physical timing-write qualification claimed |
-| Optional CUDA workload fallback for bounded P0 timing capture | Not ported; temporary hold and observed-band capture are implemented. Keep this release behavior explicit in the final scope audit |
+| Bounded owned-P0 capture and qualifying-band auto-capture | Seventh: scoped helper pin, observed P0/current-adapter band, bounded temporary hold and owned-only cleanup, switch exclusion/recovery and telemetry-only auto-capture implemented/tested. Nineteenth adds optional CUDA below; no new physical timing-write qualification |
+| Optional CUDA workload fallback for bounded P0 timing capture | Nineteenth: exact-BDF owned child, shared deadline/cancellation, clean-exit publication, locked-controls fallback and separate raw diagnostics implemented/tested. All 118 suites and 22 renderer phases pass. Current 3070 Ti captured stable P2/9427 MHz below the top band and correctly retained diagnostics only; lower-P2 timing-write qualification remains unresolved. See [evidence](2026-11-13-parity-nineteenth-increment.md) |
 | Classic I2C per-family geometry/order/help and auto-open on discovery | Implemented/tested in second checkpoint across all six controller families; physical qualification remains controller-specific |
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
 | I2C remembered read-only discovery routes, progress and bounded cancellation | Implemented/tested in sixth: UUID/recipe-contract hints require fresh probe/read, Full scan bypasses hints, immutable worker progress and atomic Cancel, transactional selection and unverified partial candidates. No cached gates, verification or tuning replay; current 3070 Ti selection/read passed without owned requests |
@@ -63,6 +63,7 @@ Fifteenth increment: [exact uP/NCP imports and recovery](2026-11-13-parity-fifte
 Sixteenth increment: [coarse controller imports and composition](2026-11-13-parity-sixteenth-increment.md); all 109 suites and 22 read-only renderer phases pass.
 Seventeenth increment: [iCX composition and recovery](2026-11-13-parity-seventeenth-increment.md); all 111 suites passed in 34.86 seconds and 22 read-only renderer phases pass.
 Eighteenth increment: [full-profile power labels and Undo](2026-11-13-parity-eighteenth-increment.md); all 114 suites passed in 35.68 seconds. Live validation is recorded in that checkpoint.
+Nineteenth increment: [optional CUDA capture and cancellation](2026-11-13-parity-nineteenth-increment.md); all 118 suites and 22 renderer phases pass. Exact-target workload cleanup and below-band diagnostic-only capture were exercised on this 3070 Ti.
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -83,7 +84,7 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the eighteenth increment
+## Remaining scope after the nineteenth increment
 
 - Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
   providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
@@ -91,9 +92,11 @@ active until every applicable review requirement has authoritative evidence.
 - Persistent relationship-weight exception: selected preview, journal, exact registry
   projection, explicit refresh, image/INFO verification and three-way removal. The
   [port map](2026-11-13-relationship-weight-port-map.md) retains all stages and failures.
-- Port the optional CUDA capture fallback and remaining profile scopes. The
-  [CUDA map](2026-11-13-cuda-capture-port-map.md) traces workload lifetime,
-  cancellation and P2 qualification. The [profile scope audit](2026-11-13-profile-scope-gap-map.md)
+- Qualify lower-P2 timing-band equivalence without changing the existing floor
+  from one board's observed clocks; optional CUDA fallback is implemented in the
+  [nineteenth checkpoint](2026-11-13-parity-nineteenth-increment.md). The
+  [CUDA map](2026-11-13-cuda-capture-port-map.md) retains its historical source
+  trace. Complete the provider-dependent profile scopes. The [profile scope audit](2026-11-13-profile-scope-gap-map.md)
   predates subsequent increments. Eleventh-increment voltage request/limit
   catalog composition passed the documented integration checks. Low-power and clock/PCIe catalog
   composition is validated within its documented boundaries. Thirteenth-increment

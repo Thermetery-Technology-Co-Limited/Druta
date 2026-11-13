@@ -1,6 +1,7 @@
 /* Druta - Copyright (C) 2026 Thermetery Technology Co Limited
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
+#include "timing_capture_control.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -14,6 +15,9 @@ public:
     virtual ~TimingTransport() = default;
     // True while a launched helper has not been confirmed terminated.
     virtual bool pending() const { return false; }
+    // Worker-only scope; clear after explicit capture. Ordinary operations keep
+    // their existing timeout when no shared control is installed.
+    virtual void set_capture_control(std::shared_ptr<const TimingCaptureControl>) {}
     virtual bool pin(std::string& error) = 0;
     virtual bool unchanged(std::string& error) = 0;
     virtual std::string token() const = 0;

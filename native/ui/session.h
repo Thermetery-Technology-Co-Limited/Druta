@@ -67,6 +67,7 @@ public:
     // Duplicate acknowledgments succeed only for an actually issued ID in this generation.
     bool acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id);
     bool cancel_i2c_discovery(std::uint64_t expected_generation);
+    bool cancel_timing_capture(std::uint64_t expected_generation);
     std::shared_ptr<const SessionSnapshot> snapshot() const;
     void begin_shutdown();
     // Process-exit-only handoff, after a recovery helper has been launched.

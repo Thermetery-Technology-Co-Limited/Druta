@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "session.h"
 #include "profile_catalog.h"
+#include "timing_model.h"
 #include <windows.h>
 #include <algorithm>
 #include <atomic>
@@ -127,6 +128,7 @@ struct Session::Impl {
     std::string desired_slot, expected_uuid;
     bool identity_mismatch = false;
     std::atomic<bool> discovery_cancelled{false};
+    std::atomic<bool> timing_capture_cancelled{false};
     std::optional<std::uint64_t> discovery_generation;
     static bool discovery_action(Command::Operation op) { return op==Command::Operation::i2c_scan || op==Command::Operation::i2c_select; }
     static bool annotation_producer(Command::Operation op) {
@@ -151,6 +153,7 @@ struct Session::Impl {
     explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n, const std::wstring& cache_path) : backend(std::move(b)), notify(std::move(n)) {
         InitializeCriticalSection(&lock);
         wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (backend) backend->configure_timing_capture_cancellation([this] { return timing_capture_cancelled.load(); });
         if (backend) backend->configure_i2c_discovery([this] { return discovery_cancelled.load(); }, [this](const I2cDiscoveryProgress& progress) {
             {
                 Guard guard(lock);
@@ -420,6 +423,9 @@ struct Session::Impl {
                                 state.i2c_ownership_uncertain=true;
                         }
                         state.last_action_operation = task.operation; state.last_action_ok = result.ok;
+                        if(task.operation==Command::Operation::timings_capture_p0 && state.data.timings){
+                            auto timing=std::make_shared<TimingViewData>(*state.data.timings);timing->capture_running=false;state.data.timings=std::move(timing);
+                        }
                         // A verified process gate is authoritative even if the following
                         // telemetry refresh throws. An uncertain change cannot look off.
                         if (task.operation == Command::Operation::set_xoc) {
@@ -486,6 +492,7 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       const auto target_slot=preserve_constraint ? impl_->state.selected_slot : slot;
       if (!preserve_constraint) { impl_->expected_uuid.clear(); impl_->identity_mismatch=false; }
       ++impl_->state.generation; impl_->desired_slot = target_slot; impl_->switch_pending = true;
+      impl_->timing_capture_cancelled=true;
       impl_->state.annotation_completions.clear(); impl_->next_annotation_event = 0;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
       impl_->state.selected_slot = target_slot; impl_->state.opening = true; impl_->state.busy = false;
@@ -515,7 +522,7 @@ void Session::request_poll(bool details) {
 void Session::set_paused(bool paused) {
     { Guard guard(impl_->lock); if (impl_->stopping || impl_->state.paused == paused) return;
       impl_->state.paused = paused;
-      if (paused) impl_->poll_pending = impl_->details_pending = false;
+      if (paused) {impl_->poll_pending = impl_->details_pending = false;impl_->timing_capture_cancelled=true;}
       else {
           impl_->state.telemetry_stale_mask |= impl_->state.data.telemetry.present;
           for(uint32_t i=0;i<std::min(impl_->state.data.telemetry.fan_count,uint32_t{32});++i){
@@ -535,13 +542,19 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
       else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
-      else if (impl_->state.opening || (!impl_->state.data.connected && !impl_->disconnected_annotation(command) && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !impl_->disconnected_annotation(command) && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh || command.operation==Command::Operation::timings_release_capture_hold)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
+      else if (command.operation==Command::Operation::timings_capture_p0 && impl_->state.paused)
+          reason = "Resume before starting a timing capture workload";
       else if (Impl::annotation_producer(command.operation) &&
           impl_->state.annotation_completions.size() >= annotation_completion_capacity)
           reason = "Consume pending policy label completions before applying or undoing another catalog profile";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { if (Impl::discovery_action(command.operation)) impl_->discovery_cancelled=false;
+          if(command.operation==Command::Operation::timings_capture_p0){
+              impl_->timing_capture_cancelled=false;
+              if(impl_->state.data.timings){auto timing=std::make_shared<TimingViewData>(*impl_->state.data.timings);timing->capture_running=true;impl_->state.data.timings=std::move(timing);}
+          }
           impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return accepted;
@@ -569,9 +582,14 @@ bool Session::cancel_i2c_discovery(std::uint64_t expected_generation) {
     impl_->discovery_cancelled=true;
     return true;
 }
+bool Session::cancel_timing_capture(std::uint64_t expected_generation) {
+    Guard guard(impl_->lock);
+    if(expected_generation!=impl_->state.generation || !impl_->state.busy || impl_->command.operation!=Command::Operation::timings_capture_p0)return false;
+    impl_->timing_capture_cancelled=true;return true;
+}
 void Session::begin_device_restart_shutdown(){
     {Guard guard(impl_->lock);if(impl_->done)return;impl_->restart_exit=true;impl_->stopping=true;impl_->state.close_refused=false;
-     impl_->poll_pending=impl_->details_pending=impl_->command_pending=impl_->switch_pending=false;impl_->maintenance_active=false;impl_->discovery_cancelled=true;
+     impl_->poll_pending=impl_->details_pending=impl_->command_pending=impl_->switch_pending=false;impl_->maintenance_active=false;impl_->discovery_cancelled=true;impl_->timing_capture_cancelled=true;
      if(!impl_->thread){(void)impl_->backend.release();impl_->done=true;}}
     impl_->signal();
 }
@@ -579,6 +597,7 @@ void Session::begin_shutdown() {
     { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true; impl_->state.close_refused=false;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = impl_->switch_pending = false;
       impl_->discovery_cancelled=true;
+      impl_->timing_capture_cancelled=true;
       if (!impl_->thread) impl_->done = true; }
     impl_->signal();
 }

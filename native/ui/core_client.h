@@ -85,5 +85,7 @@ struct CoreApi {
     decltype(&dc_pl_read) power = nullptr;
     decltype(&dc_pl_enforced_read) enforced_power = nullptr;
 };
+class TimingCudaProcess;
 std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api);
+std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api,std::unique_ptr<TimingCudaProcess> workload);
 }

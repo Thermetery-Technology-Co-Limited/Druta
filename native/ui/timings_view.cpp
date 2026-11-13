@@ -110,7 +110,9 @@ bool can_apply_timing(const TimingsViewState& state,const TimingViewData* data,b
     return can_preview_timing(state,data,busy,unlocked) && data->preview && data->preview->ok &&
         !data->preview->no_change && data->preview->field==state.field && data->preview->value==state.value;
 }
-TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* data,std::uint64_t generation,bool busy,bool unlocked) {
+bool can_capture_timing(const TimingViewData* data,bool busy){return data&&!busy&&!data->helper_path.empty()&&!data->capture_hold_pending&&!data->capture_workload_pending&&!data->capture_running;}
+TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* data,std::uint64_t generation,bool worker_busy,bool unlocked,bool connected) {
+    const bool busy=worker_busy||!connected;
     sync_timings_view(state,data,generation); TimingsViewOutput out;
     ImGui::TextUnformatted("Memory timings");
     ImGui::TextWrapped("nvtune is a separate helper. Timing writes affect the current memory band; capture and a stable top band are required.");
@@ -118,14 +120,41 @@ TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* dat
     ImGui::SameLine(); ImGui::BeginDisabled(!data||data->helper_path.empty());
     if(ImGui::Button("Read timings")){Command c{};c.operation=Command::Operation::timings_read;out.commands.push_back(c);} ImGui::EndDisabled(); ImGui::EndDisabled();
     if(!data){ImGui::TextDisabled("No helper configured");return out;}
-    ImGui::BeginDisabled(busy||!unlocked||data->helper_path.empty()||data->capture_hold_pending);
+    ImGui::BeginDisabled(!can_capture_timing(data,busy));
+    ImGui::BeginDisabled(!unlocked);
     ImGui::SetNextItemWidth(110);ImGui::InputDouble("P0 capture V/F cap (mV)",&state.capture_cap_mv,0,0,"%.2f");
-    if(ImGui::Button("Capture at P0 (temporary hold)")){Command c;c.operation=Command::Operation::timings_capture_p0;c.timing_generation=generation;c.curve_cap_mv=state.capture_cap_mv;out.commands.push_back(c);}
     ImGui::EndDisabled();
-    ImGui::TextDisabled("Releases only this capture's temporary hold when finished.");
-    if(data->capture_hold_pending){
-        ImGui::BeginDisabled(busy);
-        if(ImGui::Button("Release temporary timing hold")){Command c;c.operation=Command::Operation::timings_release_capture_hold;out.commands.push_back(c);}
+    if(ImGui::Button("Capture at performance band")){Command c;c.operation=Command::Operation::timings_capture_p0;c.timing_generation=generation;c.curve_cap_mv=state.capture_cap_mv;c.timing_allow_hold=unlocked;out.commands.push_back(c);}
+    ImGui::EndDisabled();
+    ImGui::TextWrapped(unlocked?"Uses current P0 first, then a temporary hold or optional CUDA workload. Releases only this capture's hold.":"Uses current P0 or an optional CUDA workload. Tuning holds remain disabled.");
+    if(data->capture_running&&ImGui::Button("Cancel timing capture"))out.cancel_capture=true;
+    if(data->capture_method==TimingCaptureMethod::cuda)ImGui::TextDisabled("Capture method: CUDA workload; actual P-state and band determine qualification.");
+    if(data->capture_diagnostic){const auto& diagnostic=*data->capture_diagnostic;
+        ImGui::TextWrapped("Raw capture diagnostic (does not authorize timing writes): %s",diagnostic.message.c_str());
+        if(diagnostic.pstate_before&&diagnostic.pstate_after)ImGui::Text("Observed P-state: P%u to P%u",*diagnostic.pstate_before,*diagnostic.pstate_after);
+        if(ImGui::CollapsingHeader("Inspect raw capture diagnostic")){
+            ImGui::Text("Captured adapter: %s | %s",diagnostic.slot.c_str(),diagnostic.codename.c_str());
+            ImGui::Text("Memory stable: %s | current top band: %s",diagnostic.memory_clock_stable?"yes":"unconfirmed",diagnostic.top_band?"yes":"not established");
+            const auto observation=[](const char* label,const auto& before,const auto& after,const char* units){
+                if(before&&after)ImGui::Text("%s: %lld -> %lld %s",label,static_cast<long long>(*before),static_cast<long long>(*after),units);
+                else ImGui::Text("%s: unavailable",label);
+            };
+            observation("Memory clock",diagnostic.memory_before_mhz,diagnostic.memory_after_mhz,"MHz");
+            observation("Memory offset request",diagnostic.offset_before,diagnostic.offset_after,"raw driver units");
+            ImGui::TextWrapped("Read-only captured values. This panel never replaces the qualified editor capture or stages fields.");
+            if(ImGui::BeginTable("capture_diagnostic_words",4,ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg|ImGuiTableFlags_ScrollY,ImVec2(0,160))){
+                ImGui::TableSetupColumn("Register");ImGui::TableSetupColumn("Address");ImGui::TableSetupColumn("Captured raw value");ImGui::TableSetupColumn("Evidence");ImGui::TableHeadersRow();
+                for(const auto& row:diagnostic.broadcast){ImGui::TableNextRow();ImGui::TableSetColumnIndex(0);ImGui::TextUnformatted(row.name.c_str());
+                    ImGui::TableSetColumnIndex(1);ImGui::Text("0x%08X",row.offset);ImGui::TableSetColumnIndex(2);ImGui::Text("0x%08X",row.value);
+                    ImGui::TableSetColumnIndex(3);ImGui::TextUnformatted(row.confidence.c_str());}
+                ImGui::EndTable();
+            }
+        }
+    }
+    if(data->capture_hold_pending||data->capture_workload_pending){
+        if(data->capture_workload_pending)ImGui::TextWrapped("CUDA workload exit is unconfirmed. Retry cleanup before another capture.");
+        ImGui::BeginDisabled(worker_busy);
+        if(ImGui::Button("Release timing capture resources")){Command c;c.operation=Command::Operation::timings_release_capture_hold;out.commands.push_back(c);}
         ImGui::EndDisabled();
     }
     ImGui::Checkbox("Auto-capture on stable P0 entry",&state.auto_capture);

@@ -33,22 +33,7 @@ std::optional<Slot> parse(const std::string& text) {
     return s;
 }
 bool same(Slot a,Slot b) { return a.domain==b.domain && a.bus==b.bus && a.device==b.device && a.function==b.function; }
-bool complete(const I2cCudaApi& a) {return a.init && a.device_by_bus && a.device_bus && a.ctx_create && a.ctx_destroy && a.ctx_sync && a.mem_info && a.mem_alloc && a.mem_free && a.copy;}
-#ifdef _WIN32
-struct Library {
-    HMODULE module=nullptr;
-    ~Library() { if(module) FreeLibrary(module); }
-    template<class T> bool get(T& out,const char* name) { out=reinterpret_cast<T>(GetProcAddress(module,name)); return out!=nullptr; }
-    bool open(I2cCudaApi& a) {
-        wchar_t path[MAX_PATH]{}; UINT n=GetSystemDirectoryW(path,MAX_PATH);
-        if(!n || n>=MAX_PATH-12) return false;
-        std::wstring full(path,n); full+=L"\\nvcuda.dll"; module=LoadLibraryW(full.c_str()); if(!module)return false;
-        return get(a.init,"cuInit") && get(a.device_by_bus,"cuDeviceGetByPCIBusId") && get(a.device_bus,"cuDeviceGetPCIBusId") &&
-            get(a.ctx_create,"cuCtxCreate_v2") && get(a.ctx_destroy,"cuCtxDestroy_v2") && get(a.ctx_sync,"cuCtxSynchronize") &&
-            get(a.mem_info,"cuMemGetInfo_v2") && get(a.mem_alloc,"cuMemAlloc_v2") && get(a.mem_free,"cuMemFree_v2") && get(a.copy,"cuMemcpyDtoD_v2");
-    }
-};
-#endif
+
 }
 I2cWarmupResult i2c_cuda_warmup(const std::string& slot,const I2cWarmupCallbacks& callbacks,
     const I2cCudaApi* injected,unsigned settle_timeout_ms,unsigned max_duration_ms,unsigned poll_ms) {
@@ -57,13 +42,13 @@ I2cWarmupResult i2c_cuda_warmup(const std::string& slot,const I2cWarmupCallbacks
        !settle_timeout_ms || !max_duration_ms || !poll_ms) {result.message="CUDA warmup requires a bound selected GPU, valid PCI slot, and telemetry";return result;}
     I2cCudaApi cuda{};
 #ifdef _WIN32
-    Library library;
+    CudaDriverLibrary library; std::string load_error;
     if(injected) cuda=*injected;
-    else if(!library.open(cuda)) {result.message="CUDA driver or required entry points unavailable; run a supported workload before verification";return result;}
+    else if(!library.open(cuda,load_error)) {result.message="CUDA driver or required entry points unavailable; run a supported workload before verification";return result;}
 #else
     if(injected) cuda=*injected; else {result.message="CUDA driver loading is unavailable";return result;}
 #endif
-    if(!complete(cuda)) {result.message="CUDA driver entry points unavailable";return result;}
+    if(!complete_cuda_driver(cuda)) {result.message="CUDA driver entry points unavailable";return result;}
     const auto started_at=Clock::now(), hard_deadline=started_at+std::chrono::milliseconds(max_duration_ms);
     std::atomic<bool> stop{false},started{false},ended{false}; std::mutex error_mutex; std::string worker_error;
     auto fail=[&](const char* text) {std::lock_guard<std::mutex> lock(error_mutex);if(worker_error.empty())worker_error=text;};

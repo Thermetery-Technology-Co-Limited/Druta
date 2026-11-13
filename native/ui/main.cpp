@@ -816,6 +816,10 @@ struct App {
             }
             policy.note_activity(now_seconds());
         }
+        if(view.timing_capture_cancel_requested){
+            view.timing_capture_cancel_requested=false;
+            if(view.live)session->cancel_timing_capture(view.live->generation);
+        }
         if (view.live) for (const auto& command : view.commands) {
             const auto baseline = session->snapshot();
             if (session->submit(command, view.live->generation) &&

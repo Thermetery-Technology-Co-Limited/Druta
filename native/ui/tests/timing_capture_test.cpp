@@ -5,7 +5,55 @@
 #include <stdexcept>
 using namespace druta::ui;
 int failures=0;void check(bool b,const char* why){if(!b){++failures;std::printf("FAIL: %s\n",why);}}
+static void fallback_tests(){
+ TimingCaptureTarget target{9,"GPU-other","0000:07:00.0","helper"};
+ TimingBandObservation observation{target,0,300,7000,0};
+ TimingCaptureCallbacks api;int acquire=0,release=0,load=0,capture=0;bool release_ok=true,cancel=false;
+ auto control=std::make_shared<TimingCaptureControl>();control->cancelled=[&]{return cancel;};
+ TimingCaptureOptions options;options.allow_hold=false;options.control=control;
+ api.observe=[&](){return std::optional<TimingBandObservation>{observation};};
+ api.hold_state=[](){return TimingHoldState::none;};
+ api.acquire=[&](){++acquire;return TimingHoldAcquire{false,false,"unavailable"};};
+ api.release=[&](){++release;return TimingCaptureAction{release_ok,"cleanup"};};
+ api.capture=api.capture_loaded=[&](){++capture;return TimingCaptureAction{true,"captured",true};};
+ api.sleep_ms=[](unsigned){};
+ api.workload=[&](const std::function<TimingCaptureAction()>& action){++load;observation.pstate=2;observation.memory_mhz=7000;return action();};
+ auto result=capture_qualified_timings(target,api,options);
+ check(result.ok&&result.method==TimingCaptureMethod::cuda&&capture==1&&acquire==0&&release==0,"locked tuning uses explicit loaded P2 at current top band without SET");
+ observation.pstate=0;load=capture=0;result=capture_qualified_timings(target,api,options);
+ check(result.ok&&result.method==TimingCaptureMethod::direct&&load==0&&capture==1,"direct P0 never starts available CUDA fallback");
+ observation.memory_mhz=300;options.allow_hold=true;load=0;result=capture_qualified_timings(target,api,options);
+ check(result.ok&&acquire==1&&load==1&&release==0,"unissued failed hold may fall back");
+ observation.pstate=0;observation.memory_mhz=300;api.acquire=[&](){++acquire;return TimingHoldAcquire{false,true,"uncertain"};};release_ok=false;load=0;
+ result=capture_qualified_timings(target,api,options);
+ check(!result.ok&&result.cleanup_pending&&release==1&&load==0,"uncertain acquisition never runs load before verified cleanup; failed cleanup attempted once");
+ release_ok=true;result=capture_qualified_timings(target,api,options);
+ check(result.ok&&release==2&&load==1,"verified own cleanup precedes fallback");
+ options.allow_hold=false;observation.memory_mhz=300;observation.pstate=0;
+ api.workload=[&](const std::function<TimingCaptureAction()>& action){++load;observation.memory_mhz=7000;auto r=action();r.ok=false;r.message="load exited during capture";return r;};
+ result=capture_qualified_timings(target,api,options);
+ check(!result.ok&&result.diagnostic_captured,"early workload exit invalidates capture but preserves diagnostic evidence");
+ observation.memory_mhz=300;api.workload=[](const std::function<TimingCaptureAction()>&){return TimingCaptureAction{true,"fake success"};};
+ result=capture_qualified_timings(target,api,options);check(!result.ok,"workload cannot succeed without invoking capture");
+ api.workload=[](const std::function<TimingCaptureAction()>&){return TimingCaptureAction{false,"CUDA export cuInit unavailable"};};
+ result=capture_qualified_timings(target,api,options);check(!result.ok&&result.message.find("cuInit")!=std::string::npos,"unavailable workload preserves its specific diagnostic");
+ const auto before=capture;cancel=true;result=capture_qualified_timings(target,api,options);
+ check(!result.ok&&result.cancelled&&capture==before,"cancellation before operation prevents capture");
+ cancel=false;control->deadline=TimingCaptureControl::Clock::now();result=capture_qualified_timings(target,api,options);
+ check(!result.ok&&!result.cancelled&&capture==before,"expired shared deadline prevents capture");
+ control->deadline=TimingCaptureControl::Clock::time_point::max();options.allow_hold=true;
+ api.acquire=[](){return TimingHoldAcquire{true,true,"held"};};api.sleep_ms=[&](unsigned){cancel=true;};
+ const auto prior_release=release;result=capture_qualified_timings(target,api,options);
+ check(!result.ok&&result.cancelled&&release==prior_release+1&&!result.cleanup_pending,"cancellation during hold wait still releases only own hold");
+ cancel=false;options.allow_hold=false;api.hold_state=[](){return TimingHoldState::foreign;};load=0;
+ result=capture_qualified_timings(target,api,options);check(!result.ok&&load==0,"foreign ownership blocks workload fallback");
+ api.hold_state=[](){return TimingHoldState::none;};api.workload=[&](const std::function<TimingCaptureAction()>& action){observation.pstate=2;observation.memory_mhz=5000;return action();};
+ result=capture_qualified_timings(target,api,options);check(!result.ok&&result.diagnostic_captured,"below-floor P2 remains diagnostic, never qualified");
+ observation.pstate=2;observation.memory_mhz=7000;observation.memory_offset_raw=100;
+ check(!timing_capture_in_top_band(observation),"loaded P2 still subtracts current offset and uses current top floor");
+}
 int main(){TimingCaptureTarget target{2,"GPU-alt","0000:09:00.0","helper-A"};TimingBandObservation obs{target,0,7000,7000,0};
+ fallback_tests();
  int reads=0,sleeps=0,acquires=0,releases=0,captures=0;bool qualify=true,foreign_target=false,release_ok=true,throw_acquire=false,transient=false;
  TimingHoldState state=TimingHoldState::none;TimingCaptureCallbacks api;
  api.observe=[&]()->std::optional<TimingBandObservation>{++reads;if(transient&&reads==2)return {};auto value=obs;if(!qualify)value.memory_mhz=400;if(foreign_target)value.target.uuid="GPU-new";return value;};
