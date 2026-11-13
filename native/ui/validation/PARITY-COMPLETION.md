@@ -26,9 +26,9 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Rail/power selection workspace and its partial-failure Undo implemented/tested. Broader catalog, Python rail/power format import, cross-scope composition and conflict review remain open |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
-| Advanced read-only PERF groups and power arbitration diagnostics | Explicit independent PERF group capture implemented in fourth checkpoint. Power arbitration table-acquisition/decoder integration remains open |
-| Advanced power feedback/integral bounds, selected-field restoration | Open |
-| Voltage gate, VF monotonicity/smoothing | Open |
+| Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
+| Advanced power feedback/integral bounds, selected-field restoration | Implemented/tested in fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
+| Voltage gate, VF monotonicity/smoothing | Implemented/tested in fifth: independent admission/VF reads, selected requests, atomic-prior-aware recovery, Undo and captured-initial requests. Current 3070 Ti read-only evidence recorded; physical effects remain unproven |
 | Voltage offset/request tables, REL bounds | Open |
 | Voltage constants and device switch delays | Open |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Open |
@@ -47,6 +47,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 Second checkpoint: [implementation and validation evidence](2026-11-12-parity-second-increment.md).
 Third checkpoint: [menus, selected profiles and validation evidence](2026-11-12-parity-third-increment.md).
 Fourth checkpoint: [clock ownership, timing batches and PERF diagnostics](2026-11-12-parity-fourth-increment.md).
+Fifth checkpoint: [feedback, voltage policies and arbitration](2026-11-13-parity-fifth-increment.md).
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated

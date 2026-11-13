@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui_view.h"
 #include "perf_diagnostics_view.h"
+#include "power_arbitration_view.h"
 #include "session.h"
 #include "i2c_view.h"
 #include "classic_layout.h"
@@ -1185,6 +1186,59 @@ void live_perf_panel(ViewState& state) {
         }
         ImGui::EndDisabled();
     }
+    if (ImGui::CollapsingHeader("Power arbitration")) {
+        ImGui::BeginDisabled(snapshot.busy || snapshot.opening || !snapshot.data.connected);
+        const PowerArbitrationModel empty;
+        if (draw_power_arbitration(snapshot.data.power_arbitration ? *snapshot.data.power_arbitration : empty)) {
+            Command command; command.operation=Command::Operation::refresh_power_arbitration;
+            state.commands.push_back(command);
+        }
+        ImGui::EndDisabled();
+    }
+}
+
+void live_semantic_controls(ViewState& state, bool classic) {
+    const auto& snapshot = *state.live;
+    const bool busy = snapshot.busy || snapshot.opening || !snapshot.data.connected;
+    ImGui::PushID("advanced-semantic-controls");
+    if (ImGui::CollapsingHeader("Power feedback ratios")) {
+        PowerIntegralViewContext context;
+        context.generation = snapshot.generation; context.slot = snapshot.selected_slot;
+        context.uuid = snapshot.data.identity.uuid;
+        context.connected = snapshot.data.connected; context.busy = busy; context.unlocked = state.controls_unlocked;
+        const PowerIntegralData empty;
+        for (const auto& intent : draw_power_integral(state.power_integral_view,
+            snapshot.data.power_integral ? *snapshot.data.power_integral : empty, context, true)) {
+            if (intent.generation != snapshot.generation || intent.slot != snapshot.selected_slot || intent.uuid != snapshot.data.identity.uuid) continue;
+            Command command;
+            switch (intent.action) {
+            case PowerIntegralAction::refresh: command.operation = Command::Operation::power_integral_read; break;
+            case PowerIntegralAction::apply:
+            case PowerIntegralAction::reported_default: command.operation = Command::Operation::power_integral_apply; command.expected_request_raw = intent.expected; break;
+            case PowerIntegralAction::undo: command.operation = Command::Operation::power_integral_undo; break;
+            case PowerIntegralAction::restore: command.operation = Command::Operation::power_integral_restore; break;
+            }
+            command.integral_policy = intent.policy; command.integral_upper = intent.field == PowerIntegralField::upper;
+            command.integral_raw = intent.raw; state.commands.push_back(std::move(command));
+        }
+    }
+    if (ImGui::CollapsingHeader("Voltage admission and V/F policies")) {
+        auto output = draw_voltage_policy_controls(state.voltage_policy_view, snapshot.data.voltage_policies.get(),
+            snapshot.generation, busy, state.controls_unlocked, classic);
+        for (const auto& intent : output.intents) {
+            Command command;
+            switch (intent.operation) {
+            case VoltagePolicyIntent::Operation::refresh: command.operation = Command::Operation::voltage_policy_read; break;
+            case VoltagePolicyIntent::Operation::apply: command.operation = Command::Operation::voltage_policy_apply; break;
+            case VoltagePolicyIntent::Operation::restore_initial: command.operation = Command::Operation::voltage_policy_restore; break;
+            case VoltagePolicyIntent::Operation::undo: command.operation = Command::Operation::voltage_policy_undo; break;
+            case VoltagePolicyIntent::Operation::recover: command.operation = Command::Operation::voltage_policy_recover; break;
+            }
+            command.voltage_policy = std::make_shared<VoltagePolicyRequest>(intent.request);
+            state.commands.push_back(std::move(command));
+        }
+    }
+    ImGui::PopID();
 }
 
 void live_advanced(ViewState& state, bool verbose) {
@@ -1199,6 +1253,7 @@ void live_advanced(ViewState& state, bool verbose) {
     ImGui::EndDisabled();
     if (!verbose) draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::additional_memory);
     draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose);
+    live_semantic_controls(state, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     live_perf_panel(state);
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
@@ -1512,6 +1567,7 @@ void classic_advanced(ViewState& state) {
     if (ImGui::CollapsingHeader("Registry / BIOS")) ImGui::TextDisabled("Native workflow pending");
     if (ImGui::CollapsingHeader("Session controls"))
         draw_advanced_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+    live_semantic_controls(state, true);
     if (ImGui::CollapsingHeader("Diagnostics")) {
         live_identity(s);
         if (ImGui::Button("Refresh details")) state.refresh_requested = true;

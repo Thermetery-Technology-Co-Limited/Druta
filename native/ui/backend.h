@@ -19,6 +19,10 @@ struct ClockMonitorData;
 struct ScopedSnapshot;
 struct ScopedProfileRequest;
 struct PerfViewModel;
+struct PowerArbitrationModel;
+struct PowerIntegralData;
+struct VoltagePolicyData;
+struct VoltagePolicyRequest;
 struct TimingEditorRequest;
 enum class ControlId { core, memory, power, fan, boost, count };
 enum class Availability { unknown, available, unsupported, transient };
@@ -62,6 +66,9 @@ struct I2cViewData {
 struct LiveData {
     FrequencyLockData frequency;
     std::shared_ptr<const PerfViewModel> perf_diagnostics;
+    std::shared_ptr<const PowerArbitrationModel> power_arbitration;
+    std::shared_ptr<const PowerIntegralData> power_integral;
+    std::shared_ptr<const VoltagePolicyData> voltage_policies;
     // Explicitly captured profile catalog; ordinary polling does not recapture it.
     std::shared_ptr<const ScopedSnapshot> scoped_profiles;
     std::shared_ptr<const ClockMonitorData> clock_monitor;
@@ -104,7 +111,9 @@ struct Command {
         max_it, reset_controls, hold_curve_point, release_hold, save_curve_profile, i2c_zero_nct_outputs,
         prepare_scoped_profile, save_scoped_profile, apply_scoped_profile, refresh_perf_diagnostics,
         frequency_lock_apply, frequency_lock_max, frequency_legacy_p0_max_fan, frequency_lock_release, frequency_lock_refresh,
-        timings_preview_batch, timings_apply_batch, timings_restore_initial, timings_save_profile };
+        timings_preview_batch, timings_apply_batch, timings_restore_initial, timings_save_profile,
+        refresh_power_arbitration, power_integral_read, power_integral_apply, power_integral_undo, power_integral_restore,
+        voltage_policy_read, voltage_policy_apply, voltage_policy_restore, voltage_policy_undo, voltage_policy_recover };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -122,6 +131,9 @@ struct Command {
     std::string timing_field;
     uint32_t timing_value = 0;
     int64_t frequency_min_mhz = 0, frequency_max_mhz = 0;
+    uint32_t integral_policy = 0, integral_raw = 0;
+    bool integral_upper = false;
+    std::shared_ptr<const VoltagePolicyRequest> voltage_policy;
     double curve_cap_mv = 1100, curve_floor_mv = 1000;
     uint32_t hold_point_index = 0;
     bool hold_headroom = true;

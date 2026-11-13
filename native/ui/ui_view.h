@@ -9,6 +9,8 @@
 #include "app_actions.h"
 #include "scoped_profile_view.h"
 #include "frequency_lock_view.h"
+#include "power_integral_view.h"
+#include "voltage_policy_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -37,6 +39,8 @@ struct ViewState {
     AppActionsState app_actions;
     ScopedProfileViewState scoped_profile_view;
     FrequencyLockViewState frequency_view;
+    PowerIntegralViewState power_integral_view;
+    VoltagePolicyViewState voltage_policy_view;
     float core_offset_mhz = 0.0f;
     float memory_offset_mhz = 0.0f;
     float power_limit_w = 310.0f;

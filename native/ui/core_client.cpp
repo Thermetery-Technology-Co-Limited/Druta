@@ -43,6 +43,59 @@ class Client final : public IBackend {
     dc_gpu_identity opened_{};
     LiveData last_{};
     std::unique_ptr<PerfViewService> perf_;
+    std::unique_ptr<PowerArbitrationService> arbitration_;
+    std::unique_ptr<PowerIntegralService> power_integral_;
+    std::unique_ptr<VoltagePolicyService> voltage_policy_;
+    ActionResult voltage_policy_action(const Command& cmd) {
+        ActionResult result;
+        if (!voltage_policy_) { result.message = "Voltage policy controls unavailable"; return result; }
+        if (cmd.operation == Command::Operation::voltage_policy_read) {
+            const auto selection = cmd.voltage_policy ? cmd.voltage_policy->selection : voltage_all_policies;
+            last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->read(selection));
+            result.ok = selection && !(selection & ~voltage_all_policies);
+            for (size_t i = 0; i < last_.voltage_policies->rows.size(); ++i)
+                if ((selection & (1u << i)) && last_.voltage_policies->rows[i].availability != VoltagePolicyAvailability::available) result.ok = false;
+            result.message = last_.voltage_policies->message;
+            return result;
+        }
+        VoltagePolicyResult applied;
+        if (cmd.operation == Command::Operation::voltage_policy_apply && cmd.voltage_policy) applied = voltage_policy_->apply(*cmd.voltage_policy);
+        else if (cmd.operation == Command::Operation::voltage_policy_restore && cmd.voltage_policy) applied = voltage_policy_->restore_initial(cmd.voltage_policy->selection);
+        else if (cmd.operation == Command::Operation::voltage_policy_undo) applied = voltage_policy_->undo();
+        else if (cmd.operation == Command::Operation::voltage_policy_recover) applied = voltage_policy_->recover();
+        else { result.message = "Missing or unknown voltage policy request"; return result; }
+        last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
+        result.ok = applied.ok; result.may_have_changed = applied.may_have_changed; result.message = applied.message;
+        return result;
+    }
+    ActionResult power_integral_action(const Command& cmd) {
+        ActionResult result;
+        if (!power_integral_) { result.message = "Power feedback controls unavailable"; return result; }
+        if (cmd.operation == Command::Operation::power_integral_read) {
+            last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->read());
+            result.ok = last_.power_integral->current; result.message = last_.power_integral->message;
+            return result;
+        }
+        const auto field = cmd.integral_upper ? PowerIntegralField::upper : PowerIntegralField::lower;
+        PowerIntegralResult applied;
+        if (cmd.operation == Command::Operation::power_integral_apply) {
+            std::optional<uint16_t> expected;
+            if (cmd.expected_request_raw) {
+                if (*cmd.expected_request_raw < 0 || *cmd.expected_request_raw > UINT16_MAX) {
+                    result.message = "Invalid power feedback comparison value"; return result;
+                }
+                expected = static_cast<uint16_t>(*cmd.expected_request_raw);
+            }
+            applied = power_integral_->apply(cmd.integral_policy, field, cmd.integral_raw, expected);
+        } else if (cmd.operation == Command::Operation::power_integral_undo) {
+            applied = power_integral_->undo(cmd.integral_policy, field);
+        } else if (cmd.operation == Command::Operation::power_integral_restore) {
+            applied = power_integral_->restore(cmd.integral_policy, field);
+        } else { result.message = "Unknown power feedback action"; return result; }
+        last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
+        result.ok = applied.ok; result.may_have_changed = applied.may_have_changed; result.message = applied.message;
+        return result;
+    }
     std::unique_ptr<FrequencyLock> frequency_;
     ClockMonitorService clock_monitor_;
     std::optional<uint32_t> clock_architecture_;
@@ -1214,6 +1267,19 @@ public:
         LOAD(frequency.legacy_supported, dc_legacy_p0_supported); LOAD(frequency.legacy_owned, dc_legacy_p0_owned);
         LOAD(frequency.legacy_hold, dc_legacy_p0_hold); LOAD(frequency.legacy_release, dc_legacy_p0_release);
         LOAD(perf.identity, dc_gpu_identity_get); LOAD(perf.read_group, dc_perf_read_group);
+        LOAD(arbitration.identity, dc_gpu_identity_get); LOAD(arbitration.lock, dc_gpu_lock); LOAD(arbitration.unlock, dc_gpu_unlock);
+        LOAD(arbitration.max_words, dc_cl_max_words); LOAD(arbitration.policy_table, dc_cl_policy_table);
+        LOAD(arbitration.table_get, dc_cl_table_get); LOAD(arbitration.geometry, dc_power_arbitration_geometry);
+        LOAD(arbitration.decode, dc_power_arbitration_decode);
+        LOAD(arbitration.reset_transport, dc_rm_transport_reset);
+        LOAD(power_integral.identity, dc_gpu_identity_get); LOAD(power_integral.lock, dc_gpu_lock); LOAD(power_integral.unlock, dc_gpu_unlock);
+        LOAD(power_integral.target_bind, dc_gpu_target_bind); LOAD(power_integral.probe_architecture, dc_perf_probe_architecture);
+        LOAD(power_integral.abi, dc_cl_abi); LOAD(power_integral.rm, dc_cl_rm);
+        LOAD(power_integral.transport_reset, dc_rm_transport_reset); LOAD(power_integral.policy_mask_set, dc_cl_policy_mask_set);
+        LOAD(voltage_policy.identity, dc_gpu_identity_get); LOAD(voltage_policy.bind, dc_gpu_target_bind);
+        LOAD(voltage_policy.architecture_supported, dc_perf_probe_architecture); LOAD(voltage_policy.transport, dc_perf_transport);
+        LOAD(voltage_policy.escape, dc_rm_escape_raw); LOAD(voltage_policy.reset_transport, dc_rm_transport_reset);
+        LOAD(voltage_policy.lock, dc_gpu_lock); LOAD(voltage_policy.unlock, dc_gpu_unlock);
         LOAD(planner.hard_deflatten, dc_vfp_compute_hard_deflatten);
         LOAD(reset_all, dc_gpu_reset_all);
         LOAD(tuning.lock, dc_gpu_lock); LOAD(tuning.unlock, dc_gpu_unlock); LOAD(tuning.identity, dc_gpu_identity_get);
@@ -1280,6 +1346,12 @@ public:
         frequency_ = std::make_unique<FrequencyLock>(api_.frequency, gpu_, opened_);
         perf_ = std::make_unique<PerfViewService>(api_.perf, gpu_, opened_);
         last_.perf_diagnostics = std::make_shared<PerfViewModel>(perf_->model());
+        arbitration_ = std::make_unique<PowerArbitrationService>(api_.arbitration, gpu_, opened_);
+        last_.power_arbitration = std::make_shared<PowerArbitrationModel>(arbitration_->model());
+        power_integral_ = std::make_unique<PowerIntegralService>(api_.power_integral, gpu_, opened_);
+        last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
+        voltage_policy_ = std::make_unique<VoltagePolicyService>(api_.voltage_policy, gpu_, opened_);
+        last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
         error.clear(); return true;
     }
     ActionResult prepare_close() override {
@@ -1316,9 +1388,14 @@ public:
         tuning_.reset();
         frequency_.reset();
         perf_.reset();
+        arbitration_.reset();
+        power_integral_.reset();
+        voltage_policy_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
     }
     LiveData read(bool details) override {
+        if (voltage_policy_) last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
+        if (power_integral_) last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
         if (tuning_) last_.tuning=tuning_->state();
         if (frequency_) last_.frequency=details ? frequency_->read() : frequency_->data();
         last_.hold_available=api_.tuning.lock && api_.tuning.unlock && api_.tuning.identity && api_.tuning.vf_set && api_.tuning.vf_clear && api_.tuning.vf_status && api_.tuning.clock_status && api_.tuning.recovery_pending && api_.tuning.recover;
@@ -1441,6 +1518,19 @@ public:
         if (!gpu_) { result.message = "No GPU selected"; return result; }
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
         if (is_frequency_operation(cmd.operation)) return frequency_action(cmd);
+        // These independent policy fields do not acquire or release a clock
+        // request. Their own selected-field identity/readback gates apply.
+        if (cmd.operation >= Command::Operation::power_integral_read && cmd.operation <= Command::Operation::power_integral_restore)
+            return power_integral_action(cmd);
+        if (cmd.operation >= Command::Operation::voltage_policy_read && cmd.operation <= Command::Operation::voltage_policy_recover)
+            return voltage_policy_action(cmd);
+        if (cmd.operation == Command::Operation::refresh_power_arbitration) {
+            if (!arbitration_) { result.message = "Power arbitration unavailable"; return result; }
+            last_.power_arbitration = std::make_shared<PowerArbitrationModel>(arbitration_->refresh());
+            result.ok = last_.power_arbitration->freshness == ArbitrationFreshness::current;
+            result.message = last_.power_arbitration->message;
+            return result;
+        }
         if (cmd.operation == Command::Operation::refresh_perf_diagnostics) {
             if (!perf_) { result.message = "PERF diagnostics unavailable"; return result; }
             last_.perf_diagnostics = std::make_shared<PerfViewModel>(perf_->refresh());

@@ -535,3 +535,16 @@ the helper, adapter and qualified operating band, not labelled factory defaults.
 PERF groups now have explicit independent read-only captures and stale status.
 Power arbitration, richer timing diagnostics and the other open ledger rows
 remain separate work; see [fourth checkpoint](ui/validation/2026-11-12-parity-fourth-increment.md).
+
+## Advanced semantic controls checkpoint — 2026-11-13
+
+Both presentations now bind independent power feedback ratios, voltage admission,
+V/F monotonicity/smoothing and read-only arbitration. Read/Refresh is explicit;
+ordinary polling never recaptures these tables. Selected writes preserve current
+unrelated fields and use exact readback with explicit Undo/recovery. Missing
+atomic gate history cannot become a guessed rollback. All remain session-only.
+
+[Evidence and hardware limits](ui/validation/2026-11-13-parity-fifth-increment.md)
+record the 54-suite validation, current-adapter read results, and the different
+policy layout that remains outside the traced feedback/arbitration decoder.
+The [full review ledger](ui/validation/PARITY-COMPLETION.md) remains open.

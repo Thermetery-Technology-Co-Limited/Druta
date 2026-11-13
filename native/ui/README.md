@@ -410,3 +410,30 @@ An unavailable unrelated rail does not prevent saving a qualified selection.
 This workspace is separate from daily and V/F profiles; full-profile composition,
 PnP panic/restart and the richer timing workflows remain tracked in the
 [completion ledger](validation/PARITY-COMPLETION.md).
+
+### Advanced feedback and voltage policies
+
+Both layouts expose **Power feedback ratios**, **Voltage admission and V/F
+policies**, and read-only **Power arbitration**. Use each panel's Read/Refresh
+button to capture current state. Rendering, normal telemetry polling and opening
+the application do not acquire these diagnostic tables.
+
+Power feedback edits one policy's upper or lower ratio. 100% is raw 4096; these
+are configured feedback ratios rather than measured watts or amps. Apply checks
+the displayed field against a fresh read, preserves other fields and verifies
+the resulting packet. Undo restores the preceding edit; Restore captured initial
+returns that field to its value before this session's first edit. Uncertain
+writes keep a selected-field recovery record instead of replaying a saved table.
+
+Voltage admission controls whether driver voltage requests are admitted; it does
+not specify a voltage. V/F monotonicity and smoothing change only the selected
+host policy flags. Apply, Undo and captured-initial restoration verify the
+requests; host readback does not establish their physical effect. Unsupported
+groups are independent, and transient failures retain visibly stale last-good
+state. These controls write no registry settings and are never reapplied on
+startup or after a driver restart.
+
+Power arbitration shows requested and effective policy values and available
+host/firmware inputs. Its packets are acquired sequentially, so changing
+firmware votes are not an atomic snapshot. Missing or unknown fields remain
+unavailable or raw; they do not disable ordinary power controls.
