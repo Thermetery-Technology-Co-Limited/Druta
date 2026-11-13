@@ -133,7 +133,29 @@ static bool until(const std::function<bool()>& condition) {
     for (int i = 0; i < 500; ++i) { if (condition()) return true; Sleep(5); }
     return false;
 }
+static void disconnected_integral_policy_recovery() {
+    auto owner=std::make_unique<Fake>();auto* fake=owner.get();Session session(std::move(owner),[]{});
+    Command cmd;cmd.operation=Command::Operation::power_integral_undo;
+    CHECK(!session.submit(cmd,0)); // closed/unstarted
+    fake->stall_read();session.start("a");CHECK(WaitForSingleObject(fake->entered,2500)==WAIT_OBJECT_0);
+    auto generation=session.snapshot()->generation;CHECK(session.snapshot()->opening && !session.submit(cmd,generation));
+    SetEvent(fake->release);CHECK(until([&]{auto s=session.snapshot();return !s->opening&&s->data.connected;}));
+    fake->disconnected=true;session.request_poll(true);CHECK(until([&]{return !session.snapshot()->data.connected;}));
+    using Op=Command::Operation;
+    const Op recoveries[]={Op::power_integral_undo,Op::power_integral_restore,Op::power_integral_undo_profile,
+        Op::power_integral_recover_profile,Op::voltage_policy_undo,Op::voltage_policy_recover,Op::voltage_policy_restore};
+    for(const auto op:recoveries){const auto before=session.snapshot()->completed_actions;cmd.operation=op;
+        CHECK(session.submit(cmd,generation));CHECK(until([&]{auto s=session.snapshot();return !s->busy&&s->completed_actions>before;}));
+        CHECK(session.snapshot()->last_action_operation==op && session.snapshot()->last_action_ok);
+    }
+    for(const auto op:{Op::power_integral_apply,Op::power_integral_apply_profile,Op::voltage_policy_apply}){cmd.operation=op;CHECK(!session.submit(cmd,generation));}
+    cmd.operation=Op::voltage_policy_undo;CHECK(!session.submit(cmd,generation+1));
+    fake->stall_action();CHECK(session.submit(cmd,generation));CHECK(WaitForSingleObject(fake->entered,2500)==WAIT_OBJECT_0);
+    CHECK(!session.submit(cmd,generation));SetEvent(fake->release);CHECK(until([&]{return !session.snapshot()->busy;}));
+    session.begin_shutdown();CHECK(until([&]{return session.finished();}));CHECK(!session.submit(cmd,generation));
+}
 int main() {
+    disconnected_integral_policy_recovery();
     // Startup UUID binding checks enumeration before open and every fresh read.
     for (const auto& request : {std::pair<std::string,std::string>{"a","2"}, {"", "1"}, {"missing", "1"}}) {
         auto absent=std::make_unique<Fake>(); auto* fake=absent.get();

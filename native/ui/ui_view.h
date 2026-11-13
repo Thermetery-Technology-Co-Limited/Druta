@@ -52,8 +52,11 @@ struct ViewState {
     VoltageTablesViewState voltage_tables_view;
     VoltageLimitsViewState voltage_limits_view;
     std::vector<VoltageTablesIntent> voltage_tables_intents;
+    std::vector<VoltagePolicyIntent> voltage_policy_profile_intents;
+    std::vector<PowerIntegralIntent> power_integral_profile_intents;
     std::vector<VoltageLimitsIntent> voltage_limits_intents;
     bool open_power_saving_requested=false,open_clock_gating_requested=false;
+    bool open_voltage_policy_requested=false,open_power_integral_requested=false;
     PowerSavingViewState power_saving_view;ClockGatingViewState clock_gating_view;
     std::vector<PowerSavingIntent> power_saving_intents;std::vector<ClockGatingIntent> clock_gating_intents;
     PolicyWorkspaceViewState policy_workspace;

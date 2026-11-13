@@ -34,6 +34,7 @@ struct TimingSnapshot {
     std::optional<int32_t> offset_before, offset_after; // raw driver units
     std::vector<TimingWord> broadcast;
     std::vector<TimingField> fields;
+    std::vector<std::pair<std::string,std::string>> aliases; // helper spelling -> canonical field
     TimingDiagnosticEvidence diagnostic_evidence;
 };
 struct TimingRequest { std::string field; uint32_t value=0; };

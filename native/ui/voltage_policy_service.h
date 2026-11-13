@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <drutacore/drutacore.h>
+#include "profile_io.h"
 #include <array>
 #include <memory>
 #include <optional>
@@ -27,6 +28,8 @@ struct VoltagePolicyRow {
 };
 struct VoltagePolicyData {
     uint64_t revision=0;
+    dc_gpu_identity identity{};
+    std::optional<dc_target> target;
     std::array<VoltagePolicyRow,3> rows;
     bool undo_available=false,recovery_pending=false,recovery_prior_unknown=false;
     uint32_t undo_selection=0,recovery_selection=0;
@@ -54,4 +57,14 @@ public:
 private:
     struct Impl;std::unique_ptr<Impl> impl_;
 };
+// Files contain semantic Boolean selections only. Admission and VF flags are
+// separate transactions. Parsing/staging never reads hardware or applies.
+struct VoltagePolicyProfile {
+    std::string slot,uuid;
+    uint32_t architecture=0,device_id=0,subsystem_id=0;
+    VoltagePolicyRequest request;
+};
+ProfileJson capture_voltage_policy_profile(const VoltagePolicyData&,uint32_t selection);
+VoltagePolicyProfile validate_voltage_policy_profile(const ProfileJson&);
+VoltagePolicyRequest stage_voltage_policy_profile(const ProfileJson&,const VoltagePolicyData&);
 }

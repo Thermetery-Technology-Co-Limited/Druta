@@ -79,7 +79,7 @@ ProfileJson capture_timing_profile(const dc_gpu_identity& id,const TimingSnapsho
     return {{"format","druta-native-timing"},{"version",1},{"target",{{"uuid",id_string(id.uuid)},{"slot",id_string(id.slot)}}},
         {"codename",snapshot.codename},{"band",band(snapshot)},{"fields",std::move(fields)}};
 }
-std::vector<TimingProfileRequest> validate_timing_profile(const ProfileJson& p,const dc_gpu_identity& id,const TimingSnapshot& s) {
+static std::vector<TimingProfileRequest> validate_native_timing_profile(const ProfileJson& p,const dc_gpu_identity& id,const TimingSnapshot& s) {
     validate_snapshot(id,s); keys(p,{"format","version","target","codename","band","fields"});
     if(string_value(p["format"])!="druta-native-timing" || integer(p["version"])!=1)fail("Unsupported timing profile format");
     const auto& target=p["target"]; keys(target,{"uuid","slot"});
@@ -101,6 +101,71 @@ std::vector<TimingProfileRequest> validate_timing_profile(const ProfileJson& p,c
         result.push_back(std::move(request));
     }
     return result;
+}
+bool is_legacy_timing_profile(const ProfileJson& p){
+ auto only=[](const ProfileJson& value,std::initializer_list<const char*> allowed){
+  if(!value.is_object())return false;for(auto it=value.begin();it!=value.end();++it)
+   if(std::find(allowed.begin(),allowed.end(),it.key())==allowed.end())return false;return true;
+ };
+ // Only released format markers and informational metadata are recognized.
+ // A scope or additional tuning field must never be silently discarded.
+ if(!only(p,{"fields","_format","schema","version","name","description","slot","uuid","codename","pci_id","target","capture"}) ||
+    !p.contains("fields") || !p["fields"].is_object())return false;
+ if(p.contains("target")&&!only(p["target"],{"slot","uuid","codename","pci_id"}))return false;
+ if(p.contains("capture")){
+  const auto& c=p["capture"];if(!only(c,{"source","gpu","band","pending_modifications","slot","uuid","codename","pci_id"}))return false;
+  if(c.contains("gpu")&&!only(c["gpu"],{"slot","uuid","codename","pci_id","boot0","chipset","aperture"}))return false;
+  if(c.contains("band")&&!only(c["band"],{"memory_mhz_reported","performance_band","pstate","matched_memory_state_mhz","memory_offset"}))return false;
+ }
+ if(p.contains("_format")){
+  if(!p["_format"].is_string()||p["_format"]!="nvtune-profile-1")return false;
+  if(p.contains("schema")&&(!p["schema"].is_string()||p["schema"]!="nvtune-profile-1"))return false;
+  return true;
+ }
+ if(p.contains("schema"))return p["schema"].is_string()&&p["schema"]=="druta.timing-profile";
+ // A version marker without a schema is not a plain fields exchange.
+ return !p.contains("version");
+}
+ProfileJson normalize_timing_profile(const ProfileJson& p,const dc_gpu_identity& id,const TimingSnapshot& s){
+ if(p.is_object()&&p.contains("format")&&p["format"]=="druta-native-timing"){(void)validate_native_timing_profile(p,id,s);return p;}
+ validate_snapshot(id,s);if(!is_legacy_timing_profile(p))fail("Unsupported timing profile or raw/partition snapshot");
+ if(s.helper_token.empty())fail("Fresh current-helper identity required for legacy timing import");
+ const bool upstream=p.contains("_format");
+ if(upstream){if(!p.contains("name"))fail("nvtune profile name required");(void)string_value(p["name"]);if(!p.contains("slot"))fail("nvtune profile slot required");}
+ if(p.contains("schema")){
+  const auto schema=string_value(p["schema"]);if((upstream&&schema!="nvtune-profile-1")||(!upstream&&schema!="druta.timing-profile"))fail("Conflicting timing profile schema");
+  if(!p.contains("version")||integer(p["version"])!=1||!p.contains("capture")||!p["capture"].is_object())fail("Invalid Python timing profile metadata");}
+ auto identity_fields=[&](const ProfileJson& o){if(!o.is_object())fail("Invalid timing target metadata");
+  if(o.contains("slot")&&!same_slot(string_value(o["slot"]),id_string(id.slot)))fail("Timing profile slot changed");
+  if(o.contains("uuid")&&string_value(o["uuid"])!=id_string(id.uuid))fail("Timing profile GPU UUID changed");
+  if(o.contains("codename")&&string_value(o["codename"])!=s.codename)fail("Timing profile layout changed");
+  if(o.contains("pci_id")&&!o["pci_id"].is_null()){const auto value=string_value(o["pci_id"]);static const std::regex re("^[1][0][dD][eE]:([0-9a-fA-F]{4})$");std::smatch m;
+    if(!std::regex_match(value,m,re)||!id.nvapi_selected||!id.nvapi_devid||std::stoul(m[1],nullptr,16)!=id.nvapi_devid)fail("Timing profile PCI identity unavailable or changed");}
+ };
+ identity_fields(p);if(p.contains("target"))identity_fields(p["target"]);
+ if(p.contains("capture")){const auto& c=p["capture"];if(!c.is_object())fail("Invalid timing capture metadata");identity_fields(c);if(c.contains("gpu"))identity_fields(c["gpu"]);
+  if(c.contains("band")){const auto& b=c["band"];if(!b.is_object())fail("Invalid timing band metadata");
+   if(b.contains("performance_band")&&(!b["performance_band"].is_boolean()||!b["performance_band"].get<bool>()))fail("Saved timing capture was not in a verified performance band");
+   if(b.contains("memory_mhz_reported")&&!b["memory_mhz_reported"].is_null()&&unsigned_value(b["memory_mhz_reported"])!=*s.memory_before_mhz)fail("Timing profile memory clock changed");
+   if(b.contains("pstate")&&!b["pstate"].is_null()&&(unsigned_value(b["pstate"])!=*s.pstate_before||unsigned_value(b["pstate"])!=*s.pstate_after))fail("Timing profile P-state changed");
+   if(b.contains("memory_offset")&&!b["memory_offset"].is_null()&&integer(b["memory_offset"])!=*s.offset_before)fail("Timing profile offset changed");
+  }
+ }
+ auto fold=[](std::string value){std::transform(value.begin(),value.end(),value.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return value;};
+ std::set<std::string> spellings;for(const auto& field:s.fields)if(!spellings.insert(fold(field.name)).second)fail("Case-conflicting helper fields");
+ for(const auto& alias:s.aliases){if(alias.first.empty()||!spellings.insert(fold(alias.first)).second || std::none_of(s.fields.begin(),s.fields.end(),[&](const auto& f){return f.name==alias.second;}))fail("Ambiguous helper alias");}
+ const auto& values=p["fields"];if(values.empty()||values.size()>s.fields.size())fail("Invalid timing profile field list");
+ std::vector<TimingRequest> requests;std::set<std::string> seen;
+ for(auto it=values.begin();it!=values.end();++it){const auto name=it.key();if(name.empty())fail("Empty timing field name");
+  if(upstream&&std::any_of(name.begin(),name.end(),[](unsigned char c){return std::islower(c)!=0;}))fail("nvtune profile fields must be uppercase");
+  std::string canonical=name;const auto direct=std::find_if(s.fields.begin(),s.fields.end(),[&](const auto& f){return f.name==name;});
+  if(direct==s.fields.end()){const auto alias=std::find_if(s.aliases.begin(),s.aliases.end(),[&](const auto& a){return a.first==name;});if(alias==s.aliases.end())fail("Unknown or case-mismatched timing field");canonical=alias->second;}
+  TimingRequest request{canonical,unsigned_value(it.value())};if(!seen.insert(canonical).second)fail("Duplicate or conflicting timing field alias");(void)bind(s,request);requests.push_back(std::move(request));
+ }
+ return capture_timing_profile(id,s,requests);
+}
+std::vector<TimingProfileRequest> validate_timing_profile(const ProfileJson& profile,const dc_gpu_identity& id,const TimingSnapshot& s){
+ return validate_native_timing_profile(normalize_timing_profile(profile,id,s),id,s);
 }
 ProfileJson capture_timing_editor_profile(const dc_gpu_identity& id,const TimingSnapshot& s,const std::vector<TimingRequest>& staged){
     validate_snapshot(id,s);std::vector<TimingRequest> values;

@@ -15,14 +15,14 @@ dc_status DC_CALL lock(dc_gpu*){return DC_OK;} dc_status DC_CALL unlock(dc_gpu*)
 dc_status DC_CALL telemetry(dc_gpu*,dc_telemetry* out){out->present=DC_T_MEM|DC_T_PSTATE|DC_T_MEM_OFF;out->mem=mem;out->pstate=pstate;out->mem_off=offset;return DC_OK;}
 dc_status DC_CALL caps(dc_gpu*,dc_capabilities* out){out->present=DC_C_MEM_DIV;out->mem_div=4;out->mem_clock_count=2;out->mem_clocks[0]=405;out->mem_clocks[1]=7001;return DC_OK;}
 struct Mock:TimingTransport {
-    bool pinned=false, changed=false, malformed=false, legacy=false, warning=false, badcontract=false, overlap=false, wrongpreview=false, move_during_dump=false, process_pending=false, save_wrong_slot=false, save_wrong_word=false, save_fail=false, save_foreign=false, save_move_state=false;std::string slot="0000:09:00.0";int previews=0;
+    bool pinned=false, changed=false, malformed=false, legacy=false, warning=false, badcontract=false, overlap=false, wrongpreview=false, move_during_dump=false, process_pending=false, bad_alias=false, save_wrong_slot=false, save_wrong_word=false, save_fail=false, save_foreign=false, save_move_state=false;std::string slot="0000:09:00.0";int previews=0;
     bool pending() const override { return process_pending; }
     bool pin(std::string&) override {pinned=true;return true;}bool unchanged(std::string&) override{return pinned&&!changed;}
     std::string token()const override{return changed?"new":"stable";}void unpin()override{pinned=false;}
     TimingProcessResult run(TimingCommand op,const std::string& target,const std::string& field,uint32_t value,bool,bool) override {
         TimingProcessResult r;r.launched=true;
         if(op==TimingCommand::help)r.output=badcontract ? "unknown helper" : legacy ? "Everything defaults to a dry run\n--commit is required to touch hardware\n" : "nvtune - NVIDIA FBPA memory timing tool\nset FIELD=VALUE... write fields\nA first write snapshots stock values\n";
-        else if(op==TimingCommand::fields)r.output=std::string("FAW CONFIG0 [15:8] 255 Four activate\nTRAIN CONFIG0 [7:0] 255 [structural] Training\nREFRESH CONFIG1 [15:8] 255 Refresh\nREFRESH_LO CONFIG1 [7:0] 255 [structural] Refresh lower\nRFC CONFIG2 [7:0] 255 Refresh cycles\n")+(overlap?"OTHER CONFIG0 [12:10] 7 Overlap\n":"");
+        else if(op==TimingCommand::fields)r.output=std::string("FAW CONFIG0 [15:8] 255 Four activate\nTRAIN CONFIG0 [7:0] 255 [structural] Training\nREFRESH CONFIG1 [15:8] 255 Refresh\nREFRESH_LO CONFIG1 [7:0] 255 [structural] Refresh lower\nRFC CONFIG2 [7:0] 255 Refresh cycles\n")+(overlap?"OTHER CONFIG0 [12:10] 7 Overlap\n":"")+(bad_alias?"Aliases: t0 -> MISSING\n":"Aliases: t0 -> FAW\n");
         else if(op==TimingCommand::dump){CHECK(target=="0000:09:00.0");char b[256];std::snprintf(b,sizeof(b),"%s GP102 (Pascal)\n [broadcast] base 0x001000\n CONFIG0 @0x001000 = 0x%08X (DOCUMENTED)\n",malformed?"0000:08:00.0":slot.c_str(),word);r.output=b;if(move_during_dump)mem=405;}
         else if(op==TimingCommand::save){CHECK(target=="0000:09:00.0");if(save_foreign)foreign=true;if(save_move_state)pstate=2;if(save_fail)r.exit_code=1;else {char b[500];std::snprintf(b,sizeof(b),"{\"slot\":\"%s\",\"codename\":\"GP102\",\"registers\":{\"broadcast\":{\"CONFIG0\":\"0x%08X\"},\"fbpa0\":{\"CONFIG0\":\"0x%08X\"},\"fbpa1\":{}}}",save_wrong_slot?"0000:08:00.0":slot.c_str(),save_wrong_word?word+1:word,word^0x100);r.output=b;}}
         else if(op==TimingCommand::preview){++previews;char p[256];std::snprintf(p,sizeof(p),"CONFIG0 @0x001000 0x%08X -> 0x%08X [would write]\n  FAW %u -> %u\n%s",word,(word&~0xff00u)|(value<<8),(word>>8)&255,value,warning?"  extra warning\n":wrongpreview?" [other-scope]\n":"");r.output=p;}
@@ -43,6 +43,8 @@ int wmain(int argc,wchar_t** argv){
  TimingsService svc(api,reinterpret_cast<dc_gpu*>(1),dev,mock);
  CHECK(!svc.pending()); mock.process_pending=true; CHECK(svc.pending()); mock.process_pending=false; CHECK(!svc.pending());
  auto snap=svc.capture();CHECK(snap.ok&&snap.top_band&&snap.memory_clock_stable&&snap.broadcast.size()==1&&snap.fields.size()==5);
+ CHECK(snap.aliases.size()==1 && snap.aliases[0].first=="t0" && snap.aliases[0].second=="FAW");
+ mock.bad_alias=true;CHECK(!svc.capture().ok);mock.bad_alias=false;
  CHECK(snap.diagnostic_evidence.units.size()==3 && snap.diagnostic_evidence.units[0].cycles && snap.diagnostic_evidence.units[0].nanoseconds && !snap.diagnostic_evidence.units[1].nanoseconds && !snap.diagnostic_evidence.units[2].nanoseconds);
  CHECK(snap.diagnostic_evidence.memory_clock_divisor==4 && snap.diagnostic_evidence.partitions.size()==2 && snap.diagnostic_evidence.partitions[0].words[0].value==(word^0x100));
  mock.save_wrong_slot=true;auto wrong_slot=svc.capture();CHECK(wrong_slot.ok && wrong_slot.diagnostic_evidence.partitions_stale);mock.save_wrong_slot=false;

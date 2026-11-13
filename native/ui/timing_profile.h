@@ -16,6 +16,10 @@ ProfileJson capture_timing_profile(const dc_gpu_identity& identity, const Timing
     const std::vector<TimingProfileRequest>& requests);
 std::vector<TimingProfileRequest> validate_timing_profile(const ProfileJson& profile,
     const dc_gpu_identity& identity, const TimingSnapshot& snapshot);
+// Structural recognition only; does not authorize staging or replace live validation.
+bool is_legacy_timing_profile(const ProfileJson& profile);
+// Returns current-adapter native schema after validating legacy fields and metadata.
+ProfileJson normalize_timing_profile(const ProfileJson& profile,const dc_gpu_identity& identity,const TimingSnapshot& snapshot);
 // Understood broadcast fields from the qualified capture with staged values
 // overlaid. Raw words, structural/inferred/overlapping fields are never saved.
 ProfileJson capture_timing_editor_profile(const dc_gpu_identity& identity,const TimingSnapshot& snapshot,

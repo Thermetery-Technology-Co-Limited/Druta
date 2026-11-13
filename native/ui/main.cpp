@@ -266,6 +266,48 @@ struct App {
             status="Operation queued; see operation log.";
         }catch(const std::exception& e){status=e.what();}
     }
+    bool selected_profile_path(bool save,uint64_t generation,std::wstring& result){
+        wchar_t path[32768]{};OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=window;
+        dialog.lpstrFile=path;dialog.nMaxFile=static_cast<DWORD>(std::size(path));dialog.lpstrFilter=L"Druta profile (*.json)\0*.json\0\0";dialog.lpstrDefExt=L"json";
+        dialog.lpstrTitle=save?L"Save configured requests":L"Load requests into draft";
+        dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
+        const bool chosen=(save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog))!=FALSE;policy.note_activity(now_seconds());
+        if(!chosen){if(CommDlgExtendedError())throw std::runtime_error("Profile dialog failed");return false;}
+        if(session->snapshot()->generation!=generation)throw std::runtime_error("Adapter changed while choosing a profile");result=path;return true;
+    }
+    void consume_policy_profiles(){
+        using namespace druta::ui;
+        auto policies=std::move(view.voltage_policy_profile_intents);view.voltage_policy_profile_intents.clear();
+        for(const auto& intent:policies){auto& status=view.voltage_policy_view.status;const auto before=session->snapshot();try{
+            if(view.voltage_policy_view.generation!=before->generation)throw std::runtime_error("Selected adapter changed");
+            const bool save=intent.operation==VoltagePolicyIntent::Operation::save_profile;std::wstring path;
+            if(!selected_profile_path(save,before->generation,path))continue;
+            if(save){Command c;c.operation=Command::Operation::voltage_policy_save;c.profile_path=path;c.voltage_policy=std::make_shared<const VoltagePolicyRequest>(intent.request);
+                if(!session->submit(c,before->generation))throw std::runtime_error("Session changed or busy");status="Capturing selected requests; see operation log.";
+            }else{const auto document=read_profile(path);const auto current=session->snapshot();
+                if(current->generation!=before->generation||!current->data.voltage_policies)throw std::runtime_error("Session changed or policy readings unavailable");
+                stage_voltage_policy_document(view.voltage_policy_view,document,*current->data.voltage_policies);
+            }
+        }catch(const std::exception& e){status=e.what();}}
+        auto integrals=std::move(view.power_integral_profile_intents);view.power_integral_profile_intents.clear();
+        for(const auto& intent:integrals){auto& status=view.power_integral_view.status;const auto before=session->snapshot();try{
+            if(intent.generation!=before->generation||intent.slot!=before->selected_slot||intent.uuid!=before->data.identity.uuid)throw std::runtime_error("Selected adapter changed");
+            Command c;c.integral_requests=std::make_shared<const std::vector<PowerIntegralRequest>>(intent.requests);c.integral_selection=std::make_shared<const std::vector<PowerIntegralKey>>(intent.selection);
+            switch(intent.action){
+            case PowerIntegralAction::save_profile:case PowerIntegralAction::load_profile:{
+                const bool save=intent.action==PowerIntegralAction::save_profile;std::wstring path;if(!selected_profile_path(save,before->generation,path))continue;
+                if(save){c.operation=Command::Operation::power_integral_save;c.profile_path=path;}
+                else{const auto document=read_profile(path);const auto current=session->snapshot();if(current->generation!=before->generation||!current->data.power_integral)throw std::runtime_error("Session changed or feedback readings unavailable");stage_power_integral_document(view.power_integral_view,document,*current->data.power_integral);continue;}break;
+            }
+            case PowerIntegralAction::preview_profile:c.operation=Command::Operation::power_integral_preview_profile;break;
+            case PowerIntegralAction::apply_profile:c.operation=Command::Operation::power_integral_apply_profile;break;
+            case PowerIntegralAction::undo_profile:c.operation=Command::Operation::power_integral_undo_profile;break;
+            case PowerIntegralAction::recover_profile:c.operation=Command::Operation::power_integral_recover_profile;break;
+            default:throw std::runtime_error("Unknown feedback profile action");
+            }
+            if(!session->submit(c,before->generation))throw std::runtime_error("Session changed or busy");status="Operation queued; see operation log.";
+        }catch(const std::exception& e){status=e.what();}}
+    }
     void consume_saving_controls(){
         using namespace druta::ui;
         const auto saving=std::move(view.power_saving_intents);view.power_saving_intents.clear();
@@ -370,6 +412,8 @@ struct App {
                 }
                 case ProfileScope::timing:view.timing_save_profile_requested=true;break;
                 case ProfileScope::icx:view.i2c_save_profile_requested=true;break;
+                case ProfileScope::fan:{std::wstring path;if(!selected_profile_path(true,snapshot->generation,path))break;
+                    Command c;c.operation=Command::Operation::save_fan_profile;c.profile_path=path;if(!session->submit(c,snapshot->generation))throw std::runtime_error("Session changed or busy");workspace.status="Capturing individual fan requests; see operation log.";break;}
                 default:throw std::runtime_error("Choose a supported capture scope.");
                 }
                 continue;
@@ -533,7 +577,7 @@ struct App {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         consume_profile_catalog();
-        consume_voltage_controls();consume_saving_controls();
+        consume_voltage_controls();consume_saving_controls();consume_policy_profiles();
         if(view.import_policy_annotations){
             view.import_policy_annotations=false;
             try{
@@ -917,11 +961,11 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[18] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    const wchar_t* captures[20] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp"};
-    const char* names[18] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp", L"19-policy-profiles.bmp", L"20-integral-profiles.bmp"};
+    const char* names[20] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls", "policy_profile_controls", "integral_profile_controls"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -955,12 +999,14 @@ struct Smoke {
         if (phase == 15) ok = ok && !app.view.timings_view.auto_capture && app.view.commands.empty();
         if(phase==16)ok=ok&&app.view.power_saving_intents.empty()&&!app.view.open_power_saving_requested;
         if(phase==17)ok=ok&&app.view.clock_gating_intents.empty()&&!app.view.open_clock_gating_requested;
+        if(phase==18)ok=ok&&app.view.voltage_policy_profile_intents.empty()&&!app.view.open_voltage_policy_requested;
+        if(phase==19)ok=ok&&app.view.power_integral_profile_intents.empty()&&!app.view.open_power_integral_requested;
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 17 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 19 ? "" : ",");
         report += row;
-        if (++phase == 18) {
+        if (++phase == 20) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -992,6 +1038,8 @@ struct Smoke {
         if (phase == 15) {app.view.policy_workspace.open=false;app.view.page=druta::ui::Page::timings;app.view.presentation=druta::ui::Presentation::classic;}
         if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=true;}
         if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=true;}
+        if(phase==18){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_policy_requested=true;}
+        if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=true;}
         begin(app);
     }
 };

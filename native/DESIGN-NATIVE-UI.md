@@ -591,3 +591,14 @@ selected slot/UUID/core, with a durable result and no tuning replay. Connector
 presets, channel-shared notes, explicit Python label import and labelled per-wire
 current colors complete that annotation workflow. The current-ROM/scaffold
 providers and relationship-weight exception remain open in the full ledger.
+
+## Continuation checkpoint: selected profiles and timing exchange
+
+Manual gate/VF-flag and power-feedback profiles now capture typed selected
+requests and load to local drafts. Feedback batch Apply preflights the complete
+range, preserves loaded bindings across refresh, and records issued-only Undo.
+Per-fan native/Python profiles integrate with catalog preflight, composition,
+final readback and grouped recovery. Legacy timing exchanges normalize against
+fresh helper aliases, layout and operating-band evidence. Profiles never replay
+at startup or after driver reset; standalone-family catalog adapters and full
+tune composition remain open in the [completion ledger](ui/validation/PARITY-COMPLETION.md).

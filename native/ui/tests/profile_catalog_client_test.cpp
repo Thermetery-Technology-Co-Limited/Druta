@@ -7,6 +7,7 @@
 #undef main
 #include "profile_catalog.h"
 #include "curve_profile.h"
+#include "fan_profile.h"
 static bool catalog_interference=false;
 static bool catalog_refresh_throw=false;
 static bool catalog_boost_refuse=false;
@@ -21,6 +22,64 @@ static ProfileJson catalog_power(bool pinned){
  return {{"schema",2},{"scope","power_action"},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","alternate"},{"vbios",nullptr},{"driver","unlisted"},{"uuid","GPU-A"},{"slot","0000:02:00.0"}}},{"incomplete",ProfileJson::array()},
  {"power_action",{{"board_mw",250000},{"rows",ProfileJson::array({row(0,true,"mW",100000,350000,250000),row(1,false,"mA",0,500,150)})},{"pins",pinned?ProfileJson{{"1",150}}:ProfileJson::object()}}}};
 }
+static dc_fan_state catalog_fans{};static int catalog_fan_writes=0;static bool fan_partial=false,fan_mutate_after=false,fan_false_success=false,fan_partial_success=false,fan_change_identity=false;
+static dc_status DC_CALL individual_fan_read(dc_gpu*,dc_fan_state* out){*out=catalog_fans;return DC_OK;}
+static dc_status DC_CALL individual_fan_restore(dc_gpu*,const dc_fan_snapshot* req,dc_outcome* out){
+ // Match the real ABI's same-source positional-ID contract.
+ if(req->count!=catalog_fans.count||std::strcmp(req->source,catalog_fans.source)){out->ok=0;return DC_OK;}
+ for(uint32_t i=0;i<req->count;++i)if(req->fans[i].id!=catalog_fans.fans[i].id){out->ok=0;return DC_OK;}
+ ++catalog_fan_writes;if(fan_false_success){fan_false_success=false;out->ok=1;return DC_OK;}
+ for(uint32_t i=0;i<req->count;++i){auto& row=catalog_fans.fans[i];row.manual=req->fans[i].manual;row.policy=req->fans[i].policy;if(row.manual)row.level=req->fans[i].level;
+  if(fan_partial_success){fan_partial_success=false;out->ok=1;return DC_OK;}}
+ if(fan_change_identity){fan_change_identity=false;changed_id=true;}
+ if(fan_partial){fan_partial=false; // Only the first fan changed; preserve the other prior request.
+  catalog_fans.fans[1].manual=0;catalog_fans.fans[1].policy=0;out->ok=0;return DC_OK;}
+ out->ok=1;return DC_OK;}
+static dc_status DC_CALL fan_interference_setter(dc_gpu* gpu,uint32_t type,double value,int32_t preserve,dc_outcome* out){const auto result=setter(gpu,type,value,preserve,out);if(fan_mutate_after)catalog_fans.fans[0].level=91;return result;}
+static void reset_catalog_fans(){catalog_fans={};catalog_fans.size=sizeof(catalog_fans);std::strcpy(catalog_fans.source,"nvapi_client");catalog_fans.count=2;
+ for(unsigned i=0;i<2;++i){auto& f=catalog_fans.fans[i];f.id=i?19:7;f.min=20;f.max=100;f.default_policy=0;f.level=i?30:40;f.manual=i?0:1;f.policy=i?0:1;}}
+#if defined(_MSC_VER)
+__declspec(noinline)
+#endif
+static void fan_catalog_tests(){std::string error;reset_catalog_fans();catalog_fan_writes=0;auto api=catalog_api();api.fan_state=individual_fan_read;api.fan_restore=individual_fan_restore;api.set_offset=fan_interference_setter;
+ auto client=create_core_backend_for_test(api);CHECK(client->open("0000:02:00.0",error));dc_gpu_identity ident{};ident.nvml_ok=1;std::strcpy(ident.slot,"0000:02:00.0");std::strcpy(ident.uuid,"GPU-A");
+ auto desired=catalog_fans;desired.fans[0].level=60;desired.fans[1].manual=1;desired.fans[1].policy=1;desired.fans[1].level=70;
+ auto profile=capture_fan_profile(ident,desired);auto before=catalog_fan_writes;CHECK(client->execute(catalog_command(profile,true)).ok&&catalog_fan_writes==before);
+ ProfileJson python={{"schema",2},{"scope","fan"},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","alternate"},{"vbios",nullptr},{"driver",nullptr},{"uuid","GPU-A"},{"slot","0000:02:00.0"}}},{"incomplete",ProfileJson::array()},{"fan_control_state",profile["fan_control_state"]}};
+ CHECK(client->execute(catalog_command(python,true)).ok&&catalog_fan_writes==before);Command python_undo;python_undo.operation=Command::Operation::undo;
+ CHECK(client->execute(catalog_command(python)).ok&&catalog_fans.fans[0].level==60);CHECK(client->execute(python_undo).ok&&catalog_fans.fans[0].level==40);before=catalog_fan_writes;
+ wchar_t dir[MAX_PATH]{},path[MAX_PATH]{};CHECK(GetTempPathW(MAX_PATH,dir)&&GetTempFileNameW(dir,L"fan",0,path));DeleteFileW(path);
+ Command save;save.operation=Command::Operation::save_fan_profile;save.profile_path=path;CHECK(client->execute(save).ok&&catalog_fan_writes==before);
+ CHECK(parse_fan_profile(read_profile(path)).requests.fans[0].level==40);DeleteFileW(path);
+ auto foreign=profile;foreign["target"]["uuid"]="GPU-other";CHECK(!client->execute(catalog_command(foreign)).ok&&catalog_fan_writes==before);
+ catalog_fans.fans[1].id=20;CHECK(!client->execute(catalog_command(profile)).ok&&catalog_fan_writes==before);catalog_fans.fans[1].id=19;
+ Command undo;undo.operation=Command::Operation::undo;fan_partial=true;auto partial=client->execute(catalog_command(profile));CHECK(!partial.ok&&partial.may_have_changed&&catalog_fans.fans[0].level==60&&client->read(false).undo_available);
+ CHECK(client->execute(undo).ok&&catalog_fans.fans[0].level==40&&!catalog_fans.fans[1].manual);
+ current=40;mode=2;auto both=compose_profiles({{"Fan",profile},{"Memory",catalog_daily("memory",80)}});auto failed=client->execute(catalog_command(both));
+ CHECK(!failed.ok&&catalog_fans.fans[0].level==60&&client->read(false).undo_available);mode=0;CHECK(client->execute(undo).ok&&catalog_fans.fans[0].level==40);
+ CHECK(client->execute(catalog_command(profile)).ok);catalog_fans.fans[0].level=80;const auto writes=catalog_fan_writes;
+ CHECK(!client->execute(undo).ok&&catalog_fan_writes==writes&&client->read(false).undo_available);catalog_fans.fans[0].level=60;CHECK(client->execute(undo).ok&&catalog_fans.fans[0].level==40);
+ current=40;fan_mutate_after=true;auto changed=client->execute(catalog_command(both));CHECK(!changed.ok&&changed.may_have_changed&&client->read(false).undo_available&&catalog_fans.fans[0].level==91);
+ fan_mutate_after=false;catalog_fans.fans[0].level=60;CHECK(client->execute(undo).ok&&catalog_fans.fans[0].level==40&&current==40);
+ // Rebase saved requests by ID before calling the positional ABI. Final
+ // aggregate verification must also accept the same IDs in a new order.
+ CHECK(client->execute(catalog_command(profile)).ok);std::swap(catalog_fans.fans[0],catalog_fans.fans[1]);
+ CHECK(client->execute(undo).ok&&catalog_fans.fans[0].id==19&&!catalog_fans.fans[0].manual&&catalog_fans.fans[1].id==7&&catalog_fans.fans[1].level==40);
+ std::swap(catalog_fans.fans[0],catalog_fans.fans[1]);CHECK(!client->read(false).undo_available);
+ // A success flag without full restoration must retain the original receipt.
+ CHECK(client->execute(catalog_command(profile)).ok);fan_false_success=true;
+ CHECK(!client->execute(undo).ok&&catalog_fans.fans[0].level==60&&client->read(false).undo_available);
+ CHECK(client->execute(undo).ok&&catalog_fans.fans[0].level==40&&!catalog_fans.fans[1].manual);
+ CHECK(client->execute(catalog_command(profile)).ok);fan_partial_success=true;
+ CHECK(!client->execute(undo).ok&&catalog_fans.fans[0].level==40&&catalog_fans.fans[1].manual&&client->read(false).undo_available);
+ CHECK(client->execute(undo).ok&&!catalog_fans.fans[1].manual&&!client->read(false).undo_available);
+ // Restore can finish while identity changes: retain Undo, then verify the
+ // original state without replay once the original pairing is available.
+ CHECK(client->execute(catalog_command(profile)).ok);fan_change_identity=true;
+ CHECK(!client->execute(undo).ok&&changed_id&&catalog_fans.fans[0].level==40);
+ changed_id=false;CHECK(client->read(false).undo_available);const auto restored_writes=catalog_fan_writes;
+ CHECK(client->execute(undo).ok&&catalog_fan_writes==restored_writes&&!client->read(false).undo_available);
+ client->close();}
 int main(){std::string error;Command undo;undo.operation=Command::Operation::undo;
  current=40;boost_value=10;writes=boost_writes=0;mode=0;auto a=catalog_api();
  auto backend=create_core_backend_for_test(a);CHECK(backend->open("0000:02:00.0",error));
@@ -28,6 +87,9 @@ int main(){std::string error;Command undo;undo.operation=Command::Operation::und
  CHECK(backend->execute(catalog_command(composed,true)).ok&&writes==0&&boost_writes==0&&!backend->read(false).undo_available);
  CHECK(backend->execute(catalog_command(composed)).ok&&current==80&&boost_value==30);CHECK(backend->read(false).undo_available);
  CHECK(backend->execute(undo).ok&&current==40&&boost_value==10&&!backend->read(false).undo_available);
+ // Legacy timing is structurally stageable, but cannot be preflighted with a memory offset.
+ auto legacy_timing=ProfileJson{{"fields",{{"RC",20}}}};const auto before_legacy=writes;
+ CHECK(!backend->execute(catalog_command(compose_profiles({{"Memory",memory},{"Legacy timing",legacy_timing}}),true)).ok&&writes==before_legacy);
  // A later capability failure rejects the entire plan before the first write.
  a.boost_set=nullptr;auto missing=create_core_backend_for_test(a);CHECK(missing->open("0000:02:00.0",error));const auto before=writes;
  CHECK(!missing->execute(catalog_command(composed)).ok&&writes==before&&current==40);
@@ -86,5 +148,6 @@ int main(){std::string error;Command undo;undo.operation=Command::Operation::und
  catalog_boost_refuse=true;CHECK(!nested->execute(undo).ok&&current==40&&boost_value==30);catalog_boost_refuse=false;
  current=60;const auto writes_after_completed_memory=writes;auto nested_retry=nested->execute(undo);CHECK(!nested_retry.ok&&current==60&&boost_value==10&&writes==writes_after_completed_memory&&nested->read(false).undo_available);
  CHECK(nested->execute(undo).ok&&current==40&&boost_value==10&&!nested->read(false).undo_available);
+ fan_catalog_tests();
  std::printf("Catalog worker integration: %d checks, %d failures\n",checks,failures);return failures?1:0;
 }

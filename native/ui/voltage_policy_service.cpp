@@ -3,6 +3,8 @@
 #include "voltage_policy_service.h"
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
+#include <cmath>
 #include <stdexcept>
 #include <vector>
 namespace druta::ui {
@@ -16,7 +18,7 @@ struct Failure:std::runtime_error {
 };
 [[noreturn]]void fail(const std::string& message,VoltagePolicyAvailability a=VoltagePolicyAvailability::invalid){throw Failure(a,message);}
 void api_failure(const dc_error& e,const char* fallback){
-    const auto a=e.kind==DC_ERR_UNSUPPORTED?VoltagePolicyAvailability::unsupported:e.kind==DC_ERR_IDENTITY?VoltagePolicyAvailability::invalid:VoltagePolicyAvailability::transient;
+    const auto a=e.kind==DC_ERR_UNSUPPORTED?VoltagePolicyAvailability::unsupported:(e.kind==DC_ERR_TRANSIENT||e.kind==DC_ERR_UNSTABLE)?VoltagePolicyAvailability::transient:VoltagePolicyAvailability::invalid;
     const auto* end=static_cast<const char*>(std::memchr(e.message,0,sizeof(e.message)));
     fail(end&&e.message[0]?std::string(e.message,end):std::string(fallback),a);
 }
@@ -49,7 +51,7 @@ Header changed(Header h,uint32_t selection,uint32_t values){if(selection&voltage
 struct VoltagePolicyService::Impl {
     VoltagePolicyApi api;dc_gpu* gpu;dc_gpu_identity target;std::optional<dc_target> binding;
     VoltagePolicyData data;std::optional<Record> undo_record,recovery_record,undo_before_recovery;
-    Impl(VoltagePolicyApi a,dc_gpu* g,const dc_gpu_identity& id):api(a),gpu(g),target(id){}
+    Impl(VoltagePolicyApi a,dc_gpu* g,const dc_gpu_identity& id):api(a),gpu(g),target(id){data.identity=id;}
     void bind(){
         if(!api.identity||!api.bind||!api.architecture_supported||!api.transport||!api.escape)fail("Voltage-policy interfaces unavailable",VoltagePolicyAvailability::unsupported);
         dc_gpu_identity id{};id.size=sizeof(id);if(api.identity(gpu,&id)!=DC_OK)fail("Paired GPU identity read unavailable",VoltagePolicyAvailability::transient);
@@ -114,6 +116,7 @@ struct VoltagePolicyService::Impl {
         fail("Bounded voltage-policy read failed",VoltagePolicyAvailability::transient);
     }
     void publish(const Sample& sample,uint32_t mask){
+        data.target=binding;
         for(size_t i=0;i<3;++i)if(mask&(1u<<i)){auto& row=data.rows[i];row.current=(sample.values&(1u<<i))!=0;
             if(!row.initial)row.initial=row.current;row.availability=VoltagePolicyAvailability::available;row.writable=true;row.message.clear();}
     }
@@ -161,7 +164,7 @@ struct VoltagePolicyService::Impl {
             }
             const auto wanted=(before.values&~request.selection)|(request.values&request.selection);
             record=Record{request.selection,before.values,wanted,before.transport};
-            if(request.selection!=1&&wanted==before.values){result.ok=true;result.message="Selected VF policy already matches";data.message=result.message;flags();return result;}
+            if(wanted==before.values){result.ok=true;result.message="Selected policy already matches; no write";data.message=result.message;flags();return result;}
             const auto header=changed(before.header,request.selection,wanted);
             call(request.selection==1?gate_set:vf_set,before.transport,request.selection==1?nullptr:&header,wanted,&write);
             if(write.previous){record->before=*write.previous?1u:0u;if(record->before!=(before.values&1))fail("Gate atomic previous state differs from pre-read");}
@@ -227,4 +230,34 @@ VoltagePolicyResult VoltagePolicyService::undo(){auto& p=*impl_;if(p.recovery_re
     else {p.recovery_record=p.undo_record;out.message="Selected Undo pending: "+error;p.unavailable(p.recovery_record->selection,VoltagePolicyAvailability::transient,out.message);}
     p.data.message=out.message;p.flags();return out;
 }
+}
+
+namespace druta::ui {
+namespace {
+void profile_check(bool valid,const char* message){if(!valid)throw std::runtime_error(message);}
+void exact_keys(const ProfileJson& j,std::initializer_list<const char*> names){profile_check(j.is_object()&&j.size()==names.size(),"Profile has missing or unrelated fields");for(auto key:names)profile_check(j.contains(key),"Profile field missing");}
+uint32_t profile_u32(const ProfileJson& j,uint32_t maximum=UINT32_MAX){profile_check(j.is_number_integer()&&!j.is_boolean(),"Profile requires an exact unsigned integer");if(j.is_number_unsigned()){const auto n=j.get<uint64_t>();profile_check(n<=maximum,"Profile integer out of range");return static_cast<uint32_t>(n);}const auto n=j.get<int64_t>();profile_check(n>=0&&static_cast<uint64_t>(n)<=maximum,"Profile integer out of range");return static_cast<uint32_t>(n);}
+std::string profile_string(const ProfileJson& j,size_t maximum){profile_check(j.is_string(),"Profile requires a string");auto s=j.get<std::string>();profile_check(!s.empty()&&s.size()<=maximum&&s.find('\0')==std::string::npos,"Profile string is empty, oversized or malformed");return s;}
+std::string policy_slot(const std::string& value){
+    const auto first=value.find(':'),second=value.find(':',first==std::string::npos?value.size():first+1),dot=value.find('.',second==std::string::npos?value.size():second+1);
+    profile_check(first!=std::string::npos&&first>0&&first<=8&&second!=std::string::npos&&second>first+1&&second-first<=3&&dot!=std::string::npos&&dot>second+1&&dot-second<=3&&value.size()==dot+2,"Profile PCI slot malformed");
+    const auto number=[&](size_t begin,size_t end,uint32_t maximum){uint32_t n=0;for(size_t at=begin;at<end;++at){const char c=value[at];const int digit=c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:c>='A'&&c<='F'?c-'A'+10:-1;profile_check(digit>=0,"Profile PCI slot malformed");const auto d=static_cast<uint32_t>(digit);profile_check(n<=maximum/16&&(n<maximum/16||d<=maximum%16),"Profile PCI slot out of range");n=n*16+d;}return n;};
+    const auto domain=number(0,first,65535),bus=number(first+1,second,255),device=number(second+1,dot,31),function=number(dot+1,value.size(),7);
+    char normalized[32];std::snprintf(normalized,sizeof(normalized),"%04x:%02x:%02x.%x",domain,bus,device,function);return normalized;
+}
+void profile_identity(VoltagePolicyProfile& plan,const ProfileJson& j){exact_keys(j,{"slot","architecture","device_id","subsystem_id"});plan.slot=policy_slot(profile_string(j.at("slot"),95));plan.architecture=profile_u32(j.at("architecture"));profile_check(plan.architecture>=4&&plan.architecture<=10,"Profile architecture is not a qualified PERF family");plan.device_id=profile_u32(j.at("device_id"),65535);plan.subsystem_id=profile_u32(j.at("subsystem_id"));}
+ProfileJson native_identity(const VoltagePolicyData& data){profile_check(data.target.has_value()&&same_id(data.identity,data.identity),"Read a qualified paired adapter first");const auto& t=*data.target;profile_check(t.size==sizeof(t)&&terminated(t.slot,sizeof(t.slot))&&t.handle&&t.handle==data.identity.nvapi_handle&&t.device_id==data.identity.nvapi_devid&&t.subsystem_id==data.identity.nvapi_subsys&&policy_slot(t.slot)==policy_slot(data.identity.slot),"Profile target is not the paired opened adapter");return {{"slot",t.slot},{"architecture",t.architecture},{"device_id",t.device_id},{"subsystem_id",t.subsystem_id}};}
+uint32_t selected_values(const VoltagePolicyData& data,uint32_t selection){profile_check(valid_selection(selection),"Admission and VF flags require separate profile transactions");uint32_t values=0;for(size_t i=0;i<3;++i)if(selection&(1u<<i)){const auto& r=data.rows[i];profile_check(r.current.has_value()&&r.availability==VoltagePolicyAvailability::available,"Selected policy lacks a current qualified read");if(*r.current)values|=1u<<i;}profile_check(!data.recovery_pending,"Resolve uncertain policy before saving or staging");return values;}
+void python_metadata(const ProfileJson& doc,const char* payload){profile_check(doc.is_object(),"Invalid Python policy profile");const std::vector<std::string> allowed{"schema","scope","saved_at","saved_ts","device","incomplete",payload};for(auto it=doc.begin();it!=doc.end();++it)profile_check(std::find(allowed.begin(),allowed.end(),it.key())!=allowed.end(),"Python policy profile contains unrelated scope or fields");profile_check(profile_u32(doc.at("schema"))==2,"Unsupported Python policy schema");if(doc.contains("incomplete"))profile_check(doc.at("incomplete").is_array()&&doc.at("incomplete").empty(),"Incomplete Python profile cannot be staged");if(doc.contains("saved_at"))profile_check(doc.at("saved_at").is_string(),"Invalid saved timestamp");if(doc.contains("saved_ts"))profile_check(doc.at("saved_ts").is_number()&&!doc.at("saved_ts").is_boolean()&&std::isfinite(doc.at("saved_ts").get<double>()),"Invalid saved timestamp");profile_check(doc.at("device").is_object(),"Saved device identity unavailable");}
+}
+VoltagePolicyProfile validate_voltage_policy_profile(const ProfileJson& document){VoltagePolicyProfile plan;
+    if(document.contains("format")){exact_keys(document,{"format","version","uuid","identity","selection","values"});profile_check(document.at("format")=="druta-native-voltage-policy"&&profile_u32(document.at("version"))==1,"Unsupported native policy profile");plan.uuid=profile_string(document.at("uuid"),95);profile_identity(plan,document.at("identity"));plan.request.selection=profile_u32(document.at("selection"));plan.request.values=profile_u32(document.at("values"));profile_check(valid_selection(plan.request.selection)&&!(plan.request.values&~plan.request.selection),"Invalid policy selection or Boolean mask");}
+    else {profile_check(document.is_object()&&document.contains("scope")&&document.at("scope").is_string(),"Policy profile scope unavailable");const auto scope=document.at("scope").get<std::string>();profile_check(scope=="clock_vf"||scope=="voltage_controls","Unsupported Python policy profile scope");python_metadata(document,scope.c_str());plan.uuid=profile_string(document.at("device").at("uuid"),95);
+        const auto& payload=document.at(scope);if(scope=="clock_vf"){exact_keys(payload,{"identity","policies"});profile_identity(plan,payload.at("identity"));const auto& policies=payload.at("policies");profile_check(policies.is_object()&&!policies.empty()&&policies.size()<=2,"Invalid VF policies selection");for(auto it=policies.begin();it!=policies.end();++it){const uint32_t bit=it.key()=="clock_vf.monotonicity"?voltage_monotonicity:it.key()=="clock_vf.smoothening"?voltage_smoothing:0;profile_check(bit&&it.value().is_boolean(),"Only named Boolean VF flags are supported");plan.request.selection|=bit;if(it.value().get<bool>())plan.request.values|=bit;}}
+        else {exact_keys(payload,{"kind","identity","rows"});profile_check(payload.at("kind")=="gate","Only voltage_controls kind gate belongs to this service");profile_identity(plan,payload.at("identity"));const auto& rows=payload.at("rows");profile_check(rows.is_array()&&rows.size()==1,"Gate profile requires exactly one row");exact_keys(rows[0],{"enabled"});profile_check(rows[0].at("enabled").is_boolean(),"Gate request must be Boolean");plan.request.selection=voltage_admission;plan.request.values=rows[0].at("enabled").get<bool>()?voltage_admission:0;}
+        const auto& device=document.at("device");if(device.contains("slot")&&!device.at("slot").is_null())profile_check(policy_slot(profile_string(device.at("slot"),95))==plan.slot,"Python profile has conflicting device slots");
+    }return plan;
+}
+ProfileJson capture_voltage_policy_profile(const VoltagePolicyData& data,uint32_t selection){const auto values=selected_values(data,selection);profile_check(terminated(data.identity.uuid,sizeof(data.identity.uuid))&&data.identity.uuid[0],"Saved policy profiles require a GPU UUID");auto document=ProfileJson{{"format","druta-native-voltage-policy"},{"version",1},{"uuid",data.identity.uuid},{"identity",native_identity(data)},{"selection",selection},{"values",values}};(void)validate_voltage_policy_profile(document);return document;}
+VoltagePolicyRequest stage_voltage_policy_profile(const ProfileJson& document,const VoltagePolicyData& data){const auto plan=validate_voltage_policy_profile(document);const auto identity_json=native_identity(data);profile_check(terminated(data.identity.uuid,sizeof(data.identity.uuid))&&data.identity.uuid[0]&&plan.uuid==data.identity.uuid,"Saved policy belongs to a different or unidentified GPU UUID");profile_check(plan.slot==policy_slot(identity_json.at("slot").get<std::string>())&&plan.architecture==identity_json.at("architecture")&&plan.device_id==identity_json.at("device_id")&&plan.subsystem_id==identity_json.at("subsystem_id"),"Saved policy adapter identity changed");auto request=plan.request;request.expected=selected_values(data,request.selection);return request;}
 }

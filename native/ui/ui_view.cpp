@@ -1203,31 +1203,41 @@ void live_perf_panel(ViewState& state) {
 void live_semantic_controls(ViewState& state, bool classic) {
     const auto& snapshot = *state.live;
     const bool busy = snapshot.busy || snapshot.opening || !snapshot.data.connected;
+    const bool voltage_navigation=state.open_voltage_policy_requested;
+    const bool integral_navigation=state.open_power_integral_requested;
+    const bool policy_navigation=voltage_navigation||integral_navigation;
     ImGui::PushID("advanced-semantic-controls");
     if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
     if(state.open_power_saving_requested){ImGui::SetNextItemOpen(true);state.open_power_saving_requested=false;}
+    if(policy_navigation)ImGui::SetNextItemOpen(false);
     if(ImGui::CollapsingHeader("Power saving")){
         auto intents=draw_power_saving_controls(state.power_saving_view,snapshot.data.power_saving.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
         state.power_saving_intents.insert(state.power_saving_intents.end(),intents.begin(),intents.end());
     }
     if(state.open_clock_gating_requested){ImGui::SetNextItemOpen(true);state.open_clock_gating_requested=false;}
+    if(policy_navigation)ImGui::SetNextItemOpen(false);
     if(ImGui::CollapsingHeader("Clock gating and PCIe speed")){
         auto intents=draw_clock_gating_controls(state.clock_gating_view,snapshot.data.clock_gating.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
         state.clock_gating_intents.insert(state.clock_gating_intents.end(),intents.begin(),intents.end());
     }
+    if(policy_navigation)ImGui::SetNextItemOpen(false);
     if (ImGui::CollapsingHeader("Voltage request and offset tables")) {
         auto intents=draw_voltage_tables_controls(state.voltage_tables_view,snapshot.data.voltage_tables.get(),snapshot.generation,busy,state.controls_unlocked,classic);
         state.voltage_tables_intents.insert(state.voltage_tables_intents.end(),intents.begin(),intents.end());
     }
+    if(policy_navigation)ImGui::SetNextItemOpen(false);
     if (ImGui::CollapsingHeader("Voltage definitions and device delays")) {
         auto intents=draw_voltage_limits_controls(state.voltage_limits_view,snapshot.data.voltage_limits.get(),snapshot.generation,busy,state.controls_unlocked,classic);
         state.voltage_limits_intents.insert(state.voltage_limits_intents.end(),intents.begin(),intents.end());
     }
+    if(state.open_voltage_policy_requested)ImGui::SetNextItemOpen(false);
+    if(state.open_power_integral_requested){ImGui::SetNextItemOpen(true);state.open_power_integral_requested=false;}
     if (ImGui::CollapsingHeader("Power feedback ratios")) {
+        if(integral_navigation)ImGui::SetScrollHereY(0.0f);
         PowerIntegralViewContext context;
         context.generation = snapshot.generation; context.slot = snapshot.selected_slot;
         context.uuid = snapshot.data.identity.uuid;
-        context.connected = snapshot.data.connected; context.busy = busy; context.unlocked = state.controls_unlocked;
+        context.connected = snapshot.data.connected; context.busy = snapshot.busy || snapshot.opening; context.unlocked = state.controls_unlocked;
         const PowerIntegralData empty;
         for (const auto& intent : draw_power_integral(state.power_integral_view,
             snapshot.data.power_integral ? *snapshot.data.power_integral : empty, context, true)) {
@@ -1239,14 +1249,21 @@ void live_semantic_controls(ViewState& state, bool classic) {
             case PowerIntegralAction::reported_default: command.operation = Command::Operation::power_integral_apply; command.expected_request_raw = intent.expected; break;
             case PowerIntegralAction::undo: command.operation = Command::Operation::power_integral_undo; break;
             case PowerIntegralAction::restore: command.operation = Command::Operation::power_integral_restore; break;
+            case PowerIntegralAction::save_profile: case PowerIntegralAction::load_profile:
+            case PowerIntegralAction::preview_profile: case PowerIntegralAction::apply_profile:
+            case PowerIntegralAction::undo_profile: case PowerIntegralAction::recover_profile:
+                state.power_integral_profile_intents.push_back(intent); continue;
             }
             command.integral_policy = intent.policy; command.integral_upper = intent.field == PowerIntegralField::upper;
             command.integral_raw = intent.raw; state.commands.push_back(std::move(command));
         }
     }
+    if(policy_navigation&&!state.open_voltage_policy_requested)ImGui::SetNextItemOpen(false);
+    if(state.open_voltage_policy_requested){ImGui::SetNextItemOpen(true);state.open_voltage_policy_requested=false;}
     if (ImGui::CollapsingHeader("Voltage admission and V/F policies")) {
+        if(voltage_navigation)ImGui::SetScrollHereY(0.0f);
         auto output = draw_voltage_policy_controls(state.voltage_policy_view, snapshot.data.voltage_policies.get(),
-            snapshot.generation, busy, state.controls_unlocked, classic);
+            snapshot.generation, snapshot.busy || snapshot.opening, state.controls_unlocked, classic, snapshot.data.connected);
         for (const auto& intent : output.intents) {
             Command command;
             switch (intent.operation) {
@@ -1255,6 +1272,8 @@ void live_semantic_controls(ViewState& state, bool classic) {
             case VoltagePolicyIntent::Operation::restore_initial: command.operation = Command::Operation::voltage_policy_restore; break;
             case VoltagePolicyIntent::Operation::undo: command.operation = Command::Operation::voltage_policy_undo; break;
             case VoltagePolicyIntent::Operation::recover: command.operation = Command::Operation::voltage_policy_recover; break;
+            case VoltagePolicyIntent::Operation::save_profile: case VoltagePolicyIntent::Operation::load_profile:
+                state.voltage_policy_profile_intents.push_back(intent); continue;
             }
             command.voltage_policy = std::make_shared<VoltagePolicyRequest>(intent.request);
             state.commands.push_back(std::move(command));

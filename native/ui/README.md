@@ -535,3 +535,26 @@ layouts remain outside the traced support on that adapter. New writes, their
 physical effects, actual PnP restart and Vista/7 execution have not been qualified
 by this checkpoint. See the completion ledger for remaining firmware providers
 and the persistent relationship-weight configuration exception.
+
+## Selected profiles and timing exchange
+
+Clocks opens the voltage-policy and power-feedback panels in either skin.
+Save captures current selected requests; Load stages a draft for explicit Apply.
+Admission uses its own transaction, while monotonicity and smoothing may be
+selected together. Feedback profiles preserve raw U4.12 values, preflight the
+whole selected range, order coupled lower/upper changes, and retain grouped
+Undo for any issued writes. Loaded policy metadata is not silently replaced by
+later readings. Reload or discard a draft when its policy binding changes.
+
+The profile catalog now saves and loads individual fan requests, including
+mixed manual/automatic policies, and imports released Python fan profiles.
+Undo matches current fan IDs and verifies restoration before releasing its
+receipt. It preserves the recorded request when restoration is partial or the
+adapter changes. Automatic fan target fluctuations are not manual setpoints.
+
+Timings accepts released Python timing profiles, nvtune-profile-1, and flat
+fields exchanges using fresh helper metadata and a qualified current operating
+band. Aliases are resolved only by that helper; raw register/partition snapshots
+and mixed unrelated tuning scopes are refused. Timing and memory-offset changes
+still apply separately. Other outstanding profile adapters and composition
+restrictions remain listed in [the completion ledger](validation/PARITY-COMPLETION.md).

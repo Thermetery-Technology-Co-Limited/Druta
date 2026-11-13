@@ -507,7 +507,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
       else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
-      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { if (Impl::discovery_action(command.operation)) impl_->discovery_cancelled=false;

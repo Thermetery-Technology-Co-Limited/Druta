@@ -15,7 +15,7 @@ static dc_gpu_identity target() {
 }
 static TimingSnapshot snapshot() {
     TimingSnapshot s; s.ok=s.top_band=s.memory_clock_stable=true; s.slot="00000000:09:00.0"; s.codename="AD102";
-    s.memory_before_mhz=s.memory_after_mhz=10000; s.pstate_before=s.pstate_after=0; s.offset_before=s.offset_after=0;
+    s.helper_token="current-helper-token"; s.memory_before_mhz=s.memory_after_mhz=10000; s.pstate_before=s.pstate_after=0; s.offset_before=s.offset_after=0;
     s.broadcast={{"REG_A","DOCUMENTED",0x100,0xa5a51234},{"REG_B","",0x108,0x87654321}};
     s.fields={{"tA","REG_A","",0,3,15},{"tB","REG_A","",8,15,255},{"tC","REG_B","",16,23,255}};
     return s;
@@ -66,5 +66,41 @@ int main() {
     CHECK(!editor.contains("registers"));
     auto current_only=capture_timing_editor_profile(id,s,{});CHECK(validate_timing_profile(current_only,id,s).size()==3);
     bool duplicate_staged=false;try{capture_timing_editor_profile(id,s,{{"tA",1},{"tA",2}});}catch(const std::runtime_error&){duplicate_staged=true;}CHECK(duplicate_staged);
+    s.aliases={{"t0","tB"}};
+    ProfileJson flat={{"fields",{{"tA",5},{"t0",77}}}};
+    CHECK(is_legacy_timing_profile(flat));auto flat_fields=validate_timing_profile(flat,id,s);
+    CHECK(flat_fields.size()==2&&flat_fields[0].field=="tB"&&flat_fields[0].value==77&&flat_fields[1].field=="tA");
+    const auto normalized=normalize_timing_profile(flat,id,s);CHECK(normalized["format"]=="druta-native-timing"&&normalized["target"]["uuid"]=="GPU-alternate");
+    ProfileJson python={{"schema","druta.timing-profile"},{"version",1},{"capture",{{"source","nvtune decoded broadcast capture"},{"gpu",{{"slot","0000:09:00.0"},{"codename","AD102"}}},{"band",{{"memory_mhz_reported",10000},{"performance_band",true},{"pstate",0},{"matched_memory_state_mhz",10000}}},{"pending_modifications",ProfileJson::array()}}},{"fields",{{"tA",6},{"tB",55}}}};
+    CHECK(validate_timing_profile(python,id,s).size()==2);
+    ProfileJson upstream={{"_format","nvtune-profile-1"},{"name","saved"},{"slot","0000:09:00.0"},{"fields",{{"TA",3}}}};
+    auto upper=s;upper.fields[0].name="TA";CHECK(validate_timing_profile(upstream,id,upper)[0].field=="TA");
+    auto mixed=flat;mixed["scope"]="unknown";mixed["nvvdd_offset_mv"]=50;
+    CHECK(!is_legacy_timing_profile(mixed)&&rejected(mixed,id,s));
+    mixed=flat;mixed["power_limit_mw"]=250000;CHECK(!is_legacy_timing_profile(mixed)&&rejected(mixed,id,s));
+    mixed=flat;mixed["version"]=1;CHECK(!is_legacy_timing_profile(mixed)&&rejected(mixed,id,s));
+    mixed=python;mixed["capture"]["gpu"]["set_voltage_mv"]=1000;CHECK(!is_legacy_timing_profile(mixed)&&rejected(mixed,id,s));
+    mixed=python;mixed["capture"]["band"]["clock_offset"]=5;CHECK(!is_legacy_timing_profile(mixed)&&rejected(mixed,id,s));
+    mixed=upstream;mixed["schema"]="druta.timing-profile";CHECK(!is_legacy_timing_profile(mixed)&&rejected(mixed,id,s));
+    auto described=flat;described["name"]="Memory profile";described["description"]="informational";described["slot"]="0000:09:00.0";
+    CHECK(is_legacy_timing_profile(described)&&validate_timing_profile(described,id,s).size()==2);
+    auto invalid_legacy=flat;invalid_legacy["fields"]["tB"]=77;CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=flat;invalid_legacy["fields"]["T0"]=5;CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=flat;invalid_legacy["fields"]["tA"]=true;CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=flat;invalid_legacy["fields"]["tA"]=16;CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=flat;invalid_legacy["registers"]=ProfileJson::object();CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=flat;invalid_legacy["fbpa"]=ProfileJson::object();CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=python;invalid_legacy["capture"]["gpu"]["slot"]="0000:08:00.0";CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=python;invalid_legacy["capture"]["gpu"]["codename"]="GA102";CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=python;invalid_legacy["capture"]["band"]["memory_mhz_reported"]=9000;CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=python;invalid_legacy["capture"]["band"]["performance_band"]=false;CHECK(rejected(invalid_legacy,id,s));
+    invalid_legacy=upstream;invalid_legacy["fields"]={{"tA",3}};CHECK(rejected(invalid_legacy,id,s));
+    auto bad_alias=s;bad_alias.aliases.push_back({"T0","tA"});CHECK(rejected(flat,id,bad_alias));
+    bad_alias=s;bad_alias.aliases={{"t0","missing"}};CHECK(rejected(flat,id,bad_alias));
+    auto no_helper=s;no_helper.helper_token.clear();CHECK(rejected(flat,id,no_helper));
+    auto unsafe=s;unsafe.fields[1].structural=true;CHECK(rejected(flat,id,unsafe));
+    unsafe=s;unsafe.fields[1].inferred=true;CHECK(rejected(flat,id,unsafe));
+    unsafe=s;unsafe.fields.push_back({"overlap","REG_A","",8,10,7});CHECK(rejected(flat,id,unsafe));
+    CHECK(s.broadcast[0].value==0xa5a51234); // stage-only normalization
     std::printf("timing_profile_test: %u checks passed\n",checks);
 }

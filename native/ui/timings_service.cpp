@@ -35,12 +35,20 @@ std::string process_error(const char* phase,const TimingProcessResult& r){
     const auto detail=!r.error.empty()?r.error:r.output;
     return std::string(phase)+": "+reason+(detail.empty()?"":"; "+detail.substr(0,700));
 }
-bool fields_parse(const std::string& text,std::vector<TimingField>& out) {
+bool fields_parse(const std::string& text,std::vector<TimingField>& out,std::vector<std::pair<std::string,std::string>>& aliases) {
     static const std::regex row("^([A-Za-z][A-Za-z0-9_]*)\\s+([A-Za-z][A-Za-z0-9_]*)\\s+\\[([0-9]+):([0-9]+)\\]\\s+([0-9]+)\\s+(.+?)\\s*$");
     static const std::regex note("^\\s+([A-Za-z][A-Za-z0-9_]*)\\s+INFERRED:.*$");
     std::istringstream input(text); std::string line; std::smatch m; std::set<std::string> names,inferred;
     try { while(std::getline(input,line)) { if(!line.empty()&&line.back()=='\r')line.pop_back();
         if(std::regex_match(line,m,note)){inferred.insert(m[1]);continue;}
+        const auto first=line.find_first_not_of(" \t");
+        std::string prefix=first==std::string::npos?"":line.substr(first,7);
+        std::transform(prefix.begin(),prefix.end(),prefix.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+        if(prefix=="aliases"){
+            const std::string tail=line.substr(first+7);static const std::regex alias("([A-Za-z][A-Za-z0-9_]*)\\s*->\\s*([A-Za-z][A-Za-z0-9_]*)");
+            for(std::sregex_iterator it(tail.begin(),tail.end(),alias),end;it!=end;++it)aliases.emplace_back((*it)[1].str(),(*it)[2].str());
+            continue;
+        }
         if(!std::regex_match(line,m,row) || m[1]=="FIELD")continue;
         const auto hi=std::stoul(m[3]),lo=std::stoul(m[4]); const auto max=std::stoull(m[5]);
         if(hi>=32||lo>hi||max!=((uint64_t{1}<<(hi-lo+1))-1)||!names.insert(m[1]).second)return false;
@@ -51,6 +59,9 @@ bool fields_parse(const std::string& text,std::vector<TimingField>& out) {
     for(size_t i=0;i<out.size();++i)for(size_t j=0;j<i;++j)
         if(out[i].reg==out[j].reg && out[i].lo<=out[j].hi && out[j].lo<=out[i].hi)
             out[i].overlapping=out[j].overlapping=true;
+    auto fold=[](std::string v){std::transform(v.begin(),v.end(),v.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return v;};
+    std::set<std::string> spellings;for(const auto& f:out)if(!spellings.insert(fold(f.name)).second)return false;
+    for(const auto& alias:aliases)if(!spellings.insert(fold(alias.first)).second || !names.count(alias.second))return false;
     return !out.empty();
 }
 bool dump_parse(const std::string& text,const std::string& slot,TimingSnapshot& out) {
@@ -131,7 +142,7 @@ TimingSnapshot capture_locked(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity&
     state(api,gpu,s.memory_before_mhz,s.pstate_before,before_offset);
     const auto f=t.run(TimingCommand::fields,"","",0,false,false);
     if(!run_ok(f)){s.message=process_error("Timing metadata",f);return s;}
-    if(!fields_parse(f.output,s.fields)){s.message="Helper field metadata is malformed";return s;}
+    if(!fields_parse(f.output,s.fields,s.aliases)){s.message="Helper field metadata is malformed";return s;}
     const auto d=t.run(TimingCommand::dump,id.slot,"",0,false,false);
     state(api,gpu,s.memory_after_mhz,s.pstate_after,after_offset);
     if(!run_ok(d)){s.message=process_error("Selected-card timing read",d);return s;}

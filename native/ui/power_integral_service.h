@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <functional>
+#include "profile_io.h"
 namespace druta::ui {
 struct PowerIntegralApi {
     decltype(&dc_gpu_lock) lock=nullptr;
@@ -29,19 +31,41 @@ struct PowerIntegralRow {
     uint16_t lower=0,upper=0,reported_lower=0,reported_upper=0;
     uint8_t past_samples=0,next_samples=0;
     bool available=false;
-    std::string reason;
+    std::string reason,binding;
     std::array<PowerIntegralUndo,2> undo{};
 };
 struct PowerIntegralData {
     bool current=false;
+    dc_gpu_identity identity{};
     std::optional<dc_target> target;
     std::vector<PowerIntegralRow> rows;
     std::string message;
+    bool profile_undo_available=false,profile_recovery_pending=false;
 };
 struct PowerIntegralResult {
     bool ok=false,may_have_changed=false,rollback_attempted=false,rollback_verified=false;
     std::string message;
 };
+struct PowerIntegralKey {uint32_t policy=0;PowerIntegralField field=PowerIntegralField::lower;};
+struct PowerIntegralRequest {
+    uint32_t policy=0;PowerIntegralField field=PowerIntegralField::lower;uint32_t raw=0;
+    uint32_t type=0,channel=0,unit=0;
+    std::optional<uint16_t> expected;
+    std::string binding;
+};
+// Typed selected-field receipt. Immutable bytes below are comparison-only,
+// never replayed through SET. A partial receipt contains only launched fields.
+struct PowerIntegralPlan {
+    bool ok=false;dc_gpu_identity identity{};dc_target target{};
+    std::vector<PowerIntegralRequest> requests;
+    std::vector<uint16_t> before;
+    std::vector<PowerIntegralUndo> previous_owners;
+    std::vector<std::string> bindings;
+    std::string message;
+};
+ProfileJson capture_power_integral_profile(const PowerIntegralData&,const std::vector<PowerIntegralKey>&);
+// Native or released schema-2 Python power_integral. Pure, stage-only.
+std::vector<PowerIntegralRequest> stage_power_integral_profile(const ProfileJson&,const PowerIntegralData&,bool validate_ranges=true);
 // Ratio is an unsigned U4.12 value, rounded half up, not a measured power limit.
 std::optional<uint16_t> power_integral_percent_to_raw(double percent);
 double power_integral_raw_to_percent(uint16_t raw);
@@ -54,6 +78,12 @@ public:
     PowerIntegralResult apply(uint32_t policy,PowerIntegralField field,uint32_t raw,std::optional<uint16_t> expected={});
     PowerIntegralResult restore(uint32_t policy,PowerIntegralField field);
     PowerIntegralResult undo(uint32_t policy,PowerIntegralField field);
+    PowerIntegralPlan preview(const std::vector<PowerIntegralRequest>&);
+    PowerIntegralResult apply(const std::vector<PowerIntegralRequest>&,
+        const std::function<void(const PowerIntegralPlan&)>& before_write={});
+    PowerIntegralResult restore(const PowerIntegralPlan&);
+    PowerIntegralResult undo_profile();
+    PowerIntegralResult recover_profile();
     const PowerIntegralData& data() const {return data_;}
     bool has_undo() const;
 private:
@@ -66,11 +96,15 @@ private:
     dc_gpu_identity identity_{};
     PowerIntegralData data_;
     std::array<std::array<Owned,2>,32> owned_{};
+    std::optional<PowerIntegralPlan> profile_undo_;
+    PowerIntegralPlan plan(const Snapshot&,const std::vector<PowerIntegralRequest>&);
+    PowerIntegralResult restore_profile_locked(const PowerIntegralPlan&);
     bool binding();
     bool capture(Snapshot& state);
     bool capture_once(Snapshot& state,int32_t& kind);
     void publish(const Snapshot& state);
-    bool dispatch(const Snapshot& state,uint32_t policy,PowerIntegralField field,uint16_t raw,Snapshot& after);
+    bool dispatch(const Snapshot& state,uint32_t policy,PowerIntegralField field,uint16_t raw,Snapshot& after,
+        const std::function<void()>& on_launch={});
     PowerIntegralResult restore_locked(uint32_t policy,PowerIntegralField field,bool previous);
 };
 }

@@ -22,6 +22,8 @@ struct ScopedProfileRequest;
 struct PerfViewModel;
 struct PowerArbitrationModel;
 struct PowerIntegralData;
+struct PowerIntegralRequest;
+struct PowerIntegralKey;
 struct VoltagePolicyData;
 struct VoltagePolicyRequest;
 struct VoltageTablesData;
@@ -127,14 +129,14 @@ struct Command {
         prepare_scoped_profile, save_scoped_profile, apply_scoped_profile, refresh_perf_diagnostics,
         frequency_lock_apply, frequency_lock_max, frequency_legacy_p0_max_fan, frequency_lock_release, frequency_lock_refresh,
         timings_preview_batch, timings_apply_batch, timings_restore_initial, timings_save_profile,
-        refresh_power_arbitration, power_integral_read, power_integral_apply, power_integral_undo, power_integral_restore,
-        voltage_policy_read, voltage_policy_apply, voltage_policy_restore, voltage_policy_undo, voltage_policy_recover,
+        refresh_power_arbitration, power_integral_read, power_integral_apply, power_integral_undo, power_integral_restore, power_integral_save, power_integral_preview_profile, power_integral_apply_profile, power_integral_undo_profile, power_integral_recover_profile,
+        voltage_policy_read, voltage_policy_apply, voltage_policy_restore, voltage_policy_undo, voltage_policy_recover, voltage_policy_save,
         preflight_catalog_profile, apply_catalog_profile,
         voltage_tables_read, voltage_tables_apply, voltage_tables_restore, voltage_tables_undo, voltage_tables_recover, voltage_tables_save,
         voltage_limits_read, voltage_limits_apply, voltage_limits_restore, voltage_limits_rom, voltage_limits_undo, voltage_limits_recover, voltage_limits_save,
         timings_capture_p0, timings_release_capture_hold,
         power_saving_read,power_saving_apply,power_saving_undo,power_saving_restore,power_saving_recover,power_saving_release,power_saving_save,
-        clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save };
+        clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save, save_fan_profile };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -156,6 +158,8 @@ struct Command {
     int64_t frequency_min_mhz = 0, frequency_max_mhz = 0;
     uint32_t integral_policy = 0, integral_raw = 0;
     bool integral_upper = false;
+    std::shared_ptr<const std::vector<PowerIntegralRequest>> integral_requests;
+    std::shared_ptr<const std::vector<PowerIntegralKey>> integral_selection;
     std::shared_ptr<const VoltagePolicyRequest> voltage_policy;
     uint32_t saving_families=31,clock_families=15;
     std::shared_ptr<const std::vector<PowerSavingRequest>> power_saving_requests;
@@ -194,6 +198,13 @@ inline bool is_i2c_operation(Command::Operation operation) {
         || operation == Command::Operation::i2c_zero_nct_outputs;
 }
 inline bool is_auxiliary_operation(Command::Operation op){return op>=Command::Operation::power_saving_read&&op<=Command::Operation::clock_gating_save;}
+// Only typed, explicit restoration/recovery may run when telemetry is disconnected.
+inline bool is_integral_policy_recovery(Command::Operation op){
+ return op==Command::Operation::power_integral_undo || op==Command::Operation::power_integral_restore ||
+        op==Command::Operation::power_integral_undo_profile || op==Command::Operation::power_integral_recover_profile ||
+        op==Command::Operation::voltage_policy_undo || op==Command::Operation::voltage_policy_recover ||
+        op==Command::Operation::voltage_policy_restore;
+}
 inline bool is_auxiliary_recovery(Command::Operation op){return op==Command::Operation::power_saving_release||op==Command::Operation::power_saving_recover||op==Command::Operation::clock_gating_release||op==Command::Operation::clock_gating_recover;}
 inline bool is_frequency_operation(Command::Operation operation) {
     return operation >= Command::Operation::frequency_lock_apply && operation <= Command::Operation::frequency_lock_refresh;

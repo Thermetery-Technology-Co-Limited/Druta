@@ -38,7 +38,7 @@ ProfileCatalogViewOutput draw_profile_catalog_workspace(ProfileCatalogViewState&
  if(ImGui::Button("Choose profile files..."))out.intents.push_back({ProfileCatalogIntent::Operation::choose_files,{},{}});
  ImGui::SameLine();if(ImGui::Button("Clear list")){state.items.clear();invalidate(state);}
  ImGui::TextWrapped("Choose files and controls, then compose, review and apply. Loading and saving do not change GPU settings.");
- constexpr ProfileScope scopes[]={ProfileScope::daily,ProfileScope::curve,ProfileScope::scoped,ProfileScope::timing,ProfileScope::icx};
+ constexpr ProfileScope scopes[]={ProfileScope::daily,ProfileScope::curve,ProfileScope::scoped,ProfileScope::timing,ProfileScope::icx,ProfileScope::fan};
  ImGui::SetNextItemWidth(230);
  if(ImGui::BeginCombo("Capture scope",profile_scope_name(state.capture_scope))){for(auto scope:scopes)if(ImGui::Selectable(profile_scope_name(scope),scope==state.capture_scope))state.capture_scope=scope;ImGui::EndCombo();}
  ImGui::SameLine();ImGui::BeginDisabled(busy);if(ImGui::Button("Save configured scope..."))out.intents.push_back({ProfileCatalogIntent::Operation::save_capture,state.capture_scope,{}});ImGui::EndDisabled();

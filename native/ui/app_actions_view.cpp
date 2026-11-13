@@ -66,6 +66,8 @@ void draw_app_actions_menu(ViewState& state) {
     if(ImGui::BeginMenu("Clocks")) {
         ImGui::BeginDisabled(state.preview || !state.live);
         if(ImGui::MenuItem("Frequency locks / legacy P0..."))state.frequency_view.open=true;
+        if(ImGui::MenuItem("Voltage admission / V/F policies...")){state.page=Page::advanced;state.open_voltage_policy_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
+        if(ImGui::MenuItem("Power feedback ratios...")){state.page=Page::advanced;state.open_power_integral_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
         if(ImGui::MenuItem("Power saving...")){state.page=Page::advanced;state.open_power_saving_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
         if(ImGui::MenuItem("Clock gating / PCIe...")){state.page=Page::advanced;state.open_clock_gating_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
         ImGui::EndDisabled();
