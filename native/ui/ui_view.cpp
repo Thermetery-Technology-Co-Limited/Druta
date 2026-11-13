@@ -919,9 +919,9 @@ void live_daily(ViewState& state, bool verbose) {
     if (ImGui::Button("Revert local drafts")) state.revert_draft();
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!state.controls_unlocked || !snapshot.data.undo_available || !snapshot.data.connected
+    ImGui::BeginDisabled((!state.controls_unlocked&&!snapshot.data.undo_metadata_only) || !snapshot.data.undo_available || (!snapshot.data.connected&&!snapshot.data.undo_metadata_only)
         || snapshot.busy || snapshot.opening);
-    if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
+    if (ImGui::Button(snapshot.data.undo_metadata_only?"Undo label update":"Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
     ImGui::EndDisabled();
     if (!snapshot.data.undo_label.empty()) hint(snapshot.data.undo_label.c_str());
     if (snapshot.data.enforced_power_w)
@@ -1029,8 +1029,8 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
         command.expected_curve_freq_div = snapshot.data.curve_freq_div; state.commands.push_back(std::move(command));
     }
     ImGui::EndDisabled(); ImGui::SameLine();
-    ImGui::BeginDisabled(!state.controls_unlocked || !snapshot.data.connected || !snapshot.data.undo_available || snapshot.busy || snapshot.opening);
-    if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::core, 0});
+    ImGui::BeginDisabled((!state.controls_unlocked&&!snapshot.data.undo_metadata_only) || (!snapshot.data.connected&&!snapshot.data.undo_metadata_only) || !snapshot.data.undo_available || snapshot.busy || snapshot.opening);
+    if (ImGui::Button(snapshot.data.undo_metadata_only?"Undo label update":"Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::core, 0});
     ImGui::EndDisabled();
     if (ImGui::CollapsingHeader("Curve shape tools", embedded ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
         ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Cap (mV)", &state.curve_cap_mv, 0, 0, "%.3f");
@@ -1609,8 +1609,8 @@ void classic_daily(ViewState& state) {
         }
     }
     if (ImGui::Button("Revert local drafts")) state.revert_draft();
-    ImGui::SameLine(); ImGui::BeginDisabled(!state.controls_unlocked || !s.data.undo_available || !s.data.connected || s.busy || s.opening);
-    if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
+    ImGui::SameLine(); ImGui::BeginDisabled((!state.controls_unlocked&&!s.data.undo_metadata_only) || !s.data.undo_available || (!s.data.connected&&!s.data.undo_metadata_only) || s.busy || s.opening);
+    if (ImGui::Button(s.data.undo_metadata_only?"Undo label update":"Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
     ImGui::EndDisabled();
 }
 

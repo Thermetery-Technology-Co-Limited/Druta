@@ -11,7 +11,7 @@ int main(){
  PolicyAnnotations notes({{"future",{{"opaque",42}}},{"annotations",ProfileJson::array()}});notes.set(s.target,p,"connector note");
  check(notes.get(s.target,p)=="connector note" && notes.document()["future"]["opaque"]==42,"annotation preserves unknown JSON");
  auto other=s.target;other.uuid="GPU-new";check(notes.get(other,p).empty(),"alternate adapter cannot inherit note");
- auto changed=p;changed.binding="new geometry";check(notes.get(s.target,changed).empty(),"binding change cannot inherit note");
+ auto changed=p;changed.binding="new geometry";check(notes.get(s.target,changed)=="connector note","stable policy/channel/type retains note across mutable tuning geometry");
  auto stale=p;stale.fresh=false;check(notes.get(s.target,stale)=="connector note","transient freshness retains established annotation");
  auto paired=p;paired.key=ScopedKey::policy_request(12);paired.binding="paired";paired.policy_type=3;s.entries.push_back(paired);
  auto other_channel=p;other_channel.key=ScopedKey::policy_request(13);other_channel.binding="other-channel";other_channel.channel=5;s.entries.push_back(other_channel);

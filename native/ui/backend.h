@@ -19,6 +19,8 @@ struct TimingViewData;
 struct ClockMonitorData;
 struct ScopedSnapshot;
 struct ScopedProfileRequest;
+class PolicyAnnotations;
+struct PolicyAnnotationEffect;
 struct PerfViewModel;
 struct PowerArbitrationModel;
 struct PowerIntegralData;
@@ -118,6 +120,7 @@ struct LiveData {
     bool connected = false;
     std::string status;
     bool undo_available = false;
+    bool undo_metadata_only = false;
     std::string undo_label;
 };
 struct Command {
@@ -150,6 +153,8 @@ struct Command {
     std::wstring profile_path;
     std::shared_ptr<const ScopedProfileRequest> scoped_profile;
     std::shared_ptr<const ProfileJson> catalog_profile;
+    // Immutable UI-owned display metadata snapshot; never a tuning request.
+    std::shared_ptr<const PolicyAnnotations> annotation_snapshot;
     std::wstring timing_helper_path;
     std::shared_ptr<const TimingEditorRequest> timing_editor;
     std::string timing_field;
@@ -193,6 +198,8 @@ struct ActionResult {
     bool may_have_changed = false;
     std::string message;
     std::optional<double> requested, readback;
+    // Qualified UI effect, not proof of a UI/file commit or GPU mutation.
+    std::shared_ptr<const PolicyAnnotationEffect> annotation_effect;
 };
 inline bool is_i2c_operation(Command::Operation operation) {
     return (operation >= Command::Operation::i2c_scan && operation <= Command::Operation::i2c_release)

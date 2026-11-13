@@ -1,0 +1,46 @@
+{
+  "apply": {
+    "may_have_changed": false,
+    "message": "Power-label profile processed; one grouped Undo retained; qualified power labels queued for UI commit",
+    "ok": true
+  },
+  "close": {
+    "may_have_changed": false,
+    "message": "",
+    "ok": true
+  },
+  "commit_apply": {
+    "changed": true,
+    "message": "Selected annotations committed; 1 matched, 0 skipped",
+    "ok": true
+  },
+  "commit_undo": {
+    "changed": true,
+    "message": "Annotation Undo: 1 restored, 0 later-edited or unmatched labels preserved",
+    "ok": true
+  },
+  "hardware_write_requested": false,
+  "matched": 1,
+  "ok": true,
+  "preflight": {
+    "effect": false,
+    "may_have_changed": false,
+    "message": "Whole profile fresh preflight passed for 1 components; Apply remains explicit",
+    "ok": true
+  },
+  "prepare": {
+    "effect": false,
+    "may_have_changed": false,
+    "message": "Captured 16 understood rail/power requests for profile selection",
+    "ok": true
+  },
+  "selected_policy": 0,
+  "skipped": 0,
+  "slot": "0000:01:00.0",
+  "undo": {
+    "may_have_changed": false,
+    "message": "No hardware requests to restore; qualified power-label Undo queued for UI commit",
+    "ok": true
+  },
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

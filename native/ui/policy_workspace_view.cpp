@@ -7,10 +7,12 @@
 #include <exception>
 namespace druta::ui {
 PolicyWorkspaceOutput draw_policy_workspace(PolicyWorkspaceViewState& state,PolicyAnnotations& notes,const ScopedSnapshot* snapshot,uint64_t generation,bool busy,bool connected,bool unlocked){
- PolicyWorkspaceOutput out;if(state.generation!=generation){const bool open=state.open;state={};state.open=open;state.generation=generation;}
+ PolicyWorkspaceOutput out;if(state.generation!=generation){const bool open=state.open,dirty=state.annotations_dirty,failed=state.annotations_save_failed;state={};state.open=open;state.annotations_dirty=dirty;state.annotations_save_failed=failed;state.generation=generation;}
  if(!state.open)return out;ImGui::SetNextWindowSize({800,650},ImGuiCond_FirstUseEver);
  if(!ImGui::Begin("Policy workspace###druta_policy_workspace",&state.open)){ImGui::End();return out;}
  ImGui::TextWrapped("Annotations are display notes only. Maximum requests are selected current limits, not factory defaults.");
+ if(state.annotations_dirty||state.annotations_save_failed)ImGui::TextWrapped("Labels are visible in this session but have not been saved.");
+ if(state.annotations_save_failed&&ImGui::Button("Retry saving labels"))out.save_annotations=true;
  ImGui::BeginDisabled(busy||!connected);if(ImGui::Button("Refresh policies"))out.refresh=true;ImGui::EndDisabled();
  if(snapshot){ImGui::SameLine();ImGui::BeginDisabled(busy||!connected);if(ImGui::Button("Import Python labels..."))out.import_annotations=true;ImGui::EndDisabled();}
  if(snapshot){ImGui::SameLine();if(ImGui::Button("Select all policies")){state.selected.clear();for(const auto& row:snapshot->entries)if(row.key.kind==ScopedKey::Kind::policy)state.selected.push_back(row.key);state.preview.reset();}}
@@ -28,8 +30,8 @@ PolicyWorkspaceOutput draw_policy_workspace(PolicyWorkspaceViewState& state,Poli
       if(row.key.policy<32)state.custom_note[row.key.policy]=i==5;
       if(i!=5)try{notes.set_channel(*snapshot,row.key,i==0?"":choices[i]);out.save_annotations=true;}catch(const std::exception& e){state.status=e.what();}
     }ImGui::EndCombo();}
-   if(custom){std::snprintf(state.label.data(),state.label.size(),"%s",known?"":note.c_str());
-    ImGui::SetNextItemWidth(240);if(ImGui::InputText("Display note",state.label.data(),state.label.size()))try{notes.set_channel(*snapshot,row.key,state.label.data());out.save_annotations=true;}catch(const std::exception& e){state.status=e.what();}}
+   if(custom){try{const auto editable=normalize_policy_label(known?std::string{}:note,true);std::snprintf(state.label.data(),state.label.size(),"%s",editable.c_str());}catch(const std::exception& e){state.label[0]=0;state.status=e.what();}
+    ImGui::SetNextItemWidth(240);if(ImGui::InputText("Display note",state.label.data(),state.label.size()))try{notes.set_channel(*snapshot,row.key,normalize_policy_label(state.label.data()));out.save_annotations=true;}catch(const std::exception& e){state.status=e.what();}}
    ImGui::EndDisabled();
    ImGui::PopID();}
   ImGui::BeginDisabled(busy||!connected||state.selected.empty());if(ImGui::Button("Preview selected maxima"))state.preview=preview_policy_max(*snapshot,state.selected);ImGui::EndDisabled();

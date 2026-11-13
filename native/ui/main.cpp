@@ -17,6 +17,7 @@
 #include "classic_layout.h"
 #include "session.h"
 #include "curve_profile.h"
+#include "policy_annotation_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -166,6 +167,27 @@ struct App {
         druta::ui::ProfileJson document;
     };
     std::optional<CatalogPending> catalog_pending;
+    druta::ui::PolicyAnnotationCommits annotation_commits;
+    uint64_t annotation_generation=0,annotation_action_log=0;
+    std::string annotation_status;
+    void consume_annotation_completions() {
+        using namespace druta::ui;
+        if(!session)return;const auto current=session->snapshot();
+        if(annotation_generation!=current->generation){annotation_commits={};annotation_generation=current->generation;annotation_action_log=0;annotation_status.clear();}
+        for(const auto& event:current->annotation_completions){
+            if(event.generation!=current->generation)continue;
+            try {
+                if(!event.effect||!event.effect->plan||event.effect->plan->target.uuid!=current->data.identity.uuid||event.effect->plan->target.slot!=current->selected_slot)
+                    throw std::runtime_error("Power labels belong to another adapter; no notes changed");
+                const auto committed=commit_policy_annotation_effect(*event.effect,view.policy_annotations,annotation_commits);
+                annotation_status=committed.message;
+                if(committed.changed){view.save_policy_annotations=true;view.policy_workspace.annotations_dirty=true;}
+            }catch(const std::exception& e){annotation_status=std::string("Power label update not committed: ")+e.what();}
+            annotation_action_log=event.action_log_id;
+            view.policy_workspace.status=annotation_status;view.profile_catalog_view.status=annotation_status;
+            session->acknowledge_annotation_completion(event.generation,event.event_id);
+        }
+    }
     druta::ui::TimingAutoCapture timing_auto;
     uint64_t timing_auto_read=0,timing_auto_generation=0;
     void consume_timing_auto() {
@@ -200,6 +222,18 @@ struct App {
     }
     std::wstring policy_notes_path;
     bool policy_notes_writable=true;
+    void save_policy_notes() {
+        if(!view.save_policy_annotations)return;
+        view.save_policy_annotations=false;view.policy_workspace.annotations_dirty=true;
+        try {
+            if(!policy_notes_writable||policy_notes_path.empty())throw std::runtime_error("Existing annotations could not be loaded; the file is preserved");
+            const auto parent=policy_notes_path.substr(0,policy_notes_path.find_last_of(L"\\/"));
+            if(!CreateDirectoryW(parent.c_str(),nullptr)&&GetLastError()!=ERROR_ALREADY_EXISTS)throw std::runtime_error("Could not create the annotation directory");
+            druta::ui::write_profile(policy_notes_path,view.policy_annotations.document());
+            view.policy_workspace.annotations_dirty=false;view.policy_workspace.annotations_save_failed=false;
+            view.policy_workspace.status="Policy labels saved; tuning requests are unchanged.";
+        }catch(const std::exception& e){view.policy_workspace.annotations_save_failed=true;view.policy_workspace.status=std::string("Labels are visible but unsaved. Retry saving labels: ")+e.what();}
+    }
     void initialize_policy_notes() {
         const auto& config=view.shunt.config.path;
         if(config.empty()) {policy_notes_writable=false;return;}
@@ -393,6 +427,7 @@ struct App {
                     ok=snapshot->last_action_ok;
                     const auto log=std::find_if(snapshot->log.begin(),snapshot->log.end(),[&](const auto& entry){return entry.id==snapshot->last_action_log_id;});
                     if(log!=snapshot->log.end()) message=log->message;
+                    if(annotation_action_log==snapshot->last_action_log_id&&!annotation_status.empty())message+="; "+annotation_status;
                 }
                 record_profile_catalog_preflight(workspace,pending.generation,pending.document,
                     pending.operation==Command::Operation::preflight_catalog_profile && ok,message);
@@ -428,6 +463,7 @@ struct App {
                 if(catalog_pending) throw std::runtime_error("A profile operation is still running.");
                 Command command; command.operation=intent.operation==ProfileCatalogIntent::Operation::preflight ? Command::Operation::preflight_catalog_profile : Command::Operation::apply_catalog_profile;
                 command.catalog_profile=std::make_shared<const ProfileJson>(intent.document);
+                command.annotation_snapshot=std::make_shared<const PolicyAnnotations>(view.policy_annotations);
                 const auto before=session->snapshot();
                 if(before->generation!=workspace.generation || !session->submit(command,before->generation)) throw std::runtime_error("GPU session changed or is busy; run preflight again.");
                 catalog_pending=CatalogPending{before->generation,before->completed_actions,command.operation,intent.document};
@@ -599,16 +635,7 @@ struct App {
                 policy.note_activity(now_seconds());
             }catch(const std::exception& e){view.policy_workspace.status=e.what();}
         }
-        if(view.save_policy_annotations) {
-            view.save_policy_annotations=false;
-            try {
-                if(!policy_notes_writable||policy_notes_path.empty())throw std::runtime_error("Existing annotations could not be loaded; the file is preserved");
-                const auto parent=policy_notes_path.substr(0,policy_notes_path.find_last_of(L"\\/"));
-                if(!CreateDirectoryW(parent.c_str(),nullptr)&&GetLastError()!=ERROR_ALREADY_EXISTS)throw std::runtime_error("Could not create the annotation directory");
-                druta::ui::write_profile(policy_notes_path,view.policy_annotations.document());
-                view.policy_workspace.status="Policy labels saved; tuning requests are unchanged.";
-            }catch(const std::exception& e){view.policy_workspace.status=e.what();}
-        }
+        save_policy_notes();
         if(druta::ui::take_shunt_save_request(view.shunt)) {
             try {
                 view.shunt.config.save();view.shunt.dirty=false;
@@ -1144,6 +1171,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         if (app.quit) break;
         if (app.session) {
             app.view.live = app.session->snapshot();
+            app.consume_annotation_completions();app.save_policy_notes();
             if (app.closing && app.session->finished()) break;
             if (app.closing && app.view.live->close_refused) {
                 app.closing=false;

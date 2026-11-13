@@ -3,17 +3,25 @@
 #pragma once
 #include "scoped_profile.h"
 #include <optional>
+#include <map>
 namespace druta::ui {
+// Strict UTF-8, Unicode code points (Python len), no embedded NUL.
+size_t policy_label_codepoints(const std::string&);
+void validate_policy_label(const std::string&);
+// Python-compatible Unicode strip and code-point truncation for explicit
+// label-store import/edit normalization. Saved full sources validate first.
+std::string normalize_policy_label(const std::string&,bool truncate=false);
 // Annotation document is display metadata only. Unknown JSON is retained.
 class PolicyAnnotations {
 public:
     explicit PolicyAnnotations(ProfileJson document=ProfileJson::object());
     std::string get(const ScopedTarget&,const ScopedCurrent&) const;
+    uint64_t revision(const ScopedTarget&,const ScopedCurrent&) const;
     void set(const ScopedTarget&,const ScopedCurrent&,const std::string&);
     // Applies only to fresh, uniquely identified rows of the same reported channel.
     void set_channel(const ScopedSnapshot&,const ScopedKey&,const std::string&);
     const ProfileJson& document() const {return document_;}
-private: ProfileJson document_;
+private: ProfileJson document_;std::map<std::string,uint64_t> revisions_;uint64_t next_revision_=0;
 };
 enum class PolicyCurrentBand { white,yellow,red,crimson };
 struct PolicyCurrentDisplay {double amps=0;uint32_t divisor=1;bool even_split=false;PolicyCurrentBand band=PolicyCurrentBand::white;};

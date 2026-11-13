@@ -9,6 +9,7 @@
 #include "controller_profile_order.h"
 #include "python_scoped_profile.h"
 #include "python_full_profile.h"
+#include "policy_annotation_profile.h"
 #include "clock_monitor_service.h"
 #include "timing_model.h"
 #include "timing_profile.h"
@@ -247,7 +248,7 @@ class Client final : public IBackend {
     // Integral receipts include the full adapter identity. Keep them immutable
     // on the heap so unrelated, recursively grouped Undo paths do not pay that
     // stack cost for every local record.
-    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::optional<dc_fan_snapshot> fan_after; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfileReceipt> catalog_icx; std::optional<I2cProfileReceipt> catalog_i2c; std::shared_ptr<const PowerIntegralPlan> catalog_integral; std::optional<VoltagePolicyReceipt> catalog_voltage_policy; std::optional<VoltageTablesReceipt> catalog_voltage_tables; std::optional<VoltageLimitsReceipt> catalog_voltage_limits; std::optional<PowerSavingReceipt> catalog_power_saving; std::optional<ClockGatingReceipt> catalog_clock_gating; std::optional<int32_t> attempted_memory; bool timing_memory_group=false; };
+    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::optional<dc_fan_snapshot> fan_after; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; std::shared_ptr<const PolicyAnnotationPlan> annotation; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfileReceipt> catalog_icx; std::optional<I2cProfileReceipt> catalog_i2c; std::shared_ptr<const PowerIntegralPlan> catalog_integral; std::optional<VoltagePolicyReceipt> catalog_voltage_policy; std::optional<VoltageTablesReceipt> catalog_voltage_tables; std::optional<VoltageLimitsReceipt> catalog_voltage_limits; std::optional<PowerSavingReceipt> catalog_power_saving; std::optional<ClockGatingReceipt> catalog_clock_gating; std::optional<int32_t> attempted_memory; bool timing_memory_group=false; };
     std::vector<Undo> undo_;
     bool suppress_undo_ = false;
     bool catalog_grouping_ = false;
@@ -456,6 +457,37 @@ class Client final : public IBackend {
         std::ostringstream out; out.imbue(std::locale::classic());
         out << "policy:" << row.policy << ':' << row.type << ':' << row.channel << ':' << row.unit << ':' << row.minimum << ':' << row.maximum << ':' << row.board << ':' << row.named_current;
         return out.str();
+    }
+    static int32_t DC_CALL annotation_inputs(void*,int32_t* has,int64_t* mw,dc_cl_statics* st) {
+        // Labels need only reported row identity, not a board request or setter.
+        *has=0;*mw=0;*st={};st->size=sizeof(*st);
+        st->pl_min_state=st->pl_def_state=st->pl_max_state=DC_CL_STATIC_NONE;
+        return 0;
+    }
+    ScopedSnapshot annotation_capture() {
+        if(!api_.lock||!api_.unlock||!api_.policy_read||api_.lock(gpu_)!=DC_OK)
+            throw std::runtime_error("Fresh policy metadata interface unavailable");
+        struct Unlock {CoreApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+        dc_gpu_identity id{};if(!identity(id)||!id.uuid[0])throw std::runtime_error("Fresh annotation adapter identity unavailable");
+        ScopedSnapshot snapshot;snapshot.target={id.uuid,id.slot};
+        dc_policy_row rows[32]{};for(auto& row:rows)row.size=sizeof(row);
+        uint32_t count=0;dc_error error{};error.size=sizeof(error);
+        if(retry(api_.policy_read,gpu_,confirm_clamp,static_cast<void*>(this),annotation_inputs,static_cast<void*>(nullptr),rows,32u,&count,&error)!=DC_OK||count>32)
+            throw std::runtime_error("Fresh policy identity table unavailable; existing labels preserved");
+        std::set<uint32_t> seen;
+        for(uint32_t i=0;i<count;++i){const auto& r=rows[i];
+            if(r.policy>=32||r.channel>255||r.type>255||!seen.insert(r.policy).second)
+                throw std::runtime_error("Policy annotation identities are malformed or duplicated");
+            ScopedCurrent row;row.key=ScopedKey::policy_request(r.policy);row.binding=policy_binding(r);
+            row.channel=r.channel;row.policy_type=r.type;row.fresh=true;row.writable=false;
+            snapshot.entries.push_back(std::move(row));
+        }
+        if(!identity(id))throw std::runtime_error("Annotation adapter changed during metadata read");
+        return snapshot;
+    }
+    static bool annotation_only(const ProfileJson& document) {
+        const auto info=inspect_profile(document);
+        return info.valid&&info.targets==std::vector<std::string>{"annotation:power"};
     }
     static std::string board_binding(const PowerSnapshot& power) {
         std::ostringstream binding; binding.imbue(std::locale::classic()); binding << "board";
@@ -1257,9 +1289,7 @@ class Client final : public IBackend {
         std::vector<ProfileComponent> out;const ProfileJson target={{"uuid",id.uuid},{"slot",id.slot}};
         const auto present=[&](const char* name){return source.contains(name)&&!source[name].is_null();};
         for(const auto& selected:info.targets){
-            if(selected=="annotation:power")
-                throw std::runtime_error("Full-tune "+selected+" import requires its typed adapter; deselect it explicitly to apply the other saved controls");
-            if(selected=="power:*"||selected=="i2c:controller"||(selected=="clock:core"&&present("vf_deltas")&&!source["vf_deltas"].empty())){
+            if(selected=="annotation:power"||selected=="power:*"||selected=="i2c:controller"||(selected=="clock:core"&&present("vf_deltas")&&!source["vf_deltas"].empty())){
                 out.push_back({component.name+" / "+selected,select_python_full_profile(component.document,{selected})});continue;
             }
             ProfileJson doc={{"format","druta-native-daily"},{"version",2},{"target",target},{"controls",ProfileJson::object()},{"advanced",ProfileJson::array()}};
@@ -1416,7 +1446,8 @@ class Client final : public IBackend {
         struct ClearControllerPlan { std::optional<I2cProfilePlan>& plan; ~ClearControllerPlan(){plan.reset();} } clear_controller{catalog_i2c_plan_};
         if(!api_.lock||!api_.unlock||api_.lock(gpu_)!=DC_OK){result.message="Could not lock GPU for whole profile preflight";return result;}
         struct Unlock{CoreApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}}unlock{api_,gpu_};
-        size_t aggregate_index=0;bool grouped=false;
+        size_t aggregate_index=0;bool grouped=false,whole_preflight=false,annotation_failed=false;
+        std::shared_ptr<const PolicyAnnotationPlan> annotation;std::string annotation_message;
         std::optional<PowerSnapshot> original_power;bool power_recorded=false;
         std::function<bool(Undo&,bool&)> prune_power=[&](Undo& item,bool& found){
             if(item.control==ControlId::power){found=true;return false;}
@@ -1426,7 +1457,15 @@ class Client final : public IBackend {
         auto fold=[&]{if(!grouped)return;while(undo_.size()>aggregate_index+1){auto child=std::move(undo_[aggregate_index+1]);undo_.erase(undo_.begin()+aggregate_index+1);bool power_found=false;const bool keep=prune_power(child,power_found);
                 if(power_found&&!power_recorded&&original_power){auto power=std::make_unique<Undo>();power->control=ControlId::power;power->power=*original_power;undo_[aggregate_index].group.push_back(std::move(*power));power_recorded=true;}
                 if(keep)undo_[aggregate_index].group.push_back(std::move(child));}};
-        auto finish=[&]{fold();if(grouped&&undo_[aggregate_index].group.empty()){undo_.erase(undo_.begin()+aggregate_index);grouped=false;}catalog_grouping_=false;catalog_memory_guard_=false;catalog_i2c_plan_.reset();if(voltage_policy_)last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());if(power_integral_)last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());if(voltage_tables_)last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());if(voltage_limits_)last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());if(power_saving_)last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());if(clock_gating_)last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());};
+        auto finish=[&]{fold();
+            if(grouped&&!undo_[aggregate_index].group.empty())result.may_have_changed=true;
+            if(whole_preflight&&!preflight&&annotation){
+                try{result.annotation_effect=qualify_policy_annotation_effect(annotation,PolicyAnnotationPhase::apply,annotation_capture());
+                    if(grouped)undo_[aggregate_index].annotation=annotation;
+                    annotation_message="; qualified power labels queued for UI commit";
+                }catch(const std::exception& e){annotation_failed=true;annotation_message=std::string("; power labels not queued: ")+e.what();}
+            }
+            if(grouped&&undo_[aggregate_index].group.empty()&&!undo_[aggregate_index].annotation){undo_.erase(undo_.begin()+aggregate_index);grouped=false;}catalog_grouping_=false;catalog_memory_guard_=false;catalog_i2c_plan_.reset();if(voltage_policy_)last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());if(power_integral_)last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());if(voltage_tables_)last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());if(voltage_limits_)last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());if(power_saving_)last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());if(clock_gating_)last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());};
         try{
             const auto loaded=flatten_profile_collection(*cmd.catalog_profile);std::vector<ProfileComponent> components;std::vector<CatalogPrepared> plans;
             for(const auto& component:loaded){if(is_python_full_profile(component.document)){auto expanded=expand_full_tune(component);components.insert(components.end(),expanded.begin(),expanded.end());}else components.push_back(component);}
@@ -1458,8 +1497,9 @@ class Client final : public IBackend {
                     throw std::runtime_error("The retained iCX floor clamp cannot compose with a timing profile that requires a qualified memory operating band");
             }
             const bool timing_memory=timing&&memory;const bool freeze_memory=timing_memory||has_voltage_controller;
-            if(i2c_session_&&i2c_session_->owned())throw std::runtime_error("Release the owned I2C request and clock clamp before other catalog tuning");
-            if(maintenance_needed())throw std::runtime_error("Release the owned V/F hold before catalog tuning");
+            const bool hardware=std::any_of(components.begin(),components.end(),[](const auto& p){return !annotation_only(p.document);});
+            if(hardware&&i2c_session_&&i2c_session_->owned())throw std::runtime_error("Release the owned I2C request and clock clamp before other catalog tuning");
+            if(hardware&&maintenance_needed())throw std::runtime_error("Release the owned V/F hold before catalog tuning");
             // Coalesce disjoint feedback bounds and VF flags before whole
             // preflight. A lower-only file may rely on another file's upper.
             std::vector<PowerIntegralRequest> integral_requests;std::optional<PowerIntegralData> integral_data;
@@ -1510,6 +1550,10 @@ class Client final : public IBackend {
                 }
                 if(plan.scope==ProfileScope::python_full_tune){
                     const auto selected=describe_python_full_profile(plan.document).targets;
+                    if(selected==std::vector<std::string>{"annotation:power"}){
+                        if(!cmd.annotation_snapshot)throw std::runtime_error("Immutable UI annotation snapshot unavailable; submit the profile again");
+                        annotation=prepare_policy_annotation_profile(plan.document,annotation_capture(),*cmd.annotation_snapshot);continue;
+                    }
                     if(selected==std::vector<std::string>{"power:*"}){plan.power=full_power_profile(plan.document);plan.scope=ProfileScope::python_power;checked=catalog_power_action(*plan.power,true);}
                     else if(selected==std::vector<std::string>{"clock:core"}){plan.scope=ProfileScope::curve;plan.curve=catalog_curve_command(plan.document);checked=curve_action(*plan.curve,false,true);}
                     else if(selected==std::vector<std::string>{"i2c:controller"}){if(!i2c_session_)throw std::runtime_error("I2C session unavailable");plan.i2c.emplace();checked=i2c_session_->preflight_i2c_profile(python_full_source(plan.document).at("i2c"),*plan.i2c);last_.i2c=i2c_session_->data();}
@@ -1571,7 +1615,8 @@ class Client final : public IBackend {
                     if(row==capture.rows.end()||row->board||!row->consistent||!(row->writable||row->named_current)||(row->unit!=0&&row->unit!=1)||row->requested<row->minimum||row->requested>row->maximum)throw std::runtime_error("Selected original power policy cannot be restored through its qualified setter");}
                 capture.selected_policies=selected_policies;capture.guard_unselected_pins=true;original_power=std::move(capture);
             }
-            if(preflight){result.ok=true;result.message="Whole profile fresh preflight passed for "+std::to_string(plans.size())+" components; Apply remains explicit";finish();return result;}
+            whole_preflight=true;
+            if(preflight){result.ok=true;result.message="Whole profile fresh preflight passed for "+std::to_string(plans.size()+(annotation?1:0))+" components; Apply remains explicit";finish();return result;}
             // Board writes may move peers. Apply explicit selected policy rows
             // afterward, independent of input file order. All power Undo uses
             // the single pre-transaction capture, never intermediate snapshots.
@@ -1669,8 +1714,8 @@ class Client final : public IBackend {
                 if(!verified.ok)throw std::runtime_error(plan.name+": final composition verification failed: "+verified.message);
             }
             if(timing_memory)for(const auto& plan:plans)if(plan.scope==ProfileScope::timing){const auto verified=verify_catalog_timing(*plan.timing);if(!verified.ok)throw std::runtime_error(plan.name+": final composition verification failed: "+verified.message);}
-            finish();result.ok=true;result.message="Composed profile requests verified; "+std::string(grouped?"one grouped Undo retained":"all selected requests already matched");return result;
-        }catch(const std::exception& e){finish();result.may_have_changed=result.may_have_changed||grouped;result.message=std::string("Catalog profile failed: ")+e.what()+(grouped?"; grouped Undo retains only issued or uncertain requests":"; no selected writes issued");return result;}
+            finish();result.ok=!annotation_failed;result.message=std::string(plans.empty()?"Power-label profile processed; ":"Composed profile hardware requests verified; ")+std::string(grouped?"one grouped Undo retained":"all selected requests already matched")+annotation_message;return result;
+        }catch(const std::exception& e){finish();result.message=std::string("Catalog profile failed: ")+e.what()+(result.may_have_changed?"; grouped Undo retains issued or uncertain requests":"; no selected hardware writes issued")+annotation_message;return result;}
     }
 
     bool verify_profile_undo(const Undo& saved) {
@@ -2337,11 +2382,34 @@ public:
             } else { last_.curve.clear(); last_.curve_error = "Could not lock GPU for curve"; last_.curve_writable = false; last_.curve_reset_writable = false; last_.curve_step_khz = 0; last_.curve_freq_div = 0; last_.curve_max_abs_delta_khz = 0; last_.curve_model_max_rise_khz = 0; }
         }
         clock_tick(last_.telemetry_valid ? &t : nullptr);
-        last_.undo_available = !undo_.empty(); last_.undo_label = undo_.empty() ? "" : std::string("Undo ") + (undo_.back().curve_entry ? "V/F curve" : undo_.back().advanced_entry ? "advanced offset" : undo_.back().rail_entry ? "rail limit" : label(undo_.back().control)); return last_;
+        last_.undo_available = !undo_.empty(); last_.undo_metadata_only=!undo_.empty()&&undo_.back().annotation&&undo_.back().group.empty()&&undo_.back().completed.empty(); last_.undo_label = last_.undo_metadata_only ? "Undo power labels" : undo_.empty() ? "" : std::string("Undo ") + (undo_.back().curve_entry ? "V/F curve" : undo_.back().advanced_entry ? "advanced offset" : undo_.back().rail_entry ? "rail limit" : label(undo_.back().control)); return last_;
     }
     ActionResult execute(const Command& cmd) override {
+        if(cmd.operation!=Command::Operation::undo||undo_.empty()||!undo_.back().annotation)
+            return execute_request(cmd);
+        const auto position=undo_.size()-1;
+        const auto annotation=undo_.back().annotation;
+        const bool hardware=!undo_.back().group.empty()||!undo_.back().completed.empty();
+        // UI restoration is independent of hardware recovery. Keep the immutable
+        // plan locally while hardware Undo may consume or retain its aggregate.
+        undo_.back().annotation.reset();ActionResult result;
+        if(hardware){try{result=execute_request(cmd);}catch(const std::exception& e){result.message=e.what();}}
+        else {undo_.pop_back();result.ok=true;result.message="No hardware requests to restore";}
+        try {
+            result.annotation_effect=qualify_policy_annotation_effect(annotation,PolicyAnnotationPhase::undo,annotation_capture());
+            result.message+="; qualified power-label Undo queued for UI commit";
+        }catch(const std::exception& e){
+            if(undo_.size()>position)undo_[position].annotation=annotation;
+            else {auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->annotation=annotation;remember(*saved);}
+            result.ok=false;result.message+=std::string("; power-label Undo retained: ")+e.what();
+        }
+        return result;
+    }
+    ActionResult execute_request(const Command& cmd) {
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
+        if((cmd.operation==Command::Operation::apply_catalog_profile||cmd.operation==Command::Operation::preflight_catalog_profile)&&cmd.catalog_profile&&annotation_only(*cmd.catalog_profile))
+            return catalog_action(cmd);
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
         if(timing_owner_!=TimingOwner::none && cmd.operation!=Command::Operation::timings_release_capture_hold) {
             result.message="Release the retained temporary timing hold before another operation";return result;

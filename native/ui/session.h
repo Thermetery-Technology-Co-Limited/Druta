@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "backend.h"
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -15,6 +16,11 @@ struct HistorySample {
     std::optional<double> core_mhz, temp_c, power_w;
 };
 struct LogEntry { std::uint64_t id = 0; std::string message; bool ok = false; };
+struct PolicyAnnotationCompletion {
+    std::uint64_t generation = 0, event_id = 0, action_log_id = 0;
+    Command::Operation operation{};
+    std::shared_ptr<const PolicyAnnotationEffect> effect;
+};
 struct SessionSnapshot {
     std::uint64_t generation = 0, revision = 0;
     std::uint64_t completed_reads = 0, completed_actions = 0;
@@ -39,6 +45,8 @@ struct SessionSnapshot {
     std::uint32_t fan_duty_stale_mask = 0, fan_rpm_stale_mask = 0;
     std::vector<HistorySample> history;
     std::vector<LogEntry> log;
+    // Immutable effects survive later results and polling until explicitly acknowledged.
+    std::vector<PolicyAnnotationCompletion> annotation_completions;
 };
 class Session {
 public:
@@ -55,6 +63,9 @@ public:
     void request_poll(bool details = false);
     void set_paused(bool paused);
     bool submit(Command command, std::uint64_t expected_generation);
+    static constexpr std::size_t annotation_completion_capacity = 32;
+    // Duplicate acknowledgments succeed only for an actually issued ID in this generation.
+    bool acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id);
     bool cancel_i2c_discovery(std::uint64_t expected_generation);
     std::shared_ptr<const SessionSnapshot> snapshot() const;
     void begin_shutdown();

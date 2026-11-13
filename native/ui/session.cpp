@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "session.h"
+#include "profile_catalog.h"
 #include <windows.h>
 #include <algorithm>
 #include <atomic>
@@ -122,11 +123,31 @@ struct Session::Impl {
     unsigned read_retries = 0;
     Command command{};
     std::uint64_t next_log = 0;
+    std::uint64_t next_annotation_event = 0;
     std::string desired_slot, expected_uuid;
     bool identity_mismatch = false;
     std::atomic<bool> discovery_cancelled{false};
     std::optional<std::uint64_t> discovery_generation;
     static bool discovery_action(Command::Operation op) { return op==Command::Operation::i2c_scan || op==Command::Operation::i2c_select; }
+    static bool annotation_producer(Command::Operation op) {
+        return op == Command::Operation::apply_catalog_profile || op == Command::Operation::undo;
+    }
+    bool disconnected_annotation(const Command& task) const {
+        if (!backend_opened) return false;
+        const auto& id = state.data.identity;
+        if (!std::memchr(id.uuid, 0, sizeof(id.uuid)) || !id.uuid[0] ||
+            !std::memchr(id.slot, 0, sizeof(id.slot)) || !id.slot[0] ||
+            !std::memchr(id.pairing_error, 0, sizeof(id.pairing_error)) || id.pairing_error[0] ||
+            !(id.nvapi_ok || id.nvml_ok) || state.selected_slot != id.slot ||
+            (!expected_uuid.empty() && expected_uuid != id.uuid)) return false;
+        if (task.operation == Command::Operation::undo) return state.data.undo_metadata_only;
+        if ((task.operation != Command::Operation::apply_catalog_profile &&
+             task.operation != Command::Operation::preflight_catalog_profile) || !task.catalog_profile) return false;
+        try {
+            const auto description = inspect_profile(*task.catalog_profile);
+            return description.valid && description.targets == std::vector<std::string>{"annotation:power"};
+        } catch (...) { return false; }
+    }
     explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n, const std::wstring& cache_path) : backend(std::move(b)), notify(std::move(n)) {
         InitializeCriticalSection(&lock);
         wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -412,7 +433,13 @@ struct Session::Impl {
                     const std::string message = generation == state.generation ? result.message :
                         "GPU " + slot + " (session " + std::to_string(generation) + "): " + result.message;
                     log_locked(result.ok, message);
-                    if (generation == state.generation) state.last_action_log_id=state.log.back().id;
+                    if (generation == state.generation) {
+                        state.last_action_log_id=state.log.back().id;
+                        if (result.annotation_effect) {
+                            state.annotation_completions.push_back({generation, ++next_annotation_event,
+                                state.last_action_log_id, task.operation, result.annotation_effect});
+                        }
+                    }
                     publish_locked();
                 }
                 announce();
@@ -459,6 +486,7 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       const auto target_slot=preserve_constraint ? impl_->state.selected_slot : slot;
       if (!preserve_constraint) { impl_->expected_uuid.clear(); impl_->identity_mismatch=false; }
       ++impl_->state.generation; impl_->desired_slot = target_slot; impl_->switch_pending = true;
+      impl_->state.annotation_completions.clear(); impl_->next_annotation_event = 0;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
       impl_->state.selected_slot = target_slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
@@ -507,8 +535,11 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
       else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
-      else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !impl_->disconnected_annotation(command) && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
+      else if (Impl::annotation_producer(command.operation) &&
+          impl_->state.annotation_completions.size() >= annotation_completion_capacity)
+          reason = "Consume pending policy label completions before applying or undoing another catalog profile";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { if (Impl::discovery_action(command.operation)) impl_->discovery_cancelled=false;
           impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
@@ -516,6 +547,22 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
     impl_->signal(); impl_->announce(); return accepted;
 }
 std::shared_ptr<const SessionSnapshot> Session::snapshot() const { Guard guard(impl_->lock); return impl_->published; }
+bool Session::acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id) {
+    bool changed = false;
+    {
+        Guard guard(impl_->lock);
+        if (expected_generation != impl_->state.generation || event_id == 0 ||
+            event_id > impl_->next_annotation_event) return false;
+        auto& events = impl_->state.annotation_completions;
+        const auto found = std::find_if(events.begin(), events.end(),
+            [event_id](const PolicyAnnotationCompletion& event) { return event.event_id == event_id; });
+        if (found != events.end()) {
+            events.erase(found); impl_->publish_locked(); changed = true;
+        }
+    }
+    if (changed) impl_->announce();
+    return true;
+}
 bool Session::cancel_i2c_discovery(std::uint64_t expected_generation) {
     Guard guard(impl_->lock);
     if (impl_->stopping || expected_generation!=impl_->state.generation || !impl_->state.busy || !Impl::discovery_action(impl_->command.operation)) return false;

@@ -25,7 +25,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; unqualified board-only Python power snapshots are refused before writes. Seventeenth adds qualified iCX composition as described below. Fourteenth adds timing plus ordinary/additional memory composition with timing first, memory-first Undo and frozen baselines; 100/100 suites and 22 read-only renderer phases passed |
-| Remaining manual profiles, Python imports and catalog composition | Sixteenth adds exact coarse MP2888/MP29816 imports alongside NCT3933, uP9512R and NCP4206. Qualified legacy controllers now compose with ordinary requests in released voltage/controller-before-clock order, with frozen memory originals and controller-first grouped Undo. All 109 suites and 22 read-only renderer phases pass; see [evidence](2026-11-13-parity-sixteenth-increment.md). Seventeenth adds iCX-last composition, typed partial recovery, lifecycle retirement and controller-first Undo; all 111 suites and 22 read-only renderer phases pass ([evidence](2026-11-13-parity-seventeenth-increment.md)). Power annotation execution remains open; the historical [scope audit](2026-11-13-profile-scope-gap-map.md) predates these additions |
+| Remaining manual profiles, Python imports and catalog composition | Sixteenth adds exact coarse MP2888/MP29816 imports alongside NCT3933, uP9512R and NCP4206. Qualified legacy controllers now compose with ordinary requests in released voltage/controller-before-clock order, with frozen memory originals and controller-first grouped Undo. All 109 suites and 22 read-only renderer phases pass; see [evidence](2026-11-13-parity-sixteenth-increment.md). Seventeenth adds iCX-last composition, typed partial recovery, lifecycle retirement and controller-first Undo; all 111 suites and 22 read-only renderer phases pass ([evidence](2026-11-13-parity-seventeenth-increment.md)). Eighteenth adds explicit full-profile power labels, independent metadata delivery and conflict-aware Undo; see [evidence](2026-11-13-parity-eighteenth-increment.md). The historical [scope audit](2026-11-13-profile-scope-gap-map.md) predates these additions |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
@@ -62,6 +62,7 @@ Fourteenth increment: [NCT profile import and timing ordering](2026-11-13-parity
 Fifteenth increment: [exact uP/NCP imports and recovery](2026-11-13-parity-fifteenth-increment.md); all 104 suites and 22 read-only renderer phases passed.
 Sixteenth increment: [coarse controller imports and composition](2026-11-13-parity-sixteenth-increment.md); all 109 suites and 22 read-only renderer phases pass.
 Seventeenth increment: [iCX composition and recovery](2026-11-13-parity-seventeenth-increment.md); all 111 suites passed in 34.86 seconds and 22 read-only renderer phases pass.
+Eighteenth increment: [full-profile power labels and Undo](2026-11-13-parity-eighteenth-increment.md); all 114 suites passed in 35.68 seconds. Live validation is recorded in that checkpoint.
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -82,7 +83,7 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the seventeenth increment
+## Remaining scope after the eighteenth increment
 
 - Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
   providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
@@ -100,10 +101,10 @@ active until every applicable review requirement has authoritative evidence.
   unknown adaptive prior, simultaneous shared GR/count and BLCG ENABLE remain
   unqualified. Selected full-tune NCT, uP, NCP and coarse MP2888/MP29816 imports
   compose with ordinary catalog requests using qualified controller ownership,
-  exact readback and frozen memory baselines. Power annotation execution remains
-  pending; its [implementation map](2026-11-13-full-tune-annotations-port-map.md)
-  records UI-thread ownership and independent metadata completion, with the
-  follow-up immutable event/Undo and stable annotation-identity design. iCX now
+  exact readback and frozen memory baselines. Full-profile power labels now use
+  independent UI-owned metadata commits, durable worker effects, Unicode validation
+  and conflict-aware chained Undo; the [historical map](2026-11-13-full-tune-annotations-port-map.md)
+  records the source contract. iCX now
   composes last with qualified ordinary requests and restores first, retaining
   typed partial recovery and retired-lifecycle guards. Its historical
   [composition map](2026-11-13-icx-composition-port-map.md) describes the repaired

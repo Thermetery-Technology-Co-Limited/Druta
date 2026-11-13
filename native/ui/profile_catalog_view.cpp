@@ -62,7 +62,9 @@ ProfileCatalogViewOutput draw_profile_catalog_workspace(ProfileCatalogViewState&
  if(state.staged){
   ImGui::TextWrapped("%s",inspect_profile(*state.staged).summary.c_str());
   ImGui::BeginDisabled(busy);if(ImGui::Button("Preflight staged profile"))out.intents.push_back({ProfileCatalogIntent::Operation::preflight,ProfileScope::combined,*state.staged});ImGui::EndDisabled();
-  ImGui::SameLine();ImGui::BeginDisabled(busy||!unlocked||!state.preflight_ok);
+  const auto staged_info=inspect_profile(*state.staged);
+  const bool metadata_only=staged_info.valid&&staged_info.targets==std::vector<std::string>{"annotation:power"};
+  ImGui::SameLine();ImGui::BeginDisabled(busy||(!unlocked&&!metadata_only)||!state.preflight_ok);
   if(ImGui::Button("Apply staged profile")){out.intents.push_back({ProfileCatalogIntent::Operation::apply,ProfileScope::combined,*state.staged});state.preflight_ok=false;state.status="Apply queued; worker repeats whole preflight before any write";}
   ImGui::EndDisabled();
  }
