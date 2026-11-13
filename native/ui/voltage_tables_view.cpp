@@ -81,7 +81,16 @@ std::vector<VoltageTablesIntent> draw_voltage_tables_controls(VoltageTablesViewS
     ImGui::SameLine();ImGui::BeginDisabled(busy||!data||!data->recovery_pending);
     if(ImGui::Button("Recover selected voltage requests"))out.push_back({VoltageTablesIntent::Operation::recover,1,{},{}});ImGui::EndDisabled();
     if(data&&!data->message.empty())ImGui::TextWrapped("%s",data->message.c_str());if(!state.status.empty())ImGui::TextWrapped("%s",state.status.c_str());
-    if(ImGui::CollapsingHeader("Policy scaffold offsets"))ImGui::TextWrapped("%s",data?data->offsets_message.c_str():"Requires native ROM graph and installed-scaffold receipt qualification; activation is not implemented.");
+    if(ImGui::CollapsingHeader("Policy scaffold offsets")){
+        ImGui::BeginDisabled(busy);if(ImGui::Button("Read installed offsets"))out.push_back({VoltageTablesIntent::Operation::read,2,{},{}});ImGui::EndDisabled();
+        if(data){ImGui::TextWrapped("%s",data->offsets_message.c_str());
+            for(const auto& row:data->rows)if(row.key.family==VoltageTableFamily::offsets){
+                ImGui::Text("%s: %s mV%s",row.label.c_str(),row.value?mv(*row.value).c_str():"unavailable",row.stale?" (stale)":"");
+                if(!row.message.empty()&&ImGui::IsItemHovered())ImGui::SetTooltip("%s",row.message.c_str());
+            }
+        }
+        ImGui::TextDisabled("Inspection only. Offset Apply, Undo and profiles are pending.");
+    }
     if(ImGui::CollapsingHeader("Voltage table details"))ImGui::TextWrapped("Signed whole-microvolt software requests, shown in mV. Readback is not measured voltage; VCRIT effective thresholds remain unverified. Every Apply preserves boost, the other five fields and every other active rail from a fresh complete capture. Admission is separate and is never enabled here. Initial means this session's first qualified read. Profiles load as drafts and require explicit Apply; no startup or post-reset replay occurs.");
     ImGui::PopID();return out;
 }

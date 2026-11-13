@@ -21,6 +21,12 @@ int wmain(int argc,wchar_t** argv) {
     report["requests"]={{"ok",table_result.ok},{"may_have_changed",table_result.may_have_changed},{"message",table_result.message}};
     if(tables){report["requests"]["complete"]=tables->requests_complete;report["requests"]["rows"]=ProfileJson::array();
         for(const auto& row:tables->rows)report["requests"]["rows"].push_back({{"rail",row.key.rail},{"field",row.key.field},{"available",row.availability==VoltagePolicyAvailability::available},{"writable",row.writable},{"stale",row.stale},{"message",row.message}});}
+    command.voltage_families=2;
+    const auto offsets_result=backend->execute(command);
+    const auto offsets=backend->read(false).voltage_tables;
+    report["installed_offsets"]={{"ok",offsets_result.ok},{"may_have_changed",offsets_result.may_have_changed},{"message",offsets_result.message}};
+    if(offsets){report["installed_offsets"]["recognized"]=offsets->offsets_recognized;report["installed_offsets"]["rows"]=ProfileJson::array();
+        for(const auto& row:offsets->rows)if(row.key.family==VoltageTableFamily::offsets)report["installed_offsets"]["rows"].push_back({{"rail",row.key.rail},{"field",row.key.field},{"writable",row.writable},{"stale",row.stale},{"message",row.message}});}
     command.operation=Command::Operation::voltage_limits_read;command.voltage_families=3;
     const auto device_result=backend->execute(command);
     const auto limits=backend->read(false).voltage_limits;
@@ -34,5 +40,5 @@ int wmain(int argc,wchar_t** argv) {
             report[row.key.kind==VoltageLimitKind::switch_delay?"devices":"equations"]["rows"].push_back(std::move(item));}}
     const auto closed=backend->prepare_close();backend->close();
     report["close_ok"]=closed.ok;std::puts(report.dump(2).c_str());
-    return table_result.may_have_changed||device_result.may_have_changed||!closed.ok ? 1 : 0;
+    return table_result.may_have_changed||offsets_result.may_have_changed||device_result.may_have_changed||!closed.ok ? 1 : 0;
 }

@@ -30,7 +30,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
 | Voltage gate, VF monotonicity/smoothing | Fifth: independent admission/VF reads, selected requests, atomic-prior-aware recovery, Undo and captured-initial requests. Ninth adds selected native profiles and released Python gate/flag imports with staged explicit Apply; 87-suite and 20-phase renderer validation passed. Current 3070 Ti read-only evidence recorded; physical effects remain unproven |
-| Voltage offset/request tables, REL bounds | Seventh: six request fields, preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Twentieth: production ROM/graph/policy/retained-request provider integrated for understood layouts; remaining selector/runtime mappings and installed-scaffold offsets stay open; no persistent scaffold activation |
+| Voltage offset/request tables, REL bounds | Seventh: six request fields, preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Twentieth: production ROM/graph/policy/retained-request provider integrated for understood layouts. Twenty-first: bounded installed-receipt recognition and explicit read-only offset inspection in both skins; signed offset writes/Undo/profiles and additional layouts remain open; no persistent scaffold activation |
 | Voltage constants and device switch delays | Seventh: independent typed device delays, exact readback, Undo and native profiles implemented/tested. Twentieth: production factory/provider wiring and REL/ALT/OV/VMIN Apply/Undo/manual profiles tested with injected transports. Current 3070 Ti ROM selector layout remains explicitly unqualified; loaded definitions and independent delay/request paths stay available |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Thirteenth adds qualified adaptive/idle, exclusive GR/counted-request, and opposite ELCG/SLCG handovers; unknown adaptive prior, simultaneous shared GR/count ownership and BLCG ENABLE remain unqualified. 95/95 suites and 22 read-only renderer phases passed. Physical effects remain adapter-specific |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
@@ -84,13 +84,15 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the twentieth increment
+## Remaining scope after the twenty-first increment
 
-- Remaining ROM selector/runtime equation mappings and installed-scaffold
-  receipt/policy evidence for signed offsets. The [twentieth checkpoint](2026-11-13-parity-twentieth-increment.md)
-  records the production ROM/graph/retained-request provider, 122 passing suites
-  and the current 3070 Ti layout limit. The [provider map](2026-11-13-native-evidence-provider-map.md)
-  is the historical contract; installed-offset recognition remains unimplemented.
+- Remaining ROM selector/runtime equation mappings and independent policy/
+  retained-request verification for selected signed offset writes, Undo and
+  profiles. The [twenty-first checkpoint](2026-11-13-parity-twenty-first-increment.md)
+  records bounded installed-receipt recognition and explicit read-only inspection,
+  with 127 passing suites. This 3070 Ti has no installed receipt; its previously
+  recorded ROM selector layout remains unqualified. The
+  [provider map](2026-11-13-native-evidence-provider-map.md) is the historical contract.
 - Persistent relationship-weight exception: selected preview, journal, exact registry
   projection, explicit refresh, image/INFO verification and three-way removal. The
   [port map](2026-11-13-relationship-weight-port-map.md) retains all stages and failures.

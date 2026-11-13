@@ -113,7 +113,9 @@ class Client final : public IBackend {
         try {
             if (cmd.operation==Command::Operation::voltage_tables_read) {
                 const auto& data=voltage_tables_->read(cmd.voltage_families);
-                out.ok=(cmd.voltage_families&1) && data.requests_complete;
+                out.ok=cmd.voltage_families!=0 && !(cmd.voltage_families&~3u)
+                    && (!(cmd.voltage_families&1)||data.requests_complete)
+                    && (!(cmd.voltage_families&2)||data.offsets_recognized);
                 out.message=data.message;
             } else if (cmd.operation==Command::Operation::voltage_tables_save) {
                 if (!cmd.voltage_table_selection || cmd.profile_path.empty()) throw std::runtime_error("Choose voltage fields and a profile path");
@@ -2299,7 +2301,10 @@ public:
         clock_gating_=std::make_unique<ClockGatingService>(api_.clock_gating,gpu_,opened_);
         last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
         last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
-        voltage_tables_=std::make_unique<VoltageTablesService>(api_.voltage_tables,gpu_,opened_);
+        auto tables_api=api_.voltage_tables;
+        if(!tables_api.scaffold_read)
+            tables_api.scaffold_read=make_voltage_scaffold_provider(api_.voltage_evidence,opened_);
+        voltage_tables_=std::make_unique<VoltageTablesService>(std::move(tables_api),gpu_,opened_);
         auto limits_api=api_.voltage_limits;
         // Keep explicitly injected providers for tests/experiments. Production
         // creates a new target-bound read-only provider for each opened session.

@@ -88,11 +88,11 @@ struct VoltageLimitsService::Impl {
   }
   bind();return c;
  }
- Capture fresh(bool device,const dc_rm_transport* fixed=nullptr){for(int attempt=0;attempt<2;++attempt){try{const auto a=once(device,fixed);
+ Capture fresh(bool device,const dc_rm_transport* fixed=nullptr,bool with_evidence=true){for(int attempt=0;attempt<2;++attempt){try{const auto a=once(device,fixed,with_evidence);
    // Keep raw definition inspection independent of unavailable semantic
    // dependencies. A malformed/unsupported provider is not called again;
    // only transient provider failures receive the bounded read-only retry.
-   auto b=once(device,fixed,a.evidence_message.empty());
+   auto b=once(device,fixed,with_evidence&&a.evidence_message.empty());
    if(!a.evidence_message.empty()){b.evidence_availability=a.evidence_availability;b.evidence_message=a.evidence_message;}
    if(a.info!=b.info||a.control!=b.control)fail("Voltage definitions changed between fresh captures",Availability::transient);
    if(b.evidence_message.empty()&&(a.evidence.has_value()!=b.evidence.has_value()||(a.evidence&&!same_evidence(*a.evidence,*b.evidence))))fail("Voltage evidence changed between fresh captures",Availability::transient);
@@ -235,6 +235,11 @@ struct VoltageLimitsService::Impl {
 VoltageLimitsService::VoltageLimitsService(VoltageLimitsApi api,dc_gpu* gpu,const dc_gpu_identity& identity):impl_(std::make_unique<Impl>(std::move(api),gpu,identity)){}
 VoltageLimitsService::~VoltageLimitsService()=default;
 const VoltageLimitsData& VoltageLimitsService::state()const{return impl_->data;}
+VoltageEquationPackets VoltageLimitsService::capture_equations(){auto& p=*impl_;Guard guard(p.api.transport,p.gpu);
+ if(!guard.held)throw VoltageEquationEvidenceError("GPU lock unavailable",Availability::transient);
+ try{auto captured=p.fresh(false,nullptr,false);return {captured.target,std::move(captured.info),std::move(captured.control)};}
+ catch(const Error& error){throw VoltageEquationEvidenceError(error.what(),error.kind);}
+}
 const VoltageLimitsData& VoltageLimitsService::read(uint32_t families){auto& p=*impl_;Guard guard(p.api.transport,p.gpu);if(!families||(families&~3u)){p.data.message="Select understood voltage families";p.flags();return p.data;}
  for(bool device:{false,true})if(families&(device?2u:1u)){try{if(!guard.held)fail("GPU lock unavailable",Availability::transient);p.publish(p.fresh(device));}catch(const Error& e){p.unavailable(device,e.kind,e.what());}catch(const std::exception& e){p.unavailable(device,Availability::transient,e.what());}}
  p.data.message="Voltage inspection refreshed; evaluate each family's independent status";p.flags();return p.data;

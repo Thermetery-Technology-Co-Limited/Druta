@@ -1,22 +1,22 @@
 # Native frontend parity backlog
 
-Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twentieth increment](native/ui/validation/2026-11-13-parity-twentieth-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
+Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-first increment](native/ui/validation/2026-11-13-parity-twenty-first-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
 
 Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
 
 ## At a glance
 
-Current order: finish installed-offset evidence, then the authorized persistent power-weight workflow, then reconcile the remaining review and validation gaps. Unresolved firmware research stays separate from implemented independent controls. Completed work is checked and struck through; work in progress stays unchecked.
+Current order: finish installed-offset selected writes and verification, then the authorized persistent power-weight workflow, then reconcile the remaining review and validation gaps. Unresolved firmware research stays separate from implemented independent controls. Completed work is checked and struck through; work in progress stays unchecked.
 
 | Workstream | Status | Remaining checklist items |
 | --- | --- | ---: |
-| Current-ROM voltage evidence and installed offsets | Core provider shipped; offsets/layout gaps open | 3 |
+| Current-ROM voltage evidence and installed offsets | Providers and offset inspection shipped; writes/layout gaps open | 2 |
 | Persistent power relationship weights | Queued | 8 |
 | Unresolved semantics and final parity reconciliation | Open | 5 |
 | Scoped hardware and legacy Windows validation | Open | 3 |
-| Completed implementation and release-note checkpoints | 25 checked entries | 0 |
+| Completed implementation and release-note checkpoints | 26 checked entries | 0 |
 
-**19 open checklist items; 25 completed.** The twentieth increment integrates the ROM getter, graph parser, retained-request capture and production provider for understood layouts. All 122 suites and 22 renderer phases pass. The current 3070 Ti ROM selector layout is still unqualified in both this port and the Python reference; that limitation remains open below.
+**18 open checklist items; 26 completed.** The twenty-first increment adds bounded installed-receipt parsing, fresh variable/equation capture and explicit read-only offset recognition in both skins. All 127 suites and 22 renderer phases pass. This 3070 Ti has no installed scaffold receipt, and its ROM selector layout remains unqualified in both this port and the Python reference. Offset Apply/Undo/profiles and those layout limitations remain open below.
 
 ## Completed: optional CUDA timing capture
 
@@ -37,8 +37,8 @@ Implementation contract: [native evidence provider map](native/ui/validation/202
 - [x] ~~Expose bounded read-only loaded-equation, rail-policy and retained-request captures; preserve unknown fields as comparison evidence. Distinguish optional getter absence from a selected getter failing.~~
 - [x] ~~Wire `VoltageLimitsApi::equation_evidence` to independently matched ROM graph, loaded equations, policies and retained requests; connect understood REL/constants to the existing selected Apply/readback/Undo/manual-profile paths.~~ This closes wiring for the qualified layouts, not the remaining layout research below.
 - [ ] Qualify additional ROM selector/VFE layouts and complete runtime equation mappings from evidence. The current 3070 Ti's selector header is `20 05 11 01`; the traced parser understands `30 05 41`. Runtime mappings for active ROM equation kinds 2/3/4 are also unresolved. Preserve independent rail requests/device delays and raw definitions while these semantic layouts remain unqualified.
-- [ ] Implement a separately bounded installed-scaffold receipt reader and fresh variable inventory. Reconstruct and verify original/current graph, retained packets, original roots and installed heads; reject stale/forged evidence.
-- [ ] Wire the distinct installed-head offset provider and exact signed selected writer/readback/Undo/profile path. Preserve the original chain and retained requests; never substitute an absolute constant or replay receipt packets. Scaffold installation/activation is not authorized by this session-only provider work.
+- [x] ~~Implement a separately bounded installed-scaffold receipt reader and fresh variable inventory. Reconstruct and verify original/current graph, retained equation packets, original roots and installed heads; reject stale/forged evidence.~~ [Twenty-first checkpoint](native/ui/validation/2026-11-13-parity-twenty-first-increment.md): explicit inspection is wired through the production factory and both skins. Captured values remain read-only; independent policy/clock/rail preservation for writes is the next item.
+- [ ] Connect the recognized installed heads to the exact signed selected writer/readback/Undo/profile path, with fresh independent policy effects and retained clock/rail request verification. Preserve the original chain and unknown fields; never substitute an absolute constant or replay receipt packets. Scaffold installation/activation is not authorized by this session-only provider work.
 - [x] ~~Validate understood alternate layouts/identities, partial independent families, transient retention, malformed failures, unknown-byte drift and graph/inventory changes; record production wiring, integration and renderer evidence.~~ [Twentieth checkpoint](native/ui/validation/2026-11-13-parity-twentieth-increment.md); physical voltage effects and broader semantic layouts remain open.
 
 ## Next: persistent power relationship-weight exception

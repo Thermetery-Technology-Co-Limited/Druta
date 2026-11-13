@@ -4,6 +4,7 @@
 #include "voltage_policy_service.h"
 #include "profile_io.h"
 #include "profile_selection.h"
+#include "voltage_scaffold_provider.h"
 #include <functional>
 #include <vector>
 namespace druta::ui {
@@ -23,7 +24,7 @@ struct VoltageTablesData {
     dc_gpu_identity identity{};
     std::optional<dc_target> target;
     std::vector<VoltageTableRow> rows;
-    bool requests_complete=false,undo_available=false,recovery_pending=false;
+    bool requests_complete=false,offsets_recognized=false,undo_available=false,recovery_pending=false;
     std::optional<bool> gate_enabled;
     std::optional<int32_t> boost_percent;
     std::string requests_message,offsets_message,message;
@@ -49,6 +50,9 @@ struct VoltageTablesApi {
     // DC_E_UNAVAILABLE guarantees no dispatch; every other result may follow
     // a SET. status is the original NvAPI result, not inferred success.
     std::function<dc_status(dc_gpu*,uint8_t*,size_t,int32_t&,dc_error&)> public_set;
+    // Explicit read-only recognition. These heads remain outside the public
+    // six-word request writer and profile catalog until separately qualified.
+    std::function<VoltageScaffoldRead(dc_gpu*)> scaffold_read;
 };
 // Worker-owned, opened-UUID bound. Complete request preservation is mandatory
 // for the public six-word SET; partial inventories remain independently readable.

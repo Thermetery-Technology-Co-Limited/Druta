@@ -71,7 +71,7 @@ struct VoltageTablesService::Impl {
     std::weak_ptr<VoltageTablesReceipt::State> external;
     std::weak_ptr<VoltageTablesReceipt::State> previous_external;
     Impl(VoltageTablesApi a,dc_gpu* g,const dc_gpu_identity& id):api(std::move(a)),gpu(g),target(id),gate(api.transport,g,id){data.identity=id;
-        data.offsets_message="Scaffold offsets unavailable: native ROM graph and installed-scaffold receipt validation are not implemented. Activation installs persistent definitions and requires a driver restart; it is not performed here.";}
+        data.offsets_message="Read installed offsets to verify this adapter's scaffold receipt and current definitions.";}
     void bind(){
         const auto& a=api.transport;if(!a.identity||!a.bind||!a.architecture_supported)fail("Paired voltage table interfaces unavailable",VoltagePolicyAvailability::unsupported);
         dc_gpu_identity id{};id.size=sizeof(id);if(a.identity(gpu,&id)!=DC_OK)fail("Selected GPU identity unavailable",VoltagePolicyAvailability::transient);
@@ -149,6 +149,32 @@ struct VoltageTablesService::Impl {
         ++data.revision;}
     void stale(VoltagePolicyAvailability kind,const std::string& message){data.requests_complete=false;data.gate_enabled.reset();data.requests_message=message;
         for(auto& row:data.rows)if(row.key.family==VoltageTableFamily::requests){row.stale=row.value.has_value();row.writable=false;row.availability=kind;row.message=message;}flags();}
+    void stale_offsets(VoltagePolicyAvailability kind,const std::string& message){data.offsets_recognized=false;data.offsets_message=message;
+        for(auto& row:data.rows)if(row.key.family==VoltageTableFamily::offsets){row.stale=row.value.has_value();row.writable=false;row.availability=kind;row.message=message;}}
+    void read_offsets(){
+        if(!api.scaffold_read)fail("Installed scaffold receipt reader unavailable",VoltagePolicyAvailability::unsupported);
+        bind();const auto captured=api.scaffold_read(gpu);bind();const auto& current=*bound_target;
+        if(captured.target.size!=sizeof(captured.target)||!text(captured.target.slot)||std::strcmp(captured.target.slot,current.slot)
+            ||captured.target.handle!=current.handle||captured.target.architecture!=current.architecture||captured.target.device_id!=current.device_id
+            ||captured.target.subsystem_id!=current.subsystem_id||captured.receipt_binding.empty()||captured.image_sha256.empty()
+            ||captured.heads.empty()||captured.heads.size()>8)fail("Installed scaffold evidence has an invalid target or manifest");
+        std::vector<VoltageTableRow> fresh;
+        for(const auto& head:captured.heads){const auto field=static_cast<uint32_t>(head.role);
+            if(head.rail>=2||field>=4||head.output!=2||head.index>=8192||head.next>=8192||head.variable>=255
+                ||head.value_uv<INT32_MIN||head.value_uv>INT32_MAX||static_cast<int64_t>(static_cast<float>(head.value_uv))!=head.value_uv)
+                fail("Installed scaffold head is outside the signed selected-definition contract");
+            const VoltageTableKey key{VoltageTableFamily::offsets,head.rail,field};
+            if(std::any_of(fresh.begin(),fresh.end(),[&](const auto& row){return row.key==key;}))fail("Installed scaffold contains duplicate policy heads");
+            VoltageTableRow row;row.key=key;row.label=(head.rail?"MSVDD ":"NVVDD ")+std::string(fields[field])+" offset";
+            row.value=static_cast<int32_t>(head.value_uv);row.binding=captured.receipt_binding+":"+captured.image_sha256+":"+std::to_string(head.index);
+            row.availability=VoltagePolicyAvailability::available;row.writable=false;
+            row.message="Installed definition recognized; selected Apply, Undo and profiles are pending independent policy/request verification.";
+            fresh.push_back(std::move(row));
+        }
+        data.rows.erase(std::remove_if(data.rows.begin(),data.rows.end(),[](const auto& row){return row.key.family==VoltageTableFamily::offsets;}),data.rows.end());
+        data.rows.insert(data.rows.end(),fresh.begin(),fresh.end());data.offsets_recognized=true;
+        data.offsets_message=captured.message;data.target=bound_target;
+    }
     void publish(const Snapshot& s){data.target=bound_target;
         const auto& g=gate.read(voltage_admission);data.gate_enabled=g.rows[0].availability==VoltagePolicyAvailability::available?g.rows[0].current:std::optional<bool>{};
         data.boost_percent=s.boost;data.requests_complete=s.complete();
@@ -239,9 +265,14 @@ VoltageTablesService::VoltageTablesService(VoltageTablesApi api,dc_gpu* gpu,cons
 VoltageTablesService::~VoltageTablesService()=default;
 const VoltageTablesData& VoltageTablesService::state()const{return impl_->data;}
 const VoltageTablesData& VoltageTablesService::read(uint32_t families){auto& p=*impl_;Guard guard(p.api.transport,p.gpu);
-    if(!guard.held){p.stale(VoltagePolicyAvailability::transient,"GPU lock unavailable");return p.data;}
+    if(!families||(families&~3u)){p.data.message="Select understood voltage families";p.flags();return p.data;}
+    if(!guard.held){if(families&1)p.stale(VoltagePolicyAvailability::transient,"GPU lock unavailable");if(families&2)p.stale_offsets(VoltagePolicyAvailability::transient,"GPU lock unavailable");p.data.message="GPU lock unavailable";return p.data;}
     if(families&1)try{p.publish(p.capture());}catch(const Failure& error){p.stale(error.kind,error.what());}catch(const std::exception& error){p.stale(VoltagePolicyAvailability::transient,error.what());}
-    p.data.message=(families&1)?p.data.requests_message:p.data.offsets_message;p.flags();return p.data;
+    if(families&2)try{p.read_offsets();}
+        catch(const VoltageEquationEvidenceError& error){p.stale_offsets(error.kind,error.what());}
+        catch(const Failure& error){p.stale_offsets(error.kind,error.what());}
+        catch(const std::exception& error){p.stale_offsets(VoltagePolicyAvailability::invalid,error.what());}
+    p.data.message=families==3?p.data.requests_message+"; "+p.data.offsets_message:(families&1)?p.data.requests_message:p.data.offsets_message;p.flags();return p.data;
 }
 VoltageTablesPlan VoltageTablesService::preview(const std::vector<VoltageTableRequest>& requests,std::optional<bool> projected){auto& p=*impl_;VoltageTablesPlan plan;Guard guard(p.api.transport,p.gpu);
     if(!guard.held){plan.message="GPU lock unavailable";return plan;}

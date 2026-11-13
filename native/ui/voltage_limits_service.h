@@ -84,6 +84,9 @@ public:
     ~VoltageLimitsService(); // no destructor writes
     // bit1: equations/roles; bit2: switch-delay devices. No automatic polling.
     const VoltageLimitsData& read(uint32_t families=3);
+    // Read-only shared evidence capture. No semantic provider calls or state
+    // publication; throws VoltageEquationEvidenceError on an unqualified read.
+    VoltageEquationPackets capture_equations();
     VoltageLimitsResult apply(const std::vector<VoltageLimitRequest>&);
     VoltageLimitsPlan preview(const std::vector<VoltageLimitRequest>&);
     VoltageLimitsResult apply_profile(const VoltageLimitsPlan&,const std::function<void(const VoltageLimitsReceipt&)>& before_write);

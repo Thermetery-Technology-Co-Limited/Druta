@@ -1,5 +1,13 @@
 # Native voltage evidence providers: bounded implementation map
 
+Current implementation: the [twentieth checkpoint](2026-11-13-parity-twentieth-increment.md)
+implements the ordinary ROM/graph/policy provider. The
+[twenty-first checkpoint](2026-11-13-parity-twenty-first-increment.md) adds the
+bounded scaffold receipt, fresh variable/equation capture and explicit read-only
+recognition. Selected signed offset writes, independent policy/retained-request
+verification, Undo and profiles remain open. The revision-pinned trace below
+records the original implementation contract, not the current backlog.
+
 Read-only trace, 2026-11-13. Python citations below are pinned to `fa6ee83`; native citations are pinned to `5f6fb49`, rather than the changing integration worktree. References use `path:line` and can be inspected with `git show <revision>:<path>`. No hardware was accessed for this inventory. This map does not establish support on any particular adapter.
 
 ## Current boundary

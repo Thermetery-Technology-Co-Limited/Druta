@@ -665,3 +665,11 @@ tuning unlock or working ordinary telemetry when paired identity remains valid.
 See the [eighteenth checkpoint](validation/2026-11-13-parity-eighteenth-increment.md).
 Unknown or unqualified selected source scopes still refuse before effects; they
 are never silently discarded. None of these imports authorizes startup/reset replay.
+
+The voltage table section in both skins includes **Read installed offsets**.
+It recognizes an existing Python scaffold receipt against the current adapter,
+ROM, variable inventory and loaded equation packets, then displays the current
+signed requests. Saved receipt values are historical. Inspection performs no
+tuning writes; selected offset Apply, Undo and profiles remain pending. Missing
+or unreadable receipts do not disable independent voltage request controls.
+See the [twenty-first checkpoint](validation/2026-11-13-parity-twenty-first-increment.md).

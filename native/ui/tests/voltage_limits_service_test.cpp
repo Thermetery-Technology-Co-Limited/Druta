@@ -104,6 +104,13 @@ static void catalog_contract(){
  }
 }
 int main(){
+ fresh();equations=true;{auto adapter=api();unsigned semantic_calls=0;
+ adapter.equation_evidence=[&](dc_gpu*,const VoltageEquationPackets&)->VoltageEquationEvidence{++semantic_calls;throw VoltageEquationEvidenceError("Must not enter semantic provider",VoltagePolicyAvailability::invalid);};
+ VoltageLimitsService s(adapter,reinterpret_cast<dc_gpu*>(1),device);const auto capture=s.capture_equations();
+ CHECK(capture.info==ei&&capture.control==ec&&capture.target.handle==device.nvapi_handle&&sets==0&&semantic_calls==0&&s.state().rows.empty());
+ failed_gets=1;const auto recovered=s.capture_equations();CHECK(recovered.info==ei&&recovered.control==ec&&resets==1&&semantic_calls==0&&sets==0);
+ equations=false;bool unsupported=false;try{s.capture_equations();}catch(const VoltageEquationEvidenceError& e){unsupported=e.kind==VoltagePolicyAvailability::unsupported;}
+ CHECK(unsupported&&resets==1&&sets==0);}
  catalog_contract();
  exchange_profiles();
  fresh();{VoltageLimitsService s(api(),reinterpret_cast<dc_gpu*>(1),device);auto data=s.read();CHECK(data.rows.size()==3&&data.rows[0].writable&&!data.rows[1].writable&&data.rows[2].writable);CHECK(data.equations_message.find("exports")!=std::string::npos);
