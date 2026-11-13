@@ -14,6 +14,14 @@ the implementation.
 
 # Active-goal priority
 
+This session targets parity with the released Python 1.9.1 frontend and
+behavior, including the user's explicitly requested layout differences. Work
+only on concrete missing or mismatched functionality. Do not pursue purely
+theoretical issues, improvements beyond that scope, or closed GitHub issues.
+Check the current issue state before starting issue-linked work. Keep broader
+firmware research and qualification campaigns outside the active parity backlog;
+necessary verification of an actual port remains part of that port.
+
 Prioritize implementing and shipping working functionality in the active goal.
 The user has now authorized Undo and manual saved-profile work for the qualified
 controls while unresolved control research remains parked. Implement those

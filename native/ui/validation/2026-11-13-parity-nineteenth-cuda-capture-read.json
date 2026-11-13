@@ -1,0 +1,51 @@
+{
+  "auxiliary_cleanup_pending": false,
+  "capture": {
+    "may_have_changed": false,
+    "message": "Selected-card raw timing registers captured; raw diagnostic only, current top memory band unqualified; target or stable qualifying band unavailable around capture",
+    "method": "cuda",
+    "ok": false
+  },
+  "capture_hold_pending": false,
+  "capture_workload_pending": false,
+  "close": {
+    "auxiliary_cleanup_pending": false,
+    "may_have_changed": false,
+    "message": "",
+    "ok": true
+  },
+  "diagnostic": {
+    "memory_after_mhz": 9427,
+    "memory_before_mhz": 9427,
+    "memory_clock_stable": true,
+    "message": "Selected-card raw timing registers captured",
+    "ok": true,
+    "pstate_after": 2,
+    "pstate_before": 2,
+    "top_band": false
+  },
+  "diagnostic_only": true,
+  "elapsed_ms": 2125,
+  "error": "Timing capture was not qualified; diagnostic data does not establish success",
+  "hardware_set_requested": false,
+  "helper_selection": {
+    "may_have_changed": false,
+    "message": "Timing helper selected; Read fields captures this adapter",
+    "ok": true
+  },
+  "mode": "helper_capture",
+  "ok": false,
+  "qualified": false,
+  "slot": "0000:01:00.0",
+  "snapshot": {
+    "memory_after_mhz": null,
+    "memory_before_mhz": null,
+    "memory_clock_stable": false,
+    "message": "Fresh timing capture pending",
+    "ok": false,
+    "pstate_after": null,
+    "pstate_before": null,
+    "top_band": false
+  },
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

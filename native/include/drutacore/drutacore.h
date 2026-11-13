@@ -1185,6 +1185,7 @@ DC_API dc_status DC_CALL dc_hook_thunk(uint64_t address, uint64_t target, uint32
 }
 #endif
 
+#include "drutacore/i2c.h"            /* dc_i2c_read/write: selected GPU transport */
 #include "drutacore/clkdom.h"         /* private clock-domain rows and names */
 #include "drutacore/power_limit.h"    /* dc_pl_*: the board power limit (needs dc_cl_statics) */
 #include "drutacore/vfplan.h"  /* the pure V/F planners */

@@ -1,0 +1,13 @@
+{
+  "slot": "0000:01:00.0",
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1",
+  "write_requested": false,
+  "matching_reads": 2,
+  "image_size": 565248,
+  "image_sha256": "feffb49533d53e51112cfe2a1ff4b9a53113c9d9a28d022fe49bdf8a6c421541",
+  "rail_pointer": 17080,
+  "rail_header_hex": "2005110100b0710b",
+  "vfe_pointer": 544169,
+  "vfe_header_hex": "3009193218ff320f280400000000",
+  "python_voltage_inspection": "unrecognized rail selector layout"
+}

@@ -1,8 +1,12 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "session.h"
+#include "profile_catalog.h"
+#include "timing_model.h"
 #include <windows.h>
 #include <algorithm>
+#include <atomic>
+#include <cstring>
 #include <utility>
 
 namespace druta::ui {
@@ -17,6 +21,29 @@ double now_seconds() {
     QueryPerformanceCounter(&count);
     QueryPerformanceFrequency(&frequency);
     return frequency.QuadPart ? static_cast<double>(count.QuadPart) / frequency.QuadPart : 0;
+}
+void merge_fans(const LiveData& old, LiveData& next, SessionSnapshot& state) {
+    auto& n=next.telemetry;const auto& o=old.telemetry;
+    const uint32_t current=next.telemetry_valid?std::min(n.fan_count,uint32_t{32}):0;
+    const uint32_t previous=old.telemetry_valid?std::min(o.fan_count,uint32_t{32}):0;
+    // The C ABI keeps fan indices, including empty rows when the count was
+    // read. A short/empty vector without a successful count is not evidence
+    // that established fans disappeared. A fresh actual count may shrink it.
+    const bool counted=next.telemetry_valid&&(n.present&DC_T_NUM_FANS)&&n.num_fans<=32&&n.num_fans>=current;
+    const uint32_t count=counted?n.num_fans:std::max(current,previous);
+    state.fan_duty_stale_mask=state.fan_rpm_stale_mask=0;
+    for(uint32_t i=0;i<count;++i){
+        auto& f=n.fans[i];const auto fresh=i<current?f:dc_fan_reading{};
+        const auto prior=i<previous?o.fans[i]:dc_fan_reading{};
+        f={};
+        if(fresh.has_duty){f.has_duty=1;f.duty=fresh.duty;}
+        else if(prior.has_duty){f.has_duty=1;f.duty=prior.duty;state.fan_duty_stale_mask|=UINT32_C(1)<<i;}
+        if(fresh.has_rpm){f.has_rpm=1;f.rpm=fresh.rpm;}
+        else if(prior.has_rpm){f.has_rpm=1;f.rpm=prior.rpm;state.fan_rpm_stale_mask|=UINT32_C(1)<<i;}
+    }
+    for(uint32_t i=count;i<32;++i)n.fans[i]={};
+    n.fan_count=count;
+    state.fan_readings_stale=(state.fan_duty_stale_mask|state.fan_rpm_stale_mask)!=0;
 }
 // Keep the last reported scalar for absent summary fields and mark it stale.
 void merge_telemetry(const LiveData& old, LiveData& next, std::uint64_t& stale) {
@@ -60,6 +87,24 @@ void merge_controls(const LiveData& old, LiveData& next) {
                 c.detail += ": " + reason;
         }
     }
+    for (auto& row : next.advanced_controls) {
+        const auto found = std::find_if(old.advanced_controls.begin(), old.advanced_controls.end(),
+            [&](const AdvancedControl& prior) { return prior.id.kind == row.id.kind && prior.id.domain == row.id.domain; });
+        if (found == old.advanced_controls.end()) continue;
+        if (!row.binding.empty() && row.binding != found->binding) continue;
+        auto& c = row.state;
+        const auto& previous = found->state;
+        if ((c.availability == Availability::unknown || c.availability == Availability::transient) && previous.current) {
+            const auto reason = c.detail;
+            const bool writable = c.writable, stock = c.stock_writable;
+            c = previous;
+            c.writable = writable; c.stock_writable = stock;
+            c.availability = Availability::transient;
+            c.detail = "Read unavailable; showing last known state";
+            if (!reason.empty() && reason.find("Read unavailable; showing last known state") != 0)
+                c.detail += ": " + reason;
+        }
+    }
 }
 }
 struct Session::Impl {
@@ -69,16 +114,55 @@ struct Session::Impl {
     std::function<void()> notify;
     std::shared_ptr<const SessionSnapshot> published = std::make_shared<SessionSnapshot>();
     SessionSnapshot state;
-    bool started = false, stopping = false, done = false, switch_pending = false;
+    bool started = false, stopping = false, done = false, switch_pending = false,restart_exit=false;
     bool poll_pending = false, details_pending = false, command_pending = false;
     bool backend_opened = false;
+    bool maintenance_active = false, maintenance_inflight = false;
+    bool backend_call_admitted = false; // one worker call reserved under lock
+    ULONGLONG maintenance_due = 0;
+    std::string maintenance_error;
     unsigned read_retries = 0;
     Command command{};
     std::uint64_t next_log = 0;
-    std::string desired_slot;
-    explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n) : backend(std::move(b)), notify(std::move(n)) {
+    std::uint64_t next_annotation_event = 0;
+    std::string desired_slot, expected_uuid;
+    bool identity_mismatch = false;
+    std::atomic<bool> discovery_cancelled{false};
+    std::atomic<bool> timing_capture_cancelled{false};
+    std::optional<std::uint64_t> discovery_generation;
+    static bool discovery_action(Command::Operation op) { return op==Command::Operation::i2c_scan || op==Command::Operation::i2c_select; }
+    static bool annotation_producer(Command::Operation op) {
+        return op == Command::Operation::apply_catalog_profile || op == Command::Operation::undo;
+    }
+    bool disconnected_annotation(const Command& task) const {
+        if (!backend_opened) return false;
+        const auto& id = state.data.identity;
+        if (!std::memchr(id.uuid, 0, sizeof(id.uuid)) || !id.uuid[0] ||
+            !std::memchr(id.slot, 0, sizeof(id.slot)) || !id.slot[0] ||
+            !std::memchr(id.pairing_error, 0, sizeof(id.pairing_error)) || id.pairing_error[0] ||
+            !(id.nvapi_ok || id.nvml_ok) || state.selected_slot != id.slot ||
+            (!expected_uuid.empty() && expected_uuid != id.uuid)) return false;
+        if (task.operation == Command::Operation::undo) return state.data.undo_metadata_only;
+        if ((task.operation != Command::Operation::apply_catalog_profile &&
+             task.operation != Command::Operation::preflight_catalog_profile) || !task.catalog_profile) return false;
+        try {
+            const auto description = inspect_profile(*task.catalog_profile);
+            return description.valid && description.targets == std::vector<std::string>{"annotation:power"};
+        } catch (...) { return false; }
+    }
+    explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n, const std::wstring& cache_path) : backend(std::move(b)), notify(std::move(n)) {
         InitializeCriticalSection(&lock);
         wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (backend) backend->configure_timing_capture_cancellation([this] { return timing_capture_cancelled.load(); });
+        if (backend) backend->configure_i2c_discovery([this] { return discovery_cancelled.load(); }, [this](const I2cDiscoveryProgress& progress) {
+            {
+                Guard guard(lock);
+                if (stopping || !discovery_generation || *discovery_generation!=state.generation) return;
+                state.data.i2c.discovery=progress;
+                publish_locked();
+            }
+            announce();
+        }, cache_path);
     }
     ~Impl() { if (thread) CloseHandle(thread); if (wake) CloseHandle(wake); DeleteCriticalSection(&lock); }
     void publish_locked() { ++state.revision; published = std::make_shared<SessionSnapshot>(state); }
@@ -89,14 +173,47 @@ struct Session::Impl {
         state.log.push_back({++next_log, message, ok});
         if (state.log.size() > 200) state.log.erase(state.log.begin());
     }
+    // A reserved call is already in flight for restart shutdown purposes. Do
+    // not keep the session lock while the backend runs or while it calls back.
+    template<class F> bool admitted_backend_call(F&& fn) {
+        { Guard guard(lock); if(stopping && restart_exit)return false; backend_call_admitted=true; }
+        struct Reservation { Impl& owner; ~Reservation(){Guard guard(owner.lock);owner.backend_call_admitted=false;} } reservation{*this};
+        fn();return true;
+    }
     bool read_and_publish(std::uint64_t generation, bool details, bool initial = false, bool finish_action = false) {
         LiveData fresh;
         bool failed = false;
-        try { fresh = backend->read(details); }
+        try { if(!admitted_backend_call([&]{fresh=backend->read(details);}))return false; }
         catch (...) { failed = true; }
+        std::optional<TuningState> tuning;
+        std::optional<bool> needs_maintenance;
+        std::optional<FrequencyLockData> frequency;
+        try { if(!admitted_backend_call([&]{tuning=backend->tuning_state();}))return false;
+              if(!admitted_backend_call([&]{needs_maintenance=backend->maintenance_needed();}))return false; } catch (...) {}
+        try { if(!admitted_backend_call([&]{frequency=backend->frequency_state();}))return false; } catch (...) {}
+        std::optional<bool> auxiliary;try{if(!admitted_backend_call([&]{auxiliary=backend->auxiliary_cleanup_needed();}))return false;}catch(...){}
         Guard guard(lock);
         if (stopping || generation != state.generation) return false;
         ++state.completed_reads;
+        if(auxiliary)state.auxiliary_cleanup_pending=*auxiliary;
+        bool wrong_identity = false;
+        if (!expected_uuid.empty() && !failed && fresh.connected) {
+            const auto& id=fresh.identity;
+            const bool uuid_valid=std::memchr(id.uuid,0,sizeof(id.uuid)) && id.uuid[0];
+            const bool slot_valid=std::memchr(id.slot,0,sizeof(id.slot)) && id.slot[0];
+            const bool pairing_valid=std::memchr(id.pairing_error,0,sizeof(id.pairing_error)) && !id.pairing_error[0];
+            const bool api_valid=id.nvapi_ok || id.nvml_ok;
+            wrong_identity=(uuid_valid && expected_uuid!=id.uuid) || (slot_valid && state.selected_slot!=id.slot) ||
+                (std::memchr(id.pairing_error,0,sizeof(id.pairing_error)) && id.pairing_error[0]);
+            if (wrong_identity || !uuid_valid || !slot_valid || !pairing_valid || !api_valid) {
+                fresh=state.data; fresh.connected=false; fresh.telemetry_valid=false;
+                fresh.telemetry_error="GPU identity unavailable";
+                fresh.status=wrong_identity ? "GPU identity does not match the requested adapter" : "GPU identity unavailable; retrying read";
+                if (details) fresh.curve_error=fresh.status;
+            }
+            if (wrong_identity) identity_mismatch=true;
+            else if (uuid_valid && slot_valid && pairing_valid && api_valid) identity_mismatch=false;
+        }
         if (failed) {
             fresh = state.data;
             fresh.connected = false;
@@ -105,27 +222,53 @@ struct Session::Impl {
             fresh.status = "Read failed";
             if (details) fresh.curve_error = "Read failed";
             for (auto& c : fresh.controls) c.availability = Availability::transient;
+            for (auto& row : fresh.advanced_controls) row.state.availability = Availability::transient;
+            for (auto& row : fresh.power_policies) row.state.availability = Availability::transient;
+            for (auto& row : fresh.rail_controls) row.state.availability = Availability::transient;
         }
         if (!fresh.connected) {
             fresh.telemetry_valid = false;
             for (auto& c : fresh.controls)
                 if (c.availability == Availability::available) c.availability = Availability::transient;
+            for (auto& row : fresh.advanced_controls)
+                if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
+            for (auto& row : fresh.power_policies)
+                if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
+            for (auto& row : fresh.rail_controls)
+                if (row.state.availability == Availability::available) row.state.availability = Availability::transient;
             if (details && fresh.curve_error.empty()) fresh.curve_error = "Read unavailable";
+        }
+        if (tuning) {
+            fresh.tuning = *tuning;
+            if (needs_maintenance) state.tuning_ownership_uncertain = *needs_maintenance && !tuning->maintenance_needed();
+        }
+        else fresh.tuning=state.data.tuning;
+        if (frequency) { fresh.frequency=*frequency; state.frequency_ownership_uncertain=false; }
+        else {
+            fresh.frequency=state.data.frequency;
+            if (state.data.frequency.ownership.needs_cleanup()) state.frequency_ownership_uncertain=true;
+        }
+        if ((needs_maintenance && *needs_maintenance) || fresh.tuning.maintenance_needed() || state.tuning_ownership_uncertain) {
+            maintenance_active = true;
+            if (!maintenance_due) maintenance_due = GetTickCount64() + 1000;
         }
         const auto raw = fresh.telemetry;
         const bool valid = fresh.telemetry_valid;
-        if (!valid && state.data.telemetry_valid) {
-            fresh.telemetry.fan_count = state.data.telemetry.fan_count;
-            std::copy(std::begin(state.data.telemetry.fans), std::end(state.data.telemetry.fans),
-                      std::begin(fresh.telemetry.fans));
-            state.fan_readings_stale = true;
-        } else if (valid) state.fan_readings_stale = false;
+        merge_fans(state.data,fresh,state);
         if (initial) state.opening = false;
         if (finish_action) state.busy = false;
         merge_telemetry(state.data, fresh, state.telemetry_stale_mask);
         merge_controls(state.data, fresh);
+        if (wrong_identity) {
+            for (auto& c:fresh.controls) c.writable=c.stock_writable=false;
+            for (auto& c:fresh.advanced_controls) c.state.writable=c.state.stock_writable=false;
+            for (auto& c:fresh.power_policies) c.state.writable=c.state.stock_writable=false;
+            for (auto& c:fresh.rail_controls) c.state.writable=c.state.stock_writable=false;
+            fresh.curve_writable=fresh.curve_reset_writable=false;
+        }
         if (!details || !fresh.curve_error.empty()) {
             fresh.curve = state.data.curve;
+            fresh.curve_layout = state.data.curve_layout;
             if (!details) fresh.curve_error = state.data.curve_error;
             else state.curve_stale = !fresh.curve.empty();
         } else { state.curve_stale = false; ++state.curve_revision; }
@@ -145,33 +288,62 @@ struct Session::Impl {
         return true;
     }
     void run() noexcept {
+        bool ending_for_restart=false;
         for (;;) {
-            enum class Work { none, change, poll, action, stop } work = Work::none;
+            enum class Work { none, change, poll, action, maintain, stop } work = Work::none;
             std::uint64_t generation = 0;
-            std::string slot;
+            std::string slot, required_uuid;
             bool details = false;
+            DWORD wait_ms = INFINITE;
             Command task;
             {
                 Guard guard(lock);
-                if (stopping) work = Work::stop;
-                else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; generation = state.generation; }
-                else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot; }
+                if (stopping) {work = Work::stop;ending_for_restart=restart_exit;}
+                else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; required_uuid = expected_uuid; generation = state.generation; }
+                else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot;
+                    if (discovery_action(task.operation)) discovery_generation=generation;
+                }
+                else if (maintenance_active && GetTickCount64() >= maintenance_due) { work = Work::maintain; generation = state.generation; maintenance_inflight = true; maintenance_due = GetTickCount64() + 1000; }
                 else if (poll_pending && !state.paused) { work = Work::poll; poll_pending = false; details = details_pending; details_pending = false; generation = state.generation; }
+                if (work == Work::none && maintenance_active) {
+                    const auto now = GetTickCount64();
+                    wait_ms = maintenance_due <= now ? 0 : static_cast<DWORD>(std::min<ULONGLONG>(maintenance_due - now, 1000));
+                }
             }
-            if (work == Work::stop) break;
-            if (work == Work::none) { WaitForSingleObject(wake, INFINITE); continue; }
+            if (work == Work::stop) {
+                if(ending_for_restart)break;
+                ActionResult cleanup;
+                try { cleanup=backend->prepare_close(); }
+                catch (...) { cleanup.message="Owned control restoration failed; session kept open for recovery"; }
+                if (cleanup.ok) break;
+                {
+                    Guard guard(lock); stopping=false; state.close_refused=true; state.busy=false;
+                    state.status=cleanup.message; log_locked(false,cleanup.message); publish_locked();
+                }
+                announce(); continue;
+            }
+            if (work == Work::none) { WaitForSingleObject(wake, wait_ms); continue; }
             if (work == Work::change) {
                 std::vector<Device> devices; std::string error; bool opened = false;
                 try {
                     backend->close();
                     devices = backend->enumerate();
-                    if (slot.empty() && !devices.empty()) slot = devices.front().slot;
-                    if (!slot.empty()) opened = backend->open(slot, error);
-                    else error = "No GPU available";
+                    if (!required_uuid.empty()) {
+                        const auto matching_slot=std::count_if(devices.begin(),devices.end(),[&](const auto& d){return d.slot==slot;});
+                        const auto matched=std::find_if(devices.begin(),devices.end(),[&](const auto& d){return d.slot==slot && d.uuid==required_uuid;});
+                        if (slot.empty()) error="Expected GPU UUID requires an explicit slot";
+                        else if (matching_slot!=1 || matched==devices.end()) error="Requested GPU slot and UUID were not found together";
+                        else opened=backend->open(slot,error);
+                    } else {
+                        if (slot.empty() && !devices.empty()) slot = devices.front().slot;
+                        if (!slot.empty()) opened = backend->open(slot, error);
+                        else error = "No GPU available";
+                    }
                 } catch (...) { error = "Unable to open GPU"; }
                 bool current;
                 {
                     Guard guard(lock);
+                    discovery_generation.reset();
                     current = !stopping && generation == state.generation;
                     if (current) {
                         state.devices = std::move(devices);
@@ -185,63 +357,180 @@ struct Session::Impl {
                 if (current) { announce(); if (opened) { if (read_and_publish(generation, true, true)) announce(); } }
             } else if (work == Work::poll) {
                 if (read_and_publish(generation, details)) announce();
+            } else if (work == Work::maintain) {
+                ActionResult result;
+                try { if(!admitted_backend_call([&]{result=backend->maintain();})){Guard guard(lock);maintenance_inflight=false;continue;} } catch (...) { result.message = "Owned control maintenance failed"; }
+                std::optional<TuningState> tuning; bool needed = true;
+                try { if(!admitted_backend_call([&]{tuning=backend->tuning_state();})){Guard guard(lock);maintenance_inflight=false;continue;}
+                      if(!admitted_backend_call([&]{needed=backend->maintenance_needed();})){Guard guard(lock);maintenance_inflight=false;continue;} } catch (...) {}
+                bool changed = false;
+                {
+                    Guard guard(lock); maintenance_inflight = false;
+                    if (generation == state.generation) {
+                        const auto old = state.data.tuning;
+                        const bool old_uncertain = state.tuning_ownership_uncertain;
+                        if (tuning) { state.data.tuning = *tuning; state.tuning_ownership_uncertain = needed && !tuning->maintenance_needed(); }
+                        else state.tuning_ownership_uncertain = true;
+                        maintenance_active = needed || state.data.tuning.maintenance_needed() || state.tuning_ownership_uncertain;
+                        if (!maintenance_active) maintenance_due = 0;
+                        const auto& now = state.data.tuning;
+                        const std::string next_error = result.ok ? "" : (result.message.empty() ? "Owned control maintenance failed" : result.message);
+                        if (next_error != maintenance_error) { maintenance_error = next_error; if (!next_error.empty()) log_locked(false, next_error); changed = true; }
+                        if (old_uncertain != state.tuning_ownership_uncertain || old.owned != now.owned || old.confirmed != now.confirmed || old.headroom != now.headroom || old.recovery != now.recovery || old.tripped != now.tripped || old.domain != now.domain || old.voltage_uv != now.voltage_uv) changed = true;
+                        if (changed) publish_locked();
+                    }
+                }
+                if (changed) announce();
             } else {
                 ActionResult result;
-                try { result = backend->execute(task); } catch (...) { result.message = "Action failed; state is uncertain, checking readback and Undo availability"; result.may_have_changed = true; }
+                try { if(!admitted_backend_call([&]{result=backend->execute(task);}))continue; } catch (...) { result.message = "Action failed; state is uncertain, checking readback and Undo availability"; result.may_have_changed = true; }
+                std::optional<TuningState> owned_tuning; bool needed=false, needed_known=false;
+                try { if(!admitted_backend_call([&]{owned_tuning=backend->tuning_state();}))continue;
+                      if(!admitted_backend_call([&]{needed=backend->maintenance_needed();}))continue; needed_known=true; } catch (...) {}
+                const bool tuning_action=task.operation==Command::Operation::max_it || task.operation==Command::Operation::reset_controls || task.operation==Command::Operation::hold_curve_point || task.operation==Command::Operation::release_hold;
+                const bool i2c_action=is_i2c_operation(task.operation);
+                const bool frequency_action=is_frequency_operation(task.operation);
+                const bool frequency_mutation=frequency_action && task.operation!=Command::Operation::frequency_lock_refresh;
+                std::optional<FrequencyLockData> owned_frequency;
+                try { if(!admitted_backend_call([&]{owned_frequency=backend->frequency_state();}))continue; } catch (...) {}
+                std::optional<bool> auxiliary;try{if(!admitted_backend_call([&]{auxiliary=backend->auxiliary_cleanup_needed();}))continue;}catch(...){}
+                std::optional<I2cViewData> owned_i2c;
+                if (i2c_action) { try { if(!admitted_backend_call([&]{owned_i2c=backend->i2c_state();}))continue; } catch (...) {} }
                 bool current;
                 {
                     Guard guard(lock);
+                    discovery_generation.reset();
                     current = !stopping && generation == state.generation;
                     if (stopping && generation == state.generation) state.busy = false;
                     ++state.completed_actions;
+                    if (generation == state.generation) {
+                        if (owned_tuning) {
+                            state.data.tuning = *owned_tuning;
+                            state.tuning_ownership_uncertain = needed_known && needed && !owned_tuning->maintenance_needed();
+                        } else if (tuning_action || state.data.tuning.maintenance_needed() || (needed_known && needed)) {
+                            state.tuning_ownership_uncertain = true;
+                        }
+                        maintenance_active = (needed_known && needed) || state.data.tuning.maintenance_needed() || state.tuning_ownership_uncertain;
+                        if (maintenance_active && !maintenance_due) maintenance_due = GetTickCount64() + 1000;
+                        if (!maintenance_active) { maintenance_due = 0; maintenance_error.clear(); }
+                        if(auxiliary)state.auxiliary_cleanup_pending=*auxiliary;
+                        else if(is_auxiliary_operation(task.operation))state.auxiliary_cleanup_pending=true;
+                        if (owned_frequency) { state.data.frequency=*owned_frequency; state.frequency_ownership_uncertain=false; }
+                        else if (frequency_mutation || state.data.frequency.ownership.needs_cleanup()) state.frequency_ownership_uncertain=true;
+                        if (i2c_action) {
+                            if (owned_i2c) { state.data.i2c=*owned_i2c; state.i2c_ownership_uncertain=false; }
+                            else if (task.operation==Command::Operation::i2c_apply || task.operation==Command::Operation::i2c_verify || task.operation==Command::Operation::i2c_release || task.operation==Command::Operation::i2c_zero_nct_outputs)
+                                state.i2c_ownership_uncertain=true;
+                        }
+                        state.last_action_operation = task.operation; state.last_action_ok = result.ok;
+                        if(task.operation==Command::Operation::timings_capture_p0 && state.data.timings){
+                            auto timing=std::make_shared<TimingViewData>(*state.data.timings);timing->capture_running=false;state.data.timings=std::move(timing);
+                        }
+                        // A verified process gate is authoritative even if the following
+                        // telemetry refresh throws. An uncertain change cannot look off.
+                        if (task.operation == Command::Operation::set_xoc) {
+                            state.data.xoc_known = result.ok;
+                            if (result.ok) state.data.xoc_enabled = task.enabled;
+                        } else if (task.operation == Command::Operation::set_rail_mode) {
+                            state.data.rail_mode_known = result.ok;
+                            if (result.ok) state.data.rail_mode_enabled = task.enabled;
+                        }
+                    }
                     const std::string message = generation == state.generation ? result.message :
                         "GPU " + slot + " (session " + std::to_string(generation) + "): " + result.message;
-                    log_locked(result.ok, message); publish_locked();
+                    log_locked(result.ok, message);
+                    if (generation == state.generation) {
+                        state.last_action_log_id=state.log.back().id;
+                        if (result.annotation_effect) {
+                            state.annotation_completions.push_back({generation, ++next_annotation_event,
+                                state.last_action_log_id, task.operation, result.annotation_effect});
+                        }
+                    }
+                    publish_locked();
                 }
                 announce();
                 if (current && read_and_publish(generation, true, false, true)) announce();
             }
         }
-        try { backend->close(); } catch (...) {}
+        // The out-of-process helper waits for actual process exit before PnP.
+        // Keeping the backend/module alive avoids destructor restoration writes
+        // and leaves live renderer function pointers valid until host teardown.
+        if(ending_for_restart)(void)backend.release();
+        else try { backend->close(); } catch (...) {}
         { Guard guard(lock); done = true; state.busy = false; state.opening = false; publish_locked(); }
         announce();
     }
 };
-Session::Session(std::unique_ptr<IBackend> backend, std::function<void()> notify) : impl_(std::make_unique<Impl>(std::move(backend), std::move(notify))) {}
+Session::Session(std::unique_ptr<IBackend> backend, std::function<void()> notify, const std::wstring& i2c_cache_path) : impl_(std::make_unique<Impl>(std::move(backend), std::move(notify), i2c_cache_path)) {}
 Session::~Session() { begin_shutdown(); if (impl_->thread) WaitForSingleObject(impl_->thread, INFINITE); }
-void Session::start(const std::string& slot) {
+void Session::start(const std::string& slot, const std::string& expected_uuid) {
     { Guard guard(impl_->lock);
       if (impl_->started || impl_->stopping) return;
       impl_->started = true; impl_->state.generation++; impl_->state.opening = true;
-      impl_->desired_slot = slot; impl_->switch_pending = true;
+      impl_->desired_slot = slot; impl_->expected_uuid = expected_uuid; impl_->switch_pending = true;
       if (impl_->backend && impl_->wake) impl_->thread = CreateThread(nullptr, 0, &Impl::entry, impl_.get(), 0, nullptr);
       if (!impl_->thread) { impl_->done = true; impl_->state.opening = false; impl_->state.status = "Unable to start session worker"; }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce();
 }
-bool Session::select_device(const std::string& slot) {
+bool Session::select_device(const std::string& slot) { return change_device(slot,false); }
+bool Session::reconnect() { return change_device({},true); }
+bool Session::change_device(const std::string& slot, bool preserve_constraint) {
     { Guard guard(impl_->lock);
       if (!impl_->started || impl_->stopping || impl_->done) return false;
+      const auto& i2c=impl_->state.data.i2c;
+      const bool tuning_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::max_it || impl_->command.operation==Command::Operation::reset_controls || impl_->command.operation==Command::Operation::hold_curve_point || impl_->command.operation==Command::Operation::release_hold);
+      const bool i2c_busy=impl_->state.busy && is_i2c_operation(impl_->command.operation);
+      const bool frequency_busy=impl_->state.busy && is_frequency_operation(impl_->command.operation);
+      const bool timing_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::timings_capture_p0 || impl_->command.operation==Command::Operation::timings_release_capture_hold);
+      const bool auxiliary_busy=impl_->state.busy&&is_auxiliary_operation(impl_->command.operation);
+      if (auxiliary_busy || impl_->state.auxiliary_cleanup_pending || timing_busy || frequency_busy || impl_->state.frequency_ownership_uncertain || impl_->state.data.frequency.ownership.needs_cleanup() || i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
+          impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
+      }
       impl_->backend_opened = false; impl_->read_retries = 0;
-      ++impl_->state.generation; impl_->desired_slot = slot; impl_->switch_pending = true;
+      // Only an explicit picker selection clears the startup constraint.
+      const auto target_slot=preserve_constraint ? impl_->state.selected_slot : slot;
+      if (!preserve_constraint) { impl_->expected_uuid.clear(); impl_->identity_mismatch=false; }
+      ++impl_->state.generation; impl_->desired_slot = target_slot; impl_->switch_pending = true;
+      impl_->timing_capture_cancelled=true;
+      impl_->state.annotation_completions.clear(); impl_->next_annotation_event = 0;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
-      impl_->state.selected_slot = slot; impl_->state.opening = true; impl_->state.busy = false;
+      impl_->state.selected_slot = target_slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
+      impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
+      impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false; impl_->state.last_action_log_id = 0;
+      impl_->state.frequency_ownership_uncertain = false;
+      impl_->state.auxiliary_cleanup_pending = false;
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return true;
 }
 void Session::request_poll(bool details) {
-    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening || !impl_->backend_opened || (!impl_->state.data.connected && impl_->read_retries >= 3)) return;
-      impl_->poll_pending = true; impl_->details_pending |= details; }
+    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening) return;
+      if (!impl_->backend_opened) {
+          // An explicit details refresh may retry a failed constrained startup,
+          // without dropping its slot/UUID binding or silently selecting another GPU.
+          if (!details || impl_->expected_uuid.empty()) return;
+          impl_->desired_slot=impl_->state.selected_slot; impl_->switch_pending=true;
+          impl_->state.opening=true; impl_->state.status="Retrying GPU enumeration"; impl_->publish_locked();
+      } else {
+          if (!details && !impl_->state.data.connected && impl_->read_retries>=3) return;
+          if (details) impl_->read_retries=0;
+          impl_->poll_pending = true; impl_->details_pending |= details;
+      } }
     impl_->signal();
 }
 void Session::set_paused(bool paused) {
     { Guard guard(impl_->lock); if (impl_->stopping || impl_->state.paused == paused) return;
       impl_->state.paused = paused;
-      if (paused) impl_->poll_pending = impl_->details_pending = false;
+      if (paused) {impl_->poll_pending = impl_->details_pending = false;impl_->timing_capture_cancelled=true;}
       else {
           impl_->state.telemetry_stale_mask |= impl_->state.data.telemetry.present;
-          impl_->state.fan_readings_stale = impl_->state.data.telemetry.fan_count != 0;
+          for(uint32_t i=0;i<std::min(impl_->state.data.telemetry.fan_count,uint32_t{32});++i){
+              const auto& f=impl_->state.data.telemetry.fans[i];
+              if(f.has_duty)impl_->state.fan_duty_stale_mask|=UINT32_C(1)<<i;
+              if(f.has_rpm)impl_->state.fan_rpm_stale_mask|=UINT32_C(1)<<i;
+          }
+          impl_->state.fan_readings_stale=(impl_->state.fan_duty_stale_mask|impl_->state.fan_rpm_stale_mask)!=0;
       }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce();
@@ -252,17 +541,63 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       const char* reason = nullptr;
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
-      else if (impl_->state.opening || !impl_->state.data.connected) reason = "GPU is not ready";
+      else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !impl_->disconnected_annotation(command) && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh || command.operation==Command::Operation::timings_release_capture_hold)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
+      else if (command.operation==Command::Operation::timings_capture_p0 && impl_->state.paused)
+          reason = "Resume before starting a timing capture workload";
+      else if (Impl::annotation_producer(command.operation) &&
+          impl_->state.annotation_completions.size() >= annotation_completion_capacity)
+          reason = "Consume pending policy label completions before applying or undoing another catalog profile";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
-      else { impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
+      else { if (Impl::discovery_action(command.operation)) impl_->discovery_cancelled=false;
+          if(command.operation==Command::Operation::timings_capture_p0){
+              impl_->timing_capture_cancelled=false;
+              if(impl_->state.data.timings){auto timing=std::make_shared<TimingViewData>(*impl_->state.data.timings);timing->capture_running=true;impl_->state.data.timings=std::move(timing);}
+          }
+          impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return accepted;
 }
 std::shared_ptr<const SessionSnapshot> Session::snapshot() const { Guard guard(impl_->lock); return impl_->published; }
+bool Session::acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id) {
+    bool changed = false;
+    {
+        Guard guard(impl_->lock);
+        if (expected_generation != impl_->state.generation || event_id == 0 ||
+            event_id > impl_->next_annotation_event) return false;
+        auto& events = impl_->state.annotation_completions;
+        const auto found = std::find_if(events.begin(), events.end(),
+            [event_id](const PolicyAnnotationCompletion& event) { return event.event_id == event_id; });
+        if (found != events.end()) {
+            events.erase(found); impl_->publish_locked(); changed = true;
+        }
+    }
+    if (changed) impl_->announce();
+    return true;
+}
+bool Session::cancel_i2c_discovery(std::uint64_t expected_generation) {
+    Guard guard(impl_->lock);
+    if (impl_->stopping || expected_generation!=impl_->state.generation || !impl_->state.busy || !Impl::discovery_action(impl_->command.operation)) return false;
+    impl_->discovery_cancelled=true;
+    return true;
+}
+bool Session::cancel_timing_capture(std::uint64_t expected_generation) {
+    Guard guard(impl_->lock);
+    if(expected_generation!=impl_->state.generation || !impl_->state.busy || impl_->command.operation!=Command::Operation::timings_capture_p0)return false;
+    impl_->timing_capture_cancelled=true;return true;
+}
+void Session::begin_device_restart_shutdown(){
+    {Guard guard(impl_->lock);if(impl_->done)return;impl_->restart_exit=true;impl_->stopping=true;impl_->state.close_refused=false;
+     impl_->poll_pending=impl_->details_pending=impl_->command_pending=impl_->switch_pending=false;impl_->maintenance_active=false;impl_->discovery_cancelled=true;impl_->timing_capture_cancelled=true;
+     if(!impl_->thread){(void)impl_->backend.release();impl_->done=true;}}
+    impl_->signal();
+}
 void Session::begin_shutdown() {
-    { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true;
+    { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true; impl_->state.close_refused=false;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = impl_->switch_pending = false;
+      impl_->discovery_cancelled=true;
+      impl_->timing_capture_cancelled=true;
       if (!impl_->thread) impl_->done = true; }
     impl_->signal();
 }

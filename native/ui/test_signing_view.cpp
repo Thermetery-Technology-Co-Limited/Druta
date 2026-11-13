@@ -1,0 +1,19 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "test_signing_view.h"
+#include <imgui.h>
+namespace druta::ui {
+namespace {
+std::string recipe(bool enable){std::string out;for(const auto& command:test_signing_recipe(enable)){if(!out.empty())out+='\n';for(wchar_t c:command.executable)out+=static_cast<char>(c);for(const auto& arg:command.arguments){out+=' ';for(wchar_t c:arg)out+=static_cast<char>(c);}}return out;}
+}
+std::vector<TestSigningViewIntent> draw_test_signing(TestSigningViewState& state){std::vector<TestSigningViewIntent> intents;if(!state.open){state.was_open=false;return intents;}if(!state.was_open){state.was_open=true;intents.push_back(TestSigningViewIntent::refresh);}ImGui::SetNextWindowSize(ImVec2(760,630),ImGuiCond_FirstUseEver);if(ImGui::Begin("Test signing setup###druta_test_signing",&state.open)){
+ ImGui::TextWrapped("nvtune's driver is test-signed. Test signing changes a machine-wide kernel security boundary and takes effect after a reboot. Review your security requirements before continuing.");
+ ImGui::TextWrapped("Secure Boot must be off for the released recipe. If BitLocker protects a volume, suspend protection and keep the recovery key available before changing boot configuration.");
+ ImGui::Separator();if(!state.status)ImGui::TextDisabled("Status not yet available.");else{const auto& s=*state.status;ImGui::Text("Secure Boot: %s",s.secure_boot?(*s.secure_boot?"ON":"OFF"):"unknown");ImGui::Text("Administrator: %s",s.administrator?(*s.administrator?"yes":"no"):"unknown");if(!s.bitlocker_protected)ImGui::TextWrapped("BitLocker: unknown; check protection before changing boot configuration.");else if(s.bitlocker_protected->empty())ImGui::Text("BitLocker: no protected volumes reported");else ImGui::TextWrapped("BitLocker protected: %s",s.bitlocker_protected->c_str());}
+ ImGui::BeginDisabled(state.busy);if(ImGui::Button("Refresh status"))intents.push_back(TestSigningViewIntent::refresh);ImGui::EndDisabled();
+ ImGui::TextWrapped("Released enable recipe (the TESTSIGNING command is the documented test-signed driver switch; the other two are legacy recipe options):");const auto enable=recipe(true),disable=recipe(false);ImGui::TextUnformatted(enable.c_str());if(ImGui::Button("Copy enable commands"))ImGui::SetClipboardText(enable.c_str());ImGui::TextWrapped("Released disable recipe:");ImGui::TextUnformatted(disable.c_str());if(ImGui::Button("Copy disable commands"))ImGui::SetClipboardText(disable.c_str());
+ const bool permitted=state.status&&state.status->administrator.value_or(false)&&!state.status->secure_boot.value_or(false);ImGui::BeginDisabled(state.busy||!permitted);if(ImGui::Button("Accept risk and enable test signing"))intents.push_back(TestSigningViewIntent::enable);ImGui::SameLine();if(ImGui::Button("Accept risk and disable test signing"))intents.push_back(TestSigningViewIntent::disable);ImGui::EndDisabled();
+ if(state.status&&!state.status->secure_boot)ImGui::TextWrapped("Secure Boot status is unknown; confirm the firmware state before running the recipe.");
+ if(state.result){ImGui::Separator();ImGui::TextWrapped("%s",state.result->message.c_str());for(const auto& line:state.result->commands){ImGui::Text("%s | exit %u%s",line.ok?"OK":"FAILED",line.process.exit_code,line.process.timed_out?" | timed out":"");if(!line.process.output.empty())ImGui::TextWrapped("%s",line.process.output.c_str());if(!line.process.error.empty())ImGui::TextWrapped("%s",line.process.error.c_str());}if(state.result->ok){ImGui::TextWrapped("Changes take effect after reboot. Reboot now starts a 10-second timer; run shutdown /a to abort.");ImGui::BeginDisabled(state.busy);if(ImGui::Button("Reboot now"))intents.push_back(TestSigningViewIntent::reboot);ImGui::EndDisabled();}}
+ }ImGui::End();return intents;}
+}

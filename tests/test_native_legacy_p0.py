@@ -275,10 +275,41 @@ class HoldTests(P0Parity):
         self.assertEqual(run["result"], ("ok", (True, HELD.format(core=705, mem=3004))))
         self.assertEqual(self.forced(run), [])
 
-    def test_nonzero_request_status_clears_ownership_and_reads_nothing(self):
-        run = self.both(P0Rig(), lambda s: s.hold(), force=[-104])
-        self.assertEqual(run["result"], ("ok", (False, "P0 request failed (NVAPI status -104)")))
-        self.assertEqual((run["events"], run["owned"]), ([("force", 0x2000, 0, 2)], (False, False)))
+    def test_failed_request_retains_possible_ownership_until_release_is_confirmed(self):
+        # The fake accepts P0 despite reporting failure, then refuses the first
+        # release. The native session must retain its release candidate.
+        for arch in (KEPLER, MAXWELL):
+            with self.subTest(arch=arch):
+                rig = P0Rig(arch=arch)
+                state = {"held": False, "release_attempts": 0}
+
+                @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32)
+                def force(handle, pstate_index, flags):
+                    rig.events.append(("force", handle, pstate_index, flags))
+                    if pstate_index == 0:
+                        state["held"] = True
+                        return -104
+                    state["release_attempts"] += 1
+                    if state["release_attempts"] == 1:
+                        return -5
+                    state["held"] = False
+                    return 0
+
+                rig._force_keep = force
+                rig.nvapi.interfaces[FORCE_PSTATE] = force
+                with rig.native_gpu() as opened:
+                    side = NativeSide(opened)
+                    result = side.hold()
+                    self.assertFalse(result[0])
+                    self.assertIn("possible ownership retained", result[1])
+                    self.assertTrue(state["held"] and side.owned())
+                    self.assertEqual(rig.reads, 0)
+                    self.assertFalse(side.release()[0])
+                    self.assertTrue(state["held"] and side.owned())
+                    self.assertEqual(side.release(), (True, RELEASED))
+                    self.assertFalse(state["held"] or side.owned())
+                    self.assertEqual(self.forced({"events": rig.events}),
+                                     [(0x2000, 0, 2), (0x2000, 16, 2), (0x2000, 16, 2)])
 
     def test_failed_verification_with_a_failed_release_keeps_ownership(self):
         run = self.both(P0Rig(), lambda s: (s.hold(), s.owned(), s.release()), samples=[P8], force=[0, -5])

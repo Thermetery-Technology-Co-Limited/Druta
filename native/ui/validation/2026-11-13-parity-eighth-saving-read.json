@@ -1,0 +1,338 @@
+{
+  "clock_gating": {
+    "may_have_changed": false,
+    "message": "Explicit clock/PCIe inspection completed; each family reports independent status",
+    "ok": true,
+    "rows": [
+      {
+        "available": true,
+        "can_disable": true,
+        "can_enable": true,
+        "label": "Engine clock gating (ELCG)",
+        "layout": "A801 type10 64-bit engine predicates",
+        "message": "Fresh source-qualified inspection",
+        "owned": false,
+        "stale": false,
+        "support": true,
+        "uncertain": false
+      },
+      {
+        "available": true,
+        "can_disable": true,
+        "can_enable": false,
+        "label": "Block clock gating (BLCG)",
+        "layout": "ga10x",
+        "message": "Fresh source-qualified inspection",
+        "owned": false,
+        "stale": false,
+        "support": true,
+        "uncertain": false
+      },
+      {
+        "available": true,
+        "can_disable": true,
+        "can_enable": true,
+        "label": "Second-level clock gating (SLCG)",
+        "layout": "ga10x",
+        "message": "Fresh source-qualified inspection",
+        "owned": false,
+        "stale": false,
+        "support": true,
+        "uncertain": false
+      },
+      {
+        "available": false,
+        "can_disable": false,
+        "can_enable": false,
+        "label": "PCIe speed target",
+        "layout": "",
+        "message": "PCIe target register layout is not source-qualified",
+        "owned": false,
+        "stale": false,
+        "support": false,
+        "uncertain": false
+      }
+    ]
+  },
+  "close_ok": true,
+  "hardware_write_requested": false,
+  "pnp_target": {
+    "matched_slot": "0000:01:00.0",
+    "message": "",
+    "started": true,
+    "unique": true
+  },
+  "power_saving": {
+    "may_have_changed": false,
+    "message": "",
+    "ok": true,
+    "rows": [
+      {
+        "available": true,
+        "family": 0,
+        "index": 0,
+        "label": "Graphics (GR) ELPG",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 0,
+        "label": "Individual power gating: Graphics (GR)",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 4,
+        "label": "Individual power gating: Memory subsystem (MS)",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 10,
+        "label": "Individual power gating: MS DIFR SW-ASR",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 11,
+        "label": "Individual power gating: MS DIFR CG",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 12,
+        "label": "Individual power gating: NVDEC",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 13,
+        "label": "Individual power gating: NVENC",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 14,
+        "label": "Individual power gating: OFA",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": true,
+        "family": 1,
+        "index": 15,
+        "label": "Individual power gating: NVJPG",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 0,
+        "label": "Idle threshold: Graphics (GR)",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 4,
+        "label": "Idle threshold: Memory subsystem (MS)",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 10,
+        "label": "Idle threshold: MS DIFR SW-ASR",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 11,
+        "label": "Idle threshold: MS DIFR CG",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 12,
+        "label": "Idle threshold: NVDEC",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 13,
+        "label": "Idle threshold: NVENC",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 14,
+        "label": "Idle threshold: OFA",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 2,
+        "index": 15,
+        "label": "Idle threshold: NVJPG",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 3,
+        "index": 0,
+        "label": "Adaptive power: Graphics (GR)",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 3,
+        "index": 2,
+        "label": "Adaptive power: Memory subsystem (MS)",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 3,
+        "index": 4,
+        "label": "Adaptive power: NVDEC",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 3,
+        "index": 5,
+        "label": "Adaptive power: NVENC",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 3,
+        "index": 6,
+        "label": "Adaptive power: NVJPG",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": false,
+        "family": 3,
+        "index": 7,
+        "label": "Adaptive power: OFA",
+        "message": "Native idle/adaptive dispatch layout unavailable",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      },
+      {
+        "available": true,
+        "family": 4,
+        "index": 0,
+        "label": "DIFR",
+        "message": "",
+        "owned": false,
+        "stale": false,
+        "uncertain": false,
+        "writable": false
+      }
+    ]
+  },
+  "slot": "0000:01:00.0",
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

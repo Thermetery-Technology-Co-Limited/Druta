@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui_view.h"
+#include "perf_diagnostics_view.h"
+#include "power_arbitration_view.h"
 #include "session.h"
+#include "i2c_view.h"
+#include "classic_layout.h"
+#include "monitor_view.h"
 
 #include "imgui.h"
 #include "implot.h"
@@ -26,7 +31,7 @@ float u(float value) { return value * ImGui::GetFontSize() / 18.0f; }
 bool short_view() { return ImGui::GetIO().DisplaySize.y < u(840); }
 
 void hint(const char* text) {
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    if (text && *text && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::BeginTooltip();
         ImGui::PushTextWrapPos(u(360));
         ImGui::TextUnformatted(text);
@@ -66,9 +71,9 @@ void title(const char* text, const char* description) {
 void navigation(ViewState& state, bool horizontal) {
     struct Entry { Page page; const char* label; };
     constexpr Entry entries[] = {
-        {Page::daily, "Daily tuning"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::curve, "V/F curve"}
+        {Page::daily, "Daily tuning"}, {Page::rails, "Rails"}, {Page::i2c, "I2C"}, {Page::advanced, "Advanced"}, {Page::monitor, "Monitor"}, {Page::timings, "Timings"}
     };
-    const int count = state.preview ? 3 : 4;
+    const int count = static_cast<int>(std::size(entries)); // V/F opens in its own window from Daily.
     const float width = horizontal ? (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * (count - 1)) / count : 0.0f;
     for (int i = 0; i < count; ++i) {
         if (horizontal && i != 0) ImGui::SameLine();
@@ -92,24 +97,26 @@ void navigation(ViewState& state, bool horizontal) {
         ImGui::TextColored(muted, "%s", state.preview ? "Preview only" : "Session only");
         ImGui::PushStyleColor(ImGuiCol_Text, muted);
         ImGui::TextWrapped("%s", state.preview ? "GPU controls are not connected yet."
-            : "Apply is explicit. A driver reset starts a fresh session.");
+            : "Apply is explicit. Saved settings apply only when you load them.");
         ImGui::PopStyleColor();
     }
 }
 
 void top_bar(ViewState& state) {
+    draw_app_actions_menu(state);
     const ImGuiStyle& style = ImGui::GetStyle();
     const float control_width = ImGui::CalcTextSize("Always refresh").x
         + ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + u(60 + 164)
         + style.ItemSpacing.x * 2 + u(12);
     const float brand_width = ImGui::CalcTextSize("DRUTA").x * 1.2f + u(12)
-        + ImGui::CalcTextSize("PREVIEW / SAMPLE DATA").x + style.FramePadding.x * 2;
+        + ImGui::CalcTextSize("PREVIEW / SAMPLE DATA").x + style.FramePadding.x * 2 + u(205);
     const bool wrap_controls = ImGui::GetContentRegionAvail().x < brand_width + u(20) + control_width;
     ImGui::SetWindowFontScale(1.2f);
     ImGui::TextColored(accent, "DRUTA");
     ImGui::SetWindowFontScale(1.0f);
     ImGui::SameLine(0, u(12));
     badge(state.preview ? "PREVIEW / SAMPLE DATA" : "LIVE SESSION", state.preview ? amber : teal);
+    ImGui::SameLine();draw_device_restart_button(state);
     if (!wrap_controls) {
         const float x = ImGui::GetWindowContentRegionMax().x - control_width;
         ImGui::SameLine(x);
@@ -156,6 +163,8 @@ void top_bar(ViewState& state) {
             if (ImGui::Button("Load profile...")) state.load_profile_requested = true;
             ImGui::EndDisabled();
             hint("Select a saved profile to apply explicitly in this session. Unlock tuning controls first.");
+            ImGui::SameLine();
+            if (ImGui::Button("Profile catalog...")) state.profile_catalog_view.open=true;
             if (!snapshot->data.connected || snapshot->opening || snapshot->busy)
                 ImGui::TextWrapped("%s", snapshot->status.c_str());
             if (identity.pairing_error[0])
@@ -321,13 +330,9 @@ void daily(ViewState& state, bool verbose) {
     stat_cards();
     if (!short_view()) ImGui::Dummy(ImVec2(0, u(12)));
     tuning_controls(state, verbose);
-    if (!short_view()) ImGui::Dummy(ImVec2(0, u(14)));
-    ImGui::SeparatorText("Voltage / frequency");
-    label("Sample curve. Core-offset edits preview their shape here.");
-    vf_plot(state, u(250));
-    if (ImGui::CollapsingHeader("Curve details", verbose ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-        ImGui::TextWrapped("The curve, draft and operating point remain distinct. "
-                           "This sample is for layout review; it is not a measurement of this GPU.");
+    if (ImGui::Button("Open V/F curve")) {
+        state.curve_window_open = true;
+        state.curve_window_focus_requested = true;
     }
 }
 
@@ -435,7 +440,8 @@ void sync_live_drafts(ViewState& state) {
         state.drafts = {};
         state.draft_generation = snapshot.generation;
         state.generation_initialized = true;
-        state.controls_unlocked = false;
+        // Unlock is a presentation preference. Discard adapter-specific drafts,
+        // but preserve an explicit lock choice across session changes.
     }
     for (size_t i = 0; i < state.drafts.size(); ++i) {
         auto& draft = state.drafts[i];
@@ -460,7 +466,10 @@ void sync_curve_entry(ViewState& state) {
         state.curve_entry_dirty = false;
     }
     if (!state.curve_entry_dirty && !state.curve_entry_editing && state.curve_draft.freq_div())
+    {
         state.curve_delta_mhz = point->delta_khz / (1000.0 * state.curve_draft.freq_div());
+        state.curve_frequency_mhz = point->freq_mhz;
+    }
 }
 
 void observe_curve(ViewState& state) {
@@ -471,11 +480,22 @@ void observe_curve(ViewState& state) {
     const bool stale = snapshot.curve_stale || !snapshot.data.connected || snapshot.curve_revision == 0;
     if (generation || revision || (stale && !state.observed_curve_stale)) {
         state.curve_draft.observe(snapshot.generation, snapshot.data.curve, !stale, snapshot.data.curve_freq_div);
-        if (generation) { state.curve_entry_dirty = false; state.curve_entry_editing = false; }
+        if (generation) {
+            state.curve_entry_dirty = false; state.curve_entry_editing = false;
+            state.curve_drag_point.reset(); state.curve_fit_requested = true;
+            state.acknowledged_curve_action = snapshot.completed_actions;
+            state.curve_plan_message.clear();
+        }
         sync_curve_entry(state);
         state.observed_curve_revision = snapshot.curve_revision;
         state.observed_curve_generation = snapshot.generation;
         state.curve_observation_initialized = true;
+    }
+    if (!stale && !snapshot.busy && state.acknowledged_curve_action != snapshot.completed_actions) {
+        if (snapshot.last_action_ok && snapshot.last_action_operation == Command::Operation::apply_curve) {
+            if (state.curve_draft.accept_applied()) { state.curve_entry_dirty = false; sync_curve_entry(state); }
+        }
+        state.acknowledged_curve_action = snapshot.completed_actions;
     }
     state.observed_curve_stale = stale;
 }
@@ -516,7 +536,17 @@ void measured_value(const SessionSnapshot& snapshot, const char* name, uint64_t 
     ImGui::TextColored(stale ? amber : secondary, "%s%s", text.c_str(), stale ? " (stale)" : "");
 }
 
-void live_summary(const SessionSnapshot& snapshot) {
+std::string board_power_text(const SessionSnapshot& snapshot, const ShuntCorrection& correction) {
+    const auto raw=telemetry_value(snapshot,DC_T_POWER_W,snapshot.data.telemetry.power_w);
+    const auto raw_text=number_text(raw,"W");
+    if(!correction.valid || !correction.active)return raw_text;
+    return number_text(correction.apply(raw),"W")+(correction.exact?" corrected":" estimate")+" ("+raw_text+" raw)";
+}
+void board_power_reading(const SessionSnapshot& snapshot,const ShuntCorrection& correction) {
+    const bool stale=snapshot.paused || (snapshot.telemetry_stale_mask&DC_T_POWER_W);
+    ImGui::TextColored(stale?amber:secondary,"%s%s",board_power_text(snapshot,correction).c_str(),stale?" (stale)":"");
+}
+void live_summary(const SessionSnapshot& snapshot,const ShuntCorrection& correction) {
     const auto& telemetry = snapshot.data.telemetry;
     if (ImGui::BeginTable("live_summary", 3, ImGuiTableFlags_SizingStretchSame)) {
         ImGui::TableNextColumn();
@@ -524,7 +554,7 @@ void live_summary(const SessionSnapshot& snapshot) {
         ImGui::TableNextColumn();
         measured_value(snapshot, "GPU", DC_T_TEMP_EDGE, telemetry.temp_edge, "C", 0);
         ImGui::TableNextColumn();
-        measured_value(snapshot, "Board", DC_T_POWER_W, telemetry.power_w, "W", 1);
+        ImGui::TextUnformatted("Board");ImGui::SameLine();board_power_reading(snapshot,correction);
         ImGui::EndTable();
     }
     if (snapshot.paused) ImGui::TextColored(amber, "Telemetry paused; displayed readings are last known.");
@@ -532,162 +562,330 @@ void live_summary(const SessionSnapshot& snapshot) {
         ImGui::TextWrapped("Telemetry: %s", snapshot.data.telemetry_error.c_str());
 }
 
-void live_control_row(ViewState& state, ControlId id, const char* name, bool verbose) {
+std::string classic_live_reading(const SessionSnapshot& snapshot, ControlId id) {
+    const auto& t = snapshot.data.telemetry;
+    switch (id) {
+    case ControlId::core: return number_text(telemetry_value(snapshot, DC_T_CORE, t.core), "MHz");
+    case ControlId::memory: return number_text(telemetry_value(snapshot, DC_T_MEM, t.mem), "") + "\nMHz driver";
+    case ControlId::power: return number_text(telemetry_value(snapshot, DC_T_POWER_W, t.power_w), "W");
+    case ControlId::boost: return number_text(telemetry_value(snapshot, DC_T_VCORE_MV, t.vcore_mv), "mV");
+    case ControlId::fan:
+        return number_text(t.fan_count && t.fans[0].has_duty ? std::optional<double>(t.fans[0].duty) : std::nullopt, "%");
+    default: return "--";
+    }
+}
+
+void live_control_row(ViewState& state, ControlId id, const char* name, bool classic) {
     const size_t index = static_cast<size_t>(id);
     const auto& snapshot = *state.live;
     const auto& control = snapshot.data.controls[index];
     auto& draft = state.drafts[index];
-    if (!verbose) {
-        ImGui::TableNextRow();
+    ImGui::TableNextRow(); ImGui::TableNextColumn();
+    // Table headers use numeric column IDs. A namespace is required before
+    // numeric control IDs, otherwise Apply(column 3) aliases Apply(fan 3).
+    ImGui::PushID("control-row"); ImGui::PushID(static_cast<int>(id));
+    ImGui::AlignTextToFramePadding();
+    if (classic) ImGui::TextWrapped("%s%s%s", name, draft.dirty ? " *" : "",
+        control.availability == Availability::transient ? " (last read)" : "");
+    else ImGui::Text("%s%s%s", name, draft.dirty ? " *" : "",
+        control.availability == Availability::transient ? " (last read)" : "");
+    hint(control.detail.c_str());
+    if(id==ControlId::power) {
+        if(ImGui::Button("Shunt mod..."))state.shunt.open=true;
+        hint("Correct displayed watts using your shunt resistances. The board-power slider stays in driver-reported watts.");
+        const auto& correction=state.shunt.correction;
+        if(!correction.valid || !state.shunt.config.load_error.empty()) ImGui::TextColored(amber,"Check shunt config");
+        else if(correction.active) ImGui::TextColored(amber,"x%.4g %s",correction.factor,correction.exact?"uniform":"estimate");
+    }
+    ImGui::TableNextColumn();
+    const bool editable = control.writable && draft.initialized && snapshot.data.connected && !snapshot.opening && !snapshot.busy;
+    const bool ranged = control.low && control.high && std::isfinite(*control.low) && std::isfinite(*control.high) && *control.low < *control.high;
+    bool edited = false, editing = false;
+    if (!classic) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(control.availability == Availability::transient ? amber : secondary, "%s",
+            number_text(control.current, control.unit.c_str()).c_str());
+        hint(control.detail.empty() ? availability_text(control.availability) : control.detail.c_str());
+        if(id==ControlId::power && state.shunt.correction.valid && state.shunt.correction.active)
+            ImGui::TextWrapped("%s %s",number_text(state.shunt.correction.apply(control.current),"W").c_str(),state.shunt.correction.exact?"corrected":"estimate");
         ImGui::TableNextColumn();
     }
-    ImGui::PushID(static_cast<int>(id));
-    if (verbose) ImGui::Separator();
-    ImGui::AlignTextToFramePadding();
-    ImGui::Text("%s%s", name, draft.dirty ? " *" : "");
-    if (!control.detail.empty()) hint(control.detail.c_str());
-    if (verbose) ImGui::SameLine();
-    else ImGui::TableNextColumn();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextColored(control.availability == Availability::transient ? amber : secondary, "%s%s",
-        verbose ? "Configured: " : "", number_text(control.current, control.unit.c_str()).c_str());
-    hint(control.detail.empty() ? availability_text(control.availability) : control.detail.c_str());
-    if (draft.dirty) {
-        if (verbose) { ImGui::SameLine(); ImGui::TextColored(amber, "Draft"); }
-    }
-    if (!verbose) ImGui::TableNextColumn();
-    const bool editable = control.writable && draft.initialized && snapshot.data.connected
-        && !snapshot.opening && !snapshot.busy;
-    const bool ranged = control.low && control.high && std::isfinite(*control.low)
-        && std::isfinite(*control.high) && *control.low < *control.high;
     ImGui::BeginDisabled(!editable);
-    bool edited = false;
-    bool editing = false;
-    const float available = ImGui::GetContentRegionAvail().x;
-    const bool slider = ranged && available > u(verbose ? 490.0f : 285.0f);
+    const float draft_width = ImGui::GetContentRegionAvail().x;
+    const bool slider = ranged && (classic || draft_width > u(285));
     if (slider) {
-        ImGui::SetNextItemWidth(std::max(u(90), available - u(verbose ? 370.0f : 185.0f)));
-        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &draft.value,
-            &*control.low, &*control.high, id == ControlId::memory ? "%.0f" : "%.6g", ImGuiSliderFlags_NoInput)) {
+        ImGui::SetNextItemWidth(classic ? -1 : std::max(u(90), draft_width - u(120)));
+        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &draft.value, &*control.low, &*control.high,
+            classic ? " " : id == ControlId::memory ? "%.0f" : "%.6g", ImGuiSliderFlags_NoInput)) {
             if (id == ControlId::memory) draft.value = std::round(draft.value);
             edited = true;
         }
         editing = ImGui::IsItemActive();
-        ImGui::SameLine();
+        if (!classic) ImGui::SameLine();
     }
+    if (classic) ImGui::TableNextColumn();
     if (draft.initialized) {
-        ImGui::SetNextItemWidth(std::min(u(verbose ? 130.0f : 105.0f), std::max(u(75), available - u(verbose ? 230.0f : 0.0f))));
-        double entered = draft.value;
-        if (ImGui::InputDouble("##value", &entered, 0, 0, "%.9g") && std::isfinite(entered)) {
-            draft.value = entered;
-            edited = true;
-        }
+        ImGui::SetNextItemWidth(classic ? -1 : std::min(u(105), std::max(u(75), draft_width)));
+        double value = draft.value;
+        if (ImGui::InputDouble("##value", &value, 0, 0, "%.9g") && std::isfinite(value)) { draft.value = value; edited = true; }
         editing = editing || ImGui::IsItemActive();
-        hint("Type an exact draft value; dragging memory uses whole MHz. Editing never writes hardware.");
-    } else {
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted("--");
-    }
-    if (verbose) { ImGui::SameLine(); ImGui::TextUnformatted(control.unit.c_str()); }
+        hint("Editable request. Dragging changes only the draft; Apply writes it explicitly.");
+    } else ImGui::TextDisabled("--");
     ImGui::EndDisabled();
     draft.editing = editing;
     if (edited) draft.dirty = !draft.baseline || draft.value != *draft.baseline;
-    const bool in_range = std::isfinite(draft.value)
-        && (!control.low || draft.value >= *control.low) && (!control.high || draft.value <= *control.high);
-    if (verbose) ImGui::SameLine();
-    else ImGui::TableNextColumn();
+    if (classic) {
+        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
+        push_classic_mono();
+        auto reading = id == ControlId::power ? board_power_text(snapshot,state.shunt.correction) : classic_live_reading(snapshot,id);
+        const uint64_t live_bit = id == ControlId::core ? DC_T_CORE : id == ControlId::memory ? DC_T_MEM
+            : id == ControlId::power ? DC_T_POWER_W : id == ControlId::boost ? DC_T_VCORE_MV : 0;
+        const auto& telemetry = snapshot.data.telemetry;
+        const bool have_reading = id == ControlId::fan ? telemetry.fan_count && telemetry.fans[0].has_duty
+            : (telemetry.present & live_bit) != 0;
+        const bool stale = snapshot.paused || !snapshot.data.connected || (snapshot.telemetry_stale_mask & live_bit)
+            || (id == ControlId::fan && (snapshot.fan_duty_stale_mask & 1));
+        if (have_reading && stale) reading += " (stale)";
+        ImGui::TextWrapped("%s",reading.c_str());
+        ImGui::PopFont();
+        hint(("Configured request: " + number_text(control.current, control.unit.c_str()) + ". Live reading is separate.").c_str());
+    }
+    ImGui::TableNextColumn();
+    const bool in_range = std::isfinite(draft.value) && (!control.low || draft.value >= *control.low) && (!control.high || draft.value <= *control.high);
     ImGui::BeginDisabled(!editable || !state.controls_unlocked || !in_range);
-    if (ImGui::Button("Apply")) state.commands.push_back({Command::Operation::apply, id, draft.value});
-    ImGui::EndDisabled();
-    if (verbose) ImGui::SameLine();
-    else ImGui::TableNextColumn();
-    // Auto/Stock can be an explicit escape even when a current request cannot
-    // be captured. Its independent backend capability never follows a draft.
-    const bool stock_ready = control.stock_writable && snapshot.data.connected
-        && !snapshot.opening && !snapshot.busy && state.controls_unlocked;
-    ImGui::BeginDisabled(!stock_ready);
-    if (ImGui::Button(id == ControlId::fan ? "Auto" : "Stock"))
+    if (ImGui::Button("Apply", ImVec2(classic ? -1.0f : 0.0f, 0))) state.commands.push_back({Command::Operation::apply, id, draft.value});
+    ImGui::EndDisabled(); hint(control.detail.c_str());
+    ImGui::TableNextColumn();
+    ImGui::BeginDisabled(!control.stock_writable || !snapshot.data.connected || snapshot.opening || snapshot.busy || !state.controls_unlocked);
+    if (ImGui::Button(id == ControlId::fan ? "Auto" : "Stock", ImVec2(classic ? -1.0f : 0.0f, 0)))
         state.commands.push_back({Command::Operation::stock, id, control.stock.value_or(0)});
     ImGui::EndDisabled();
-    if (verbose)
-        ImGui::TextColored(control.availability == Availability::transient ? amber : muted,
-            "%s%s", availability_text(control.availability), control.writable ? "" : " / read-only");
-    if (!in_range && draft.initialized) hint("Draft is outside the reported range; Apply is disabled.");
-    if (!control.detail.empty() && verbose)
-        ImGui::TextWrapped("%s", control.detail.c_str());
-    if (verbose && ranged) ImGui::TextColored(muted, "Range: %s to %s",
-        number_text(control.low, control.unit.c_str()).c_str(), number_text(control.high, control.unit.c_str()).c_str());
-    ImGui::PopID();
+    ImGui::PopID(); ImGui::PopID();
 }
 
-void live_curve(const SessionSnapshot& snapshot, const CurveDraft* edits = nullptr, float height = -1) {
-    if (!edits) ImGui::SeparatorText("Voltage / frequency");
-    if (snapshot.data.curve.empty()) {
-        ImGui::TextWrapped("Curve unavailable%s%s", snapshot.data.curve_error.empty() ? "" : ": ",
-            snapshot.data.curve_error.c_str());
+void end_curve_drag(ViewState& state) {
+    state.curve_draft.end_gesture();
+    state.curve_drag_point.reset();
+}
+
+void select_curve_point(ViewState& state, uint32_t index) {
+    state.selected_curve_point = index;
+    state.curve_entry_dirty = false;
+    state.curve_entry_editing = false;
+    sync_curve_entry(state);
+}
+
+bool hold_queued(const ViewState& state) {
+    return std::any_of(state.commands.begin(), state.commands.end(), [](const Command& c) {
+        return c.operation == Command::Operation::hold_curve_point || c.operation == Command::Operation::release_hold;
+    });
+}
+bool can_hold_selected(const ViewState& state) {
+    const auto& s = *state.live;
+    const auto& points = state.curve_draft.draft();
+    const auto point = std::find_if(points.begin(), points.end(), [&](const auto& p) { return p.idx == state.selected_curve_point; });
+    return state.controls_unlocked && s.data.connected && !s.busy && !s.opening && !s.curve_stale
+        && s.curve_revision && s.data.curve_freq_div && s.data.hold_available && !s.data.tuning.maintenance_needed()
+        && !s.tuning_ownership_uncertain && !state.curve_draft.dirty() && !state.curve_entry_dirty
+        && point != points.end() && std::isfinite(point->volt_mv) && point->volt_mv > 0 && !hold_queued(state);
+}
+void queue_selected_hold(ViewState& state) {
+    if (!can_hold_selected(state)) return;
+    const auto& s = *state.live;
+    Command c; c.operation = Command::Operation::hold_curve_point; c.hold_point_index = state.selected_curve_point;
+    c.expected_curve = s.data.curve; c.expected_curve_freq_div = s.data.curve_freq_div;
+    c.hold_headroom = state.hold_headroom; c.headroom_margin_mv = state.headroom_margin_mv;
+    state.commands.push_back(std::move(c));
+}
+void queue_hold_release(ViewState& state) {
+    if (!state.live->busy && state.live->data.tuning.maintenance_needed() && !hold_queued(state)) {
+        Command c; c.operation = Command::Operation::release_hold; state.commands.push_back(std::move(c));
+    }
+}
+void hold_status(const SessionSnapshot& snapshot) {
+    const auto& t = snapshot.data.tuning;
+    if (t.maintenance_needed())
+        ImGui::TextColored(t.confirmed && !t.recovery ? secondary : amber, "Owned V/F hold %.3f mV%s%s%s",
+            t.voltage_uv / 1000.0, t.confirmed ? "" : " / unconfirmed", t.recovery ? " / recovery pending" : "", t.headroom ? " + headroom" : "");
+    else if (snapshot.tuning_ownership_uncertain) ImGui::TextColored(amber, "V/F hold ownership uncertain");
+}
+
+void nudge_selected_curve(ViewState& state, int bins) {
+    const auto& points = state.curve_draft.draft();
+    const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
+    if (selected == points.end() || !state.live) return;
+    const auto& data = state.live->data;
+    state.curve_draft.stage_frequency_mhz(selected->idx, selected->freq_mhz
+        + static_cast<double>(bins) * data.curve_step_khz / 1000.0,
+        data.curve_step_khz, data.curve_max_abs_delta_khz);
+    state.curve_entry_dirty = false; sync_curve_entry(state);
+}
+void curve_keyboard(ViewState& state, bool window_wide = false) {
+    const auto& io = ImGui::GetIO();
+    if (!ImGui::IsWindowFocused(window_wide ? ImGuiFocusedFlags_AnyWindow : ImGuiFocusedFlags_ChildWindows)
+        || io.AppFocusLost || io.WantTextInput || (!window_wide && state.curve_entry_editing) || ImGui::IsAnyItemActive()) return;
+    if (window_wide && (io.KeyAlt || io.KeySuper || ImGui::IsPopupOpen(nullptr,
+        ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))) return;
+    auto& editor = state.curve_draft;
+    const auto& points = editor.draft();
+    if (points.empty()) return;
+    if (io.KeyCtrl) {
+        const bool z = ImGui::IsKeyPressed(ImGuiKey_Z);
+        const bool y = ImGui::IsKeyPressed(ImGuiKey_Y);
+        if ((z || y) && ImGui::GetTime() - state.curve_last_undo_time >= 0.4) {
+            state.curve_last_undo_time = ImGui::GetTime();
+            if (y || io.KeyShift) editor.redo_edit(); else editor.undo_edit();
+            state.curve_entry_dirty = false;
+            sync_curve_entry(state);
+        }
         return;
     }
-    std::array<double, DC_VFP_POINTS> voltage{}, frequency{};
-    const size_t count = std::min(snapshot.data.curve.size(), voltage.size());
-    for (size_t i = 0; i < count; ++i) {
-        voltage[i] = snapshot.data.curve[i].volt_mv;
-        frequency[i] = snapshot.data.curve[i].freq_mhz;
+    if (io.KeyAlt || io.KeySuper) return;
+    const int multiplier = io.KeyShift ? 3 : 1;
+    auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
+    if (selected == points.end()) return;
+    int position = static_cast<int>(selected - points.begin());
+    if (ImGui::IsKeyPressed(ImGuiKey_A)) position -= multiplier;
+    if (ImGui::IsKeyPressed(ImGuiKey_D)) position += multiplier;
+    position = std::max(0, std::min(static_cast<int>(points.size()) - 1, position));
+    if (points[static_cast<size_t>(position)].idx != state.selected_curve_point) {
+        select_curve_point(state, points[static_cast<size_t>(position)].idx);
+        selected = points.begin() + position;
     }
-    if (count != snapshot.data.curve.size())
-        ImGui::TextColored(amber, "Curve exceeds the understood point capacity; plot is truncated.");
-    if (snapshot.curve_stale) ImGui::TextColored(amber, "Last observed curve (stale). Refresh to read again.");
-    else if (!edits) ImGui::TextColored(muted, "Configured curve. Open V/F curve to stage point edits.");
-    if (height <= 0) height = u(short_view() ? 190.0f : 250.0f);
-    if (ImPlot::BeginPlot("##live_curve", ImVec2(-1, height), ImPlotFlags_NoTitle)) {
-        ImPlot::SetupAxes("Voltage (mV)", "Core (MHz)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
-        ImPlotSpec style;
-        style.LineColor = accent;
-        style.LineWeight = 2;
-        ImPlot::PlotLine("Configured curve", voltage.data(), frequency.data(), static_cast<int>(count), style);
-        if (edits && !edits->draft().empty()) {
-            std::array<double, DC_VFP_POINTS> draft_voltage{}, draft_frequency{};
-            const auto& draft = edits->draft();
-            const size_t draft_count = std::min(draft.size(), draft_voltage.size());
-            for (size_t i = 0; i < draft_count; ++i) {
-                draft_voltage[i] = draft[i].volt_mv;
-                draft_frequency[i] = draft[i].freq_mhz;
+    int direction = 0;
+    if (ImGui::IsKeyPressed(ImGuiKey_W)) ++direction;
+    if (ImGui::IsKeyPressed(ImGuiKey_S)) --direction;
+    if (direction) nudge_selected_curve(state, direction * multiplier);
+}
+
+void interactive_curve_plot(ViewState& state) {
+    const auto& snapshot = *state.live;
+    auto& editor = state.curve_draft;
+    const auto& points = editor.draft();
+    if (points.empty()) {
+        ImGui::TextWrapped("Curve unavailable: %s", snapshot.data.curve_error.empty() ? editor.status().c_str() : snapshot.data.curve_error.c_str());
+        return;
+    }
+    if (state.curve_drag_point && (!ImGui::IsMouseDown(ImGuiMouseButton_Left)
+        || ImGui::GetIO().AppFocusLost || !ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows))) end_curve_drag(state);
+    const auto saved_input = ImPlot::GetInputMap();
+    auto& input = ImPlot::GetInputMap();
+    input.Pan = state.curve_drag_point ? 4 : ImGuiMouseButton_Left;
+    input.Fit = 4; // Fit view is explicit; a double click on a dot is still a dot grab.
+    if (state.curve_fit_requested) ImPlot::SetNextAxesToFit();
+    const float height = std::max(u(180), ImGui::GetContentRegionAvail().y);
+    const auto flags = ImPlotFlags_NoTitle | ImPlotFlags_NoMouseText | ImPlotFlags_NoMenus | ImPlotFlags_NoBoxSelect;
+    ImPlot::PushStyleVar(ImPlotStyleVar_FitPadding, ImVec2(0.03f, 0.06f));
+    if (ImPlot::BeginPlot("##live_curve", ImVec2(-1, height), flags)) {
+        double xmin = points.front().volt_mv, xmax = xmin, ymin = points.front().freq_mhz, ymax = ymin;
+        for (const auto& point : points) {
+            xmin = std::min(xmin, point.volt_mv); xmax = std::max(xmax, point.volt_mv);
+            ymin = std::min(ymin, point.freq_mhz); ymax = std::max(ymax, point.freq_mhz);
+        }
+        xmin -= 25; xmax += 25;
+        ymin = std::min(0.0, ymin - 120); ymax = std::max(3000.0, ymax + 200);
+        ImPlot::SetupAxes("Voltage (mV)", "Core (MHz)");
+        // View constraints only: they are not device voltage/frequency limits.
+        ImPlot::SetupAxisLimitsConstraints(ImAxis_X1, xmin, xmax);
+        ImPlot::SetupAxisLimitsConstraints(ImAxis_Y1, ymin, ymax);
+        ImPlot::SetupAxisZoomConstraints(ImAxis_X1, std::min(20.0, xmax - xmin), xmax - xmin);
+        ImPlot::SetupAxisZoomConstraints(ImAxis_Y1, std::min(100.0, ymax - ymin), ymax - ymin);
+        ImPlot::SetupFinish();
+        if (ImPlot::IsPlotHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            end_curve_drag(state);
+            const ImVec2 mouse = ImGui::GetIO().MousePos;
+            double closest = static_cast<double>(u(14)) * u(14);
+            std::optional<uint32_t> grabbed;
+            for (const auto& point : points) {
+                const auto pixel = ImPlot::PlotToPixels(point.volt_mv, point.freq_mhz);
+                const double dx = pixel.x - mouse.x, dy = pixel.y - mouse.y;
+                const double distance = dx * dx + dy * dy;
+                if (distance <= closest) { closest = distance; grabbed = point.idx; }
             }
-            ImPlotSpec draft_style;
-            draft_style.LineColor = teal;
-            draft_style.LineWeight = 2;
-            ImPlot::PlotLine("Draft request", draft_voltage.data(), draft_frequency.data(), static_cast<int>(draft_count), draft_style);
+            if (grabbed) {
+                state.curve_drag_point = grabbed;
+                select_curve_point(state, *grabbed);
+                editor.begin_gesture();
+            }
+        }
+        if (state.curve_drag_point && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            const auto& data = snapshot.data;
+            editor.stage_frequency_mhz(*state.curve_drag_point, ImPlot::GetPlotMousePos().y,
+                data.curve_step_khz, data.curve_max_abs_delta_khz);
+            state.curve_entry_dirty = false;
+            sync_curve_entry(state);
+        }
+        std::array<double, DC_VFP_POINTS> current_x{}, current_y{}, draft_x{}, draft_y{};
+        const size_t current_count = std::min(snapshot.data.curve.size(), current_x.size());
+        const size_t draft_count = std::min(points.size(), draft_x.size());
+        for (size_t i = 0; i < current_count; ++i) {
+            current_x[i] = snapshot.data.curve[i].volt_mv; current_y[i] = snapshot.data.curve[i].freq_mhz;
+        }
+        for (size_t i = 0; i < draft_count; ++i) { draft_x[i] = points[i].volt_mv; draft_y[i] = points[i].freq_mhz; }
+        ImPlotSpec current;
+        current.LineColor = secondary; current.LineWeight = u(2);
+        current.Marker = ImPlotMarker_Circle; current.MarkerSize = u(5);
+        current.MarkerFillColor = secondary;
+        ImPlot::PlotLine("Current", current_x.data(), current_y.data(), static_cast<int>(current_count), current);
+        ImPlotSpec edited;
+        edited.LineColor = accent; edited.LineWeight = u(1);
+        edited.Marker = ImPlotMarker_Circle; edited.MarkerSize = u(6);
+        edited.MarkerFillColor = accent;
+        edited.MarkerLineColor = ImVec4(0.055f, 0.078f, 0.11f, 1);
+        ImPlot::PlotLine("Draft", draft_x.data(), draft_y.data(), static_cast<int>(draft_count), edited);
+        const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
+        if (selected != points.end()) {
+            ImPlotSpec mark;
+            mark.Marker = ImPlotMarker_Diamond; mark.MarkerSize = u(12);
+            mark.MarkerFillColor = amber; mark.MarkerLineColor = amber;
+            ImPlot::PlotScatter("Selected", &selected->volt_mv, &selected->freq_mhz, 1, mark);
+        }
+        if (state.presentation == Presentation::classic) {
+            const auto guide = [](const char* name, double voltage, ImVec4 color, float weight) {
+                if (!std::isfinite(voltage)) return;
+                ImPlotSpec line; line.LineColor = color; line.LineWeight = weight; line.Flags = ImPlotItemFlags_NoFit;
+                ImPlot::PlotInfLines(name, &voltage, 1, line);
+            };
+            guide("Cap", state.curve_cap_mv, amber, u(2));
+            guide("Ramp floor", state.curve_floor_mv, ImVec4(0.67f,0.49f,0.95f,1), u(2));
+            if (state.hard_mod_ack) guide("Hard floor (armed)", state.hard_floor_mv, ImVec4(1,0.25f,0.25f,1), u(3));
+            const auto& hold = snapshot.data.tuning;
+            if (hold.owned && hold.confirmed && !hold.recovery && !snapshot.tuning_ownership_uncertain)
+                guide("Held", hold.voltage_uv / 1000.0, teal, u(3));
+            if (selected != points.end()) {
+                const auto limits = ImPlot::GetPlotLimits();
+                if (editor.freq_div()) ImPlot::Annotation(limits.X.Max, limits.Y.Min, ImVec4(0,0,0,0), {-u(8),-u(8)}, true,
+                    "idx %u | %.3f mV | %.9g MHz | delta %+.9g MHz", selected->idx,
+                    selected->volt_mv, selected->freq_mhz, selected->delta_khz / (1000.0 * editor.freq_div()));
+                else ImPlot::Annotation(limits.X.Max, limits.Y.Min, ImVec4(0,0,0,0), {-u(8),-u(8)}, true,
+                    "idx %u | %.3f mV | %.9g MHz | delta unverified", selected->idx, selected->volt_mv, selected->freq_mhz);
+            }
         }
         const auto& telemetry = snapshot.data.telemetry;
         if ((telemetry.present & (DC_T_VCORE_MV | DC_T_CORE)) == (DC_T_VCORE_MV | DC_T_CORE)
             && !(snapshot.telemetry_stale_mask & (DC_T_VCORE_MV | DC_T_CORE)) && !snapshot.paused) {
             const double clock = telemetry.core;
-            ImPlotSpec point;
-            point.Marker = ImPlotMarker_Circle;
-            point.MarkerFillColor = teal;
-            point.MarkerSize = 5;
-            ImPlot::PlotScatter("Observed operating point", &telemetry.vcore_mv, &clock, 1, point);
+            ImPlotSpec observed;
+            observed.Marker = ImPlotMarker_Circle; observed.MarkerSize = u(4);
+            observed.MarkerFillColor = teal;
+            ImPlot::PlotScatter("Observed operating point", &telemetry.vcore_mv, &clock, 1, observed);
         }
         ImPlot::EndPlot();
+        state.curve_fit_requested = false;
     }
-    if (!snapshot.data.curve_error.empty())
-        ImGui::TextWrapped("Curve: %s", snapshot.data.curve_error.c_str());
+    ImPlot::PopStyleVar();
+    ImPlot::GetInputMap() = saved_input;
 }
 
 void live_daily(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
     if (!short_view()) title(verbose ? "Control" : "Daily tuning", "Stage a request, then Apply. Undo restores the recorded request.");
-    live_summary(snapshot);
-    ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
-    hint("Enable explicit Apply and Stock actions in this session. Editing a draft does not write.");
-    ImGui::SameLine();
+    live_summary(snapshot,state.shunt.correction);
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh readings")) state.refresh_requested = true;
     ImGui::EndDisabled();
     const char* names[] = {"Core offset", "Memory offset", "Board power", "Fan target", "Voltage boost"};
-    if (verbose) {
-        for (size_t i = 0; i < snapshot.data.controls.size(); ++i)
-            live_control_row(state, static_cast<ControlId>(i), names[i], true);
-    } else if (ImGui::BeginTable("daily_controls", 5, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
+    if (ImGui::BeginTable("daily_controls", 5, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
         ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthFixed, u(120));
         ImGui::TableSetupColumn("Configured", ImGuiTableColumnFlags_WidthFixed, u(125));
         ImGui::TableSetupColumn("Draft", ImGuiTableColumnFlags_WidthStretch);
@@ -697,6 +895,15 @@ void live_daily(ViewState& state, bool verbose) {
         for (size_t i = 0; i < snapshot.data.controls.size(); ++i)
             live_control_row(state, static_cast<ControlId>(i), names[i], false);
         ImGui::EndTable();
+    }
+    ImGui::SeparatorText("NVVDD current limit");
+    draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
+    draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::daily_clocks);
+    if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s", state.advanced_view.notice.c_str());
+    if (verbose) {
+        if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
+            draw_daily_rail_controls(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
+        if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
     }
     if (!verbose && ImGui::CollapsingHeader("Control details")) {
         for (size_t i = 0; i < snapshot.data.controls.size(); ++i) {
@@ -712,84 +919,98 @@ void live_daily(ViewState& state, bool verbose) {
     if (ImGui::Button("Revert local drafts")) state.revert_draft();
     ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!state.controls_unlocked || !snapshot.data.undo_available || !snapshot.data.connected
+    ImGui::BeginDisabled((!state.controls_unlocked&&!snapshot.data.undo_metadata_only) || !snapshot.data.undo_available || (!snapshot.data.connected&&!snapshot.data.undo_metadata_only)
         || snapshot.busy || snapshot.opening);
-    if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
+    if (ImGui::Button(snapshot.data.undo_metadata_only?"Undo label update":"Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
     ImGui::EndDisabled();
     if (!snapshot.data.undo_label.empty()) hint(snapshot.data.undo_label.c_str());
     if (snapshot.data.enforced_power_w)
         ImGui::TextWrapped("NVML enforced power limit: %s. This is separate from the configured request and actual draw.",
             number_text(snapshot.data.enforced_power_w, "W").c_str());
-    if (ImGui::Button("Open V/F curve")) state.page = Page::curve;
-    live_curve(snapshot);
+    if (ImGui::Button("Open V/F curve")) {
+        state.curve_window_open = true;
+        state.curve_window_focus_requested = true;
+    }
 }
 
-void live_curve_workspace(ViewState& state, bool verbose) {
+void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false) {
     const auto& snapshot = *state.live;
     auto& editor = state.curve_draft;
-    if (!short_view()) title("V/F curve", "Stage point deltas, review the draft, then Apply.");
     const auto& points = editor.draft();
-    size_t changed = 0;
-    for (const auto& point : points) {
-        const auto& baseline = editor.baseline();
-        const auto before = std::find_if(baseline.begin(), baseline.end(), [&](const auto& row) { return row.idx == point.idx; });
-        if (before != baseline.end() && before->delta_khz != point.delta_khz) ++changed;
+    if (state.hard_ack_generation != snapshot.generation) {
+        state.hard_ack_generation = snapshot.generation; state.hard_mod_ack = false; state.hard_plan_staged = false;
     }
-    ImGui::TextColored(changed ? amber : secondary, "%zu pending point%s%s", changed, changed == 1 ? "" : "s",
-        state.curve_entry_dirty ? " | entry not staged" : "");
-    ImGui::SameLine();
-    const char* short_status = snapshot.curve_stale ? "Curve stale" : editor.can_apply() ? "Ready to Apply"
-        : editor.dirty() ? "Draft retained; Refresh / Revert"
-        : editor.status().size() > 30 ? "See curve details" : editor.status().c_str();
-    ImGui::TextColored(editor.can_apply() ? teal : secondary, "%s", short_status);
-    hint(editor.status().c_str());
-    ImGui::SameLine();
-    ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
-    if (ImGui::Button("Refresh curve")) state.refresh_requested = true;
-    ImGui::EndDisabled();
-    // Reserve the short editing/action panel; put the plot first so a compact
-    // or high-DPI window never hides every curve below explanatory text.
-    const float plot_height = std::max(u(130), std::min(u(300), ImGui::GetContentRegionAvail().y - u(150)));
-    live_curve(snapshot, &editor, plot_height);
     if (!points.empty()) {
         const auto selected = std::find_if(points.begin(), points.end(), [&](const auto& point) { return point.idx == state.selected_curve_point; });
         char preview[128]{};
         if (selected != points.end()) std::snprintf(preview, sizeof(preview), "#%u | %.3f mV", selected->idx, selected->volt_mv);
-        ImGui::SetNextItemWidth(u(155));
+        ImGui::SetNextItemWidth(u(165));
         if (ImGui::BeginCombo("Point", preview)) {
             for (const auto& point : points) {
                 char name[128]{};
                 std::snprintf(name, sizeof(name), "#%u | %.3f mV | %.9g MHz", point.idx, point.volt_mv, point.freq_mhz);
-                if (ImGui::Selectable(name, point.idx == state.selected_curve_point)) {
-                    state.selected_curve_point = point.idx;
-                    state.curve_entry_dirty = false;
-                    state.curve_entry_editing = false;
-                    sync_curve_entry(state);
-                }
+                if (ImGui::Selectable(name, point.idx == state.selected_curve_point)) select_curve_point(state, point.idx);
             }
             ImGui::EndCombo();
         }
+        if (state.presentation == Presentation::classic) {
+            for (int bins : {-5,-1,1,5}) {
+                ImGui::SameLine(); char label[64]{};
+                std::snprintf(label,sizeof(label),"%+.9g", static_cast<double>(bins) * snapshot.data.curve_step_khz / 1000.0);
+                ImGui::PushID(bins);
+                if (ImGui::Button(label)) nudge_selected_curve(state,bins);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stage %d clock bin(s), %+.9g MHz. No GPU write.", bins,
+                    static_cast<double>(bins) * snapshot.data.curve_step_khz / 1000.0);
+                ImGui::PopID();
+            }
+        }
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(u(105));
-        double value = state.curve_delta_mhz;
-        if (ImGui::InputDouble("Delta (MHz)", &value, 0, 0, "%.9g") && std::isfinite(value)) {
-            state.curve_delta_mhz = value;
-            state.curve_entry_dirty = true;
+        ImGui::SetNextItemWidth(u(100));
+        double target = state.curve_frequency_mhz;
+        if (ImGui::InputDouble("MHz", &target, 0, 0, "%.9g") && std::isfinite(target)) {
+            state.curve_frequency_mhz = target; state.curve_entry_dirty = true;
         }
         state.curve_entry_editing = ImGui::IsItemActive();
         ImGui::SameLine();
-        if (ImGui::Button("Stage point")) {
-            if (editor.stage_mhz(state.selected_curve_point, state.curve_delta_mhz)) state.curve_entry_dirty = false;
-        }
-        ImGui::BeginDisabled(!editor.can_undo());
-        if (ImGui::Button("Undo edit")) { editor.undo_edit(); sync_curve_entry(state); }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Revert local curve")) {
-            if (editor.revert()) { state.curve_entry_dirty = false; state.curve_entry_editing = false; sync_curve_entry(state); }
+        if (ImGui::Button("Set MHz")) {
+            if (editor.stage_frequency_mhz(state.selected_curve_point, state.curve_frequency_mhz,
+                snapshot.data.curve_step_khz, snapshot.data.curve_max_abs_delta_khz, true)) {
+                state.curve_entry_dirty = false; sync_curve_entry(state);
+            }
         }
         ImGui::SameLine();
+        ImGui::TextColored(secondary, "Delta: %s", number_text(state.curve_delta_mhz, "MHz").c_str());
+    }
+    ImGui::BeginDisabled(!editor.can_undo());
+    if (ImGui::Button("Undo edit")) { editor.undo_edit(); state.curve_entry_dirty = false; sync_curve_entry(state); }
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled(!editor.can_redo());
+    if (ImGui::Button("Redo edit")) { editor.redo_edit(); state.curve_entry_dirty = false; sync_curve_entry(state); }
+    ImGui::EndDisabled(); ImGui::SameLine();
+    if (ImGui::Button("Revert local curve")) {
+        if (editor.revert()) { state.curve_entry_dirty = false; state.curve_entry_editing = false; sync_curve_entry(state); }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Fit view")) state.curve_fit_requested = true;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
+    if (ImGui::Button("Refresh curve")) state.refresh_requested = true;
+    ImGui::SameLine();
+    ImGui::BeginDisabled(snapshot.busy || !snapshot.data.connected || snapshot.curve_stale || points.empty());
+    if (ImGui::Button("Profiles...")) ImGui::OpenPopup("curve-profiles");
+    if (ImGui::BeginPopup("curve-profiles")) {
+        if (ImGui::MenuItem("Save configured curve...")) state.save_curve_profile_requested = true;
+        hint("Save fresh configured V/F requests. Unsaved local edits are not included.");
+        if (ImGui::MenuItem("Load curve to draft...", nullptr, false, !editor.dirty() && !state.curve_entry_dirty)) state.load_curve_profile_requested = true;
+        hint("Validate the saved adapter and curve geometry, then stage for review. Apply writes explicitly. Finish or revert pending edits first.");
+        ImGui::EndPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    if (!state.curve_profile_status.empty()) ImGui::TextWrapped("%s", state.curve_profile_status.c_str());
+    if (!embedded) {
         ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
+        ImGui::SameLine();
     }
     const bool ready = snapshot.data.connected && !snapshot.busy && !snapshot.opening
         && !snapshot.curve_stale && snapshot.curve_revision != 0 && snapshot.data.curve_freq_div != 0 && state.controls_unlocked;
@@ -797,33 +1018,150 @@ void live_curve_workspace(ViewState& state, bool verbose) {
     if (ImGui::Button("Apply curve")) {
         Command command;
         command.operation = Command::Operation::apply_curve;
-        command.expected_curve = editor.baseline();
-        command.expected_curve_freq_div = editor.freq_div();
-        command.curve_deltas = editor.changes();
-        state.commands.push_back(std::move(command));
+        command.expected_curve = editor.baseline(); command.expected_curve_freq_div = editor.freq_div();
+        command.curve_deltas = editor.changes(); state.commands.push_back(std::move(command));
     }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
+    ImGui::EndDisabled(); ImGui::SameLine();
     ImGui::BeginDisabled(!ready || !snapshot.data.curve_reset_writable || snapshot.data.curve.empty() || snapshot.data.curve.size() > DC_VFP_POINTS);
     if (ImGui::Button("Reset curve to stock")) {
         Command command;
-        command.operation = Command::Operation::reset_curve;
-        command.expected_curve = snapshot.data.curve;
-        command.expected_curve_freq_div = snapshot.data.curve_freq_div;
-        state.commands.push_back(std::move(command));
+        command.operation = Command::Operation::reset_curve; command.expected_curve = snapshot.data.curve;
+        command.expected_curve_freq_div = snapshot.data.curve_freq_div; state.commands.push_back(std::move(command));
     }
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled((!state.controls_unlocked&&!snapshot.data.undo_metadata_only) || (!snapshot.data.connected&&!snapshot.data.undo_metadata_only) || !snapshot.data.undo_available || snapshot.busy || snapshot.opening);
+    if (ImGui::Button(snapshot.data.undo_metadata_only?"Undo label update":"Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::core, 0});
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!state.controls_unlocked || !snapshot.data.connected || !snapshot.data.undo_available || snapshot.busy || snapshot.opening);
-    if (ImGui::Button("Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::core, 0});
-    ImGui::EndDisabled();
-    if (ImGui::CollapsingHeader("Curve workflow details", verbose && !short_view() ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-        ImGui::TextWrapped("%s", editor.status().c_str());
-        if (snapshot.data.curve_step_khz)
-            ImGui::TextColored(muted, "Reported core grid: %.9g MHz. Entries preserve exact raw kHz.", snapshot.data.curve_step_khz / 1000.0);
-        ImGui::TextWrapped("Backend checks current geometry, frequency divisor and request limits on Apply. Draft frequency predicts the requested delta; the operating point is measured telemetry.");
-        ImGui::TextWrapped("Undo edit changes only the staged curve. Hardware Undo restores the recorded write. A changed or unreadable curve retains your draft; Refresh and Revert explicitly to rebase. Holds and curve planners remain under migration.");
+    if (ImGui::CollapsingHeader("Curve shape tools", embedded ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Cap (mV)", &state.curve_cap_mv, 0, 0, "%.3f");
+        ImGui::SameLine(); ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Ramp floor (mV)", &state.curve_floor_mv, 0, 0, "%.3f");
+        std::optional<CurvePlanKind> kind;
+        const bool can_plan = !points.empty() && snapshot.data.curve_step_khz && snapshot.data.curve_max_abs_delta_khz
+            && snapshot.data.curve_model_max_rise_khz && state.planner_api.predict;
+        ImGui::BeginDisabled(!can_plan);
+        if (ImGui::Button("Stage de-flatten")) kind = CurvePlanKind::deflatten;
+        ImGui::SameLine(); if (ImGui::Button("Stage ramp")) kind = CurvePlanKind::ramp;
+        ImGui::SameLine(); if (ImGui::Button("Stage re-phase")) kind = CurvePlanKind::rephase;
+        ImGui::EndDisabled();
+        if (ImGui::CollapsingHeader("Hard de-flatten (needs an external voltage mod)")) {
+            ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Hard floor (mV)", &state.hard_floor_mv, 0, 0, "%.3f");
+            ImGui::SameLine(); ImGui::SetNextItemWidth(u(100)); ImGui::InputDouble("Hard target (MHz)", &state.hard_target_mhz, 0, 0, "%.3f");
+            ImGui::Checkbox("I have the external voltage modification required for hard de-flatten", &state.hard_mod_ack);
+            ImGui::TextWrapped("Hard de-flatten requests one clock for all points at or above the floor. It requires an external voltage modification; without it the requested clocks may be unstable or crash the driver. Effects below the floor are model estimates, not measurements.");
+            ImGui::BeginDisabled(!can_plan || !state.planner_api.hard_deflatten || !state.hard_mod_ack);
+            if (ImGui::Button("Stage hard de-flatten")) kind = CurvePlanKind::hard_deflatten;
+            ImGui::EndDisabled();
+        }
+        hint("Shape tools stage local edits. Prediction uses the backend's software model; Apply and readback establish the stored request.");
+        if (kind) {
+            CurvePlanRequest request;
+            request.kind = *kind; request.points = points; request.freq_div = editor.freq_div();
+            request.step_khz = snapshot.data.curve_step_khz; request.max_abs_delta_khz = snapshot.data.curve_max_abs_delta_khz;
+            request.max_rise_khz = snapshot.data.curve_model_max_rise_khz;
+            if (*kind == CurvePlanKind::deflatten || *kind == CurvePlanKind::ramp) request.cap_mv = state.curve_cap_mv;
+            if (*kind == CurvePlanKind::ramp) request.floor_mv = state.curve_floor_mv;
+            if (*kind == CurvePlanKind::hard_deflatten) { request.floor_mv = state.hard_floor_mv; request.target_mhz = state.hard_target_mhz; }
+            const auto plan = plan_curve(state.planner_api, request);
+            state.curve_plan_message = plan.message;
+            if (plan.ok && !plan.changes.empty()) {
+                auto staged = editor; staged.end_gesture(); staged.begin_gesture(); bool valid = true;
+                for (const auto& change : plan.changes) valid = staged.stage_khz(static_cast<uint32_t>(change.idx), static_cast<double>(change.delta_khz)) && valid;
+                staged.end_gesture();
+                if (valid) {
+                    editor = std::move(staged); state.curve_entry_dirty = false; sync_curve_entry(state);
+                    if (*kind == CurvePlanKind::hard_deflatten) { state.hard_plan_staged = true; state.hard_staged_floor_mv = state.hard_floor_mv; state.hard_mod_ack = false; }
+                    state.curve_plan_message = "Staged " + std::to_string(plan.changes.size()) + " points. Review the dots before Apply.";
+                    if (!plan.predicted_khz.empty()) state.curve_plan_message += " Model peak: " +
+                        number_text(*std::max_element(plan.predicted_khz.begin(), plan.predicted_khz.end()) / 1000.0, "MHz") + " (estimate).";
+                } else state.curve_plan_message = "Plan could not be staged; draft unchanged";
+            }
+        }
+        if (!state.curve_plan_message.empty()) ImGui::TextWrapped("%s", state.curve_plan_message.c_str());
     }
+    if (state.presentation != Presentation::classic) curve_keyboard(state);
+    if (!editor.dirty()) state.hard_plan_staged = false;
+    if (editor.dirty()) {
+        const auto& baseline = editor.baseline();
+        double before_peak = 0, after_peak = 0; std::size_t changed_points = 0;
+        for (const auto& point : points) {
+            after_peak = std::max(after_peak, point.freq_mhz);
+            const auto previous = std::find_if(baseline.begin(), baseline.end(), [&](const auto& p) { return p.idx == point.idx; });
+            if (previous != baseline.end()) { before_peak = std::max(before_peak, previous->freq_mhz); if (previous->delta_khz != point.delta_khz) ++changed_points; }
+        }
+        ImGui::TextColored(amber, "Apply would request %zu changed point(s). Curve peak: %.3f -> %.3f MHz (requested model, not measured).", changed_points, before_peak, after_peak);
+        if (state.hard_plan_staged) {
+            ImGui::TextColored(amber, "Hard de-flatten remains in this draft; external voltage modification is required. Revert to discard the draft.");
+            auto prediction = [&](const std::vector<dc_vf_point>& input, std::vector<int64_t>& by_point) {
+                if (!state.planner_api.predict || !snapshot.data.curve_model_max_rise_khz || input.empty()) return false;
+                std::vector<dc_vfp_num> khz(input.size());
+                for (size_t i = 0; i < input.size(); ++i) {
+                    const double value = input[i].freq_mhz * 1000.0;
+                    if (!std::isfinite(value) || value <= 0 || value > 9007199254740992.0) return false;
+                    khz[i].kind = DC_VFP_INT; khz[i].i = static_cast<int64_t>(std::nearbyint(value));
+                }
+                dc_vfp_num rise{}; rise.kind = DC_VFP_INT; rise.i = snapshot.data.curve_model_max_rise_khz;
+                std::vector<int64_t> values(input.size()); std::vector<uint32_t> order(input.size());
+                if (state.planner_api.predict(input.data(), input.size(), khz.data(), &rise, values.data(), order.data(), input.size()) != DC_OK) return false;
+                by_point.resize(input.size()); std::vector<bool> seen(input.size());
+                for (size_t i = 0; i < input.size(); ++i) {
+                    if (order[i] >= input.size() || seen[order[i]]) return false;
+                    seen[order[i]] = true; by_point[order[i]] = values[i];
+                }
+                return true;
+            };
+            std::vector<int64_t> before, after;
+            if (baseline.size() == points.size() && prediction(baseline, before) && prediction(points, after)) {
+                size_t lifted = 0; double maximum_lift = 0, lowest = 0;
+                for (size_t i = 0; i < points.size(); ++i) if (points[i].idx == baseline[i].idx && points[i].volt_mv < state.hard_staged_floor_mv && after[i] > before[i]) {
+                    const double lift = static_cast<double>(after[i] - before[i]) / 1000.0;
+                    if (!lifted || points[i].volt_mv < lowest) lowest = points[i].volt_mv;
+                    ++lifted; maximum_lift = std::max(maximum_lift, lift);
+                }
+                ImGui::TextWrapped("Model estimate below %.3f mV: %zu point(s) raised%s", state.hard_staged_floor_mv, lifted, lifted ? ":" : ".");
+                if (lifted) ImGui::TextWrapped("Lowest affected %.3f mV; largest increase %.3f MHz. These are predictions, not measurements.", lowest, maximum_lift);
+            } else ImGui::TextWrapped("Below-floor model estimate unavailable; physical response is unknown.");
+        }
+    }
+    ImGui::BeginDisabled(!can_hold_selected(state));
+    if (ImGui::Button("Hold selected point")) queue_selected_hold(state);
+    ImGui::EndDisabled(); ImGui::SameLine(); ImGui::Checkbox("Hold headroom",&state.hold_headroom);
+    ImGui::SameLine(); ImGui::SetNextItemWidth(u(85)); ImGui::InputDouble("Margin (mV)",&state.headroom_margin_mv,0,0,"%.3f");
+    hold_status(snapshot);
+    const char* status = snapshot.curve_stale ? "Curve stale; edits retained" : editor.status().c_str();
+    ImGui::TextColored(editor.dirty() ? amber : secondary, "%s", status);
+    ImGui::TextColored(muted, "Drag dots | A/D select | W/S +/- %.9g MHz | Shift x3 | Ctrl+Z / Y | Ctrl+H hold / release",
+        snapshot.data.curve_step_khz / 1000.0);
+    if (ImGui::CollapsingHeader("Curve details")) {
+        ImGui::TextWrapped("Set MHz floors onto the captured point's clock phase. Drag snaps half up; voltage stays fixed. Empty left-drag pans; wheel zooms. Ctrl+Shift+Z also redoes local edits (64 deep). Closing keeps the draft. Apply and hardware Undo are separate explicit commands.");
+        ImGui::TextWrapped("Current card grid: %.9g MHz. Request divisor: %u. Draft frequency predicts a request, not a measurement.",
+            snapshot.data.curve_step_khz / 1000.0, editor.freq_div());
+        if (verbose) ImGui::TextWrapped("%s", snapshot.data.curve_error.c_str());
+    }
+    if (!snapshot.log.empty()) {
+        const auto& last = snapshot.log.back();
+        ImGui::TextColored(last.ok ? secondary : amber, "%s", last.message.c_str());
+        hint(last.message.c_str());
+    }
+    interactive_curve_plot(state);
+}
+
+void draw_curve_window(ViewState& state) {
+    if (state.curve_drag_point && (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::GetIO().AppFocusLost))
+        end_curve_drag(state);
+    if (!state.curve_window_open) { if (!state.curve_inline_active) end_curve_drag(state); return; }
+    const auto display = ImGui::GetIO().DisplaySize;
+    const ImVec2 maximum(std::max(320.0f, display.x - u(16)), std::max(240.0f, display.y - u(16)));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(std::min(u(640), maximum.x), std::min(u(480), maximum.y)), maximum);
+    ImGui::SetNextWindowSize(ImVec2(maximum.x - u(12), maximum.y - u(12)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    if (state.curve_window_focus_requested) { ImGui::SetNextWindowFocus(); state.curve_window_focus_requested = false; }
+    if (ImGui::Begin("V/F curve editor###druta_curve_editor", &state.curve_window_open, ImGuiWindowFlags_NoSavedSettings)) {
+        if (state.preview) { label("Preview / sample data. No GPU session is connected."); vf_plot(state, ImGui::GetContentRegionAvail().y); }
+        else if (state.live) live_curve_workspace(state, state.presentation == Presentation::classic);
+        else ImGui::TextUnformatted("Waiting for a fresh curve...");
+    }
+    ImGui::End();
+    if (!state.curve_window_open) end_curve_drag(state);
 }
 
 void live_identity(const SessionSnapshot& snapshot) {
@@ -840,15 +1178,148 @@ void live_identity(const SessionSnapshot& snapshot) {
     if (identity.pairing_error[0]) ImGui::TextWrapped("Pairing: %s", identity.pairing_error);
 }
 
+void live_perf_panel(ViewState& state) {
+    const auto& snapshot=*state.live;
+    if (ImGui::CollapsingHeader("PERF diagnostics")) {
+        ImGui::BeginDisabled(snapshot.busy || snapshot.opening || !snapshot.data.connected);
+        const PerfViewModel empty{};
+        if (draw_perf_diagnostics(snapshot.data.perf_diagnostics ? *snapshot.data.perf_diagnostics : empty)) {
+            Command command; command.operation=Command::Operation::refresh_perf_diagnostics;
+            state.commands.push_back(command);
+        }
+        ImGui::EndDisabled();
+    }
+    if (ImGui::CollapsingHeader("Power arbitration")) {
+        ImGui::BeginDisabled(snapshot.busy || snapshot.opening || !snapshot.data.connected);
+        const PowerArbitrationModel empty;
+        if (draw_power_arbitration(snapshot.data.power_arbitration ? *snapshot.data.power_arbitration : empty)) {
+            Command command; command.operation=Command::Operation::refresh_power_arbitration;
+            state.commands.push_back(command);
+        }
+        ImGui::EndDisabled();
+    }
+}
+
+void live_semantic_controls(ViewState& state, bool classic) {
+    const auto& snapshot = *state.live;
+    const bool busy = snapshot.busy || snapshot.opening || !snapshot.data.connected;
+    const bool voltage_navigation=state.open_voltage_policy_requested;
+    const bool integral_navigation=state.open_power_integral_requested;
+    const bool tables_navigation=state.open_voltage_tables_requested;
+    const bool limits_navigation=state.open_voltage_limits_requested;
+    const bool saving_navigation=state.open_power_saving_requested;
+    const bool gating_navigation=state.open_clock_gating_requested;
+    const bool weights_navigation=state.open_power_weights_requested;
+    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation||saving_navigation||gating_navigation||weights_navigation;
+    ImGui::PushID("advanced-semantic-controls");
+    if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
+    if(policy_navigation)ImGui::SetNextItemOpen(weights_navigation);
+    state.open_power_weights_requested=false;
+    if(ImGui::CollapsingHeader("Power relationship weights")){
+        const auto* weights=snapshot.data.power_weights.get();PowerWeightsData with_saved_receipt;
+        if(state.power_weights_saved&&state.power_weights_saved->receipt&&state.power_weights_saved->receipt->identity.slot==snapshot.selected_slot&&
+           (!snapshot.data.identity.uuid[0]||state.power_weights_saved->receipt->uuid==snapshot.data.identity.uuid)&&(!weights||!weights->receipt)){
+            if(weights)with_saved_receipt=*weights;
+            with_saved_receipt.receipt=state.power_weights_saved->receipt;with_saved_receipt.receipt_message=state.power_weights_saved->receipt_message;weights=&with_saved_receipt;
+        }
+        auto intents=draw_power_weights(state.power_weights_view,weights,snapshot.generation,snapshot.busy||snapshot.opening,classic,state.controls_unlocked,snapshot.data.connected);
+        state.power_weights_intents.insert(state.power_weights_intents.end(),std::make_move_iterator(intents.begin()),std::make_move_iterator(intents.end()));
+    }
+    if(policy_navigation)ImGui::SetNextItemOpen(saving_navigation);
+    state.open_power_saving_requested=false;
+    if(ImGui::CollapsingHeader("Power saving")){
+        if(saving_navigation)ImGui::SetScrollHereY(0.0f);
+        auto intents=draw_power_saving_controls(state.power_saving_view,snapshot.data.power_saving.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
+        state.power_saving_intents.insert(state.power_saving_intents.end(),intents.begin(),intents.end());
+    }
+    if(policy_navigation)ImGui::SetNextItemOpen(gating_navigation);
+    state.open_clock_gating_requested=false;
+    if(ImGui::CollapsingHeader("Clock gating and PCIe speed")){
+        if(gating_navigation)ImGui::SetScrollHereY(0.0f);
+        auto intents=draw_clock_gating_controls(state.clock_gating_view,snapshot.data.clock_gating.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
+        state.clock_gating_intents.insert(state.clock_gating_intents.end(),intents.begin(),intents.end());
+    }
+    if(policy_navigation)ImGui::SetNextItemOpen(tables_navigation);
+    state.open_voltage_tables_requested=false;
+    if (ImGui::CollapsingHeader("Voltage request and offset tables")) {
+        if(tables_navigation)ImGui::SetScrollHereY(0.0f);
+        auto intents=draw_voltage_tables_controls(state.voltage_tables_view,snapshot.data.voltage_tables.get(),snapshot.generation,busy,state.controls_unlocked,classic);
+        state.voltage_tables_intents.insert(state.voltage_tables_intents.end(),intents.begin(),intents.end());
+    }
+    if(policy_navigation)ImGui::SetNextItemOpen(limits_navigation);
+    state.open_voltage_limits_requested=false;
+    if (ImGui::CollapsingHeader("Voltage definitions and device delays")) {
+        if(limits_navigation)ImGui::SetScrollHereY(0.0f);
+        auto intents=draw_voltage_limits_controls(state.voltage_limits_view,snapshot.data.voltage_limits.get(),snapshot.generation,busy,state.controls_unlocked,classic);
+        state.voltage_limits_intents.insert(state.voltage_limits_intents.end(),intents.begin(),intents.end());
+    }
+    if(policy_navigation)ImGui::SetNextItemOpen(integral_navigation);
+    state.open_power_integral_requested=false;
+    if (ImGui::CollapsingHeader("Power feedback ratios")) {
+        if(integral_navigation)ImGui::SetScrollHereY(0.0f);
+        PowerIntegralViewContext context;
+        context.generation = snapshot.generation; context.slot = snapshot.selected_slot;
+        context.uuid = snapshot.data.identity.uuid;
+        context.connected = snapshot.data.connected; context.busy = snapshot.busy || snapshot.opening; context.unlocked = state.controls_unlocked;
+        const PowerIntegralData empty;
+        for (const auto& intent : draw_power_integral(state.power_integral_view,
+            snapshot.data.power_integral ? *snapshot.data.power_integral : empty, context, true)) {
+            if (intent.generation != snapshot.generation || intent.slot != snapshot.selected_slot || intent.uuid != snapshot.data.identity.uuid) continue;
+            Command command;
+            switch (intent.action) {
+            case PowerIntegralAction::refresh: command.operation = Command::Operation::power_integral_read; break;
+            case PowerIntegralAction::apply:
+            case PowerIntegralAction::reported_default: command.operation = Command::Operation::power_integral_apply; command.expected_request_raw = intent.expected; break;
+            case PowerIntegralAction::undo: command.operation = Command::Operation::power_integral_undo; break;
+            case PowerIntegralAction::restore: command.operation = Command::Operation::power_integral_restore; break;
+            case PowerIntegralAction::save_profile: case PowerIntegralAction::load_profile:
+            case PowerIntegralAction::preview_profile: case PowerIntegralAction::apply_profile:
+            case PowerIntegralAction::undo_profile: case PowerIntegralAction::recover_profile:
+                state.power_integral_profile_intents.push_back(intent); continue;
+            }
+            command.integral_policy = intent.policy; command.integral_upper = intent.field == PowerIntegralField::upper;
+            command.integral_raw = intent.raw; state.commands.push_back(std::move(command));
+        }
+    }
+    if(policy_navigation)ImGui::SetNextItemOpen(voltage_navigation);
+    state.open_voltage_policy_requested=false;
+    if (ImGui::CollapsingHeader("Voltage admission and V/F policies")) {
+        if(voltage_navigation)ImGui::SetScrollHereY(0.0f);
+        auto output = draw_voltage_policy_controls(state.voltage_policy_view, snapshot.data.voltage_policies.get(),
+            snapshot.generation, snapshot.busy || snapshot.opening, state.controls_unlocked, classic, snapshot.data.connected);
+        for (const auto& intent : output.intents) {
+            Command command;
+            switch (intent.operation) {
+            case VoltagePolicyIntent::Operation::refresh: command.operation = Command::Operation::voltage_policy_read; break;
+            case VoltagePolicyIntent::Operation::apply: command.operation = Command::Operation::voltage_policy_apply; break;
+            case VoltagePolicyIntent::Operation::restore_initial: command.operation = Command::Operation::voltage_policy_restore; break;
+            case VoltagePolicyIntent::Operation::undo: command.operation = Command::Operation::voltage_policy_undo; break;
+            case VoltagePolicyIntent::Operation::recover: command.operation = Command::Operation::voltage_policy_recover; break;
+            case VoltagePolicyIntent::Operation::save_profile: case VoltagePolicyIntent::Operation::load_profile:
+                state.voltage_policy_profile_intents.push_back(intent); continue;
+            }
+            command.voltage_policy = std::make_shared<VoltagePolicyRequest>(intent.request);
+            state.commands.push_back(std::move(command));
+        }
+    }
+    ImGui::PopID();
+}
+
 void live_advanced(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
-    title("Advanced", "Current session details. Additional control workflows remain under migration.");
+    title("Advanced", "Stage a selected request, then Apply. Details explain reported capabilities.");
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
     if (ImGui::Button("Refresh details")) state.refresh_requested = true;
     ImGui::SameLine();
     if (ImGui::Button("Reconnect")) state.reconnect_requested = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Frequency locks...")) state.frequency_view.open=true;
     ImGui::EndDisabled();
+    if (!verbose) draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::additional_memory);
+    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose, &state.policy_annotations);
+    live_semantic_controls(state, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
+    live_perf_panel(state);
     if (ImGui::CollapsingHeader("Adapter and driver", flags)) live_identity(snapshot);
     if (ImGui::CollapsingHeader("Control capabilities", flags)) {
         const char* names[] = {"Core offset", "Memory offset", "Board power", "Fan target", "Voltage boost"};
@@ -868,13 +1339,14 @@ void live_advanced(ViewState& state, bool verbose) {
         measured_value(snapshot, "Requested lock voltage", DC_T_VF_LOCK_MV, telemetry.vf_lock_mv, "mV");
         measured_value(snapshot, "Clock lock minimum", DC_T_CLK_LOCK, telemetry.clk_lock_min_mhz, "MHz");
         measured_value(snapshot, "Clock lock maximum", DC_T_CLK_LOCK, telemetry.clk_lock_max_mhz, "MHz");
-        ImGui::TextWrapped("Unreadable lock state does not establish an unlocked GPU. Owned holds and recovery controls are not enabled here yet.");
+        hold_status(snapshot);
+        ImGui::TextWrapped("Unreadable lock state does not establish an unlocked GPU. Use the V/F editor to hold a point; release owned holds from the main controls.");
         if (!snapshot.data.status.empty()) ImGui::TextWrapped("%s", snapshot.data.status.c_str());
     }
 }
 
 void live_history_plot(const SessionSnapshot& snapshot, const char* id, const char* unit, int channel,
-                       const ImVec4& color) {
+                       const ImVec4& color,const ShuntCorrection* correction=nullptr) {
     if (snapshot.history.empty()) { ImGui::TextColored(muted, "No observed history yet."); return; }
     std::array<double, 360> time{}, values{};
     // Bound view work as well as the session's history storage. NaN leaves a gap for a missing sample.
@@ -882,7 +1354,8 @@ void live_history_plot(const SessionSnapshot& snapshot, const char* id, const ch
     const size_t start = snapshot.history.size() - count;
     for (size_t i = 0; i < count; ++i) {
         const auto& sample = snapshot.history[start + i];
-        const auto value = channel == 0 ? sample.core_mhz : channel == 1 ? sample.temp_c : sample.power_w;
+        auto value = channel == 0 ? sample.core_mhz : channel == 1 ? sample.temp_c : sample.power_w;
+        if(channel==2 && correction && correction->valid && correction->active)value=correction->apply(value);
         time[i] = sample.time - snapshot.history.back().time;
         values[i] = value.value_or(std::numeric_limits<double>::quiet_NaN());
     }
@@ -896,32 +1369,23 @@ void live_history_plot(const SessionSnapshot& snapshot, const char* id, const ch
     }
 }
 
-void live_monitor(const SessionSnapshot& snapshot, bool verbose) {
-    title("Monitor", "Observed telemetry; unavailable readings remain empty.");
-    live_summary(snapshot);
+void monitor_history(const SessionSnapshot& snapshot,const ShuntViewState& shunt) {
     label("CORE CLOCK");
     live_history_plot(snapshot, "##live_clock_history", "MHz", 0, accent);
     label("TEMPERATURE");
     live_history_plot(snapshot, "##live_temp_history", "C", 1, teal);
-    label("BOARD POWER");
-    live_history_plot(snapshot, "##live_power_history", "W", 2, amber);
-    if (ImGui::CollapsingHeader("Sensor readings", verbose ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
-        const auto& t = snapshot.data.telemetry;
-        measured_value(snapshot, "Memory clock (driver)", DC_T_MEM, t.mem, "MHz");
-        measured_value(snapshot, "Core voltage", DC_T_VCORE_MV, t.vcore_mv, "mV");
-        measured_value(snapshot, "Hotspot", DC_T_TEMP_HOTSPOT, t.temp_hotspot, "C");
-        measured_value(snapshot, "GPU utilization", DC_T_UTIL_GPU, t.util_gpu, "%");
-        measured_value(snapshot, "Configured board request", DC_T_PL_REQUESTED, t.pl_requested_mw / 1000.0, "W");
-        measured_value(snapshot, "Reported power limit", DC_T_PL_NOW, t.pl_now_mw / 1000.0, "W");
-        measured_value(snapshot, "P-state", DC_T_PSTATE, t.pstate, "");
-        const bool fans_stale = snapshot.fan_readings_stale || snapshot.paused;
-        for (uint32_t i = 0; i < std::min(t.fan_count, uint32_t{32}); ++i) {
-            ImGui::TextColored(fans_stale ? amber : secondary, "Fan %u: duty %s | speed %s%s", i,
-                number_text(t.fans[i].has_duty ? std::optional<double>(t.fans[i].duty) : std::nullopt, "%").c_str(),
-                number_text(t.fans[i].has_rpm ? std::optional<double>(t.fans[i].rpm) : std::nullopt, "RPM").c_str(),
-                fans_stale ? " (stale)" : "");
-        }
-    }
+    const bool corrected=shunt.correction.valid && shunt.correction.active;
+    label(corrected?(shunt.correction.exact?"BOARD POWER — CORRECTED":"BOARD POWER — ESTIMATE"):"BOARD POWER");
+    live_history_plot(snapshot, "##live_power_history", corrected?(shunt.correction.exact?"W corrected":"W estimate"):"W", 2, amber,&shunt.correction);
+    if(corrected || !shunt.correction.valid || !shunt.config.load_error.empty())
+        draw_shunt_power_summary(shunt,telemetry_value(snapshot,DC_T_POWER_W,snapshot.data.telemetry.power_w),snapshot.data.controls[static_cast<size_t>(ControlId::power)].current,snapshot.data.enforced_power_w,snapshot.paused || (snapshot.telemetry_stale_mask&DC_T_POWER_W));
+}
+
+void live_monitor(const SessionSnapshot& snapshot, bool verbose,const ShuntViewState& shunt) {
+    title("Monitor", "Observed telemetry; unavailable readings remain empty.");
+    draw_monitor_tiles(snapshot,shunt.correction);
+    draw_monitor_details(snapshot,verbose);
+    if (ImGui::CollapsingHeader("History")) monitor_history(snapshot,shunt);
 }
 
 void live_operations(const SessionSnapshot& snapshot) {
@@ -937,6 +1401,328 @@ void live_operations(const SessionSnapshot& snapshot) {
         ImGui::PopStyleColor();
     }
     ImGui::EndChild();
+}
+
+unsigned push_classic_palette() {
+    const std::pair<ImGuiCol, ImVec4> colors[] = {
+        {ImGuiCol_WindowBg, {0.137f, 0.137f, 0.137f, 1}},
+        {ImGuiCol_ChildBg, {0.137f, 0.137f, 0.137f, 1}},
+        {ImGuiCol_PopupBg, {0.137f, 0.137f, 0.137f, 1}},
+        {ImGuiCol_Text, {230.0f/255, 232.0f/255, 236.0f/255, 1}},
+        {ImGuiCol_TextDisabled, {139.0f/255, 144.0f/255, 153.0f/255, 1}},
+        {ImGuiCol_FrameBg, {0.20f, 0.20f, 0.216f, 1}},
+        {ImGuiCol_FrameBgHovered, {0.25f, 0.27f, 0.31f, 1}},
+        {ImGuiCol_FrameBgActive, {0.29f, 0.31f, 0.35f, 1}},
+        {ImGuiCol_Button, {0.20f, 0.20f, 0.216f, 1}},
+        {ImGuiCol_ButtonHovered, {0.26f, 0.28f, 0.32f, 1}},
+        {ImGuiCol_ButtonActive, {0.30f, 0.32f, 0.36f, 1}},
+        {ImGuiCol_Header, {40.0f/255, 66.0f/255, 105.0f/255, 1}},
+        {ImGuiCol_HeaderHovered, {50.0f/255, 82.0f/255, 128.0f/255, 1}},
+        {ImGuiCol_HeaderActive, {58.0f/255, 95.0f/255, 145.0f/255, 1}},
+        {ImGuiCol_SliderGrab, {0.16f, 0.37f, 0.49f, 1}},
+        {ImGuiCol_SliderGrabActive, {0.22f, 0.47f, 0.62f, 1}},
+        {ImGuiCol_CheckMark, {74.0f/255, 163.0f/255, 1, 1}},
+        {ImGuiCol_Tab, {0.20f, 0.20f, 0.216f, 1}},
+        {ImGuiCol_TabHovered, {50.0f/255, 82.0f/255, 128.0f/255, 1}},
+        {ImGuiCol_TabSelected, {0.055f, 0.32f, 0.46f, 1}},
+    };
+    for (const auto& item : colors) ImGui::PushStyleColor(item.first, item.second);
+    return static_cast<unsigned>(std::size(colors));
+}
+
+void classic_header(ViewState& state) {
+    draw_app_actions_menu(state);
+    if(ImGui::GetContentRegionAvail().x>u(1250)){
+        const auto origin=ImGui::GetCursorPos();
+        const float width=ImGui::CalcTextSize("Panic / restart GPU").x+ImGui::GetStyle().FramePadding.x*2;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x-width);draw_device_restart_button(state);ImGui::SetCursorPos(origin);
+    }else draw_device_restart_button(state);
+    const auto snapshot = state.live;
+    const auto* id = snapshot ? &snapshot->data.identity : nullptr;
+    const float scale = ImGui::GetFontSize() / 16.0f;
+    ImGui::PushFont(classic_fonts.heading, 26.0f);
+    ImGui::TextColored(ImVec4(74.0f/255, 163.0f/255, 1, 1), "Thermetery Druta 1.9.1");
+    ImGui::PopFont(); ImGui::SameLine();
+    ImGui::PushFont(classic_fonts.heading, 21.0f);
+    ImGui::TextDisabled("card"); ImGui::SameLine();
+    const std::string selected = state.preview ? "Sample adapter (preview)"
+        : id && id->name[0] ? std::string(id->name) + "  " + snapshot->selected_slot : "Opening adapter...";
+    ImGui::SetNextItemWidth(std::min(420 * scale, std::max(160 * scale, ImGui::GetContentRegionAvail().x)));
+    ImGui::BeginDisabled(!snapshot || snapshot->busy || snapshot->opening);
+    if (ImGui::BeginCombo("##adapter", selected.c_str())) {
+        if (snapshot) for (const auto& device : snapshot->devices) {
+            const auto name = device.name + "  " + device.slot;
+            if (ImGui::Selectable(name.c_str(), device.slot == snapshot->selected_slot)) state.select_slot = device.slot;
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PopFont(); ImGui::EndDisabled();
+    if (state.preview) ImGui::TextDisabled("Preview / sample data. No GPU session is connected.");
+    else if (id) ImGui::TextColored(id->admin ? secondary : amber, "%s  |  driver %s  |  vbios %s  |  %s",
+        id->name[0] ? id->name : "--", id->driver[0] ? id->driver : "--", id->vbios[0] ? id->vbios : "--",
+        id->admin ? "admin" : "NOT admin");
+    if (snapshot && (!snapshot->data.connected || snapshot->opening || snapshot->busy)) ImGui::TextWrapped("%s", snapshot->status.c_str());
+    if (id && id->pairing_error[0]) ImGui::TextColored(amber, "%s", id->pairing_error);
+    const bool ready = snapshot && snapshot->data.connected && !snapshot->busy && !snapshot->opening;
+    ImGui::BeginDisabled(!ready);
+    if (ImGui::Button("Save profile...")) state.save_profile_requested = true;
+    ImGui::EndDisabled(); ImGui::SameLine();
+    ImGui::BeginDisabled(!ready || !state.controls_unlocked);
+    if (ImGui::Button("Load profile...")) state.load_profile_requested = true;
+    ImGui::EndDisabled(); ImGui::SameLine();
+    if (ImGui::Button("Profiles...")) state.profile_catalog_view.open=true;
+    ImGui::SameLine();
+    ImGui::Checkbox("Always refresh", &state.always_refresh); ImGui::SameLine();
+    if (ImGui::Button("Pause")) state.pause_requested = true;
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(u(150));
+    int presentation = 1;
+    if (ImGui::Combo("##presentation", &presentation, "Focused\0Classic / Verbose\0"))
+        state.presentation = presentation == 0 ? Presentation::focused : Presentation::classic;
+}
+
+constexpr Page classic_pages[]{Page::daily, Page::advanced, Page::monitor, Page::timings};
+int classic_page_index(Page page) {
+    for (int i = 0; i < 4; ++i) if (classic_pages[i] == page) return i;
+    return -1;
+}
+void float_classic_page(ViewState& state, int index) {
+    if (index < 0 || index >= 4) return;
+    state.classic_floating[index] = state.classic_float_focus[index] = true;
+    state.classic_tab_drag = -1;
+    for (int i = 0; i < 4; ++i) if (!state.classic_floating[i]) { state.page = classic_pages[i]; break; }
+}
+void classic_tabs(ViewState& state) {
+    const std::pair<Page, const char*> tabs[] = {
+        {Page::daily,"  Control  "}, {Page::advanced,"  Advanced  "},
+        {Page::monitor,"  Monitor  "}, {Page::timings,"  Timings (nvtune)  "}};
+    const auto selected_page = state.page;
+    if (ImGui::BeginTabBar("legacy-tabs", ImGuiTabBarFlags_NoTooltip)) {
+        for (int index = 0; index < 4; ++index) {
+            if (state.classic_floating[index]) continue;
+            const auto& tab = tabs[index];
+            const bool active = ImGui::BeginTabItem(tab.second, nullptr,
+                tab.first == selected_page ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None);
+            if (ImGui::IsItemClicked() || ImGui::IsItemActivated()) state.page = tab.first;
+            if (ImGui::IsItemClicked()) {
+                state.classic_tab_drag = index;
+                state.classic_tab_top = ImGui::GetItemRectMin().y;
+                state.classic_tab_bottom = ImGui::GetItemRectMax().y;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag this tab off the selector to float its page. Right-click for Float page.");
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Float page")) float_classic_page(state, index);
+                ImGui::EndPopup();
+            }
+            if (active) ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    if (state.classic_tab_drag >= 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left, classic_px(6))) {
+        const float y = ImGui::GetIO().MousePos.y;
+        if (y < state.classic_tab_top - classic_px(12) || y > state.classic_tab_bottom + classic_px(12))
+            float_classic_page(state, state.classic_tab_drag);
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) state.classic_tab_drag = -1;
+}
+
+bool classic_knob_table(const char* id) {
+    return begin_classic_knob_table(id);
+}
+
+void classic_control_summary(const SessionSnapshot& s) {
+    const auto& t = s.data.telemetry;
+    const auto reading = [&](uint64_t bit, double value, const char* unit) {
+        auto result = number_text(telemetry_value(s, bit, value), unit);
+        if ((s.telemetry_stale_mask & bit) && (t.present & bit)) result += " (stale)";
+        return result;
+    };
+    push_classic_mono();
+    ImGui::Text("core %s  |  VRAM %s  |  Vcore %s  |  boost %s  |  P-state %s",
+        reading(DC_T_CORE, t.core, "MHz").c_str(), reading(DC_T_MEM, t.mem, "MHz driver").c_str(),
+        reading(DC_T_VCORE_MV, t.vcore_mv, "mV").c_str(), reading(DC_T_VBOOST, t.vboost_pct, "%").c_str(),
+        reading(DC_T_PSTATE, t.pstate, "").c_str());
+    ImGui::PopFont();
+    if ((s.telemetry_stale_mask & t.present) || s.paused) ImGui::TextColored(amber, "Some displayed readings are stale.");
+    if (t.present & DC_T_VF_LOCKED) ImGui::TextColored(t.vf_locked_count ? teal : secondary, "V/F hold entries: %u%s",
+        t.vf_locked_count, (s.telemetry_stale_mask & DC_T_VF_LOCKED) ? " (stale)" : "");
+    else ImGui::TextDisabled("Hold state unverified");
+    ImGui::Separator();
+}
+
+void classic_daily(ViewState& state) {
+    if (!state.live) { ImGui::TextUnformatted("Opening adapter..."); return; }
+    const auto& s = *state.live;
+    classic_control_summary(s);
+    // Keep each column at the released knob width. Narrow windows scroll
+    // horizontally rather than compressing labels, sliders and action buttons.
+    const float column_width = classic_px(classic_column_width);
+    const float columns_width = 2 * column_width + ImGui::GetStyle().CellPadding.x * 4;
+    ImGui::SetNextWindowContentSize(ImVec2(columns_width, 0));
+    if (ImGui::BeginChild("classic-knob-columns", ImVec2(0, 0),
+        ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize, ImGuiWindowFlags_HorizontalScrollbar)) {
+    if (ImGui::BeginTable("classic-control-columns", 2,
+        ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoHostExtendX, ImVec2(columns_width, 0))) {
+        ImGui::TableSetupColumn("Clocks and limits", ImGuiTableColumnFlags_WidthFixed, column_width);
+        ImGui::TableSetupColumn("Rails", ImGuiTableColumnFlags_WidthFixed, column_width);
+        ImGui::TableNextColumn();
+        if (ImGui::CollapsingHeader("Clock offsets", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (classic_knob_table("classic-clock-offsets")) {
+                live_control_row(state, ControlId::core, "Core clock offset (MHz)", true);
+                live_control_row(state, ControlId::memory, "Memory offset (MHz true)", true);
+                ImGui::EndTable();
+            }
+            draw_clock_domain_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+        }
+        if (ImGui::CollapsingHeader("Limits", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (classic_knob_table("classic-power")) {
+                live_control_row(state, ControlId::power, "Power limit (W)", true); ImGui::EndTable();
+            }
+            draw_core_current_limit(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+            if (classic_knob_table("classic-limits")) {
+                live_control_row(state, ControlId::boost, "Core voltage boost (%)", true);
+                live_control_row(state, ControlId::fan, "Fan duty (%)", true);
+                ImGui::EndTable();
+            }
+            ImGui::TextDisabled("Configured power: %s | enforced: %s",
+                number_text(s.data.controls[static_cast<size_t>(ControlId::power)].current, "W").c_str(),
+                number_text(s.data.enforced_power_w, "W").c_str());
+        }
+        ImGui::TableNextColumn();
+        if (ImGui::CollapsingHeader("Rails", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::TextDisabled("Estimated limits; Initial restores the captured request.");
+            draw_daily_rail_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+        }
+        ImGui::EndTable();
+    }
+    }
+    ImGui::EndChild();
+    const auto discovery_id = ImGui::GetID(("classic-i2c-discovered-" + std::to_string(s.generation)).c_str());
+    if (!s.data.i2c.candidates.empty() && !ImGui::GetStateStorage()->GetBool(discovery_id)) {
+        ImGui::SetNextItemOpen(true); ImGui::GetStateStorage()->SetBool(discovery_id, true);
+    }
+    if (ImGui::CollapsingHeader("I2C regulator")) draw_i2c_panel(state);
+    if (ImGui::CollapsingHeader("V/F curve editor", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Button("Open V/F curve", ImVec2(u(220), 0))) {
+            end_curve_drag(state);
+            state.curve_window_open = true; state.curve_window_focus_requested = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu points%s", s.data.curve.size(), state.curve_window_open ? " | editing in separate window" : "");
+        if (!state.curve_window_open) {
+            // A separate child scopes WASD to the editor while the parent scrolls
+            // normally past the curve and operation log. Its height is independent
+            // of scroll position, so scrolling cannot make the editor grow.
+            const float height = std::clamp(ImGui::GetIO().DisplaySize.y * 0.5f, u(540), u(820));
+            if (ImGui::BeginChild("inline-vf-editor", ImVec2(0, height), false)) {
+                state.curve_inline_active = true;
+                live_curve_workspace(state, true, true);
+            }
+            ImGui::EndChild();
+        }
+    }
+    if (ImGui::Button("Revert local drafts")) state.revert_draft();
+    ImGui::SameLine(); ImGui::BeginDisabled((!state.controls_unlocked&&!s.data.undo_metadata_only) || !s.data.undo_available || (!s.data.connected&&!s.data.undo_metadata_only) || s.busy || s.opening);
+    if (ImGui::Button(s.data.undo_metadata_only?"Undo label update":"Undo hardware write")) state.commands.push_back({Command::Operation::undo, ControlId::memory, 0});
+    ImGui::EndDisabled();
+}
+
+void classic_advanced(ViewState& state) {
+    const auto& s = *state.live;
+    ImGui::SetNextWindowContentSize(ImVec2(std::max(classic_px(classic_column_width), ImGui::GetContentRegionAvail().x), 0));
+    if (ImGui::BeginChild("classic-advanced-columns", ImVec2(0, 0),
+        ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize, ImGuiWindowFlags_HorizontalScrollbar)) {
+    if (!s.log.empty()) ImGui::TextColored(s.log.back().ok ? secondary : amber, "%s", s.log.back().message.c_str());
+    if (ImGui::CollapsingHeader("Power policies"))
+        draw_power_policy_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands,&state.policy_annotations);
+    if (ImGui::CollapsingHeader("Registry / BIOS")) ImGui::TextDisabled("Native workflow pending");
+    if (ImGui::CollapsingHeader("Session controls"))
+        draw_advanced_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands,true,true,&state.policy_annotations);
+    live_semantic_controls(state, true);
+    if (ImGui::CollapsingHeader("Diagnostics")) {
+        live_identity(s);
+        if (ImGui::Button("Refresh details")) state.refresh_requested = true;
+    }
+    live_perf_panel(state);
+    }
+    ImGui::EndChild();
+}
+
+void classic_monitor(const SessionSnapshot& s,const ShuntViewState& shunt) {
+    if (!s.log.empty()) ImGui::TextColored(s.log.back().ok ? secondary : amber, "%s", s.log.back().message.c_str());
+    draw_monitor_tiles(s,shunt.correction,true);
+    draw_monitor_details(s,true);
+    if (ImGui::CollapsingHeader("History")) monitor_history(s,shunt);
+}
+
+void classic_log(const SessionSnapshot& s) {
+    ImGui::Separator(); ImGui::TextDisabled("log  (newest line first)");
+    std::string text;
+    for (auto it = s.log.rbegin(); it != s.log.rend(); ++it) {
+        if (!text.empty()) text += '\n';
+        text += it->ok ? "[ok] " : "[!!] "; text += it->message;
+    }
+    if (text.empty()) text = "No tuning actions in this session.";
+    ImGui::SameLine();
+    if (ImGui::Button("Copy log")) ImGui::SetClipboardText(text.c_str());
+    const float height = classic_px(150);
+    push_classic_mono();
+    ImGui::InputTextMultiline("##classic-log", text.data(), text.size() + 1,
+        ImVec2(-1, height), ImGuiInputTextFlags_ReadOnly);
+    ImGui::PopFont();
+}
+
+void classic_page_content(ViewState& state, Page page) {
+    if (state.preview) {
+        if (page == Page::daily) daily(state, true);
+        else if (page == Page::advanced) advanced(true);
+        else monitor(true);
+        return;
+    }
+    if (!state.live) { ImGui::TextUnformatted("Waiting for the first session snapshot..."); return; }
+    if (page == Page::daily) { classic_daily(state); classic_log(*state.live); }
+    else if (page == Page::advanced) classic_advanced(state);
+    else if (page == Page::monitor) classic_monitor(*state.live, state.shunt);
+    else if (page == Page::timings) {
+        const auto& s = *state.live;
+        auto output = draw_timings(state.timings_view, s.data.timings.get(), s.generation,
+            s.busy, state.controls_unlocked, s.data.connected);
+        state.timing_capture_cancel_requested |= output.cancel_capture;
+        state.timing_helper_requested |= output.choose_helper;
+        state.timing_forget_requested |= output.forget_helper;
+        state.test_signing_requested |= output.test_signing_setup;
+        state.timing_save_profile_requested |= output.save_profile;
+        state.timing_load_profile_requested |= output.load_profile;
+        state.commands.insert(state.commands.end(), output.commands.begin(), output.commands.end());
+    }
+}
+void classic_floating_pages(ViewState& state) {
+    const char* titles[]{"Control###druta_float_control", "Advanced###druta_float_advanced",
+        "Monitor###druta_float_monitor", "Timings###druta_float_timings"};
+    for (int index = 0; index < 4; ++index) {
+        if (!state.classic_floating[index]) continue;
+        ImGui::SetNextWindowSize({classic_px(760), classic_px(640)}, ImGuiCond_FirstUseEver);
+        const auto display = ImGui::GetIO().DisplaySize;
+        ImGui::SetNextWindowSizeConstraints({std::min(classic_px(320), display.x), std::min(classic_px(240), display.y)},
+            {display.x, display.y});
+        if (state.classic_float_focus[index]) {
+            const float offset = 24.0f * static_cast<float>(index);
+            ImGui::SetNextWindowPos({classic_px(60 + offset), classic_px(90 + offset)}, ImGuiCond_Appearing);
+            ImGui::SetNextWindowFocus(); state.classic_float_focus[index] = false;
+        }
+        bool open = true;
+        if (ImGui::Begin(titles[index], &open, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse)) {
+            if (ImGui::Button("Dock back")) { state.classic_floating[index] = false; state.page = classic_pages[index]; }
+            ImGui::SameLine(); ImGui::TextDisabled("Same GPU session; shared drafts. Close also docks this page.");
+            if (state.classic_floating[index]) {
+                ImGui::BeginChild("floating-page-content", {0, 0});
+                classic_page_content(state, classic_pages[index]);
+                ImGui::EndChild();
+            }
+        }
+        ImGui::End();
+        if (!open) { state.classic_floating[index] = false; state.page = classic_pages[index]; }
+    }
 }
 
 } // namespace
@@ -1009,9 +1795,45 @@ void apply_theme(float scale) {
 }
 
 void draw(ViewState& state) {
+    state.curve_inline_active = false;
+    if (state.page == Page::curve) {
+        state.page = Page::daily;
+        state.curve_window_open = true;
+        state.curve_window_focus_requested = true;
+    }
     if (!state.preview) { sync_live_drafts(state); observe_curve(state); }
+    const bool classic = state.presentation == Presentation::classic;
+    if (!classic || !state.live) state.classic_reset_deadline = 0;
+    if (classic && (state.page == Page::rails || state.page == Page::i2c)) state.page = Page::daily;
+    unsigned classic_colors = 0;
+    if (classic) {
+        classic_colors = push_classic_palette();
+        ImGui::PushFont(classic_fonts.body, 16.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(classic_px(6), classic_px(6)));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(classic_px(4), classic_px(1)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(classic_px(4), classic_px(3)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImVec2(classic_px(4), classic_px(2)));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(classic_px(34.0f / 12), classic_px(2)));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 0);
+        ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 0);
+    }
+    unsigned risk_colors = 0;
+    if (!state.preview && state.live) {
+        const auto risk = session_risk(state.live->data);
+        if (risk.score || (state.controls_unlocked && risk.band == RiskBand::green)) {
+            auto tint = [](RiskColor c) { return ImVec4(c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, 1); };
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, tint(risk.tint.background));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, tint(risk.tint.background));
+            ImGui::PushStyleColor(ImGuiCol_Border, tint(risk.tint.border));
+            ImGui::PushStyleColor(ImGuiCol_TitleBgActive, tint(risk.tint.border));
+            risk_colors = 4;
+        }
+    }
     const bool compact = short_view();
-    if (compact) {
+    if (compact && !classic) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(u(8), u(4)));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(u(8), u(3)));
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(u(6), u(3)));
@@ -1020,11 +1842,66 @@ void draw(ViewState& state) {
     ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
     const auto flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
         | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings
-        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar;
+        | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_MenuBar;
     ImGui::Begin("Druta workspace", nullptr, flags);
-    top_bar(state);
-    const bool narrow = ImGui::GetContentRegionAvail().x < u(900);
-    if (narrow) {
+    if (classic) classic_header(state); else top_bar(state);
+    if (!state.preview && state.live) {
+        draw_mode_bar(*state.live, state.controls_unlocked, state.commands, classic, [&] { draw_i2c_gate(state); }, &state.advanced_view);
+        {
+            const auto& s=*state.live;
+            if (classic) ImGui::SameLine(0, u(16));
+            const bool reset_ready = s.data.connected && !s.busy && !s.opening && state.controls_unlocked && s.data.reset_controls_available;
+            if (!reset_ready || state.classic_reset_deadline <= ImGui::GetTime()
+                || state.classic_reset_generation != s.generation || state.classic_reset_slot != s.selected_slot
+                || (state.select_slot && *state.select_slot != s.selected_slot)) state.classic_reset_deadline = 0;
+            ImGui::BeginDisabled(!reset_ready);
+            if (ImGui::Button("Reset controls")) {
+                if (!classic || state.classic_reset_deadline > ImGui::GetTime()) {
+                    Command c; c.operation=Command::Operation::reset_controls; state.commands.push_back(c);
+                    state.classic_reset_deadline = 0;
+                } else {
+                    state.classic_reset_deadline = ImGui::GetTime() + 10;
+                    state.classic_reset_generation = s.generation; state.classic_reset_slot = s.selected_slot;
+                }
+            }
+            ImGui::EndDisabled();
+            if (classic) hint("First press arms for 10 seconds; press again to reset offsets, voltage boost, power, fan and V/F curve, and release owned holds/I2C requests. Registry overrides are unchanged.");
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button, {168.0f/255, 88.0f/255, 16.0f/255, 1});
+            ImGui::BeginDisabled(!s.data.connected || s.busy || s.curve_stale || !state.controls_unlocked || !s.data.max_it_available || state.curve_draft.dirty());
+            if (ImGui::Button("Max it (fan + power + volts + curve)")) {
+                Command c; c.operation=Command::Operation::max_it; c.expected_curve=s.data.curve; c.expected_curve_freq_div=s.data.curve_freq_div;
+                c.curve_cap_mv=state.curve_cap_mv; c.curve_floor_mv=state.curve_floor_mv;
+                c.hold_headroom=state.hold_headroom; c.headroom_margin_mv=state.headroom_margin_mv; state.commands.push_back(c);
+            }
+            ImGui::EndDisabled(); hint("Uses the normal board maximum, 100% fan/boost, the selected ramp floor/cap, and a V/F hold. Apply or revert curve drafts first.");
+            ImGui::PopStyleColor();
+            if (s.data.tuning.maintenance_needed()) {
+                ImGui::SameLine(); ImGui::BeginDisabled(s.busy || hold_queued(state));
+                if (ImGui::Button("Release hold (Ctrl+H)")) queue_hold_release(state);
+                ImGui::EndDisabled();
+                hold_status(s);
+            }
+            const auto& io = ImGui::GetIO();
+            if (!io.AppFocusLost && !io.WantTextInput && !ImGui::IsAnyItemActive()
+                && ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow)
+                && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)
+                && io.KeyCtrl && !io.KeyAlt && !io.KeySuper && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false)) {
+                if (s.data.tuning.maintenance_needed()) queue_hold_release(state);
+                else queue_selected_hold(state);
+            }
+        }
+        if (classic && state.classic_reset_deadline > ImGui::GetTime()) {
+            ImGui::TextColored(amber, "RESET ARMED — press Reset controls again within %.0f seconds, or Cancel reset.",
+                std::ceil(state.classic_reset_deadline - ImGui::GetTime()));
+            ImGui::TextWrapped("Scope: resets clock/voltage offsets, voltage boost, power limit, fan policy and V/F curve; releases owned holds and I2C requests. Registry overrides are unchanged. A scoped Undo is captured where available.");
+            if (ImGui::Button("Cancel reset")) state.classic_reset_deadline = 0;
+        }
+        ImGui::Separator();
+    }
+    if (classic) classic_tabs(state);
+    const bool narrow = classic || ImGui::GetContentRegionAvail().x < u(900);
+    if (narrow && !classic) {
         navigation(state, true);
         ImGui::Separator();
     }
@@ -1035,7 +1912,7 @@ void draw(ViewState& state) {
             : "Session-only tuning. Restore shortcut unavailable; use the taskbar.");
     const float footer_height = ImGui::CalcTextSize(footer, nullptr, false,
         ImGui::GetContentRegionAvail().x).y + ImGui::GetStyle().ItemSpacing.y * 2 + u(3);
-    const float log_height = !state.preview && state.live
+    const float log_height = !classic && !state.preview && state.live
         ? ImGui::GetTextLineHeightWithSpacing() * (state.live->log.empty() ? 1 : 3) + u(8) : 0;
     const float body_height = std::max(u(50), ImGui::GetContentRegionAvail().y - footer_height - log_height);
     if (!narrow) {
@@ -1046,27 +1923,88 @@ void draw(ViewState& state) {
     }
     ImGui::BeginChild("workspace", ImVec2(0, body_height), false);
     const bool verbose = state.presentation == Presentation::classic;
-    if (!state.preview) {
+    if (classic) {
+        const int index = classic_page_index(state.page);
+        if (index >= 0 && state.classic_floating[index]) ImGui::TextUnformatted("This page is floating. Use Dock back in its window to return it.");
+        else classic_page_content(state, state.page);
+    } else if (!state.preview) {
         if (!state.live) ImGui::TextUnformatted("Waiting for the first session snapshot...");
-        else if (state.page == Page::daily) live_daily(state, verbose);
-        else if (state.page == Page::curve) live_curve_workspace(state, verbose);
-        else if (state.page == Page::advanced) live_advanced(state, verbose);
-        else live_monitor(*state.live, verbose);
+        else if (state.page == Page::daily) { if (classic) classic_daily(state); else live_daily(state, false); }
+        else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
+        else if (state.page == Page::rails) {
+            title("Rails", "Rail limits and voltage offsets.");
+            draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands);
+            if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s",state.advanced_view.notice.c_str());
+        }
+        else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
+        else if (state.page == Page::timings) {
+            const auto& s=*state.live;
+            auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy,state.controls_unlocked,s.data.connected);
+            state.timing_capture_cancel_requested|=output.cancel_capture;
+            state.timing_helper_requested|=output.choose_helper;
+            state.timing_forget_requested|=output.forget_helper;
+            state.test_signing_requested|=output.test_signing_setup;
+            state.timing_save_profile_requested|=output.save_profile;
+            state.timing_load_profile_requested|=output.load_profile;
+            state.commands.insert(state.commands.end(),output.commands.begin(),output.commands.end());
+        }
+        else { if (classic) classic_monitor(*state.live,state.shunt); else live_monitor(*state.live, false,state.shunt); }
     } else if (state.page == Page::daily) daily(state, verbose);
-    else if (state.page == Page::curve) {
-        title("V/F curve", "Preview / sample data. No GPU session is connected.");
-        vf_plot(state, u(300));
-    }
     else if (state.page == Page::advanced) advanced(verbose);
     else monitor(verbose);
     ImGui::EndChild();
-    if (!state.preview && state.live) live_operations(*state.live);
+    if (!classic && !state.preview && state.live) live_operations(*state.live);
     ImGui::Separator();
     ImGui::PushTextWrapPos(0);
     ImGui::TextColored(state.hotkey_available ? muted : amber, "%s", footer);
     ImGui::PopTextWrapPos();
     ImGui::End();
-    if (compact) ImGui::PopStyleVar(3);
+    draw_app_actions_windows(state);
+    if (state.live) {
+        const auto& snapshot=*state.live;
+        FrequencyLockViewContext context;
+        context.generation=snapshot.generation; context.slot=snapshot.selected_slot; context.uuid=snapshot.data.identity.uuid;
+        context.connected=snapshot.data.connected; context.busy=snapshot.busy || snapshot.opening;
+        context.unlocked=state.controls_unlocked;
+        const auto& i2c=snapshot.data.i2c;
+        const auto& clock=snapshot.data.frequency;
+        context.other_owned_clock=i2c.clock_owned && clock.current_known && clock.current &&
+            clock.current->minimum==i2c.clock_mhz && clock.current->maximum==i2c.clock_mhz;
+        context.fan_manual_available=snapshot.data.controls[static_cast<size_t>(ControlId::fan)].writable;
+        context.live_core_mhz=telemetry_value(snapshot,DC_T_CORE,snapshot.data.telemetry.core);
+        for (const auto& intent:draw_frequency_lock(state.frequency_view,snapshot.data.frequency,context)) {
+            Command command;
+            switch(intent.action) {
+            case FrequencyLockAction::refresh: command.operation=Command::Operation::frequency_lock_refresh; break;
+            case FrequencyLockAction::apply: command.operation=Command::Operation::frequency_lock_apply; break;
+            case FrequencyLockAction::lock_max: command.operation=Command::Operation::frequency_lock_max; break;
+            case FrequencyLockAction::legacy_p0_max_fan: command.operation=Command::Operation::frequency_legacy_p0_max_fan; break;
+            case FrequencyLockAction::release: command.operation=Command::Operation::frequency_lock_release; break;
+            }
+            command.frequency_min_mhz=intent.minimum_mhz; command.frequency_max_mhz=intent.maximum_mhz;
+            state.commands.push_back(command);
+        }
+    }
+    if (state.live) {
+        const auto& s=*state.live;
+        draw_scoped_profile_workspace(state.scoped_profile_view, s, state.controls_unlocked, state.commands);
+        const auto output=draw_policy_workspace(state.policy_workspace,state.policy_annotations,s.data.scoped_profiles.get(),s.generation,s.busy||s.opening,s.data.connected,state.controls_unlocked);
+        state.save_policy_annotations|=output.save_annotations;state.import_policy_annotations|=output.import_annotations;
+        if(output.refresh) {Command c;c.operation=Command::Operation::prepare_scoped_profile;state.commands.push_back(c);}
+        if(output.apply) {Command c;c.operation=Command::Operation::apply_scoped_profile;auto request=std::make_shared<ScopedProfileRequest>();request->document=*output.apply;c.scoped_profile=std::move(request);state.commands.push_back(c);}
+    }
+    {
+        auto output=draw_profile_catalog_workspace(state.profile_catalog_view,state.live ? state.live->generation : 0,
+            !state.live || state.live->busy || state.live->opening || !state.live->data.connected,state.controls_unlocked);
+        state.profile_catalog_intents.insert(state.profile_catalog_intents.end(),output.intents.begin(),output.intents.end());
+    }
+    if (classic) classic_floating_pages(state);
+    draw_curve_window(state);
+    draw_shunt_window(state.shunt);
+    if (classic && !state.preview && state.live) curve_keyboard(state, true);
+    if (compact && !classic) ImGui::PopStyleVar(3);
+    if (risk_colors) ImGui::PopStyleColor(static_cast<int>(risk_colors));
+    if (classic) { ImGui::PopStyleVar(10); ImGui::PopFont(); ImGui::PopStyleColor(static_cast<int>(classic_colors)); }
 }
 
 } // namespace druta::ui

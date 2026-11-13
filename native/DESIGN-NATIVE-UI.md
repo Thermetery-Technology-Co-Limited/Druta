@@ -9,13 +9,16 @@ records the existing Python-interface/C++-backend integration.
 ## Compact handoff
 
 - The initial fixture shell remains available with `--preview`. A live Session,
-  complete Daily actions, scoped Undo, manual native profiles and a point-based
-  V/F workspace are now implemented; see the continuation checkpoint below.
+  Daily actions, scoped Undo, manual profiles, staged V/F planning and owned
+  holds/headroom, Max it/Reset, qualified Advanced controls, a bounded native
+  MP2888A I2C workflow and manual-helper Timings are implemented;
+  see the continuation checkpoint below.
 - Keep Windows Vista and Windows 7 in the first-version target, alongside
   modern Windows. Legacy compatibility is an acceptance requirement, not yet
   a demonstrated result for the new executable.
-- Default to **Focused**: Daily, V/F curve, Advanced and Monitor. Offer the existing
-  dense organization as **Classic / Verbose**, using the same application state.
+- Default to **Focused**: Daily, V/F curve, Advanced and Monitor. **Classic**
+  uses a Druta 1.9.1-style composition, with the same application state and
+  retained V/F editor popup; it is not merely a verbose-text setting.
 - Preserve standalone Python experiments through the existing C ABI and Python
   compatibility facade. Attaching Python to the running UI session is undecided.
 - Preserve the performance policy shipped in PR #83: adaptive visible rendering;
@@ -24,8 +27,9 @@ records the existing Python-interface/C++-backend integration.
   **Pause** overrides it. Required active-control maintenance continues.
 - Ordinary tuning remains session-only. Driver restart is the user's reset:
   never replay tuning at startup or after restart. Saved profiles load explicitly.
-- Direct I2C physical-effect qualification remains parked for the owner's
-  multimeter session. It does not block frontend work.
+- A multimeter confirmed an I2C response for the tested MP2888A candidate route
+  and operating point in this session. Qualification of other routes,
+  controllers and configurations remains open.
 
 ## Presentations and interaction
 
@@ -35,9 +39,9 @@ domain clocks, rails/current/policies, power saving, I2C, registry/BIOS and timi
 tools. Monitor provides configurable plots and sensor tables. Profiles and
 history remain reachable from every page.
 
-**Classic / Verbose** retains familiar grouping, bounds, expanded readings,
-diagnostics and the operation log. Separate theme from information density
-internally, even if the initial settings offer two simple presentation presets.
+**Classic** recreates the 1.9.1-style composition and familiar grouping,
+with bounds, expanded readings, diagnostics and the operation log. Separate
+theme from information density internally, even if the initial settings offer two simple presentation presets.
 Switching presentation must not reopen a device, write hardware, lose drafts,
 change ownership or duplicate command/recovery logic.
 
@@ -189,21 +193,27 @@ never a driver's version or a developer's device/VBIOS identity.
    typing, Apply/Stock, scoped Undo and exact readback. Test accepted, quantized,
    refused and unreadable outcomes without assuming the 3070 Ti's step elsewhere.
    Core, board power, fan and boost now use fresh capture/readback and scoped
-   Undo too. Owned hold modes remain disabled pending their recovery lifecycle.
+   Undo too. Max it and Reset now use the shared command/capture paths; the
+   latest Reset full-curve Undo correction still requires a hardware retest.
 4. **V/F and owned controls — partial.** The point editor, local edit history,
    delta Apply/Reset and hardware Undo are implemented with physical-MHz/raw-unit
-   divisor validation. Curve planners, holds and headroom remain pending.
-   Port marker/release/recovery before enabling holds;
-   run the same command tests through both presentations.
+   divisor validation. De-flatten, ramp and rephase stage pure C ABI plans;
+   owned point holds, headroom maintenance, Release and recovery are implemented.
+   Required maintenance is independent of refresh/Pause. Keep qualification
+   scoped and run the same command tests through both presentations.
 5. **Profiles and ordinary-control parity — partial.** Native Daily files,
-   manual Load/aggregate Undo and Python memory/boost tuning-action imports are
+   manual Load/aggregate Undo and Python memory/boost/domain/NVVDD tuning-action imports are
    implemented. The full V/F table is not saved by native Daily profiles.
-   Broader existing-format import, named Reset workflows and remaining
-   rails/current/policies are pending. Exercise
-   partial failures, close/switch during work and restart without replay.
-6. **Advanced parity — pending.** Port remaining I2C, registry/BIOS,
-   power-saving and timing
-   workflows incrementally with Python parity and scoped hardware evidence.
+   Version 2 includes qualified advanced offsets; individual policies, rail
+   limits and full-curve profiles remain pending. Exercise partial failures and
+   close/switch during work; profile application remains an explicit action.
+6. **Advanced parity — partial.** Qualified domain and rail offsets, XOC,
+   policy/current rows and selected rail limits are implemented. Native I2C
+   discovery, live-range nominal presets and MP2888A manual-command
+   Verify/Apply/Release are implemented. Timings supports an explicitly selected
+   nvtune helper, capture, field selection, canonical Preview, Apply and separate
+   Undo; live timing-write/restoration qualification remains open. Other I2C
+   methods/controllers, registry/BIOS and power-saving remain incremental work.
 
 The first shell is a reviewable development increment, not a feature-complete
 replacement. The first useful tuning milestone combines qualified Vista/7
@@ -212,7 +222,7 @@ Full replacement waits for the service/workflow parity matrix and OS qualificati
 
 ## Continuation checkpoint: live Daily actions and manual curve edits
 
-`native/ui/druta-ui` now implements increments 2/3 and part of 4/5 after the
+`native/ui/druta-ui` now implements increments 2/3 and substantial parts of 4/5/6 after the
 original fixture shell. [ui/README.md](ui/README.md) documents integrated and
 standalone builds, staged/explicit DLL loading, `--preview`, `--page curve` and
 the read-only `--live-smoke-test` harness. The original fixture evidence remains
@@ -225,27 +235,82 @@ The fresh `dc_gpu_clock_offset_range_get` C ABI reader is shared with the Python
 facade; Python experiments and the existing Python frontend remain usable.
 
 Daily core/memory offsets, board request, fan and boost have explicit
-Apply/Stock/Auto, capture/readback and scoped Undo. Core Undo includes the
-original curve; power Undo includes understood peer requests and session pins;
+Apply/Stock/Auto, capture/readback and scoped Undo. Daily also exposes the
+independently identified NVVDD core-current request and qualified rail limits.
+XOC can expose the core's 1,999 W software request envelope; each Apply still
+requires fresh adapter-route and bound validation, which may permit less. Core
+Undo includes the original curve; power Undo includes understood peer requests and session pins;
 fan Undo retains policy as well as level. Their independent capabilities keep
 partial/transient reads separate from unsupported operations. Focused uses
-compact rows; Classic expands provenance using the same drafts and commands.
+compact rows; Classic uses the 1.9.1-style composition with the same drafts and
+commands. Classic embeds the editable V/F curve beneath the tuning controls;
+both retain the optional large editor window, sharing one draft and selection.
+Controls start unlocked; an explicit lock choice survives adapter and layout
+changes within the application. Neither unlocking nor opening an editor writes
+hardware or enables XOC, Rail limits or I2C automatically.
 
-The separate curve workspace stages point deltas in physical MHz using the
-verified current layout divisor. It plots current and draft curves with fresh
-operating telemetry, keeps edit Undo distinct from hardware Undo, and carries
-the complete expected geometry/divisor into Apply/Reset. Ordinary telemetry
-publications do not replace edits; changed/stale full reads retain the draft
-until an explicit fresh rebase. Holds, headroom ownership/recovery, de-flatten,
-ramp and other planners are not enabled by this increment.
+The curve workspace uses the verified divisor for physical-MHz editing and raw
+point requests. The expanded popup has large outlined dots, vertical drag, WASD,
+Shift for three steps and local Ctrl Undo/Redo. De-flatten, ramp and rephase
+stage through the pure C ABI from the current draft. Their prediction is the
+core software model with a grid-derived bound, not a physical measurement. Full
+expected geometry and divisor are checked on Apply/Reset; stale drafts require
+an explicit fresh rebase. Hardware Undo remains distinct from edit Undo.
 
-Native Daily profiles save qualified scalar requests to an explicit path;
-Save is read-only and reports omissions. Load validates identity/units/current
-capabilities and captures aggregate Undo before changing requests. The native
-format does **not** save the V/F point table, so a saved core scalar does not
-restore a shaped curve. Python import currently supports only schema-2
-`tuning_action` memory and boost scopes; unsupported scopes/kinds are refused.
-No startup or post-reset tuning replay was added.
+The same command services now implement Hold selected point, optional maintained
+headroom, explicit Release/recovery, Max it and Reset controls. Required owned
+maintenance continues independently of ordinary refresh/Pause. Max it captures
+Undo, applies the normal board maximum and fan/boost targets, stages/applies the
+requested ramp and holds its selected voltage point. Reset reports per-control
+outcomes and uncaptured Undo scope. Implementation does not establish that every
+restoration path is hardware-qualified; the Reset curve retest below is open.
+
+Qualified Crossbar, SYS, Video and LTC offsets are available in Focused Daily
+tuning. Additional memory offset and individual power-policy requests are in
+Advanced; NVVDD/MSVDD offsets and rail-limit fields have their own Focused page. Rail
+controls present the base-plus-delta absolute estimate of the signed request;
+Initial is a captured request, not a verified factory default. Rail limits have
+a separate session gate and selected-field Undo. Risk scoring is additive:
+XOC adds 1, writable armed rail limits add 2, and an armed identified writable
+I2C controller adds 3. An unlocked zero-score session is green; 1 is yellow,
+2 amber, 3 red and 4 or more crimson. A locked zero-score session is neutral;
+locking edits does not hide already-armed modes or owned controller requests.
+Unknown states stay distinct; color selection does not
+probe the bus. The native I2C path is explicit and on demand: Ex transport on
+64-bit processes, MP2888A candidate fingerprinting, and the manual `0x21`/`0xE1`
+command/mode path. The fingerprint is not a unique model ID or physical rail
+assignment. The 32-bit Ex path remains unqualified and refuses these I2C
+operations without disabling the rest of the core.
+
+Explicit native profiles support qualified Daily settings and version 2 advanced
+offsets; Python tuning-action import includes memory, boost, clock domain and
+NVVDD offset. Individual policies, rail limits and full curve tables are not
+saved. Profiles neither enable gates nor apply themselves at startup or after a
+driver reset. I2C settings are not saved or automatically applied by these
+profiles. Full profile parity remains open.
+
+The I2C panel restores the controller/recipe-first workflow, with manual routing
+collapsed. Explicit scan auto-selects exactly one candidate; ambiguous routes
+require a user choice. The compiled manual PMBus profile publishes nominal
+request presets from live bounds and the existing command grid. Selecting a
+preset only stages a target, and explicit Verify can arm the chosen controller
+before its response test. Unsupported legacy controller families/VID-offset
+recipes are not presented as functioning native protocols.
+
+I2C Apply requires the session gate, a successful bounded A–B–A response Verify
+and an owned driver-enumerated low-clock clamp. Release restores the captured
+controller request before releasing the clamp. Uncertain restoration retains
+recovery and prevents GPU switching or session closure; Scan and Read are
+explicit actions rather than ordinary telemetry polls. The historical meter
+baseline below used Python Max it with the C++ backend; later native Max it
+evidence is recorded separately.
+
+Both presentations expose Timings and the native helper-selection dialog. An
+explicit Read captures fields through installed nvtune; selected cycles are a
+draft until backend Preview and explicit Apply. Top-band/stability/field checks
+and a separate timing Undo remain enforced. No helper runs merely because the
+page is drawn. The native capture/preview path is live-tested, while timing
+writes/restoration remain unqualified on hardware.
 
 Windows 10 x64 build 19045 / RTX 3070 Ti evidence on 2026-11-12 includes exact
 request/readback/Undo round trips: memory 32→33→32 in its reported MHz scale,
@@ -262,7 +327,7 @@ All 11 live renderer phases passed, including four D3D9 resets; ordinary
 minimization and explicit Pause produced zero frames/completed reads, while
 Always refresh produced 115 frames and two completed reads during two seconds
 minimized. These renderer resets do not test GPU-driver restart persistence.
-Release checks passed: 203 view, 171 client, 92 curve-model, 61 Session, 36
+The original live-increment Release checks passed: 203 view, 171 client, 92 curve-model, 61 Session, 36
 profile I/O, 48 policy and 16 PE-policy checks, plus 57 targeted Python tests.
 The independent desktop helper timed out twice with
 `window capture timed out: timed out waiting on channel`; no physical inputs
@@ -270,12 +335,350 @@ were issued through it. The [live evidence record](ui/validation/2026-11-12-live
 contains the raw results and final build hash. D3D9 BMP review succeeded, but physical input, shortcut
 delivery and broader accessibility qualification remain open.
 
-The next replacement work is owned hold/headroom/recovery, curve planners,
-native XOC/Max it/Reset all workflows, broader existing-profile import and ordinary domain/rail/current/policy
-workflows, configurable Monitor features, then the remaining I2C,
-registry/BIOS, power-saving and timing services. Advanced currently exposes
-read-only session details rather than those complete workflows. GPU restart
-and other tool/lifecycle parity also remain on the service matrix. I2C physical
-verification stays parked for the owner. Vista/7 actual launch/render/DPI/
-device-loss/shutdown acceptance is still outstanding; XP/x86 UI support is not
-promised. This checkpoint is not full frontend parity.
+The later control-arc evidence is in
+[ui/validation/2026-11-12-controls.json](ui/validation/2026-11-12-controls.json).
+On the tested RTX 3070 Ti, Crossbar's configured request went 0 → -1 → 0 MHz;
+all surfaced advanced/rail requests and the complete V/F curve were checked as
+restored. This is limited to that adapter and operating point and does not
+establish physical response or another board's behavior.
+
+On the tested RTX 3070 Ti/configuration, a native I2C probe found an MP2888A
+candidate at port 1, address 0x20, initially reporting 676 mV. Nominal
+900 → 925 → 900 mV controller-response Verify passed and restored its captured
+entry before releasing the clock clamp. The existing Python Max it path with the
+C++ backend established the meter baseline at fan 100%, power request 500 W,
+boost 100% and a 1,093.75 mV V/F request; the meter read 1.11 V.
+
+At the owned 405 MHz clamp, native Apply of 1,100 mV read back the exact
+request and the controller reported 1,066 mV; the initial 1.06 V meter reading
+was truncated and is excluded from the quantitative comparison. A 1,125 mV
+request reported 1,091 mV at the controller and 1.097 V at the meter; returning
+to 1,100 mV reported 1,067 mV and 1.071 V; repeating 1,125 mV again reported
+1,091 mV and 1.097 V. The meter therefore repeated a 26 mV change for a 25 mV
+nominal command change. Release verified captured registers before releasing the
+clamp; afterward the controller reported 676 mV at 210 MHz and the meter read
+675 mV. The helper exited with no ownership remaining. This response is scoped
+to this candidate route, operating point and session. Nominal command is not
+measured voltage; no factory default, gain, offset or behavior on another board
+or controller is established.
+
+The read-only core power-bounds probe on this adapter reported normal
+100,000–500,000 mW and XOC 1–1,999,000 mW. These are observed request bounds
+for this route, not universal hardware limits.
+
+The subsequent native-control checkpoint is maintained in
+[ui/validation/2026-11-12-native-controls.md](ui/validation/2026-11-12-native-controls.md).
+On the same tested adapter/configuration, a board request of 1,999 → 500 W
+changed core-current 483.014 → 270 A and coupled policy requests; Undo restored
+the captured state. Native Max it reached 500 W, fan/boost 100%, ramp floor
+1,000 mV and cap/held point 1,093.75 mV with headroom; maintenance and Undo
+passed. These are request/lifecycle results, not a new physical-voltage claim.
+
+Reset reached 310 W, 243 A, memory offset 0, boost 0 and fan Auto. Its first Undo
+exposed an invalid assumption that evaluated frequency minus stored delta was
+invariant. The corrected geometry check validates the typed layout, divisor,
+indices and voltages. The live retest restored all 127 curve requests, all 19
+power-policy requests and scalar settings exactly, with no remaining hold or Undo.
+The installed nvtune
+v1.0.2-alpha helper captured timing fields and previewed RC 96 → 255 cycles;
+no timing write was performed.
+
+Remaining work includes timing-write and
+restoration qualification, I2C qualification on other devices/controller methods,
+registry/VBIOS relationship overrides, power saving, configurable
+Monitor workflows, full profiles and Vista/7 launch/render/DPI/device-loss/
+shutdown qualification.
+The Python frontend and experiment facade remain available. This checkpoint is
+not full frontend parity.
+
+## Released interface parity checkpoint
+
+Classic / Verbose means the released 1.9.1 interface and workflow, not extra
+explanatory text. The reference is release merge `fa6ee83`; controller protocol
+sources are `src/druta/railctl.py`, `controllers/`, and `mp29816.py`.
+
+The native I2C catalog now includes NCT3933U, NCP4206, uP9512R, EVGA iCX,
+MP2888A and MP29816, with native controller implementations. MP2888A retains
+both named legacy recipes (ASUS Turing offset / ASUS Ampere PMBus); the labels
+do not gate support by board identity. Controller identity, transport geometry,
+understood fields, request readback and restoration decide eligibility.
+Connect reuses the current matching selection, with bounded read-only retries;
+Full scan bypasses the selected family/route. Discovery never chooses among
+multiple candidates. Saved-route caching across application launches is still
+open; no tuning setting is automatically replayed.
+
+NCT3933U defaults to nominal current offsets. Its optional GPU / memory /
+PEX-PLL display mapping is an explicit wiring choice with the released gains,
+not a measurement or an automatically inferred property of another board.
+iCX supports its independent rail/control fields and the released
+`druta.icx.preset.v1` file schema. Save captures fresh requests before opening
+the file picker; Load and Restore captured settings only stage a preset.
+Apply validates the current selection, skips unchanged fields and checks final
+readback. An incomplete connection capture cannot be filled with later writes.
+The iCX protocol has no established B2-disable command; restoring captured
+requests may leave that controller gate enabled and reports this limitation.
+
+Verification uses source-specific readback or response/reversal checks. Native
+CUDA warmup reproduces the released device-to-device copy workload where that
+method requires it. Temporary holds are checked exactly and released only
+after controller restoration; an existing user hold is preserved. Hardware
+qualification remains scoped to the tested controller/method, not the catalog.
+
+Focused mode has separate Rails and I2C pages. Power, core current, Crossbar,
+SYS, Video and LTC are in Daily tuning; additional memory offset is in
+Advanced, and NVVDD/MSVDD offsets are in Rails. Classic keeps its released
+grouping. Clicking a control whose opt-in is off briefly highlights its
+checkbox without editing or issuing a request. Enabled controls use the same
+write paths as Classic. The finite highlight keeps visible rendering active
+only while needed; explicit Pause still takes precedence. Empty details no
+longer open an empty Apply tooltip.
+
+The shunt-mod display editor is beside Board power in both layouts. It imports
+and explicitly saves the Python `shuntmod.json` rail schema, preserving unknown
+fields. Original/effective resistances and connector layout are user inputs;
+the initial slot + two 8-pin / 5 mOhm layout is an editable template. A uniform
+ratio corrects displayed watts under that resistance model. Mixed ratios use
+the released capacity-weighted estimate and are labeled as estimates. The
+parallel-resistor helper can copy its numeric result or explicitly fill every
+understood rail's effective resistance, retaining original values and unknown
+entries. Neither button saves or writes hardware. Corrected board draw and power history
+retain raw readings; the power slider and every hardware request remain in
+driver watts. Saving this display preference never saves or reapplies tuning.
+
+Remaining faithful-port work: persistent discovery hints and progress/cancel
+UI; Advanced registry/relationship overrides, rail/policy diagnostics and power
+saving panels; batch timing profiles/captures; rail/policy profiles and profile
+composition; device/recovery/help menus and general owned frequency locks.
+These are tracked gaps, not completed controls. The current update does not
+claim full Python interface parity or physical qualification of other I2C ICs.
+
+The detailed source comparisons are recorded separately in the
+[Classic / Verbose review](ui/validation/2026-11-12-verbose-parity-review.md)
+and [Focused port inventory](ui/validation/2026-11-12-focused-port-inventory.md).
+They compare released Python `fa6ee83` with native `d5034e8`, distinguish
+missing UI bindings from missing semantic services, and list bounded follow-up
+work. The first implementation increment restores Classic's shared fixed knob
+columns, wrapping labels, separate body/heading/monospace fonts, actual page
+tabs and selectable/copyable log. Narrow windows scroll the two knob columns
+horizontally without shrinking them. Configured values show their units;
+tooltips distinguish requests from physical measurements.
+
+Both skins now bind the existing telemetry snapshot to seven legacy tiles,
+reason statuses, power/utilization bars, paired PCIe/state panels and optional
+history. Missing values, zeros and stale readings remain distinct; counters
+retain their integer precision. TDP used is draw divided by the reported
+enforced limit, separate from the power-policy target percentage. Partial
+PCIe aggregate coverage is not represented as a complete zero, and historical
+baseline coverage remains explicitly unverified. No additional polling is
+introduced by these displays.
+
+Ctrl+H now shares the selected-point hold command with the editor button and
+works across pages, including a closed or collapsed editor. Text entry,
+pending edits, stale/disconnected state and active work block initiation;
+owned recovery remains releasable independently of those initiation gates.
+Backend ownership and fresh preflight checks remain authoritative. The
+inventories still track the broader unimplemented workflows; this increment
+does not claim full frontend parity.
+
+The second parity increment adds same-session Classic page floating/docking,
+two-press Reset with a ten-second arm and adapter/lock cancellation, released
+I2C row geometry and discovery opening, and window-wide Classic WASD/Undo.
+Focused curve keyboard editing remains local to its editor. Classic curve
+guides and one/five-bin nudge buttons use the adapter's captured clock step.
+Hard de-flatten requires an explicit external-mod acknowledgement and stages
+only; changing the draft updates requested consequences and model estimates.
+
+Curve Profiles saves fresh configured requests and loads a validated profile
+into the clean local draft. Identity, sparse point geometry, divisor, voltages
+and envelope must match; invalid files and dirty drafts remain unchanged.
+The existing explicit Apply/readback/Undo path performs hardware operations.
+This separate manual curve scope does not advertise a full-tune profile.
+
+Monitor now classifies all clock domains through the core's pure API and
+tracks per-adapter B evidence, load/settling and stale reads. Missing samples
+break qualification continuity immediately while briefly retaining a clearly
+stale secondary display. A measured clock bin is independent of V/F editor
+availability; fallback bins never grade a gap. Duty and RPM retain last-good
+values independently, with per-field stale markers. These displays reuse the
+existing telemetry cadence. NCT Zero all outputs is one guarded operation
+which stops on the first failure and retains owned restoration state.
+
+The [completion ledger](ui/validation/PARITY-COMPLETION.md) records the entire
+remaining scope, and the [second checkpoint](ui/validation/2026-11-12-parity-second-increment.md)
+records this increment's tests and read-only renderer evidence.
+
+The third parity increment adds the shared Device/Help menus, selected-device
+reports, capability refresh that preserves drafts, and a second-window launch
+bound to PCI slot, UUID and the exact core DLL. Startup enumeration and fresh
+identity publication enforce the UUID; explicit reconnect preserves it, while
+an intentional adapter-picker selection starts a new session. PnP restart still
+requires its separate out-of-process lifecycle and is not conflated with Reset.
+
+File → Rail / power profiles captures explicit subsets, saves fresh configured
+requests, previews loaded files and applies only on command. Whole-selection
+preflight precedes existing typed writes. Board and current-policy requests
+share one original Undo baseline, with request/pin drift checks before dispatch,
+final selected readback, partial-failure retention and unrelated-pin conflict
+protection. Bounds follow the backend's current/initial rail expansion. The
+workspace does not introduce polling or automatic profile replay. A pure timing
+profile validation module is prepared and tested separately; its UI/batch-write
+integration remained open at that checkpoint rather than being counted as completed timing parity.
+
+The fourth parity increment connects general frequency requests, legacy P0 plus
+fan, native timing profiles and multi-field timing transactions in both skins.
+Clock ownership is independent of V/F maintenance: only a qualified acquisition
+causes handover, and an unresolved release blocks it. Read-only I2C verification
+does not release a frequency request. Timing Undo contains only dispatched or
+possibly dispatched fields; explicit restore preserves other bits and refuses
+an independently changed selected value. Captured-initial timings are scoped to
+the helper, adapter and qualified operating band, not labelled factory defaults.
+PERF groups now have explicit independent read-only captures and stale status.
+Power arbitration, richer timing diagnostics and the other open ledger rows
+remain separate work; see [fourth checkpoint](ui/validation/2026-11-12-parity-fourth-increment.md).
+
+## Advanced semantic controls checkpoint — 2026-11-13
+
+Both presentations now bind independent power feedback ratios, voltage admission,
+V/F monotonicity/smoothing and read-only arbitration. Read/Refresh is explicit;
+ordinary polling never recaptures these tables. Selected writes preserve current
+unrelated fields and use exact readback with explicit Undo/recovery. Missing
+atomic gate history cannot become a guessed rollback. All remain session-only.
+
+[Evidence and hardware limits](ui/validation/2026-11-13-parity-fifth-increment.md)
+record the 54-suite validation, current-adapter read results, and the different
+policy layout that remains outside the traced feedback/arbitration decoder.
+The [full review ledger](ui/validation/PARITY-COMPLETION.md) remains open.
+
+## Continuation checkpoint: catalog, discovery and timing diagnostics
+
+Both skins now expose selected profile composition with whole preflight and
+explicit Apply. Typed Python rail/power imports preserve pin semantics; grouped
+Undo verifies the complete original selection and retains partial recovery.
+Remembered I2C routes are discovery hints only, with progress and read-only
+cancellation. Timing capture adds qualified units and partition comparison.
+
+[Scope and validation](ui/validation/2026-11-13-parity-sixth-increment.md) record
+the remaining composition restrictions and physical qualification boundaries.
+Ordinary tuning remains session-only; the full review ledger remains open.
+
+## Continuation checkpoint: voltage requests and timing capture
+
+Both skins expose explicit voltage request-table and independent device-delay
+controls, selected native profiles, request readback and Undo/recovery. A narrow
+V2 rail setter preserves the complete request packet and guards the actual driver
+buffer. Native-only runtime identities may lack a UUID; saved profiles still
+require one, and UUID appearance/change invalidates a bound runtime operation.
+Scaffold and ROM-role provider dependencies remain explicit in the completion
+ledger rather than being replaced with guessed equation ordinals.
+
+P0 timing capture keeps one helper pin across qualification, temporary ownership,
+capture and cleanup. Adapter changes are excluded while this action is running.
+Auto-capture consumes already-published telemetry and never creates a background
+polling loop. Policy labels and selected maximum previews use the existing typed
+scoped-profile writer; connector-specific annotation parity remains open.
+
+
+## Continuation checkpoint: power saving and recovery
+
+Power-saving, clock-gating and PCIe families now have explicit independent
+inspection, typed requests, owned cleanup and manual profile staging. The worker
+retains uncertain counted requests and profiler objects across reads and blocks
+adapter changes until cleanup is resolved. Ordinary idle/adaptive/PCIe requests
+are never restored merely because the application closes.
+
+PnP recovery runs after the old renderer/process has exited and reopens only the
+selected slot/UUID/core, with a durable result and no tuning replay. Connector
+presets, channel-shared notes, explicit Python label import and labelled per-wire
+current colors complete that annotation workflow. The current-ROM/scaffold
+providers and relationship-weight exception remain open in the full ledger.
+
+## Continuation checkpoint: selected profiles and timing exchange
+
+Manual gate/VF-flag and power-feedback profiles now capture typed selected
+requests and load to local drafts. Feedback batch Apply preflights the complete
+range, preserves loaded bindings across refresh, and records issued-only Undo.
+Per-fan native/Python profiles integrate with catalog preflight, composition,
+final readback and grouped recovery. Legacy timing exchanges normalize against
+fresh helper aliases, layout and operating-band evidence. Profiles never replay
+at startup or after driver reset; standalone-family catalog adapters and full
+tune composition remain open in the [completion ledger](ui/validation/PARITY-COMPLETION.md).
+
+The tenth increment extends catalog transactions to selected voltage admission,
+V/F flags and power-feedback bounds. All components pass fresh preflight before
+the first write. Disjoint bounds and flags coalesce before validation; typed
+issued-request receipts support final verification and grouped recovery while
+retaining earlier meaningful Undo. New standalone Python import adapters cover
+voltage requests, device switch delays, low-power requests and PCIe speed.
+Their catalog integration still requires equivalent external transaction
+contracts; accepting a standalone file does not imply combined execution.
+
+
+## Continuation increment: voltage catalog transactions
+
+Native voltage request/limit profiles and released Python voltage requests and
+switch delays compose through session-bound typed plans and issued receipts.
+Whole preflight projects only an explicitly selected admission enable; each
+write checks actual admission. Admission enable precedes dependent requests and
+disable follows them. Final selected verification includes no-ops, while
+partial recovery preserves prior Undo. Failed fresh publications distinguish
+malformed, unsupported and transient results without inventing semantic
+providers. Catalog capture selectors navigate to the appropriate Advanced panel
+in both skins without an implicit read, write or save.
+
+The Release build, 92/92 test suites and 22-phase read-only renderer smoke
+passed; no hardware writes were issued. Low-power and clock/PCIe catalog adapters,
+unscoped full-tune import, iCX and timing/memory composition, CUDA fallback,
+ROM/scaffold evidence providers and the relationship-weight exception remain
+open. See the [eleventh increment](ui/validation/2026-11-13-parity-eleventh-increment.md).
+
+
+## Continuation increment: saving and clock catalog transactions
+
+Selected native and released Python low-power and clock/PCIe profiles now
+compose through private typed ownership plans and issued-prefix receipts,
+with prior Undo preserved. Final verification includes no-op selections;
+recovery checks every candidate before any restoration. Both skins navigate
+catalog capture selectors to their corresponding panels without implicit
+actions. Application remains explicit and session-only.
+
+Adaptive unknown-prior requests, adaptive plus idle coupling and GR plus
+individual acquisition overlap are refused pending qualified handover. An
+already held gating request requires explicit Release before the opposite mode
+can be applied. Integration passed 93 CTest suites and 22 read-only live
+renderer phases; full-tune, iCX and
+timing/memory composition, CUDA fallback, ROM/scaffold providers and the
+relationship-weight exception remain open.
+
+## Continuation increment: selected full tunes and typed handovers
+
+Unscoped Python schema-2 full tunes now enter the catalog as immutable source
+documents with explicit semantic selections. Current units, complete curve
+indices/geometry, policy identities, pins and reversible request paths are
+qualified before Apply. A legacy indexed curve retains its preflight geometry
+through execution; it does not gain invented historical voltages. Full-tune
+power derives unpinned expected values after the board and named-current phase;
+explicit pins remain separate. I2C and annotation selections remain visible but
+their full-tune adapters are pending. Read-only peer policies are preserved.
+
+Qualified ELCG/SLCG opposing-mode transitions now use verified release followed
+by fresh acquisition. Adaptive/idle profiles journal selected idle originals
+before adaptive effects and restore adaptive before explicit idle requests.
+Exclusive GR/count handovers preserve counted ownership through reverse Undo.
+Unknown prior adaptive state and simultaneous shared-count ownership remain
+unqualified; BLCG has no source-defined ENABLE. No startup or reset replay is
+added. See the [thirteenth increment](ui/validation/2026-11-13-parity-thirteenth-increment.md)
+for validation and the remaining full review scope.
+
+## Continuation increment: controller profiles and timing order
+
+Selected full-tune NCT3933 profiles retain exact output bytes, qualify the
+released recipe/route and compare saved configuration without writing it.
+Opaque session receipts preserve issued-only recovery and permit normal manual
+edits after restoration. This controller scope remains separate from other
+tuning writers; the other saved controller formats and annotations remain open.
+
+Timing and memory-offset catalog composition now binds original requests through
+dispatch, applies timings first and restores memory before timing Undo. Final
+readback uses the current qualified operating band without weakening timing
+write or restoration checks. See the [fourteenth increment](ui/validation/2026-11-13-parity-fourteenth-increment.md)
+for tests and the remaining scope.

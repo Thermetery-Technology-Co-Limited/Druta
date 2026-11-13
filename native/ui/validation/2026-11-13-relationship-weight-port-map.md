@@ -1,0 +1,83 @@
+# Relationship-weight override port map
+
+Current status: [increment 24](2026-11-13-parity-twenty-fourth-increment.md)
+completes the bounded activation arc described here: durable receipt and active
+pointer, per-name issued journal, exact narrow registry writes/readback, explicit
+selected-device refresh, independent fresh image/INFO/Windows/registry proof,
+and three-way owned removal/recovery. The final suite passes 147/147 tests and
+23 renderer phases. The 3070 Ti INFO geometry is outside the released decoder;
+physical activation/removal is unqualified and no layout expansion is included.
+The source map and proposed contracts below are historical implementation input;
+use the checkpoint and backlog for current status. Failed writes retain an
+explicit recovery record; they do not trigger unrequested automatic compensation.
+
+
+Originally reviewed 2026-11-13 against release `fa6ee83` and native baseline `5f6fb49`. The source review performed no registry access, GPU access, build or activation. The status update below distinguishes subsequent implementation from that historical review; this map is not a completed parity claim.
+
+## Current implementation status (increment 23)
+
+The typed current-ROM getter landed in increment 20. Increment 23 wires explicit Read and side-effect-free Preview through the production frontend and CoreClient: current image and relationship INFO capture, pure image/INFO decoding and typed selected-weight planning, plus narrowly scoped read-only registry capture and pure projection. Configured source references are displayed as configured relationships, not physical measurements. Read and Preview do not write registry values or refresh the driver. The [twenty-third checkpoint](2026-11-13-parity-twenty-third-increment.md) records the passing build, 141 tests with passing results, 23 renderer phases and the current adapter's unsupported INFO geometry. No physical weight write or activation is claimed.
+
+The durable receipt and active pointer, registry mutation, explicit refresh, fresh-process activation verification, and conflict-aware removal/recovery remain open. Preview alone does not establish activation or complete relationship-weight parity.
+
+## Contract and permitted persistence
+
+This is the authorized exception for **power relationship weights only**. Registry/VBIOS overrides persist until changed or removed and require an explicit selected-device driver refresh to load. Ordinary tuning remains session-only: the native port must not copy the release transaction's voltage-request replay/startup-adjustment branches. Refresh clears ordinary session requests; relaunch never restores them.
+
+The user workflow is Read current image and configured relationships → edit selected multipliers → Preview exact patch/registry delta and durable recovery receipt → explicit Apply and selected-device refresh → fresh-process image and INFO verification. Restore/removal is another explicit journaled transaction and refresh. A successful registry write alone is never activation success.
+
+## Released protocol and evidence
+
+| Stage | Exact source contract at `fa6ee83` | Native target |
+|---|---|---|
+| Target | `registry_overrides.py:105–131`: paired selected NVAPI/NVML slot, exact Windows PCI instance DEV/SUBSYS, display class driver-key mapping from the current Enum instance. | Reuse slot/instance resolution from `device_restart.h:14–24`, then add exact driver-key/type validation. No guessed display-class ordinal. |
+| Image | `registry_overrides.py:133–168`: NvAPI `0xFC13EE11`, 64-bit image structure of 16 bytes, version `0x20010`, capacity `0xFA000`, returned size 32..capacity; two identical observations, bounded to three pairs. | Typed current-image getter landed in increment 20. Do not substitute ROM metadata strings or a user-supplied unrelated image. |
+| Fields | `vbios_fields.py:466–490`; `power_weight_runtime.py:79–141`: unique power table version `0x40`, header `0x38` or `0x3D`, stride `0x66`, extent exactly header + count×stride. Relationship array follows that extent; stride 18, kind 1; selected weight is little-endian `H` at relationship+2, unsigned Q4.12. | Increment 23 adds a current-image parser and pure typed planner. Offset discovery must come from the current image, not a fixed developer ROM offset. |
+| Limits and translation | `power_weight_runtime.py:114–137`: relationship target is valid policy index <min(table count,32); target policy's runtime type/channel/unit and all min/default/max fields must agree with the unique current BIOS row. Limits are sorted; decoded/raw weight agrees. | Increment 23 implements the runtime type mapping and selected row/metadata binding. Retain unknown relationship kinds read-only; missing one target must not suppress unrelated qualified rows. |
+| INFO evidence | `power_relationships.py:18–92`: INFO command `0x2080A618`, exactly 20512 bytes, policy base/stride `0xCC/0x104`; relationship mask/base/stride `0x41CC/0x41D0/0x24`, capacity32. Runtime type0 relationship weight is u16 at record+6; targets independently require understood V3/V4 row format and mW/mA unit. | Existing `dc_cl_abi` and `dc_cl_rm` (`drutacore.h:988–996`) can supply INFO. Existing arbitration decoder does **not** expose these relationship records. Increment 23 adds the pure relationship decoder; there is no STATUS/CONTROL writer. |
+| Preflight | `power_weight_runtime.py:23–45,144–210`: exact finite Q4.12 value 0..65535 raw; only `power_relationship.<index>.weight`, index<32, separate from other BIOS/registry fields. Reparse INFO bytes and match selected type/target/weight and target metadata against the image. Two matching INFO observations; reject changed image after Preview. | Typed selected requests and typed immutable receipt evidence. Classify malformed/identity errors immediately; only transient reads receive bounded recovery. The release retries all exceptions here; native should follow current repository instructions instead. |
+| Registry projection | `registry_overrides.py:449–520`: case-insensitive unique dense `romOverride00..FF` indices, REG_BINARY, no gaps; preserve all old records. Append minimal chunks ≤246 bytes, each record = BE version u32 + OEM byte + LE offset u32 + length byte + payload. Max256 total records. Validate before bytes, no overlap, and complete expected-image hash. New transactions preserve firmware selector (`EnableGpuFirmware` is not forced). | Increment 23 adds read-only managed registry capture and pure projection over typed values. Weight edits normally need two changed bytes per row, but coalescing must follow selected byte ownership and bounds. Never overwrite an existing record slot. |
+| Durable receipt | `registry_overrides.py:933–1160,1682–1693`: preview persisted before mutation, binds target, exact before/after registry/image hashes, selected patch plan and versioned power-weight contract. Before first write an active pointer identifies recovery. | Missing bounded transaction journal and active-pointer loader. Existing `profile_io.h` is useful for atomic JSON/filesystem plumbing; ordinary saved profiles are not an activation journal. |
+| Apply and activation | `registry_overrides.py:1725–1769,1885–1920`: revalidate current target/image/inspection, rebuild the exact plan, compare registry snapshot to Preview, persist phase, replace registry with exact readback, explicitly refresh, then use a fresh process to read the image. `fresh_snapshot` starts at257. | Reuse `DeviceRestartApi` orchestration and existing exact-target helper; add a separate typed snapshot child with no tuning flags. Match slot/UUID/instance and reopened paired handle before accepting results. Receipt must outlive the initiating process. |
+| Final verification | `power_weight_runtime.py:213–237`: expected INFO equals entire captured 20512-byte INFO with only selected u16 weights at `0x41D0+index*0x24+6` changed; re-decode every selected target/metadata. Restore expects the entire original INFO. Image must match the exact planned image too. | Both image and semantic INFO checks mandatory. Do not equate successful refresh, registry equality, or changed weight labels with successful activation. No physical-power/arbitration-client claim. |
+| Removal/recovery | `registry_recovery.py:40–84`: three-way restore only transaction-owned registry names; allow current values equal recorded before or after, preserve unrelated additions/changes, reject third-value conflicts and case-insensitive duplicate aliases. `registry_overrides.py:2090–2175` handles rollback/refresh/readback and durable recovery-required states. | Restore exact pre-existing values/types or absence for owned names only, then explicit refresh and fresh image/INFO verification. Never delete all `romOverride*` values or restore an opaque snapshot over unrelated changes. |
+
+The native relationship view now displays configured source references from `power_relationships.py:95` onward: ordinary type0 flag/range references, type32 single-linked relationship, and type33 ranges. Reversed type33 ranges are empty/valid; do not invent a sentinel meaning. These are configured relationships, not physical execution measurements or arbitrary write eligibility.
+
+## Existing native pieces and concrete missing contracts
+
+Existing pieces:
+
+- `VoltagePolicyApi` supplies paired identity/target/architecture/transport/lock operations. `dc_gpu_identity_get`, `dc_gpu_target_bind`, `dc_cl_abi`, and `dc_cl_rm` provide a current-adapter INFO path without a new generic escape facility.
+- `PowerArbitrationService` (`power_arbitration_service.h:10–47`) already demonstrates independent explicit read-only capture with stale display and transport retry. Its `dc_arbitration_report` contains policy arbitration vectors, not relationship records (`power_arbitration.h:76–95`). A nonempty arbitration report is insufficient evidence for a weight writer.
+- Current `device_restart.h` exposes exact slot/instance enumeration, child launch, started verification and reboot-required reporting. `device_recovery.h:9–32` exposes durable restart receipts, wait-for-parent, relaunch and path validation. Its callback contract explicitly never restores tuning. Reuse the mechanics, keeping weight activation receipts separate from panic/recovery receipts.
+- `profile_io.h` provides bounded JSON and atomic writes. A dedicated override state directory and receipt type are still required; startup may display recovery availability but must never automatically mutate registry or refresh.
+
+Contracts below distinguish the implemented read/preview path from the remaining activation arc:
+
+1. Implemented in increment 20, core image getter: `dc_gpu_vbios_image_get(dc_gpu*, uint8_t* bytes, uint32_t capacity, uint32_t* written, dc_error*)`, implemented only for the pinned `0xFC13EE11` V2 layout. Validate guards/version/pointer/size, paired identity before and after, bound capacity and return original API failures. Read-only and no persistent cache across refresh. A two-matching-read service wraps this export.
+2. Implemented for increment 23 Read/Preview, pure image/INFO layer: `RelationshipImageEvidence` with image SHA-256, image version/OEM, complete understood table geometry, selected relation→target metadata and exact offsets; `RelationshipInfoEvidence` with geometry, identity and full INFO bytes; `RelationshipWeightRequest{index,raw_q412,expected_raw}`. Immutable `WeightPatchPlan` contains only independently derived selected before/after byte spans plus original/expected whole-image hashes. No caller-specified arbitrary offsets.
+3. Read-only capture and pure projection implemented in increment 23; still needed, Windows mutation abstraction: `resolve_driver_key(exact_target)`, `snapshot(exact_target)` returning value name/type/raw bytes, and `replace(expected,desired)` with per-name compare-before-write, exact readback and conflict-aware compensation. Never expose a generic user-selected registry path. All types/unknown managed values and unowned names remain exact.
+4. `WeightOverrideReceipt` records schema/id, explicit target slot/UUID/PCI instance/driver key, selected semantic contract, initial/expected image hash, exact changed registry names before/after, Preview fingerprint, phase, and verification/recovery diagnostics. Atomic receipt and active pointer must succeed before mutation. Bound JSON, image/record counts and child output paths; reject forged type/length/offset/target data by recomputing from current captured evidence.
+5. `WeightOverrideService` intents: Read, Preview, Apply preview + explicit refresh, Verify active, Restore this receipt + explicit refresh, Inspect recovery. No destructor action. Apply runs in a separate elevation/transaction host if needed, with exact-target arguments and fresh-process snapshot. A failed/accepted write keeps a discoverable receipt. Repeated recovery rebases only owned registry names and never blindly reapplies ordinary tuning.
+
+Do not route this through the native session-only saved-profile Apply mechanism. A manual weight document may stage values, but requires a new Preview/receipt/current-image qualification and explicit activation each time. No automatic application on app launch, device reconnect or driver reset.
+
+## Bounded implementation and tests
+
+The current increment implements the typed current-image getter, pure parser/relationship INFO decoder, and side-effect-free production Read/Preview. Validation is underway. The remaining activation increment must add journaled exact-target apply/refresh/verify/removal and an injected transaction host. No relationship-weight write or physical activation is claimed by this map.
+
+Required tests, based on `tests/test_power_weight_runtime.py`, `test_power_weight_read.py`, `test_registry_power_weight.py`, `test_registry_overrides.py`, `test_registry_recovery.py` and `test_vbios_fields.py`:
+
+- Alternate UUID/device/subsystem/slot and native architecture; no board/driver allowlists. Identity, instance or driver-key change between Preview/apply/child snapshot refuses before writes.
+- Both supported table headers; current table offsets/counts; independent absent targets; unknown relation kinds/row formats/units; exact runtime translation and min/default/max; malformed/truncated/ambiguous tables; type32/type33 and empty reversed ranges.
+- Q4.12 endpoints 0 and65535, exact decimal conversion, reject rounding/nonfinite/out-of-range; reject mixed scopes, duplicate/overlapping fields and stale expected raw/image/INFO.
+- INFO/read transient recovery is bounded; malformed and identity failures are never retried. Preserve last-good stale inspection independently of registry availability or other relationship rows.
+- Current image getter V2 version/extent/guard/pointer mutation, export absent, unequal pairs, and fresh child using different handles after refresh; image hashes and selected semantic INFO both required.
+- Existing override casing, unknown types, gaps, duplicate aliases, capacity256, selector/OEM targeting, offset bounds and unchanged unrelated record bytes. Preserve `EnableGpuFirmware`; no automatic firmware selector change.
+- Journal/active-pointer failure before mutation yields zero registry writes. Interrupt at each individual write/readback/refresh/verification phase; fresh process discovers exact receipt. Accepted-but-failed writes retain recovery.
+- Three-way removal preserves unrelated values and pre-existing overrides; restores exact type/value or absence only for owned names; rejects foreign third values. Partial registry mutation must not be replayed as a whole snapshot.
+- Refresh failure, requested reboot, timeout, parent death, relaunch failure, wrong adapter, stale child result, exact image mismatch, selected INFO mismatch and unrelated INFO byte mutation remain explicit failed/recovery-required outcomes. No Windows reboot and no session tuning replay.
+- View Preview/read does not write; Apply/restore require concrete preview/receipt and explicit activation, load only stages values, generation/selection changes clear dependent drafts, and recovery remains discoverable without automatic action.
+
+The activation/recovery row is now implemented and tested in increment 24. Physical activation on an adapter with the released supported geometry remains a separate qualification claim; the current 3070 Ti probe does not establish it.

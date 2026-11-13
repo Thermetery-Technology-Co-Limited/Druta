@@ -41,7 +41,7 @@ void set_delta(dc_vf_point& point, const dc_vf_point& base, std::int32_t value, 
 void CurveDraft::observe(std::uint64_t generation, const std::vector<dc_vf_point>& points, bool fresh, std::uint32_t freq_div) {
     if (!initialized_ || generation != generation_) {
         initialized_ = true; generation_ = generation;
-        baseline_.clear(); draft_.clear(); latest_.clear(); edits_.clear();
+        baseline_.clear(); draft_.clear(); latest_.clear(); edits_.clear(); redo_.clear(); gesture_ = false;
         fresh_ = false; diverged_ = false; baseline_div_ = latest_div_ = 0;
     }
     if (!fresh || !valid(points, freq_div)) {
@@ -54,12 +54,12 @@ void CurveDraft::observe(std::uint64_t generation, const std::vector<dc_vf_point
     if (baseline_.empty()) {
         baseline_ = draft_ = points; baseline_div_ = freq_div;
         status_ = "Curve ready";
-    } else if (dirty() || diverged_) {
+    } else if (dirty() || diverged_ || gesture_) {
         if (baseline_div_ != freq_div || !same_curve(baseline_, points, baseline_div_)) diverged_ = true;
         status_ = diverged_ ? "Hardware curve changed; revert to rebase before applying" : "Draft ready";
     } else {
         baseline_ = draft_ = points; baseline_div_ = freq_div;
-        edits_.clear();
+        edits_.clear(); redo_.clear(); gesture_ = false;
         status_ = "Curve ready";
     }
 }
@@ -75,8 +75,7 @@ bool CurveDraft::stage_khz(std::uint32_t index, double value) {
     if (it->delta_khz == delta) return true;
     const double freq = base->freq_mhz + (static_cast<double>(delta) - base->delta_khz) / (1000.0 * baseline_div_);
     if (!std::isfinite(freq)) { status_ = "Resulting frequency is not finite"; return false; }
-    if (edits_.size() == 32) edits_.erase(edits_.begin());
-    edits_.push_back({index, it->delta_khz});
+    if (!gesture_) remember_edit();
     set_delta(*it, *base, delta, baseline_div_);
     status_ = diverged_ ? "Hardware curve changed; revert to rebase before applying" :
               fresh_ ? "Draft ready" : "Draft retained; fresh curve required";
@@ -93,21 +92,65 @@ bool CurveDraft::stage_mhz(std::uint32_t index, double value) {
     }
     return stage_khz(index, rounded);
 }
+bool CurveDraft::stage_frequency_mhz(std::uint32_t index, double target_mhz,
+    std::uint32_t step_khz, std::int64_t max_abs_delta_khz, bool floor_target) {
+    const auto* base = find(baseline_, index);
+    if (!base || !baseline_div_ || !step_khz || max_abs_delta_khz <= 0
+        || max_abs_delta_khz > std::numeric_limits<std::int32_t>::max()
+        || !std::isfinite(target_mhz) || !std::isfinite(target_mhz * 1000.0)) {
+        status_ = "Verified point, clock step and request envelope are required";
+        return false;
+    }
+    const double wire_step = static_cast<double>(step_khz) * baseline_div_;
+    const double low = std::ceil((-static_cast<double>(max_abs_delta_khz) - base->delta_khz) / wire_step);
+    const double high = std::floor((static_cast<double>(max_abs_delta_khz) - base->delta_khz) / wire_step);
+    if (low > high) { status_ = "No representable clock bin inside the request envelope"; return false; }
+    const double offset = (target_mhz * 1000.0 - base->freq_mhz * 1000.0) / step_khz;
+    double bins = std::floor(offset + (floor_target ? 0.0 : 0.5));
+    bins = std::max(low, std::min(high, bins));
+    return stage_khz(index, static_cast<double>(base->delta_khz) + bins * wire_step);
+}
+void CurveDraft::remember_edit() {
+    if (edits_.size() == 64) edits_.erase(edits_.begin());
+    edits_.push_back({draft_});
+    redo_.clear();
+}
+void CurveDraft::begin_gesture() {
+    if (gesture_ || draft_.empty()) return;
+    remember_edit();
+    gesture_ = true;
+}
+void CurveDraft::end_gesture() { gesture_ = false; }
 bool CurveDraft::undo_edit() {
+    end_gesture();
     if (edits_.empty()) return false;
-    const auto edit = edits_.back(); edits_.pop_back();
-    auto it = std::find_if(draft_.begin(), draft_.end(), [&](const auto& p) { return p.idx == edit.index; });
-    const auto* base = find(baseline_, edit.index);
-    if (it == draft_.end() || !base) return false;
-    set_delta(*it, *base, edit.previous, baseline_div_);
+    redo_.push_back({draft_});
+    draft_ = std::move(edits_.back().points);
+    edits_.pop_back();
     status_ = diverged_ ? "Hardware curve changed; revert to rebase before applying" :
               fresh_ ? "Edit undone" : "Edit undone; fresh curve required";
     return true;
 }
+bool CurveDraft::redo_edit() {
+    end_gesture();
+    if (redo_.empty()) return false;
+    if (edits_.size() == 64) edits_.erase(edits_.begin());
+    edits_.push_back({draft_});
+    draft_ = std::move(redo_.back().points);
+    redo_.pop_back();
+    status_ = diverged_ ? "Hardware curve changed; revert to rebase before applying" :
+              fresh_ ? "Edit redone" : "Edit redone; fresh curve required";
+    return true;
+}
 bool CurveDraft::revert() {
     if (!fresh_ || latest_.empty()) { status_ = "A fresh curve is required to rebase"; return false; }
-    baseline_ = draft_ = latest_; baseline_div_ = latest_div_; edits_.clear(); diverged_ = false;
+    baseline_ = draft_ = latest_; baseline_div_ = latest_div_; edits_.clear(); redo_.clear(); gesture_ = false; diverged_ = false;
     status_ = "Draft reverted to current curve"; return true;
+}
+bool CurveDraft::accept_applied() {
+    if (!fresh_ || gesture_ || baseline_div_ != latest_div_ || !same_curve(draft_, latest_, baseline_div_)) return false;
+    if (!revert()) return false;
+    status_ = "Applied curve verified"; return true;
 }
 bool CurveDraft::dirty() const {
     if (draft_.size() != baseline_.size()) return false;
