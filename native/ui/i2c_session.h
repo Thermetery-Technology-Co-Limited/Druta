@@ -34,13 +34,10 @@ struct I2cApi {
     std::wstring route_cache_path;
     I2cVerifyHoldApi verify_hold;
 };
-struct IcxProfilePlan {
-    dc_gpu_identity identity{};
-    I2cRoute route{};
-    std::string recipe;
-    uint64_t selection_revision=0;
-    ProfileJson document,prior;
-};
+struct IcxProfilePlanState;
+struct IcxProfileReceiptState;
+struct IcxProfilePlan { std::shared_ptr<const IcxProfilePlanState> state; };
+struct IcxProfileReceipt { std::shared_ptr<IcxProfileReceiptState> state; };
 struct I2cProfilePlanState;
 struct I2cProfileReceiptState;
 struct I2cProfilePlan { std::shared_ptr<const I2cProfilePlanState> state; };
@@ -53,12 +50,13 @@ public:
     const I2cViewData& data() const { return data_; }
     ActionResult execute(const Command& command);
     ActionResult release();
-    // In-memory, standalone iCX catalog transaction. Preflight never stages UI
-    // drafts or acquires ownership. Existing owned requests must be released
-    // first; the host must reject composition with other tuning components.
+    // In-memory iCX transaction. The host qualifies composition dependencies;
+    // session/driver receipts own only issued controller and clamp lifecycles.
     ActionResult preflight_icx_profile(const ProfileJson& document,IcxProfilePlan& out);
-    ActionResult apply_icx_profile(const IcxProfilePlan& plan);
-    ActionResult restore_icx_profile(const IcxProfilePlan& plan);
+    ActionResult apply_icx_profile(const IcxProfilePlan&,const std::function<void(const IcxProfileReceipt&)>&);
+    ActionResult verify_icx_profile(const IcxProfilePlan&);
+    ActionResult verify_icx_profile(const IcxProfileReceipt&,bool original=false);
+    ActionResult restore_icx_profile(const IcxProfileReceipt&);
     // Explicit selected legacy NCT profile. Opaque session/driver plans bind
     // exact output bytes and comparison-only configuration; no clock hold.
     ActionResult preflight_i2c_profile(const ProfileJson&,I2cProfilePlan&);
@@ -66,7 +64,7 @@ public:
     ActionResult verify_i2c_profile(const I2cProfilePlan&);
     ActionResult verify_i2c_profile(const I2cProfileReceipt&,bool original=false);
     ActionResult restore_i2c_profile(const I2cProfileReceipt&);
-    bool owned() const { return service_->has_owned_control() || (controller_ && controller_->owned()) || data_.clock_owned || (verify_hold_ && verify_hold_->owned()); }
+    bool owned() const { return bool(icx_receipt_) || service_->has_owned_control() || (controller_ && controller_->owned()) || data_.clock_owned || (verify_hold_ && verify_hold_->owned()); }
 private:
     I2cApi api_;
     dc_gpu* gpu_;
@@ -76,9 +74,10 @@ private:
     std::unique_ptr<ControllerDriver> controller_;
     std::unique_ptr<I2cVerifyHold> verify_hold_;
     std::optional<std::string> captured_preset_, pending_preset_, prepared_preset_;
-    std::optional<IcxProfilePlan> catalog_plan_;
-    bool catalog_complete_=false;
-    bool icx_plan_bound(const IcxProfilePlan& plan) const;
+    std::shared_ptr<IcxProfileReceiptState> icx_receipt_;
+    uint64_t clock_epoch_=0;
+    bool icx_plan_bound(const IcxProfilePlanState&) const;
+    bool release_icx_clock(IcxProfileReceiptState&,std::string&,bool&);
     bool profile_bound(const I2cProfilePlanState&) const;
     const std::shared_ptr<const uint8_t> profile_owner_=std::make_shared<const uint8_t>(uint8_t{0});
     std::shared_ptr<I2cProfileReceiptState> profile_receipt_;
@@ -105,7 +104,7 @@ private:
     bool bound() const override;
     bool read(uint8_t port, uint8_t addr, uint8_t reg, uint8_t width, uint32_t& value) override;
     bool write(uint8_t port, uint8_t addr, uint8_t reg, uint8_t width, uint32_t value) override;
-    bool clamp(std::string& reason);
+    bool clamp(std::string& reason,const std::function<void(uint32_t)>& before_request={});
     bool clock_request() const;
     std::optional<double> observed_clock() const;
     void refresh(bool read_controller=true);

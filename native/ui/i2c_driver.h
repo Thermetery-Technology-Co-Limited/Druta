@@ -75,6 +75,12 @@ struct OffsetProfilePlanState { virtual ~OffsetProfilePlanState() = default; };
 struct OffsetProfileReceiptState { virtual ~OffsetProfileReceiptState() = default; };
 struct OffsetProfilePlan { std::shared_ptr<const OffsetProfilePlanState> state; };
 struct OffsetProfileReceipt { std::shared_ptr<OffsetProfileReceiptState> state; };
+// Complete semantic iCX presets use issued-field receipts. The session owns
+// the separate floor-clock request and journals it before acquisition.
+struct IcxControllerPlanState;
+struct IcxControllerReceiptState;
+struct IcxControllerPlan { std::shared_ptr<const IcxControllerPlanState> state; };
+struct IcxControllerReceipt { std::shared_ptr<IcxControllerReceiptState> state; };
 class ControllerDriver {
 public:
     virtual ~ControllerDriver() = default;
@@ -85,6 +91,12 @@ public:
     virtual I2cResult restore() = 0;
     virtual bool owned() const = 0;
     virtual bool needs_clock_clamp() const { return false; }
+    virtual I2cResult preview_icx(const std::vector<ControllerRequest>&,const ControllerContext&,IcxControllerPlan&) { return {false,false,false,"Exact iCX profile unavailable"}; }
+    virtual I2cResult apply_icx(const IcxControllerPlan&,const ControllerContext&,const std::function<void(const IcxControllerReceipt&)>&) { return {false,false,false,"Exact iCX profile unavailable"}; }
+    virtual I2cResult verify_icx(const IcxControllerPlan&) { return {false,false,false,"Exact iCX profile unavailable"}; }
+    virtual I2cResult verify_icx(const IcxControllerReceipt&,bool=false) { return {false,false,false,"Exact iCX profile unavailable"}; }
+    virtual I2cResult restore_icx(const IcxControllerReceipt&) { return {false,false,false,"Exact iCX profile unavailable"}; }
+
     virtual I2cResult capture_nct3933(Nct3933State&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
     virtual I2cResult preview_nct3933(const Nct3933State&,uint8_t,Nct3933Plan&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
     virtual I2cResult apply_nct3933(const Nct3933Plan&,const ControllerContext&,const std::function<void(const Nct3933Receipt&)>&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }

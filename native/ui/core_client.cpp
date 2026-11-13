@@ -247,7 +247,7 @@ class Client final : public IBackend {
     // Integral receipts include the full adapter identity. Keep them immutable
     // on the heap so unrelated, recursively grouped Undo paths do not pay that
     // stack cost for every local record.
-    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::optional<dc_fan_snapshot> fan_after; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfilePlan> catalog_icx; std::optional<I2cProfileReceipt> catalog_i2c; std::shared_ptr<const PowerIntegralPlan> catalog_integral; std::optional<VoltagePolicyReceipt> catalog_voltage_policy; std::optional<VoltageTablesReceipt> catalog_voltage_tables; std::optional<VoltageLimitsReceipt> catalog_voltage_limits; std::optional<PowerSavingReceipt> catalog_power_saving; std::optional<ClockGatingReceipt> catalog_clock_gating; std::optional<int32_t> attempted_memory; bool timing_memory_group=false; };
+    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::optional<dc_fan_snapshot> fan_after; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfileReceipt> catalog_icx; std::optional<I2cProfileReceipt> catalog_i2c; std::shared_ptr<const PowerIntegralPlan> catalog_integral; std::optional<VoltagePolicyReceipt> catalog_voltage_policy; std::optional<VoltageTablesReceipt> catalog_voltage_tables; std::optional<VoltageLimitsReceipt> catalog_voltage_limits; std::optional<PowerSavingReceipt> catalog_power_saving; std::optional<ClockGatingReceipt> catalog_clock_gating; std::optional<int32_t> attempted_memory; bool timing_memory_group=false; };
     std::vector<Undo> undo_;
     bool suppress_undo_ = false;
     bool catalog_grouping_ = false;
@@ -1430,10 +1430,13 @@ class Client final : public IBackend {
         try{
             const auto loaded=flatten_profile_collection(*cmd.catalog_profile);std::vector<ProfileComponent> components;std::vector<CatalogPrepared> plans;
             for(const auto& component:loaded){if(is_python_full_profile(component.document)){auto expanded=expand_full_tune(component);components.insert(components.end(),expanded.begin(),expanded.end());}else components.push_back(component);}
-            bool has_controller=false;
+            bool has_controller=false,has_icx=false;
             for(const auto& component:components){const auto info=inspect_profile(component.document);if(!info.valid)throw std::runtime_error(info.error);
-                has_controller=has_controller||std::find(info.targets.begin(),info.targets.end(),"i2c:controller")!=info.targets.end();}
-            if(has_controller){
+                has_controller=has_controller||std::find(info.targets.begin(),info.targets.end(),"i2c:controller")!=info.targets.end();
+                has_icx=has_icx||info.scope==ProfileScope::icx;}
+            if(has_icx&&has_controller)throw std::runtime_error("iCX and a second controller cannot share one catalog ownership lifecycle");
+            const bool has_voltage_controller=has_controller||has_icx;
+            if(has_voltage_controller){
                 // Validate whole documents before splitting their voltage and
                 // clock/power requests. No subset may hide a malformed field.
                 for(auto& component:components){const auto info=inspect_profile(component.document);ActionResult checked;checked.ok=true;
@@ -1451,9 +1454,10 @@ class Client final : public IBackend {
             for(const auto& component:components){const auto info=inspect_profile(component.document);if(!info.valid)throw std::runtime_error(info.error);
                 timing=timing||info.scope==ProfileScope::timing||info.scope==ProfileScope::legacy_timing;for(const auto& target:info.targets)memory=memory||target=="clock:memory"||target=="clock:domain:2";
                 for(const auto& target:info.targets)if(target.compare(0,6,"power:")==0){has_power=true;if(target=="power:*")full_power=true;else if(target.compare(0,13,"power:policy:")==0)selected_policies.push_back(static_cast<uint32_t>(std::stoul(target.substr(13))));}
-                if(info.scope==ProfileScope::icx&&components.size()!=1)throw std::runtime_error("iCX catalog profiles require a separate standalone application because their owned clock and restoration lifecycle cannot compose with other tuning writers");
+                if(has_icx&&(info.scope==ProfileScope::timing||info.scope==ProfileScope::legacy_timing))
+                    throw std::runtime_error("The retained iCX floor clamp cannot compose with a timing profile that requires a qualified memory operating band");
             }
-            const bool timing_memory=timing&&memory;const bool freeze_memory=timing_memory||has_controller;
+            const bool timing_memory=timing&&memory;const bool freeze_memory=timing_memory||has_voltage_controller;
             if(i2c_session_&&i2c_session_->owned())throw std::runtime_error("Release the owned I2C request and clock clamp before other catalog tuning");
             if(maintenance_needed())throw std::runtime_error("Release the owned V/F hold before catalog tuning");
             // Coalesce disjoint feedback bounds and VF flags before whole
@@ -1575,8 +1579,11 @@ class Client final : public IBackend {
                 // Preserve the released voltage-before-clocks dependency order.
                 // Qualified controller profiles here acquire no clock hold.
                 if(p.i2c)return -6;
+                // iCX retains its floor clamp. Complete ordinary requests first;
+                // final readback must still qualify them under that clamp.
+                if(p.scope==ProfileScope::icx)return 50;
                 if(p.voltage_policy&&p.voltage_policy->selection==voltage_admission)return p.voltage_policy->values?-10:40;
-                if(has_controller){const auto dependency=inspect_profile(p.document);
+                if(has_voltage_controller){const auto dependency=inspect_profile(p.document);
                     for(const auto& t:dependency.targets)if(t.compare(0,5,"rail:")==0||t=="voltage:nvvdd-offset"||t.rfind("voltage:msvdd-offset:",0)==0)return -8;}
                 if(timing_memory&&p.scope==ProfileScope::timing)return -5;
                 if(p.scope==ProfileScope::curve)return 30;const auto info=inspect_profile(p.document);
@@ -1628,8 +1635,10 @@ class Client final : public IBackend {
                     action=i2c_session_->apply_i2c_profile(*plan.i2c,journal);last_.i2c=i2c_session_->data();if(entry&&!action.may_have_changed)undo_.erase(undo_.begin()+*entry);
                     if(action.ok)catalog_i2c_plan_=plan.i2c;
                 }
-                else if(plan.scope==ProfileScope::icx){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_icx=plan.icx;remember(*saved);const auto position=undo_.size()-1;
-                    action=i2c_session_->apply_icx_profile(*plan.icx);last_.i2c=i2c_session_->data();if(!action.may_have_changed)undo_.erase(undo_.begin()+position);}
+                else if(plan.scope==ProfileScope::icx){
+                    std::optional<size_t> entry;const auto journal=[&](const IcxProfileReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_icx=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_icx=receipt;};
+                    action=i2c_session_->apply_icx_profile(*plan.icx,journal);last_.i2c=i2c_session_->data();if(entry&&!action.may_have_changed)undo_.erase(undo_.begin()+*entry);
+                }
                 else if(plan.scope==ProfileScope::timing){
                     std::optional<size_t> entry;const auto before=[&](const TimingBatchPlan& saved){if(!entry){auto u=std::make_unique<Undo>();u->control=ControlId::count;u->catalog_timing=saved;remember(*u);entry=undo_.size()-1;}else undo_[*entry].catalog_timing=saved;};
                     const auto applied=timings_->apply(*plan.timing,before);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
@@ -1656,7 +1665,7 @@ class Client final : public IBackend {
                 else if(plan.scope==ProfileScope::curve){const auto current=catalog_curve_command(plan.document);verified.ok=true;if(is_python_full_profile(plan.document))verified.ok=current.expected_curve_freq_div==plan.curve->expected_curve_freq_div&&same_curve_mapping(plan.curve->expected_curve,current.expected_curve,current.expected_curve_freq_div)&&same_curve_layout(*plan.curve->expected_curve_layout,*current.expected_curve_layout);for(const auto& d:current.curve_deltas){const auto p=std::find_if(current.expected_curve.begin(),current.expected_curve.end(),[&](const auto& x){return x.idx==d.idx;});if(p==current.expected_curve.end()||p->delta_khz!=d.delta_khz)verified.ok=false;}verified.message="Final selected curve deltas or qualified geometry differ";}
                 else if(plan.scope==ProfileScope::timing){dc_gpu_identity id{};const auto fresh=timings_->capture();if(!identity(id))throw std::runtime_error("Final timing identity changed");const auto requests=validate_timing_profile(plan.document,id,fresh);const auto comparison=timings_->preview(requests);verified.ok=comparison.ok&&comparison.no_change;verified.message="Final selected timing fields differ or are stale";}
                 else if(plan.i2c){verified=i2c_session_->verify_i2c_profile(*plan.i2c);last_.i2c=i2c_session_->data();}
-                else if(plan.scope==ProfileScope::icx){verified.ok=true;} // sole component, hook verifies exact complete settings
+                else if(plan.scope==ProfileScope::icx){verified=i2c_session_->verify_icx_profile(*plan.icx);last_.i2c=i2c_session_->data();}
                 if(!verified.ok)throw std::runtime_error(plan.name+": final composition verification failed: "+verified.message);
             }
             if(timing_memory)for(const auto& plan:plans)if(plan.scope==ProfileScope::timing){const auto verified=verify_catalog_timing(*plan.timing);if(!verified.ok)throw std::runtime_error(plan.name+": final composition verification failed: "+verified.message);}
@@ -1668,6 +1677,7 @@ class Client final : public IBackend {
         dc_gpu_identity id{};if(!identity(id))return false;
         if(!saved.group.empty()||!saved.completed.empty()){for(const auto& child:saved.group)if(!verify_profile_undo(child))return false;for(const auto& child:saved.completed)if(!verify_profile_undo(child))return false;return true;}
         if(saved.catalog_i2c){if(!i2c_session_)return false;const auto checked=i2c_session_->verify_i2c_profile(*saved.catalog_i2c,true);last_.i2c=i2c_session_->data();return checked.ok;}
+        if(saved.catalog_icx){if(!i2c_session_)return false;const auto checked=i2c_session_->verify_icx_profile(*saved.catalog_icx,true);last_.i2c=i2c_session_->data();return checked.ok;}
         if(saved.catalog_power_saving){if(!power_saving_)return false;const auto checked=power_saving_->verify(*saved.catalog_power_saving,true);last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());return checked.ok;}
         if(saved.catalog_clock_gating){if(!clock_gating_)return false;const auto checked=clock_gating_->verify(*saved.catalog_clock_gating,true);last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());return checked.ok;}
         if(saved.catalog_voltage_tables){if(!voltage_tables_)return false;const auto checked=voltage_tables_->verify(*saved.catalog_voltage_tables,true);last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());return checked.ok;}
@@ -2344,22 +2354,20 @@ public:
             const I2cProfileReceipt* receipt=undo_.back().catalog_i2c?&*undo_.back().catalog_i2c:nullptr;
             if(receipt){if(!i2c_session_){result.message="I2C session unavailable; catalog Undo retained";return result;}
                 result=i2c_session_->restore_i2c_profile(*receipt);last_.i2c=i2c_session_->data();if(result.ok)undo_.pop_back();return result;}
+            if(undo_.back().catalog_icx){if(!i2c_session_){result.message="iCX session unavailable; catalog Undo retained";return result;}
+                result=i2c_session_->restore_icx_profile(*undo_.back().catalog_icx);last_.i2c=i2c_session_->data();if(result.ok)undo_.pop_back();return result;}
             auto& aggregate=undo_.back();
-            for(const auto& completed:aggregate.completed)if(completed.catalog_i2c && !verify_profile_undo(completed)){
+            for(const auto& completed:aggregate.completed)if((completed.catalog_i2c||completed.catalog_icx) && !verify_profile_undo(completed)){
                 result.message="Completed controller restoration changed or is unreadable; grouped Undo retained before other writes";return result;
             }
             for(auto it=aggregate.group.begin();it!=aggregate.group.end();) {
-                if(!it->catalog_i2c){++it;continue;}
+                if(!it->catalog_i2c&&!it->catalog_icx){++it;continue;}
                 if(!i2c_session_){result.message="I2C session unavailable; grouped Undo retained";return result;}
-                const auto restored=i2c_session_->restore_i2c_profile(*it->catalog_i2c);last_.i2c=i2c_session_->data();
+                const auto restored=it->catalog_icx?i2c_session_->restore_icx_profile(*it->catalog_icx):i2c_session_->restore_i2c_profile(*it->catalog_i2c);last_.i2c=i2c_session_->data();
                 result.may_have_changed|=restored.may_have_changed;
                 if(!restored.ok){result.message="Controller restoration must complete before other profile Undo: "+restored.message;return result;}
                 aggregate.completed.push_back(std::move(*it));it=aggregate.group.erase(it);
             }
-            const IcxProfilePlan* plan=undo_.back().catalog_icx?&*undo_.back().catalog_icx:nullptr;
-            if(!plan&&undo_.back().group.size()==1&&undo_.back().group.front().catalog_icx)plan=&*undo_.back().group.front().catalog_icx;
-            if(plan){if(!i2c_session_){result.message="I2C session unavailable; catalog Undo retained";return result;}
-                result=i2c_session_->restore_icx_profile(*plan);last_.i2c=i2c_session_->data();if(result.ok)undo_.pop_back();return result;}
         }
         if (is_frequency_operation(cmd.operation)) return frequency_action(cmd);
         // These independent policy fields do not acquire or release a clock
@@ -2500,7 +2508,7 @@ public:
                 // disabled last, and after them when it was enabled first.
                 const bool timing_memory=undo_.back().timing_memory_group;
                 auto it = std::min_element(group.begin(),group.end(),[&](const Undo& a,const Undo& b){const auto rank=[&](const Undo& item){
-                    if(item.catalog_i2c)return -100;
+                    if(item.catalog_i2c||item.catalog_icx)return -100;
                     if(item.catalog_voltage_policy)return item.catalog_voltage_policy->restoration_order()*10;
                     if(timing_memory){if(memory_receipt(item))return 0;if(timing_receipt(item))return 10;return item.control==ControlId::core?6:5;}
                     return item.control==ControlId::core?10:0;};return rank(a)<rank(b);});

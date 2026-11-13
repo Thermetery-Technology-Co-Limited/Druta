@@ -16,6 +16,19 @@
 #include <windows.h>
 #endif
 namespace druta::ui {
+struct IcxProfilePlanState {
+    std::shared_ptr<const uint8_t> owner;
+    dc_gpu_identity identity{};I2cRoute route{};std::string recipe;
+    uint64_t selection_revision=0,clock_epoch=0;uint32_t floor=0;
+    ProfileJson document,prior;IcxControllerPlan driver;
+};
+struct IcxProfileReceiptState {
+    std::shared_ptr<const IcxProfilePlanState> plan;
+    IcxControllerReceipt driver;
+    uint64_t clock_epoch=0;uint32_t floor=0;
+    bool clamp_issued=false,controller_done=false,clock_done=false,complete=false;
+    std::string controller_message;
+};
 struct I2cProfilePlanState {
     std::shared_ptr<const uint8_t> owner;
     dc_gpu_identity identity{};
@@ -175,7 +188,7 @@ bool I2cSession::select(I2cFamily family,I2cRoute route,const std::string& recip
     ReadOnlyScope commit_scope(discovery_cancel_allowed_,false);
     // Commit the freshly inspected controller and service together. A cancelled
     // or partial probe has not touched the established selection or its drafts.
-    service_=std::move(service);profile_receipt_.reset();
+    service_=std::move(service);profile_receipt_.reset();icx_receipt_.reset();
     controller_=std::move(chosen); data_.selected=route;data_.family=family; data_.verified=false;
     data_.controller=std::move(view);data_.status=std::move(status); ++data_.selection_revision;
     data_.control_profile=manual?"mp2888a-pmbus":family==I2cFamily::mp2888?"mp2888a-offset":"controller";
@@ -265,7 +278,7 @@ std::optional<double> I2cSession::observed_clock() const {
     if (api_.telemetry(gpu_,&t)!=DC_OK || !(t.present&DC_T_CORE) || !std::isfinite(t.core) || t.core<=0 || t.core>data_.clock_mhz) return {};
     return t.core;
 }
-bool I2cSession::clamp(std::string& reason) {
+bool I2cSession::clamp(std::string& reason,const std::function<void(uint32_t)>& before_request) {
     if (data_.clock_owned) {
         if (observed_clock()) return true;
         reason="Owned low-clock clamp is not confirmed; retry or release"; return false;
@@ -292,8 +305,9 @@ bool I2cSession::clamp(std::string& reason) {
     if (!top || !top->count || top->count>512) { reason="Top memory row has no understood clock range"; return false; }
     const uint32_t floor=*std::min_element(top->graphics,top->graphics+top->count);
     if (!floor) { reason="Driver clock floor is invalid"; return false; }
+    if(before_request)before_request(floor);
     // Save ownership before SET; an error can follow a dispatch.
-    data_.clock_owned=true; data_.clock_mhz=floor;
+    ++clock_epoch_;data_.clock_owned=true; data_.clock_mhz=floor;
     dc_outcome out{};
     if (api_.clamp(gpu_,floor,floor,&out)!=DC_OK || !out.ok || !clock_request()) {
         reason="Low-clock request unverified; recovery remains available"; return false;
@@ -327,12 +341,14 @@ void I2cSession::refresh(bool read_controller) {
         if(read_controller)data_.controller=controller_->read(xoc());const auto& view=data_.controller;
         data_.verified=view.verified || !view.needs_verification;
         auto& status=data_.status;status.readable=view.readable;status.stale=view.stale;
-        status.capable=view.capable;status.owned=view.owned;status.recovery_pending=view.recovery;
+        const bool retained_cleanup=icx_receipt_&&!icx_receipt_->complete&&(icx_receipt_->controller_done||icx_receipt_->clock_done);
+        status.capable=view.capable;status.owned=view.owned||bool(icx_receipt_);status.recovery_pending=view.recovery||retained_cleanup;
         status.response_verified=data_.verified;status.enabled=data_.gate;
-        status.request_eligible=view.capable && !view.recovery;
-        status.writable=data_.gate && data_.verified && api_.controller_write &&
+        status.request_eligible=view.capable && !status.recovery_pending;
+        status.writable=!retained_cleanup && data_.gate && data_.verified && api_.controller_write &&
             std::any_of(view.fields.begin(),view.fields.end(),[](const auto& field){return field.writable;});
         status.message=view.message;
+        if(retained_cleanup)status.message+="; iCX receipt cleanup/final verification remains pending";
         if(data_.family==I2cFamily::icx && !captured_preset_ && !selection_write_attempted_) {
             try { captured_preset_=capture_icx_preset(view).dump(); } catch(...) { /* partial read is retryable */ }
         }
@@ -383,91 +399,159 @@ ActionResult I2cSession::preset(const Command& command) {
     }catch(const std::exception& error){action.message=std::string("iCX preset: ")+error.what();}
     return action;
 }
-bool I2cSession::icx_plan_bound(const IcxProfilePlan& plan) const {
+bool I2cSession::icx_plan_bound(const IcxProfilePlanState& plan) const {
     const auto& id=plan.identity;
-    return bound() && data_.family==I2cFamily::icx && controller_ && data_.selected && id.size==sizeof(id)
-        && terminated(id.uuid,sizeof(id.uuid)) && terminated(id.slot,sizeof(id.slot))
-        && id.uuid[0] && std::strcmp(id.uuid,identity_.uuid)==0 && std::strcmp(id.slot,identity_.slot)==0
+    return plan.owner==profile_owner_ && bound() && data_.family==I2cFamily::icx && controller_ && data_.selected && id.size==sizeof(id)
+        && terminated(id.uuid,sizeof(id.uuid)) && terminated(id.slot,sizeof(id.slot)) && id.uuid[0]
+        && std::strcmp(id.uuid,identity_.uuid)==0 && std::strcmp(id.slot,identity_.slot)==0
         && id.nvapi_handle==identity_.nvapi_handle && id.nvapi_devid==identity_.nvapi_devid && id.nvapi_subsys==identity_.nvapi_subsys
         && plan.route.port==data_.selected->port && plan.route.addr7==data_.selected->addr7
         && plan.recipe==data_.control_profile && plan.selection_revision==data_.selection_revision;
 }
 ActionResult I2cSession::preflight_icx_profile(const ProfileJson& document,IcxProfilePlan& out) {
+    out={};
     if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX preflight");
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
     try {
-        if(!bound() || data_.family!=I2cFamily::icx || !data_.selected || !controller_ || !data_.gate || !data_.verified
-            || !api_.controller_write)return failure("Select iCX, enable its gate and qualify its current identity before catalog Apply");
+        if(!bound() || data_.family!=I2cFamily::icx || !data_.selected || !controller_ || !data_.gate || !data_.verified || !api_.controller_write)
+            return failure("Select iCX, enable its gate and qualify its current identity before catalog Apply");
         if(owned())return failure("Release existing I2C requests before an independent iCX catalog transaction");
-        icx_preset_requests(document,xoc());
-        if(!api_.clock_status || !api_.vf_status || !api_.clocks || !api_.clamp || !api_.release || !api_.telemetry)
-            return failure("iCX catalog clock ownership interfaces unavailable");
-        dc_clk_lock_status clock{};dc_vf_lock_status vf{};
-        if(api_.clock_status(gpu_,&clock)!=DC_OK || api_.vf_status(gpu_,0,0,&vf)!=DC_OK || !terminated(clock.error,sizeof(clock.error))
-            || !terminated(vf.error,sizeof(vf.error)) || clock.error[0] || vf.error[0] || clock.locked || vf.locked)
-            return failure("Release existing V/F or frequency requests before iCX catalog preflight");
-        size_t count=0;const auto query=api_.clocks(gpu_,nullptr,0,&count);
-        if((query!=DC_OK && query!=DC_E_BUFFER) || !count || count>128)return failure("iCX catalog clock table unavailable");
-        std::vector<dc_clock_row> clocks(count);
-        if(api_.clocks(gpu_,clocks.data(),clocks.size(),&count)!=DC_OK || !count || count>clocks.size())return failure("iCX catalog clock table changed");
-        const dc_clock_row* top=nullptr;for(size_t i=0;i<count;++i)if(!top || clocks[i].mem_mhz>top->mem_mhz)top=&clocks[i];
-        if(!top || !top->count || top->count>512 || !*std::min_element(top->graphics,top->graphics+top->count))return failure("iCX catalog clock floor geometry unavailable");
-        IcxProfilePlan plan;plan.identity=identity_;plan.route=*data_.selected;plan.recipe=data_.control_profile;plan.selection_revision=data_.selection_revision;
-        plan.document=document;plan.prior=capture_icx_preset(controller_->read(xoc()));
-        if(!icx_plan_bound(plan))return failure("iCX catalog target changed during read-only preflight");
-        out=std::move(plan);ActionResult action;action.ok=true;action.message="Standalone iCX target and prior requests qualified; no requests staged or written";return action;
+        auto plan=std::make_shared<IcxProfilePlanState>();plan->owner=profile_owner_;plan->identity=identity_;plan->route=*data_.selected;
+        plan->recipe=data_.control_profile;plan->selection_revision=data_.selection_revision;plan->clock_epoch=clock_epoch_;plan->document=document;
+        const auto requests=icx_preset_requests(document,xoc());
+        plan->prior=capture_icx_preset(controller_->read(xoc()));
+        const auto prepared=controller_->preview_icx(requests,{data_.gate,xoc()},plan->driver);
+        if(!prepared.ok)return result(prepared);
+        if(plan->prior.at("settings")!=document.at("settings")) {
+            if(!api_.clock_status || !api_.vf_status || !api_.clocks || !api_.clamp || !api_.release || !api_.telemetry)
+                return failure("iCX catalog clock ownership interfaces unavailable");
+            dc_clk_lock_status clock{};dc_vf_lock_status vf{};
+            if(api_.clock_status(gpu_,&clock)!=DC_OK || api_.vf_status(gpu_,0,0,&vf)!=DC_OK || !terminated(clock.error,sizeof(clock.error))
+                || !terminated(vf.error,sizeof(vf.error)) || clock.error[0] || vf.error[0] || clock.locked || vf.locked)
+                return failure("Release existing V/F or frequency requests before iCX catalog preflight");
+            size_t count=0;const auto query=api_.clocks(gpu_,nullptr,0,&count);
+            if((query!=DC_OK && query!=DC_E_BUFFER) || !count || count>128)return failure("iCX catalog clock table unavailable");
+            std::vector<dc_clock_row> clocks(count);
+            if(api_.clocks(gpu_,clocks.data(),clocks.size(),&count)!=DC_OK || !count || count>clocks.size())return failure("iCX catalog clock table changed");
+            const dc_clock_row* top=nullptr;for(size_t i=0;i<count;++i)if(!top || clocks[i].mem_mhz>top->mem_mhz)top=&clocks[i];
+            if(!top || !top->count || top->count>512)return failure("iCX catalog clock floor geometry unavailable");
+            plan->floor=*std::min_element(top->graphics,top->graphics+top->count);
+            if(!plan->floor)return failure("iCX catalog clock floor geometry unavailable");
+        }
+        if(!icx_plan_bound(*plan))return failure("iCX catalog target changed during read-only preflight");
+        out.state=std::move(plan);auto action=failure("iCX target, complete prior and clock eligibility qualified without effects");action.ok=true;return action;
     }catch(const std::exception& error){return failure(std::string("iCX preflight: ")+error.what());}
 }
-ActionResult I2cSession::apply_icx_profile(const IcxProfilePlan& plan) {
+ActionResult I2cSession::apply_icx_profile(const IcxProfilePlan& plan,const std::function<void(const IcxProfileReceipt&)>& journal) {
     if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX catalog Apply");
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
-    ActionResult action;
+    const auto before_epoch=clock_epoch_;ActionResult action;IcxProfileReceipt receipt;
     try {
-        if(!icx_plan_bound(plan) || !data_.gate || !data_.verified || !api_.controller_write || owned())return failure("iCX catalog plan binding, gate or independent ownership changed");
-        const auto requests=icx_preset_requests(plan.document,xoc());const auto previous=icx_preset_requests(plan.prior,true);
+        if(!plan.state || !icx_plan_bound(*plan.state) || plan.state->clock_epoch!=clock_epoch_ || !data_.gate || !data_.verified || !api_.controller_write || owned())
+            return failure("iCX catalog plan binding, gate or independent ownership changed");
+        (void)icx_preset_requests(plan.state->document,xoc());
         const auto current=capture_icx_preset(controller_->read(xoc()));
-        if(current.at("settings")!=plan.prior.at("settings") || !icx_plan_bound(plan))return failure("iCX prior requests changed since catalog preflight; no write issued");
-        if(current.at("settings")==plan.document.at("settings")){action.ok=true;action.message="iCX requests already match; no write or ownership acquired";return action;}
-        catalog_plan_=plan;catalog_complete_=false; // Retain typed recovery before any possible SET.
+        if(current.at("settings")!=plan.state->prior.at("settings"))return failure("iCX original requests changed since preflight; no effect issued");
+        if(current.at("settings")==plan.state->document.at("settings"))return verify_icx_profile(plan);
+        receipt.state=std::make_shared<IcxProfileReceiptState>();receipt.state->plan=plan.state;receipt.state->floor=plan.state->floor;
+        receipt.state->clock_epoch=clock_epoch_;
         std::string reason;
-        if(!clamp(reason)){action.may_have_changed=owned();action.message=reason;refresh();return action;}
+        const bool held=clamp(reason,[&](uint32_t floor){
+            if(!icx_plan_bound(*plan.state) || floor!=plan.state->floor || clock_epoch_!=plan.state->clock_epoch)
+                throw std::runtime_error("iCX planned floor or target changed before clamp dispatch");
+            receipt.state->clamp_issued=true;receipt.state->clock_epoch=clock_epoch_+1;
+            try{if(journal)journal(receipt);}catch(...){receipt.state->clamp_issued=false;receipt.state->clock_epoch=clock_epoch_;throw;}
+            icx_receipt_=receipt.state;
+        });
+        if(!held){action.message=reason;action.may_have_changed=receipt.state->clamp_issued;try{refresh();}catch(...){}return action;}
         action.may_have_changed=true;
-        for(const auto& request:requests) {
-            const auto old=std::find_if(previous.begin(),previous.end(),[&](const auto& candidate){return candidate.key==request.key;});
-            if(old!=previous.end() && old->reset==request.reset && (request.reset || old->value==request.value))continue;
-            const auto step=controller_->apply(request,{data_.gate,xoc()});action.may_have_changed|=step.may_have_changed;
-            if(!step.ok){action.message="iCX catalog incomplete; typed owned recovery retained: "+step.message;refresh();return action;}
-        }
-        const auto after=capture_icx_preset(controller_->read(xoc()));
-        action.ok=icx_plan_bound(plan) && after.at("settings")==plan.document.at("settings");
-        catalog_complete_=action.ok;
-        action.message=action.ok?"iCX catalog requests read back exactly; prior requests available for Undo":"iCX catalog readback differs; typed restoration retained";
-        refresh();return action;
-    }catch(const std::exception& error){action.message=std::string("iCX catalog Apply: ")+error.what();action.may_have_changed=action.may_have_changed || owned();refresh();return action;}
+        action=result(controller_->apply_icx(plan.state->driver,{data_.gate,xoc()},[&](const IcxControllerReceipt& driver){
+            if(!icx_plan_bound(*plan.state) || clock_epoch_!=receipt.state->clock_epoch || !data_.clock_owned || data_.clock_mhz!=receipt.state->floor || !observed_clock())
+                throw std::runtime_error("Owned iCX clock lifecycle changed before controller dispatch");
+            receipt.state->driver=driver;
+        }));
+        action.may_have_changed=true; // The owned clamp was already dispatched.
+        if(action.ok){const auto verified=verify_icx_profile(plan);action.ok=verified.ok;if(!verified.ok)action.message=verified.message;}
+        try{refresh();}catch(...){}return action;
+    }catch(const std::exception& error){action.ok=false;action.message=std::string("iCX catalog Apply: ")+error.what();action.may_have_changed=clock_epoch_!=before_epoch || (receipt.state&&receipt.state->driver.state);try{refresh();}catch(...){}return action;}
 }
-ActionResult I2cSession::restore_icx_profile(const IcxProfilePlan& plan) {
+bool I2cSession::release_icx_clock(IcxProfileReceiptState& receipt,std::string& reason,bool& changed) {
+    if(!receipt.clamp_issued){receipt.clock_done=true;return true;}
+    if(receipt.clock_epoch!=clock_epoch_){reason="iCX clock lifecycle was replaced; no reset issued";return false;}
+    dc_clk_lock_status status{};
+    if(!bound() || !api_.clock_status || api_.clock_status(gpu_,&status)!=DC_OK || !terminated(status.error,sizeof(status.error)) || status.error[0]) {
+        reason="iCX controller restored; clock ownership unreadable, retry Undo";return false;
+    }
+    if(receipt.clock_done){if(status.locked){reason="A later clock request replaced completed iCX cleanup";return false;}return true;}
+    if(!data_.clock_owned || data_.clock_mhz!=receipt.floor){reason="iCX session no longer owns this clock lifecycle";return false;}
+    if(status.locked && (status.min_mhz!=receipt.floor || status.max_mhz!=receipt.floor)) {
+        reason="iCX controller restored; foreign clock tuple left untouched";return false;
+    }
+    if(status.locked) {
+        if(!api_.release){reason="iCX clock reset interface unavailable";return false;}
+        ++clock_epoch_;receipt.clock_epoch=clock_epoch_;changed=true;dc_outcome outcome{};
+        if(api_.release(gpu_,0,&outcome)!=DC_OK || !outcome.ok || api_.clock_status(gpu_,&status)!=DC_OK || !terminated(status.error,sizeof(status.error)) || status.error[0] || status.locked) {
+            reason="iCX controller restored; owned clock release unconfirmed, receipt retained";return false;
+        }
+    }
+    data_.clock_owned=false;data_.clock_mhz=0;receipt.clock_done=true;return true;
+}
+ActionResult I2cSession::verify_icx_profile(const IcxProfilePlan& plan) {
+    if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX profile verification");
+    struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+    try {
+        if(!plan.state || !icx_plan_bound(*plan.state))return failure("iCX plan target, route or selected driver changed");
+        const auto checked=controller_->verify_icx(plan.state->driver);if(!checked.ok)return result(checked);
+        if(icx_receipt_ && icx_receipt_->plan==plan.state) {
+            if(icx_receipt_->complete || icx_receipt_->clock_epoch!=clock_epoch_ || !data_.clock_owned || data_.clock_mhz!=icx_receipt_->floor || !observed_clock())
+                return failure("iCX desired requests do not retain their exact owned clock lifecycle");
+        }else if(plan.state->clock_epoch!=clock_epoch_)return failure("iCX planned clock lifecycle changed");
+        auto action=failure("Complete selected iCX requests and owned clock lifecycle verified");action.ok=true;return action;
+    }catch(const std::exception& error){return failure(std::string("iCX verification: ")+error.what());}
+}
+ActionResult I2cSession::verify_icx_profile(const IcxProfileReceipt& receipt,bool original) {
+    if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX receipt verification");
+    struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+    try {
+        if(!receipt.state || !receipt.state->plan || !icx_plan_bound(*receipt.state->plan) || receipt.state->clock_epoch!=clock_epoch_)
+            return failure("iCX receipt target or clock lifecycle changed");
+        if(receipt.state->driver.state){const auto checked=controller_->verify_icx(receipt.state->driver,original);if(!checked.ok)return result(checked);}
+        else {
+            const auto live=capture_icx_preset(controller_->read(xoc())).at("settings");
+            if(live!=(original?receipt.state->plan->prior:receipt.state->plan->document).at("settings"))return failure("iCX complete semantic state differs");
+        }
+        if(original) {
+            dc_clk_lock_status status{};
+            if(!receipt.state->controller_done || !receipt.state->clock_done || data_.clock_owned || !api_.clock_status || api_.clock_status(gpu_,&status)!=DC_OK || !terminated(status.error,sizeof(status.error)) || status.error[0] || status.locked)
+                return failure("iCX original controller/clock cleanup is not fully verified");
+        }else if(!data_.clock_owned || data_.clock_mhz!=receipt.state->floor || !observed_clock())return failure("iCX issued clock request is unconfirmed");
+        auto action=failure(original?"Original issued iCX requests and released clock verified":"Issued iCX requests and owned clock verified");
+        if(original&&!receipt.state->controller_message.empty())action.message+="; "+receipt.state->controller_message;
+        action.ok=true;return action;
+    }catch(const std::exception& error){return failure(std::string("iCX receipt verification: ")+error.what());}
+}
+ActionResult I2cSession::restore_icx_profile(const IcxProfileReceipt& receipt) {
     if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX catalog Undo");
     struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
-    ActionResult action;
+    const auto before_epoch=clock_epoch_;ActionResult action;
     try {
-        if(!icx_plan_bound(plan) || !catalog_plan_ || !icx_plan_bound(*catalog_plan_) || plan.document!=catalog_plan_->document || plan.prior!=catalog_plan_->prior)
-            return failure("iCX Undo belongs to another controller, selection or catalog transaction");
-        icx_preset_requests(plan.prior,true);
-        if(catalog_complete_) {
-            const auto current=capture_icx_preset(controller_->read(xoc())).at("settings");
-            if(current==plan.prior.at("settings") && !owned()) {
-                catalog_plan_.reset();catalog_complete_=false;action.ok=true;action.message="iCX catalog prior requests already restored; no write required";return action;
-            }
-            if(current!=plan.document.at("settings"))return failure("iCX catalog requests changed after Apply; later requests left untouched");
-        }
-        // The controller restores only fields this transaction actually owned,
-        // using its exact selected-state guards. Never replay the prior document.
-        action=release();if(!action.ok)return action;
-        const auto after=capture_icx_preset(controller_->read(xoc()));
-        action.ok=icx_plan_bound(plan) && after.at("settings")==plan.prior.at("settings");
-        action.message=action.ok?"iCX catalog prior selected requests restored and verified; owned clock released":"iCX prior settings differ; foreign fields left untouched";
-        if(action.ok){catalog_plan_.reset();catalog_complete_=false;}refresh();return action;
-    }catch(const std::exception& error){action.ok=false;action.message=std::string("iCX catalog Undo: ")+error.what();action.may_have_changed=action.may_have_changed || owned();return action;}
+        if(!receipt.state || !receipt.state->plan || !receipt.state->clamp_issued || !icx_plan_bound(*receipt.state->plan) || receipt.state->clock_epoch!=clock_epoch_ || (icx_receipt_&&icx_receipt_!=receipt.state))
+            return failure("iCX Undo belongs to another target, selection or ownership lifecycle");
+        auto& saved=*receipt.state;
+        if(saved.complete)return verify_icx_profile(receipt,true);
+        if(!saved.controller_done) {
+            if(!data_.clock_owned || data_.clock_mhz!=saved.floor || (saved.driver.state&&!observed_clock()))return failure("Restore the exact owned iCX floor before controller Undo");
+            if(saved.driver.state){action=result(controller_->restore_icx(saved.driver));if(!action.ok){try{refresh();}catch(...){}return action;}saved.controller_message=action.message;}
+            else if(capture_icx_preset(controller_->read(xoc())).at("settings")!=saved.plan->prior.at("settings"))return failure("Unissued iCX fields changed during clamp failure; no replay issued");
+            saved.controller_done=true;
+        }else if(saved.driver.state){const auto checked=controller_->verify_icx(saved.driver,true);if(!checked.ok)return result(checked);}
+        else if(capture_icx_preset(controller_->read(xoc())).at("settings")!=saved.plan->prior.at("settings"))return failure("Unissued iCX prior changed while clock cleanup was pending");
+        std::string reason;bool changed=action.may_have_changed;
+        if(!release_icx_clock(saved,reason,changed)){action.ok=false;action.may_have_changed=changed;action.message=reason;try{refresh();}catch(...){}return action;}
+        action=verify_icx_profile(receipt,true);action.may_have_changed=changed;
+        if(action.ok){saved.complete=true;if(icx_receipt_==receipt.state)icx_receipt_.reset();}
+        try{refresh();}catch(...){}return action;
+    }catch(const std::exception& error){action.ok=false;action.message=std::string("iCX catalog Undo: ")+error.what();action.may_have_changed=action.may_have_changed || clock_epoch_!=before_epoch;try{refresh();}catch(...){}return action;}
 }
 bool I2cSession::profile_bound(const I2cProfilePlanState& plan) const {
     const auto& id=plan.identity;
@@ -591,6 +675,7 @@ ActionResult I2cSession::restore_i2c_profile(const I2cProfileReceipt& receipt) {
     catch(const std::exception& error){action.message=std::string("Controller profile Undo: ")+error.what();action.may_have_changed=owned();refresh();return action;}
 }
 ActionResult I2cSession::release() {
+    if(icx_receipt_)return restore_icx_profile({icx_receipt_});
     if (!owned()) { ActionResult r; r.ok=true; r.message="No owned I2C request"; return r; }
     if (!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK) return failure("Could not lock GPU for I2C restoration");
     struct Unlock { I2cApi& api; dc_gpu* gpu; ~Unlock(){ api.unlock(gpu); } } unlock{api_,gpu_};
@@ -615,7 +700,7 @@ ActionResult I2cSession::release() {
         if (status.locked && (status.min_mhz!=data_.clock_mhz || status.max_mhz!=data_.clock_mhz))
             return failure("Controller restored; frequency request changed externally and was not released");
         if (status.locked) {
-            dc_outcome out{}; changed=true;
+            dc_outcome out{}; changed=true;++clock_epoch_;
             if (!api_.release || api_.release(gpu_,0,&out)!=DC_OK || !out.ok ||
                 api_.clock_status(gpu_,&status)!=DC_OK || status.error[0] || status.locked)
                 return failure("Controller restored; clock release unverified, retry release");
@@ -627,7 +712,7 @@ ActionResult I2cSession::release() {
 }
 ActionResult I2cSession::execute(const Command& cmd) {
     if(cmd.i2c_selection_revision && cmd.i2c_selection_revision!=data_.selection_revision)return failure("Controller selection or recipe changed; no operation issued");
-    if((catalog_plan_ || profile_receipt_) && owned() && (cmd.operation==Command::Operation::i2c_apply || cmd.operation==Command::Operation::i2c_reset
+    if((icx_receipt_ || profile_receipt_) && owned() && (cmd.operation==Command::Operation::i2c_apply || cmd.operation==Command::Operation::i2c_reset
         || cmd.operation==Command::Operation::i2c_verify || cmd.operation==Command::Operation::i2c_apply_profile
         || cmd.operation==Command::Operation::i2c_zero_nct_outputs || cmd.operation==Command::Operation::i2c_recipe))
         return failure("Undo or release the owned controller catalog transaction before another controller mutation");

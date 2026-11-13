@@ -4,6 +4,32 @@ Date: 2026-11-13. Native baseline inspected: `6ae658b` plus the current incremen
 
 This is a design and evidence map. Annotation execution is still unimplemented in the catalog. No production code, build, application launch, or GPU operation was performed for this report.
 
+## Follow-up interface review (seventeenth increment)
+
+The read-only integration review confirms that annotation identity must be
+separate from tuning-writer eligibility. Use the exact card plus policy index,
+reported channel and record type. Native tuning bindings also contain mutable
+limits/unit information; a composed board-power change must not invalidate a
+name solely because those limits changed. Preserve exact-binding fallback for
+older stored records that lack explicit channel/type identity.
+
+The proposed immutable plan carries qualified label keys and selected before/
+after names, with per-selected-label conflict evidence from a UI snapshot.
+CoreClient retains the transaction in grouped Undo; Session publishes an
+Apply/Undo effect with generation, event ID, exact action/log ID and operation.
+Reserve completion capacity before admitting an effect-producing action and
+retain each event until explicit UI acknowledgement. A queued effect is neither
+a UI/file commit nor a GPU mutation; keep that status separate from hardware
+`may_have_changed` and success.
+
+Main keeps a commit receipt keyed by the immutable transaction. A conflicted or
+rejected Apply must never authorize later label restoration. An Undo effect
+may restore only labels actually committed by that transaction and still
+matching its selected conflict evidence. Metadata conflicts must not prevent
+unrelated hardware recovery. Atomic copied-store updates, dirty/save retry and
+generation rejection remain required. This review defines interfaces only;
+the implementation and acceptance criteria below remain open.
+
 ## Grounded behavior
 
 * Python `src/druta/profiles.py:275–281` captures `power_policy_names` as policy-index mappings containing `name`, `channel`, and `type`. `POLICY_NAME_MAX` is 80 at line 57. Validation at `1081–1092` checks the complete names mapping, canonical indices 0–31, string names of at most 80 Python characters, and integer channel/type metadata.
