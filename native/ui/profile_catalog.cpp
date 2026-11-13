@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "profile_catalog.h"
 #include "python_scoped_profile.h"
+#include "python_full_profile.h"
 #include "icx_preset.h"
 #include "fan_profile.h"
 #include "timing_profile.h"
@@ -36,6 +37,7 @@ std::string daily_target(const std::string& key){if(key=="core")return "clock:co
 bool collection(const J& d){return d.is_object()&&((d.contains("format")&&d["format"]=="druta-native-combined")||(d.contains("scope")&&d["scope"]=="combined"));}
 ProfileDescription leaf(const J& d){
  if(!d.is_object()||d.dump().size()>profile_max_bytes)fail("invalid or oversized document");ProfileDescription out;
+ if(is_python_full_profile(d))return describe_python_full_profile(d);
  const auto semantic=[&](ProfileScope scope,const ProfileSelection& selected){out.scope=scope;out.slot=selected.slot;if(!selected.uuid.empty())out.uuid=selected.uuid;for(const auto& target:selected.targets)add(out,target);};
  if(d.value("format",J())=="druta-native-voltage-policy"||d.value("scope",J())=="clock_vf"||(d.value("scope",J())=="voltage_controls"&&d.contains("voltage_controls")&&d["voltage_controls"].value("kind",J())=="gate")){
   semantic(ProfileScope::voltage_policy,describe_voltage_policy_profile(d));
@@ -114,7 +116,7 @@ void validate_components(const std::vector<ProfileComponent>& components){
  }
 }
 }
-const char* profile_scope_name(ProfileScope s){switch(s){case ProfileScope::daily:return "Daily / Advanced";case ProfileScope::curve:return "V/F curve";case ProfileScope::scoped:return "Rail / policy requests";case ProfileScope::timing:return "Memory timings";case ProfileScope::icx:return "iCX settings";case ProfileScope::python_tuning:return "Python tuning action";case ProfileScope::python_rails:return "Python rail limits";case ProfileScope::python_power:return "Python coupled power action";case ProfileScope::fan:return "Individual fan requests";case ProfileScope::legacy_timing:return "Timing exchange import";case ProfileScope::voltage_policy:return "Voltage admission / VF flags";case ProfileScope::power_integral:return "Power feedback ratios";case ProfileScope::voltage_tables:return "Voltage requests";case ProfileScope::voltage_limits:return "Voltage definitions / device delays";case ProfileScope::power_saving:return "Power saving";case ProfileScope::clock_gating:return "Clock gating / PCIe speed";case ProfileScope::combined:return "Combined";default:return "Unsupported";}}
+const char* profile_scope_name(ProfileScope s){switch(s){case ProfileScope::daily:return "Daily / Advanced";case ProfileScope::curve:return "V/F curve";case ProfileScope::scoped:return "Rail / policy requests";case ProfileScope::timing:return "Memory timings";case ProfileScope::icx:return "iCX settings";case ProfileScope::python_tuning:return "Python tuning action";case ProfileScope::python_rails:return "Python rail limits";case ProfileScope::python_power:return "Python coupled power action";case ProfileScope::fan:return "Individual fan requests";case ProfileScope::legacy_timing:return "Timing exchange import";case ProfileScope::voltage_policy:return "Voltage admission / VF flags";case ProfileScope::power_integral:return "Power feedback ratios";case ProfileScope::voltage_tables:return "Voltage requests";case ProfileScope::voltage_limits:return "Voltage definitions / device delays";case ProfileScope::power_saving:return "Power saving";case ProfileScope::clock_gating:return "Clock gating / PCIe speed";case ProfileScope::python_full_tune:return "Python full tune";case ProfileScope::combined:return "Combined";default:return "Unsupported";}}
 bool profile_targets_overlap(const std::string& a,const std::string& b){if(a==b)return true;const auto wildcard=[](const std::string& x,const std::string& y){return x.size()>1&&x.back()=='*'&&y.compare(0,x.size()-1,x,0,x.size()-1)==0;};return wildcard(a,b)||wildcard(b,a);}
 std::vector<ProfileComponent> flatten_profile_collection(const J& d){
  if(!collection(d)){auto description=leaf(d);return {{profile_scope_name(description.scope),d}};}
@@ -131,6 +133,7 @@ ProfileDescription inspect_profile(const J& d){try{if(!collection(d))return leaf
 J select_profile_targets(const J& d,const std::vector<std::string>& selection){const auto desc=inspect_profile(d);if(!desc.valid)fail(desc.error);if(selection.empty())fail("select at least one target");std::set<std::string> selected;
  for(const auto& t:selection)if(std::find(desc.targets.begin(),desc.targets.end(),t)==desc.targets.end()||!selected.insert(t).second)fail("unknown or duplicate target selection");
  if(collection(d)){std::vector<ProfileComponent> children;for(auto c:flatten_profile_collection(d)){auto detail=leaf(c.document);std::vector<std::string> sub;for(const auto& t:detail.targets)if(selected.count(t))sub.push_back(t);if(!sub.empty()){c.document=select_profile_targets(c.document,sub);children.push_back(std::move(c));}}return compose_profiles(children);}
+ if(desc.scope==ProfileScope::python_full_tune)return select_python_full_profile(d,selection);
  J out=d;
  if(desc.scope==ProfileScope::daily){for(auto it=out["controls"].begin();it!=out["controls"].end();)if(!selected.count(daily_target(it.key())))it=out["controls"].erase(it);else ++it;
   if(out.contains("advanced")){J entries=J::array();for(const auto& e:out["advanced"])if(selected.count(advanced_target(e)))entries.push_back(e);out["advanced"]=entries;}}

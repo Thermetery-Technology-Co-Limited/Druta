@@ -14,6 +14,13 @@ struct PythonPowerProfile {
     ScopedTarget target;uint32_t board_mw=0;
     std::optional<std::vector<PythonPowerRow>> rows;
     std::map<uint32_t,uint32_t> pins;
+    // A full-tune import binds its saved type/channel requests to fresh native
+    // geometry. It has no historical board-policy row request; the separately
+    // captured board_mw is authoritative, never fabricated as a policy value.
+    bool current_layout_bound=false;
+    std::optional<std::vector<uint32_t>> selected_policies;
+    std::vector<uint32_t> derived_candidates;
+    std::vector<uint32_t> explicit_currents;
 };
 // Structural validation only; never accesses an adapter or file. Driver/VBIOS
 // metadata are informational and never compatibility gates.

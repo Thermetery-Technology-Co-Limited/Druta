@@ -25,14 +25,14 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX is standalone, timing and memory-offset changes apply separately, and unqualified board-only Python power snapshots are refused before writes |
-| Remaining manual profiles, Python imports and catalog composition | Twelfth increment adds selected native/Python low-power and clock/PCIe catalog transactions; 93 suites and 22 renderer phases passed. Coupled transactions remain incomplete; unknown-prior restoration is refused. Full-tune composition remains open. See the [twelfth increment](2026-11-13-parity-twelfth-increment.md) and historical [scope audit](2026-11-13-profile-scope-gap-map.md) |
+| Remaining manual profiles, Python imports and catalog composition | Thirteenth increment implements selected full-tune core, memory, domain, boost, fan, rail, offset, current-layout-bound curve and coupled power imports. Full-tune I2C controller and power annotation execution remain pending. 95/95 CTest suites and 22 read-only renderer phases passed. See the [thirteenth increment](2026-11-13-parity-thirteenth-increment.md) and historical [scope audit](2026-11-13-profile-scope-gap-map.md) |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
 | Voltage gate, VF monotonicity/smoothing | Fifth: independent admission/VF reads, selected requests, atomic-prior-aware recovery, Undo and captured-initial requests. Ninth adds selected native profiles and released Python gate/flag imports with staged explicit Apply; 87-suite and 20-phase renderer validation passed. Current 3070 Ti read-only evidence recorded; physical effects remain unproven |
 | Voltage offset/request tables, REL bounds | Seventh: all six request fields, complete preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Scaffold offsets and semantic REL remain open pending native current-ROM graph + installed-receipt/policy providers; no persistent scaffold activation |
 | Voltage constants and device switch delays | Seventh: independent typed device-delay controls, exact readback, Undo and native profiles implemented/tested. Loaded VFE definitions are inspectable; production semantic constants remain open pending current-ROM role/graph and retained-request provider |
-| GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Eighth: independent qualified inspection and typed requests, counted/profiler ownership, explicit release/recovery, Undo and manual profile staging implemented/tested. Current 3070 Ti read-only GR/MS and ELCG/BLCG/SLCG paths qualify; idle/adaptive/PCIe target layouts remain outside traced support there. No new physical writes claimed |
+| GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Thirteenth adds qualified adaptive/idle, exclusive GR/counted-request, and opposite ELCG/SLCG handovers; unknown adaptive prior, simultaneous shared GR/count ownership and BLCG ENABLE remain unqualified. 95/95 suites and 22 read-only renderer phases passed. Physical effects remain adapter-specific |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
 | Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
@@ -57,6 +57,7 @@ Ninth checkpoint: [selected profiles and timing exchange](2026-11-13-parity-nint
 Tenth increment: [selected catalog composition and Python adapters](2026-11-13-parity-tenth-increment.md); 91 suites and 20 live renderer phases passed.
 Eleventh increment: [voltage catalog transactions](2026-11-13-parity-eleventh-increment.md); 92 suites and 22 read-only renderer phases passed.
 Twelfth increment: [saving and clock catalog transactions](2026-11-13-parity-twelfth-increment.md); 93 suites and 22 read-only renderer phases passed.
+Thirteenth increment: [selected full-tune import and handover](2026-11-13-parity-thirteenth-increment.md); 95/95 suites passed in 14.43 seconds and 22 read-only renderer phases passed.
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -77,7 +78,7 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the twelfth increment
+## Remaining scope after the thirteenth increment
 
 - Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
   providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
@@ -90,9 +91,12 @@ active until every applicable review requirement has authoritative evidence.
   cancellation and P2 qualification. The [profile scope audit](2026-11-13-profile-scope-gap-map.md)
   predates subsequent increments. Eleventh-increment voltage request/limit
   catalog composition passed the documented integration checks. Low-power and clock/PCIe catalog
-  composition is validated within its documented boundaries. Coupled handover remains open; adaptive requests require a known prior state for restoration.
-  Unscoped full-tune import remains open; iCX remains standalone
-  and timing plus memory-offset changes require separate transactions.
+  composition is validated within its documented boundaries. Thirteenth-increment
+  handovers qualify adaptive/idle, exclusive GR/count and opposite ELCG/SLCG;
+  unknown adaptive prior, simultaneous shared GR/count and BLCG ENABLE remain
+  unqualified. Selected full-tune import is implemented; I2C controller and
+  power annotation execution remain pending. iCX remains standalone and timing
+  plus memory-offset changes require separate transactions.
 - Physical effects, controller coverage and Vista/7 execution retain their original
   qualification boundaries. Mock transport tests and current read-only evidence do
   not establish those results.

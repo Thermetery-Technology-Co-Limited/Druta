@@ -1,0 +1,21 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "python_full_profile.h"
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+using namespace druta::ui;
+#define CHECK(x) do{if(!(x)){std::fprintf(stderr,"%s:%d %s\n",__FILE__,__LINE__,#x);std::abort();}}while(false)
+template<class F>void rejects(F f){bool failed=false;try{f();}catch(...){failed=true;}CHECK(failed);}
+int main(){
+ ProfileJson source={{"schema",2},{"saved_at","2026-11-13"},{"saved_ts",1.5},{"device",{{"name","Other"},{"vbios",nullptr},{"driver",nullptr},{"uuid","GPU-alternate"},{"slot","0000:06:00.0"},{"mem_type_id",15}}},{"incomplete",ProfileJson::array()},{"core_off_mhz",25},{"mem_off_units",160},{"mem_off_true_mhz",10},{"mem_off_scale",16},{"vf_deltas",{{"0",10000},{"2",-500}}},{"clock_domain_offsets_mhz",{{"0",25},{"2",2.5}}},{"rail_limits_uv",{{"1",{{"vmin",1200}}}}},{"rail_limits_mv",{{"1",{{"vmin",800.5}}}}},{"power_limit_mw",200000},{"power_policy_pins",{{"3",{{"value",10},{"channel",2},{"type",1}}}}},{"power_policy_names",{{"3",{{"name","Cable"},{"channel",2},{"type",1}}}}},{"i2c",{{"offset_mv",10}}}};
+ auto d=describe_python_full_profile(source);CHECK(d.valid&&d.uuid=="GPU-alternate"&&d.slot=="0000:06:00.0");CHECK(std::count(d.targets.begin(),d.targets.end(),"clock:core")==1);CHECK(std::find(d.targets.begin(),d.targets.end(),"rail:1:3")!=d.targets.end());CHECK(std::find(d.targets.begin(),d.targets.end(),"i2c:controller")!=d.targets.end());CHECK(std::find(d.targets.begin(),d.targets.end(),"annotation:power")!=d.targets.end());
+ auto selected=select_python_full_profile(source,{"clock:memory","rail:1:3"});CHECK(python_full_source(selected)==source&&describe_python_full_profile(selected).targets.size()==2);CHECK(select_python_full_profile(selected,{"clock:memory"})["source"]==source);rejects([&]{select_python_full_profile(selected,{"clock:core"});});rejects([&]{select_python_full_profile(source,{"clock:core","clock:core"});});
+ auto bad=source;bad["msvdd_offsets_mv"]={{"03",1}};rejects([&]{select_python_full_profile(bad,{"clock:memory"});});bad=source;bad["mem_off_true_mhz"]=11;rejects([&]{describe_python_full_profile(bad);});bad=source;bad["rail_limits_uv"]["1"]["vmin"]=1.5;rejects([&]{describe_python_full_profile(bad);});bad=source;bad["unexpected_action"]=1;rejects([&]{describe_python_full_profile(bad);});bad=source;bad["incomplete"]={"failed"};rejects([&]{describe_python_full_profile(bad);});
+ CHECK(describe_python_full_profile(select_python_full_profile(source,{"clock:core"})).summary.find("lacks historical voltages")!=std::string::npos);CHECK(describe_python_full_profile(selected).summary.find("2 selected targets")!=std::string::npos);
+ bad=source;bad["vf_deltas"]["0"]=1000001;CHECK(describe_python_full_profile(bad).valid);bad["vf_deltas"]["0"]=1.0;rejects([&]{select_python_full_profile(bad,{"clock:memory"});});
+ bad=source;bad["nvvdd_offset_mv"]=0.0001;rejects([&]{select_python_full_profile(bad,{"clock:memory"});});bad=source;bad["volt_boost_pct"]=1.5;rejects([&]{select_python_full_profile(bad,{"clock:memory"});});bad=source;bad["mem_off_units"]=160.0;rejects([&]{describe_python_full_profile(bad);});bad=source;bad["power_policies"]={{"0",{{"value",1.0},{"channel",1},{"type",2}}}};rejects([&]{describe_python_full_profile(bad);});
+ bad=selected;bad["targets"]={"not-a-target"};rejects([&]{describe_python_full_profile(bad);});bad=source;bad["current_limits_note"]=std::string(profile_max_bytes+1,'x');rejects([&]{describe_python_full_profile(bad);});
+ auto fan=source;fan["fan_control_state"]={{"source","nvml"},{"fans",ProfileJson::array({{{"id",1},{"manual",true},{"policy",1},{"level",42}}})}};auto fd=describe_python_full_profile(fan);CHECK(std::find(fd.targets.begin(),fd.targets.end(),"fan:policy")!=fd.targets.end());
+ std::printf("Python full profile parser passed\n");return 0;
+}

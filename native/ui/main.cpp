@@ -1040,6 +1040,8 @@ struct Smoke {
         if (phase == 11) app.view.shunt.open = true;
         if (phase == 12) {
             app.view.shunt.open=false;app.client_size(1800,1200);app.view.profile_catalog_view.open=true;
+            const druta::ui::ProfileJson example={{"schema",2},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","Read-only import example"},{"uuid","GPU-example"},{"slot","0000:06:00.0"}}},{"incomplete",druta::ui::ProfileJson::array()},{"mem_off_units",160},{"mem_off_true_mhz",10},{"mem_off_scale",16},{"vf_deltas",{{"0",15000},{"2",30000}}}};
+            druta::ui::add_profile_catalog_item(app.view.profile_catalog_view,"smoke-only-full-tune","Python full tune (read-only example)",example);
         }
         if (phase == 13) app.view.presentation=druta::ui::Presentation::classic;
         if (phase == 14) {app.view.profile_catalog_view.open=false;app.view.policy_workspace.open=true;app.view.presentation=druta::ui::Presentation::focused;}

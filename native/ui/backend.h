@@ -186,6 +186,7 @@ struct Command {
     std::vector<dc_vf_point> expected_curve;
     uint32_t expected_curve_freq_div = 0;
     std::vector<dc_vf_delta> curve_deltas;
+    std::shared_ptr<const dc_vf_layout> expected_curve_layout;
 };
 struct ActionResult {
     bool ok = false;

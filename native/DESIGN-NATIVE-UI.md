@@ -648,3 +648,23 @@ can be applied. Integration passed 93 CTest suites and 22 read-only live
 renderer phases; full-tune, iCX and
 timing/memory composition, CUDA fallback, ROM/scaffold providers and the
 relationship-weight exception remain open.
+
+## Continuation increment: selected full tunes and typed handovers
+
+Unscoped Python schema-2 full tunes now enter the catalog as immutable source
+documents with explicit semantic selections. Current units, complete curve
+indices/geometry, policy identities, pins and reversible request paths are
+qualified before Apply. A legacy indexed curve retains its preflight geometry
+through execution; it does not gain invented historical voltages. Full-tune
+power derives unpinned expected values after the board and named-current phase;
+explicit pins remain separate. I2C and annotation selections remain visible but
+their full-tune adapters are pending. Read-only peer policies are preserved.
+
+Qualified ELCG/SLCG opposing-mode transitions now use verified release followed
+by fresh acquisition. Adaptive/idle profiles journal selected idle originals
+before adaptive effects and restore adaptive before explicit idle requests.
+Exclusive GR/count handovers preserve counted ownership through reverse Undo.
+Unknown prior adaptive state and simultaneous shared-count ownership remain
+unqualified; BLCG has no source-defined ENABLE. No startup or reset replay is
+added. See the [thirteenth increment](ui/validation/2026-11-13-parity-thirteenth-increment.md)
+for validation and the remaining full review scope.

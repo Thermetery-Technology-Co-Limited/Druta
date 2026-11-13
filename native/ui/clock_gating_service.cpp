@@ -121,7 +121,9 @@ struct ClockGatingService::Impl {
   return false;
  }
  void flags(){data.needs_cleanup=false;for(size_t i=0;i<3;++i){auto& s=data.families[i];const auto& o=owners[i];s.owned=o.owned&&o.handle.has_value();s.uncertain=o.uncertain||o.allocation_unknown||o.free_unknown;s.mode=o.mode;s.arbitration_verified=o.arbitration;s.observed_engines=o.observed;s.can_release=o.handle.has_value()||o.probe.has_value();data.needs_cleanup=data.needs_cleanup||s.can_release||o.allocation_unknown||o.free_unknown;
-    s.can_disable=!s.stale&&!o.uncertain&&!s.can_release&&allowed(Family(i),Mode::disabled,s);s.can_enable=!s.stale&&!o.uncertain&&!s.can_release&&allowed(Family(i),Mode::enabled,s);}
+    const bool transition=o.handle&&o.owned&&o.requested&&!o.probe&&o.baseline.binding==s.binding;
+    s.can_disable=!s.stale&&!s.uncertain&&(s.can_release?(transition&&o.mode!=Mode::disabled&&allowed(Family(i),Mode::disabled,o.baseline)):allowed(Family(i),Mode::disabled,s));
+    s.can_enable=!s.stale&&!s.uncertain&&(s.can_release?(transition&&o.mode!=Mode::enabled&&allowed(Family(i),Mode::enabled,o.baseline)):allowed(Family(i),Mode::enabled,s));}
   data.families[3].uncertain=pcie_pending.has_value();data.undo_available=!undo.empty()||!completed.empty()||pcie_pending.has_value();++data.revision;
  }
  void publish(Family family,ClockGatingState state){auto& old=data.families[index(family)];if(family==Family::pcie)state.initial_generation=old.binding==state.binding?old.initial_generation:state.target_generation;
@@ -182,7 +184,14 @@ struct ClockGatingService::Impl {
  void validate(const ClockGatingRequest& request,const ClockGatingState& state){const auto n=index(request.family);if(request.binding.empty()||state.binding!=request.binding)fail("Clock family target/layout binding changed");
   if(request.family==Family::pcie){if(pcie_pending)fail("Recover the retained prior PCIe target before another PCIe request");if(request.mode!=Mode::released||!request.generation||std::find(state.allowed_generations.begin(),state.allowed_generations.end(),request.generation)==state.allowed_generations.end())fail("PCIe request is outside current typed capabilities");if(!state.target_generation||std::find(state.allowed_generations.begin(),state.allowed_generations.end(),*state.target_generation)==state.allowed_generations.end())fail("Original PCIe target cannot be restored within current capabilities");if(request.expected_generation&&request.expected_generation!=state.target_generation)fail("PCIe target changed since the draft");return;}
   if(request.generation||request.expected_generation||(request.mode!=Mode::released&&request.mode!=Mode::disabled&&request.mode!=Mode::enabled))fail("Malformed named gating request");const auto& owner=owners[n];if(request.mode==Mode::released)return;if(owner.uncertain||owner.allocation_unknown||owner.free_unknown)fail("Recover/release the uncertain owned profiler object first");
-  if(owner.handle){if(owner.mode!=request.mode)fail("Release the owned family before changing its mode");verify_active(request.family,state,owner);}else if(!allowed(request.family,request.mode,state))fail("Current source witness does not qualify that named mode",A::unsupported);
+  if(owner.handle){if(!owner.owned||!owner.requested||owner.probe)fail("An independently witnessed owned request is required before changing its mode");verify_active(request.family,state,owner);if(owner.mode!=request.mode&&(owner.baseline.binding!=state.binding||!allowed(request.family,request.mode,owner.baseline)))fail("Captured independent release-state capability cannot qualify the opposing mode",A::unsupported);}else if(!allowed(request.family,request.mode,state))fail("Current source witness does not qualify that named mode",A::unsupported);
+ }
+ ClockGatingResult named(Family family,Mode mode){ClockGatingResult result;try{const auto current=read_one(family);validate({family,mode,0,current.binding,{}},current);auto& owner=owners[index(family)];
+   if(owner.handle&&owner.mode!=mode){const auto binding=current.binding;const auto released=release_one(family);result.may_have_changed=released.may_have_changed;if(!released.ok){result.message="Opposing mode was not acquired: "+released.message;return result;}
+    const auto fresh=read_one(family);if(fresh.binding!=binding||!allowed(family,mode,fresh))fail("Fresh released witness cannot qualify the opposing mode; prior typed request retained for Undo",A::unsupported);
+   }
+   const auto held=hold(family,mode);result.ok=held.ok;result.may_have_changed=result.may_have_changed||held.may_have_changed;result.message=held.message;
+  }catch(const std::exception& e){result.message=e.what();}return result;
  }
  ClockGatingResult apply(const std::vector<ClockGatingRequest>& requests){ClockGatingResult result;Guard guard(api.transport,gpu);if(!guard.held){result.message="GPU lock unavailable";return result;}std::vector<Undo> issued;
   try{if(requests.empty()||requests.size()>4)fail("Select one to four independent families");std::set<size_t> seen;for(const auto& request:requests){if(!seen.insert(index(request.family)).second)fail("Duplicate selected clock family");
@@ -193,7 +202,7 @@ struct ClockGatingService::Impl {
     ClockGatingResult applied;bool changed=false;
     if(request.family==Family::pcie){const auto before=read_one(request.family);validate(request,before);record.generation=before.target_generation;record.attempted=request.generation;applied=pcie(request.generation,request.expected_generation);changed=applied.may_have_changed;if(!applied.ok&&changed)pcie_pending=record;}
     else{const auto& owner=owners[n];const bool qualified_before=owner.owned&&!owner.uncertain;record.before=qualified_before?owner.mode:Mode::released;
-     if(request.mode==Mode::released)applied=release_one(request.family);else applied=hold(request.family,request.mode);changed=applied.may_have_changed&&(request.mode==Mode::released?qualified_before:record.before!=request.mode);}
+     if(request.mode==Mode::released)applied=release_one(request.family);else applied=named(request.family,request.mode);changed=applied.may_have_changed&&(request.mode==Mode::released?qualified_before:record.before!=request.mode);}
     result.may_have_changed=result.may_have_changed||applied.may_have_changed;if(changed)issued.push_back(record);if(!applied.ok)fail(applied.message,A::transient);
    }
    // Verify all selected requests after other selected families execute.
@@ -204,7 +213,9 @@ struct ClockGatingService::Impl {
   if(!issued.empty()){undo=std::move(issued);completed.clear();}data.message=result.message;flags();return result;
  }
  ClockGatingResult restore(const Undo& record){ClockGatingResult out;try{if(record.family==Family::pcie){const auto current=read_one(Family::pcie);if(current.binding!=record.binding||!record.generation)fail("Original PCIe target binding unavailable");if(current.target_generation!=record.generation&&current.target_generation!=record.attempted)fail("PCIe target was replaced by another request; Undo retained");out=pcie(*record.generation);if(out.ok&&pcie_pending&&pcie_pending->binding==record.binding&&pcie_pending->generation==record.generation)pcie_pending.reset();else if(!out.ok&&out.may_have_changed&&!pcie_pending)pcie_pending=record;return out;}
-   if(record.before==Mode::released)return release_one(record.family);auto& owner=owners[index(record.family)];if(owner.handle&&owner.mode!=record.before)fail("A different owned gating mode replaced this Undo");const auto state=read_one(record.family);if(state.binding!=record.binding)fail("Original gating source binding changed");return hold(record.family,record.before);
+   if(record.before==Mode::released)return release_one(record.family);auto& owner=owners[index(record.family)];if(owner.handle&&owner.mode!=record.before&&owner.mode!=record.after)fail("A different owned gating mode replaced this Undo");const auto state=read_one(record.family);if(state.binding!=record.binding)fail("Original gating source binding changed");
+   if(owner.handle&&owner.uncertain){if(owner.allocation_unknown||owner.free_unknown)fail("Unknown object lifecycle cannot be reversed before driver reset");const auto cleanup=release_one(record.family);if(!cleanup.ok)return cleanup;auto restored=named(record.family,record.before);restored.may_have_changed=restored.may_have_changed||cleanup.may_have_changed;return restored;}
+   return named(record.family,record.before);
   }catch(const std::exception& e){out.message=e.what();return out;}}
  bool restored(const Undo& record){if(record.family==Family::pcie){const auto current=read_one(Family::pcie);return current.binding==record.binding&&current.target_generation==record.generation;}
   const auto& owner=owners[index(record.family)];if(record.before==Mode::released)return !owner.handle&&!owner.probe;if(!owner.owned||owner.mode!=record.before||owner.uncertain)return false;const auto current=read_one(record.family);if(current.binding!=record.binding)return false;verify_active(record.family,current,owner);return true;
@@ -246,7 +257,7 @@ ClockGatingResult ClockGatingService::apply_profile(const ClockGatingPlan& plan,
    std::optional<size_t> entry;bool issued=false;
    p.catalog_launch=[&]{if(!entry){entry=receipt.state->changes.size();const auto original=n<3?prepared.owners[i]:OwnerStamp{};receipt.state->changes.push_back({record,original,original,false});try{if(journal)journal(receipt);}catch(...){receipt.state->changes.pop_back();entry.reset();throw;}}};
    p.catalog_finish=[&](bool dispatched,bool unknown_allocation){if(dispatched){issued=true;result.may_have_changed=true;if(entry&&unknown_allocation)receipt.state->changes[*entry].unknown_allocation=true;}else if(!issued&&entry){receipt.state->changes.pop_back();entry.reset();}};
-   ClockGatingResult action;try{if(n==3)action=p.pcie(request.generation,request.expected_generation);else if(request.mode==Mode::released)action=p.release_one(request.family);else action=p.hold(request.family,request.mode);}catch(...){p.catalog_launch={};p.catalog_finish={};if(entry&&n<3)receipt.state->changes[*entry].expected=stamp(p.owners[n]);throw;}
+   ClockGatingResult action;try{if(n==3)action=p.pcie(request.generation,request.expected_generation);else if(request.mode==Mode::released)action=p.release_one(request.family);else action=p.named(request.family,request.mode);}catch(...){p.catalog_launch={};p.catalog_finish={};if(entry&&n<3)receipt.state->changes[*entry].expected=stamp(p.owners[n]);throw;}
    p.catalog_launch={};p.catalog_finish={};if(entry){if(n<3){if(receipt.state->changes[*entry].unknown_allocation){p.owners[n].uncertain=true;p.owners[n].allocation_unknown=true;action.ok=false;action.message+="; allocation outcome unproved, no handle may be adopted or freed; driver reset required";}receipt.state->changes[*entry].expected=stamp(p.owners[n]);}else if(!action.ok&&issued)p.pcie_pending=record;}
    if(!action.ok)fail(action.message);
   }

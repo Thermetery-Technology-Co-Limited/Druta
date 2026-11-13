@@ -53,6 +53,9 @@ public:
     ClockGatingService(ClockGatingApi,dc_gpu*,const dc_gpu_identity&);
     ~ClockGatingService(); // host calls close before freeing GPU; no destructor replay
     const ClockGatingData& read(uint32_t families=15);
+    // Qualified opposing ELCG/SLCG modes release the witnessed own request,
+    // verify its release, then freshly qualify and acquire the new mode.
+    // BLCG has no source-qualified ENABLE mode.
     ClockGatingResult apply(const ClockGatingRequest&);
     ClockGatingResult apply(const std::vector<ClockGatingRequest>&);
     ClockGatingPlan preview(const std::vector<ClockGatingRequest>&);

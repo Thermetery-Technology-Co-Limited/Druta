@@ -7,6 +7,7 @@
 #include "scoped_profile.h"
 #include "profile_catalog.h"
 #include "python_scoped_profile.h"
+#include "python_full_profile.h"
 #include "clock_monitor_service.h"
 #include "timing_model.h"
 #include "timing_profile.h"
@@ -18,6 +19,7 @@
 #include <limits>
 #include <sstream>
 #include <locale>
+#include <set>
 #include <chrono>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -840,7 +842,7 @@ class Client final : public IBackend {
             desired = undo_.back().curve;
             if (!same_curve_geometry(before, desired) || !same_curve_layout(undo_.back().curve_layout, before_layout) || !same_curve_mapping(undo_.back().curve_points, points, desired.freq_div)) { result.message = "V/F geometry changed; Undo retained"; return result; }
         } else {
-            if (cmd.expected_curve_freq_div != before.freq_div || cmd.expected_curve.size() != points.size()) { result.message = "V/F baseline changed; refresh the curve"; return result; }
+            if (cmd.expected_curve_freq_div != before.freq_div || cmd.expected_curve.size() != points.size() || (cmd.expected_curve_layout && !same_curve_layout(*cmd.expected_curve_layout,before_layout))) { result.message = "V/F baseline changed; refresh the curve"; return result; }
             for (const auto& point : points) {
                 const auto it = std::find_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; });
                 if (it == cmd.expected_curve.end() || !std::isfinite(it->volt_mv) || !std::isfinite(it->freq_mhz) || it->volt_mv != point.volt_mv || it->delta_khz != point.delta_khz || it->freq_mhz != point.freq_mhz || std::count_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; }) != 1) { result.message = "V/F baseline changed; refresh the curve"; return result; }
@@ -1180,17 +1182,106 @@ class Client final : public IBackend {
             r.board=row.board!=0;r.named_current=row.named_current!=0;r.writable=row.writable!=0;r.consistent=row.consistent!=0;out.push_back(r);
         }return out;
     }
+    static int32_t full_integer(const ProfileJson& value,double multiplier=1) {
+        if(!value.is_number())throw std::runtime_error("Full-tune request must be numeric");
+        const double n=value.get<double>()*multiplier,rounded=std::round(n);
+        if(!std::isfinite(n)||rounded<INT32_MIN||rounded>INT32_MAX||std::abs(n-rounded)>0.000001)
+            throw std::runtime_error("Full-tune request cannot be represented exactly in native units");
+        return static_cast<int32_t>(rounded);
+    }
+    void full_target(const ProfileJson& source,const dc_gpu_identity& id) {
+        const auto& d=source.at("device");
+        if(d.at("slot")!=id.slot||(d.contains("uuid")&&!d["uuid"].is_null()&&!d["uuid"].get<std::string>().empty()&&d["uuid"]!=id.uuid))
+            throw std::runtime_error("Full-tune adapter UUID or slot differs");
+        if(!id.uuid[0])throw std::runtime_error("Full-tune import requires a fresh paired adapter UUID");
+    }
+    std::vector<ProfileComponent> expand_full_tune(const ProfileComponent& component) {
+        const auto info=describe_python_full_profile(component.document);const auto& source=python_full_source(component.document);
+        dc_gpu_identity id{};if(!identity(id))throw std::runtime_error("Fresh full-tune identity unavailable");full_target(source,id);
+        std::vector<ProfileComponent> out;const ProfileJson target={{"uuid",id.uuid},{"slot",id.slot}};
+        const auto present=[&](const char* name){return source.contains(name)&&!source[name].is_null();};
+        for(const auto& selected:info.targets){
+            if(selected=="i2c:controller"||selected=="annotation:power")
+                throw std::runtime_error("Full-tune "+selected+" import requires its typed adapter; deselect it explicitly to apply the other saved controls");
+            if(selected=="power:*"||(selected=="clock:core"&&present("vf_deltas")&&!source["vf_deltas"].empty())){
+                out.push_back({component.name+" / "+selected,select_python_full_profile(component.document,{selected})});continue;
+            }
+            ProfileJson doc={{"format","druta-native-daily"},{"version",2},{"target",target},{"controls",ProfileJson::object()},{"advanced",ProfileJson::array()}};
+            auto& controls=doc["controls"];auto& advanced=doc["advanced"];
+            if(selected=="clock:core"){
+                if(present("clock_domain_offsets_mhz")&&source["clock_domain_offsets_mhz"].contains("0"))
+                    advanced.push_back({{"kind","clock_domain"},{"domain",0},{"value",full_integer(source["clock_domain_offsets_mhz"]["0"],1000)},{"unit","kHz"}});
+                else controls["core"]={{"value",full_integer(source.at("core_off_mhz"))},{"unit","MHz"}};
+            }else if(selected=="clock:memory"){
+                dc_mem_offset_scale scale{};if(!api_.scale||retry(api_.scale,gpu_,&scale)!=DC_OK||!scale.scale||!std::memchr(scale.unit,0,sizeof(scale.unit)))throw std::runtime_error("Current memory units unavailable");
+                bool same_memory=true;dc_capabilities caps{};caps.size=sizeof(caps);
+                const auto& device=source.at("device");if(device.contains("mem_type_id")&&!device["mem_type_id"].is_null()&&api_.capabilities&&retry(api_.capabilities,gpu_,&caps)==DC_OK&&(caps.present&DC_C_MEM_TYPE_ID))same_memory=device["mem_type_id"]==caps.mem_type_id;
+                if(!same_memory&&!present("mem_off_true_mhz"))throw std::runtime_error("Memory type differs and full tune has only historical driver units");
+                const auto value=present("mem_off_units")&&same_memory?full_integer(source["mem_off_units"]):full_integer(source.at("mem_off_true_mhz"),scale.scale);
+                controls["memory"]={{"value",value},{"unit",scale.unit},{"scale",scale.scale}};
+            }else if(selected=="voltage:boost")controls["boost"]={{"value",full_integer(source.at("volt_boost_pct"))},{"unit","%"}};
+            else if(selected=="fan:policy"){
+                if(present("fan_control_state"))doc={{"format","druta-native-fan"},{"version",1},{"target",target},{"fan_control_state",source["fan_control_state"]}};
+                else {if(!present("fan_manual"))throw std::runtime_error("Full-tune fan duty has no saved control policy");const bool manual=source["fan_manual"].get<bool>();if(manual&&!present("fan_pct"))throw std::runtime_error("Full-tune manual fan request has no saved level");
+                    controls["fan"]={{"mode",manual?"manual":"auto"},{"value",manual?full_integer(source["fan_pct"]):0},{"unit","%"}};}
+            }else if(selected=="voltage:nvvdd-offset")advanced.push_back({{"kind","nvvdd"},{"domain",0},{"value",full_integer(source.at("nvvdd_offset_mv"),1000)},{"unit","uV"}});
+            else if(selected.compare(0,21,"voltage:msvdd-offset:")==0){const auto domain=selected.substr(21);advanced.push_back({{"kind","msvdd"},{"domain",std::stoul(domain)},{"value",full_integer(source.at("msvdd_offsets_mv").at(domain),1000)},{"unit","uV"}});}
+            else if(selected.compare(0,13,"clock:domain:")==0){const auto domain=selected.substr(13);advanced.push_back({{"kind","clock_domain"},{"domain",std::stoul(domain)},{"value",full_integer(source.at("clock_domain_offsets_mhz").at(domain),1000)},{"unit","kHz"}});}
+            else if(selected.compare(0,5,"rail:")==0){const auto split=selected.find(':',5);const auto rail=static_cast<uint32_t>(std::stoul(selected.substr(5,split-5))),field=static_cast<uint32_t>(std::stoul(selected.substr(split+1)));
+                constexpr const char* fields[]={"reliability","alt_reliability","overvoltage","vmin"};const bool raw=source.contains("rail_limits_uv");
+                std::array<RailRow,DC_RAILS_COUNT> current{};const auto fresh=scoped_capture(nullptr,&current);doc=capture_scoped_profile(fresh,{ScopedKey::rail_field(rail,field)});
+                int32_t value=0;if(raw)value=full_integer(source.at("rail_limits_uv").at(std::to_string(rail)).at(fields[field]));
+                else {if(!rail_service_)throw std::runtime_error("Current rail base unavailable");const auto& f=current.at(rail).fields.at(field);if(f.stale||!f.estimated_base_mv)throw std::runtime_error("Current estimated rail base unavailable");
+                    value=full_integer(ProfileJson(source.at("rail_limits_mv").at(std::to_string(rail)).at(fields[field]).get<double>()-*f.estimated_base_mv),1000);}
+                doc["entries"][0]["value"]=value;
+            }else throw std::runtime_error("Full-tune target has no typed adapter: "+selected);
+            out.push_back({component.name+" / "+selected,std::move(doc)});
+        }return out;
+    }
+    PythonPowerProfile full_power_profile(const ProfileJson& document) {
+        const auto& source=python_full_source(document);dc_gpu_identity id{};PowerSnapshot current;std::string why;
+        if(!identity(id)||!power_capture(current,why))throw std::runtime_error("Fresh full-tune power capture unavailable: "+why);full_target(source,id);
+        const auto has=[&](const char* key){return source.contains(key)&&!source[key].is_null();};
+        PythonPowerProfile out;out.target={id.uuid,id.slot};out.current_layout_bound=true;
+        out.board_mw=has("power_limit_mw")?static_cast<uint32_t>(full_integer(source["power_limit_mw"])):current.board;out.rows=python_power_rows(current);
+        const auto policies=has("power_policies")?source["power_policies"]:ProfileJson::object();const auto currents=has("current_limits_ma")?source["current_limits_ma"]:ProfileJson::object();
+        std::set<std::string> used_policies,used_currents;out.selected_policies.emplace();
+        for(auto& row:*out.rows){if(row.board)continue;const auto key=std::to_string(row.policy);bool captured=false;
+            if(policies.contains(key)){const auto& saved=policies[key];if(saved.at("type")!=row.type||saved.at("channel")!=row.channel)throw std::runtime_error("Full-tune power policy binding changed");row.requested=static_cast<uint32_t>(full_integer(saved.at("value")));used_policies.insert(key);captured=true;}
+            if(currents.contains(key)){if(!row.named_current||row.unit!=std::optional<std::string>("mA"))throw std::runtime_error("Full-tune current index is not a qualified named current policy");const auto value=static_cast<uint32_t>(full_integer(currents[key]));if(captured&&value!=row.requested)throw std::runtime_error("Full-tune current and policy requests disagree");row.requested=value;used_currents.insert(key);captured=true;}
+            if(captured)out.selected_policies->push_back(row.policy);if(currents.contains(key))out.explicit_currents.push_back(row.policy);
+            if(policies.contains(key)&&!currents.contains(key)&&!(has("power_policy_pins")&&source["power_policy_pins"].contains(key)))out.derived_candidates.push_back(row.policy);
+        }
+        if(used_policies.size()!=policies.size()||used_currents.size()!=currents.size())throw std::runtime_error("Full-tune policy index is absent or belongs to the separate board request");
+        if(has("power_policies")||has("power_policy_pins")){
+            if(has("power_policy_pins"))for(auto it=source["power_policy_pins"].begin();it!=source["power_policy_pins"].end();++it){const auto policy=static_cast<uint32_t>(std::stoul(it.key()));const auto row=std::find_if(out.rows->begin(),out.rows->end(),[&](const auto& r){return r.policy==policy;});
+                if(row==out.rows->end()||row->board||!it.value().is_object()||it.value().at("type")!=row->type||it.value().at("channel")!=row->channel)throw std::runtime_error("Full-tune saved pin lacks a matching policy binding");
+                const auto value=static_cast<uint32_t>(full_integer(it.value().at("value")));if((policies.contains(it.key())||currents.contains(it.key()))&&value!=row->requested)throw std::runtime_error("Full-tune pin and configured policy request disagree");row->requested=value;out.pins.emplace(policy,value);if(std::find(out.selected_policies->begin(),out.selected_policies->end(),policy)==out.selected_policies->end())out.selected_policies->push_back(policy);}
+        }else for(size_t i=0;i<current.pin_ids.size();++i)out.pins.emplace(current.pin_ids[i],static_cast<uint32_t>(current.pin_values[i]));
+        if(!out.derived_candidates.empty()&&!has("power_limit_mw"))throw std::runtime_error("Full-tune unpinned policy restoration requires its captured board request");
+        validate_python_power_live(out,{id.uuid,id.slot},python_power_rows(current),false);return out;
+    }
     Command catalog_curve_command(const ProfileJson& document) {
         dc_gpu_identity id{};dc_vf_delta_snapshot deltas{};dc_vf_layout layout{};std::vector<dc_vf_point> points;std::string why;
         if(!identity(id)||!curve_table(deltas,points,why,&layout)||!api_.apply_deltas||!api_.envelopes)throw std::runtime_error("Fresh qualified curve unavailable: "+why);
         dc_request_envelopes env{};env.size=sizeof(env);if(api_.envelopes(&env)!=DC_OK||env.max_abs_delta_khz<=0)throw std::runtime_error("Curve request envelope unavailable");
         auto snapshot=std::make_unique<SessionSnapshot>();snapshot->generation=1;snapshot->curve_revision=1;snapshot->selected_slot=id.slot;
         auto& data=snapshot->data;data.connected=true;data.identity=id;data.curve=points;data.curve_layout=layout;data.curve_freq_div=deltas.freq_div;data.curve_max_abs_delta_khz=env.max_abs_delta_khz;
-        CurveDraft draft;draft.observe(1,points,true,deltas.freq_div);stage_curve_profile(document,*snapshot,draft);
-        Command command;command.operation=Command::Operation::apply_curve;command.expected_curve=points;command.expected_curve_freq_div=deltas.freq_div;
+        CurveDraft draft;draft.observe(1,points,true,deltas.freq_div);
+        if(is_python_full_profile(document)){
+            const auto& source=python_full_source(document);full_target(source,id);const auto& saved=source.at("vf_deltas");
+            if(saved.size()!=points.size())throw std::runtime_error("Imported indexed curve does not cover exactly the current GPU points");
+            // Released Python files have no historical voltage/divisor fields.
+            // Bind their explicit index/delta requests to this fresh baseline;
+            // never create a file claiming it was the historical geometry.
+            (void)capture_curve_profile(data);draft.begin_gesture();
+            for(const auto& point:points){const auto key=std::to_string(point.idx);if(!saved.contains(key))throw std::runtime_error("Imported curve indices differ from current GPU partition");const auto value=full_integer(saved[key]);if(std::abs(static_cast<int64_t>(value))>env.max_abs_delta_khz||!draft.stage_khz(point.idx,value))throw std::runtime_error("Imported curve delta is outside the current request envelope");}
+            draft.end_gesture();
+        }else stage_curve_profile(document,*snapshot,draft);
+        Command command;command.operation=Command::Operation::apply_curve;command.expected_curve=points;command.expected_curve_freq_div=deltas.freq_div;command.expected_curve_layout=std::make_shared<const dc_vf_layout>(layout);
         for(const auto& point:draft.draft())command.curve_deltas.push_back({point.idx,point.delta_khz});return command;
     }
-    ActionResult catalog_power_action(const PythonPowerProfile& saved,bool preflight,bool verify=false) {
+    ActionResult catalog_power_action(PythonPowerProfile& saved,bool preflight,bool verify=false) {
         ActionResult out;PowerSnapshot current;std::string why;dc_gpu_identity id{};
         if(!saved.rows) {out.message="Python board-only power_action requires a peer-preserving route qualification not exposed by the native binding";return out;}
         if(!identity(id)||!power_capture(current,why)){out.message="Fresh coupled power capture unavailable: "+why;return out;}
@@ -1201,15 +1292,29 @@ class Client final : public IBackend {
             // The existing typed restoration path restores every selected row
             // with pin=false, then reinstalls only verified saved pins.
             PowerSnapshot desired=current;desired.board=saved.board_mw;desired.pin_ids.clear();desired.pin_values.clear();desired.selected_policies.clear();
-            for(auto& row:desired.rows){const auto it=std::find_if(saved.rows->begin(),saved.rows->end(),[&](const auto& r){return r.policy==row.policy;});row.requested=it->requested;if(!row.board)desired.selected_policies.push_back(row.policy);}
+            const auto selected=[&](uint32_t policy){return !saved.selected_policies||std::find(saved.selected_policies->begin(),saved.selected_policies->end(),policy)!=saved.selected_policies->end();};
+            for(auto& row:desired.rows){const auto it=std::find_if(saved.rows->begin(),saved.rows->end(),[&](const auto& r){return r.policy==row.policy;});if(selected(row.policy))row.requested=it->requested;if(!row.board&&selected(row.policy))desired.selected_policies.push_back(row.policy);}
             for(const auto& pin:saved.pins){desired.pin_ids.push_back(pin.first);desired.pin_values.push_back(pin.second);}
             bool same=current.board==desired.board&&current.pin_ids==desired.pin_ids&&current.pin_values==desired.pin_values;
-            for(size_t i=0;i<current.rows.size();++i)same=same&&current.rows[i].requested==desired.rows[i].requested;
+            for(size_t i=0;i<current.rows.size();++i)if(selected(current.rows[i].policy)&&(!saved.current_layout_bound||!current.rows[i].board))same=same&&current.rows[i].requested==desired.rows[i].requested;
             if(verify){out.ok=same;out.message=same?"Final coupled power requests and pins verified":"A selected coupled power request or pin changed after another component";return out;}
             if(preflight){out.ok=true;out.message="Python coupled power requests and separate pins fresh preflight passed";return out;}
             if(same){out.ok=true;out.message="Coupled power requests and pins already match";return out;}
             auto prior=std::make_unique<Undo>();prior->control=ControlId::power;prior->power=current;
-            for(const auto& row:current.rows)if(!row.board)prior->power.selected_policies.push_back(row.policy);remember(*prior);
+            for(const auto& row:current.rows)if(!row.board&&(row.writable||row.named_current))prior->power.selected_policies.push_back(row.policy);remember(*prior);out.may_have_changed=true;
+            if(saved.current_layout_bound&&!saved.derived_candidates.empty()){
+                if(api_.pins_set(gpu_,nullptr,nullptr,0)!=DC_OK)throw std::runtime_error("Full-tune pin suppression failed; Undo retained");
+                std::string message;if(current.board!=saved.board_mw&&!set_board(saved.board_mw,message))throw std::runtime_error("Full-tune board request failed: "+message);
+                for(const auto policy:saved.explicit_currents){PowerSnapshot now;if(!power_capture(now,why)||!power_geometry(current,now)||now.board!=saved.board_mw)throw std::runtime_error("Full-tune current phase lost qualified power readback");
+                    const auto request=std::find_if(saved.rows->begin(),saved.rows->end(),[&](const auto& r){return r.policy==policy;});auto row=std::find_if(now.rows.begin(),now.rows.end(),[&](const auto& r){return r.policy==policy;});
+                    if(row->requested!=request->requested){row->requested=request->requested;if(!set_policy(*row,message))throw std::runtime_error("Full-tune current request failed: "+message);}}
+                PowerSnapshot derived;if(!power_capture(derived,why)||!power_geometry(current,derived)||derived.board!=saved.board_mw)throw std::runtime_error("Full-tune derived power readback unavailable or changed geometry");
+                // Released full tunes keep a newly derived unpinned policy.
+                // A scoped power_action instead requests every saved value.
+                for(const auto policy:saved.derived_candidates){const auto old=std::find_if(current.rows.begin(),current.rows.end(),[&](const auto& r){return r.policy==policy;});const auto now=std::find_if(derived.rows.begin(),derived.rows.end(),[&](const auto& r){return r.policy==policy;});
+                    if(old->requested!=now->requested){if(now->requested<0||now->requested>UINT32_MAX)throw std::runtime_error("Noncanonical derived policy request");for(auto& row:*saved.rows)if(row.policy==policy)row.requested=static_cast<uint32_t>(now->requested);for(auto& row:desired.rows)if(row.policy==policy)row.requested=now->requested;}}
+                validate_python_power_live(saved,{id.uuid,id.slot},python_power_rows(derived),false);
+            }
             auto target=std::make_unique<Undo>();target->control=ControlId::power;target->power=std::move(desired);const auto target_index=undo_.size();undo_.push_back(std::move(*target));
             try{Command restore;restore.operation=Command::Operation::undo;out=execute_power(restore,true);if(undo_.size()>target_index)undo_.pop_back();}
             catch(...){if(undo_.size()>target_index)undo_.pop_back();throw;}
@@ -1217,7 +1322,7 @@ class Client final : public IBackend {
             if(out.ok){PowerSnapshot after;if(!power_capture(after,why))throw std::runtime_error("Power profile final readback unavailable");
                 validate_python_power_live(saved,{id.uuid,id.slot},python_power_rows(after),false);
                 if(after.board!=saved.board_mw)throw std::runtime_error("Saved board request readback differs");
-                for(const auto& row:*saved.rows){const auto it=std::find_if(after.rows.begin(),after.rows.end(),[&](const auto& r){return r.policy==row.policy;});if(it==after.rows.end()||it->requested!=row.requested)throw std::runtime_error("Saved power row readback differs");}
+                for(const auto& row:*saved.rows){if(!selected(row.policy)||(saved.current_layout_bound&&row.board))continue;const auto it=std::find_if(after.rows.begin(),after.rows.end(),[&](const auto& r){return r.policy==row.policy;});if(it==after.rows.end()||it->requested!=row.requested)throw std::runtime_error("Saved power row readback differs");}
                 std::map<uint32_t,uint32_t> pins;for(size_t i=0;i<after.pin_ids.size();++i)pins.emplace(after.pin_ids[i],static_cast<uint32_t>(after.pin_values[i]));if(pins!=saved.pins)throw std::runtime_error("Saved power pins readback differs");
                 out.message="Python coupled power requests and exact saved pins verified";
             }return out;
@@ -1265,7 +1370,11 @@ class Client final : public IBackend {
                 if(keep)undo_[aggregate_index].group.push_back(std::move(child));}};
         auto finish=[&]{fold();if(grouped&&undo_[aggregate_index].group.empty()){undo_.erase(undo_.begin()+aggregate_index);grouped=false;}catalog_grouping_=false;if(voltage_policy_)last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());if(power_integral_)last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());if(voltage_tables_)last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());if(voltage_limits_)last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());if(power_saving_)last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());if(clock_gating_)last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());};
         try{
-            const auto components=flatten_profile_collection(*cmd.catalog_profile);std::vector<CatalogPrepared> plans;
+            const auto loaded=flatten_profile_collection(*cmd.catalog_profile);std::vector<ProfileComponent> components;std::vector<CatalogPrepared> plans;
+            for(const auto& component:loaded){if(is_python_full_profile(component.document)){auto expanded=expand_full_tune(component);components.insert(components.end(),expanded.begin(),expanded.end());}else components.push_back(component);}
+            // Recheck semantic overlaps after the legacy source has been bound
+            // to current units. Expansion is read-only and precedes all writes.
+            (void)compose_profiles(components);
             bool timing=false,memory=false,has_power=false,full_power=false;std::vector<uint32_t> selected_policies;
             for(const auto& component:components){const auto info=inspect_profile(component.document);if(!info.valid)throw std::runtime_error(info.error);
                 timing=timing||info.scope==ProfileScope::timing||info.scope==ProfileScope::legacy_timing;for(const auto& target:info.targets)memory=memory||target=="clock:memory"||target=="clock:domain:2";
@@ -1323,7 +1432,13 @@ class Client final : public IBackend {
                     auto& selected=request.selection==voltage_admission?admission_request:vf_request;
                     if(!selected)selected=request;else{selected->selection|=request.selection;selected->values|=request.values;selected->expected=selected->expected.value_or(0)|request.expected.value_or(0);}continue;
                 }
-                if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)checked=profile_action(cmd,&plan.document,true);
+                if(plan.scope==ProfileScope::python_full_tune){
+                    const auto selected=describe_python_full_profile(plan.document).targets;
+                    if(selected==std::vector<std::string>{"power:*"}){plan.power=full_power_profile(plan.document);plan.scope=ProfileScope::python_power;checked=catalog_power_action(*plan.power,true);}
+                    else if(selected==std::vector<std::string>{"clock:core"}){plan.scope=ProfileScope::curve;plan.curve=catalog_curve_command(plan.document);checked=curve_action(*plan.curve,false,true);}
+                    else throw std::runtime_error("Unexpected unexpanded full-tune target");
+                }
+                else if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)checked=profile_action(cmd,&plan.document,true);
                 else if(plan.scope==ProfileScope::scoped)checked=scoped_action(cmd,&plan.document,true);
                 else if(plan.scope==ProfileScope::python_rails){plan.document=import_python_rail_profile(plan.document,scoped_capture(),{},true);plan.scope=ProfileScope::scoped;checked=scoped_action(cmd,&plan.document,true);}
                 else if(plan.scope==ProfileScope::curve){plan.curve=catalog_curve_command(plan.document);checked=curve_action(*plan.curve,false,true);}
@@ -1369,7 +1484,8 @@ class Client final : public IBackend {
                 if(!plan.clock_gating->ok)throw std::runtime_error(plan.clock_gating->message);plans.push_back(std::move(plan));
             }
             if(has_power){PowerSnapshot capture;std::string why;if(!power_capture(capture,why))throw std::runtime_error("Original coupled power Undo capture unavailable: "+why);
-                if(full_power)for(const auto& row:capture.rows)if(!row.board)selected_policies.push_back(row.policy);
+                if(full_power)for(const auto& row:capture.rows)if(!row.board&&(row.writable||row.named_current))selected_policies.push_back(row.policy);
+                if(full_power)selected_policies.insert(selected_policies.end(),capture.pin_ids.begin(),capture.pin_ids.end());
                 std::sort(selected_policies.begin(),selected_policies.end());selected_policies.erase(std::unique(selected_policies.begin(),selected_policies.end()),selected_policies.end());
                 for(const auto id:selected_policies){const auto row=std::find_if(capture.rows.begin(),capture.rows.end(),[&](const auto& r){return r.policy==id;});
                     if(row==capture.rows.end()||row->board||!row->consistent||!(row->writable||row->named_current)||(row->unit!=0&&row->unit!=1)||row->requested<row->minimum||row->requested>row->maximum)throw std::runtime_error("Selected original power policy cannot be restored through its qualified setter");}
@@ -1379,12 +1495,12 @@ class Client final : public IBackend {
             // Board writes may move peers. Apply explicit selected policy rows
             // afterward, independent of input file order. All power Undo uses
             // the single pre-transaction capture, never intermediate snapshots.
-            std::stable_sort(plans.begin(),plans.end(),[](const auto& a,const auto& b){const auto rank=[](const auto& p){if(p.voltage_policy&&p.voltage_policy->selection==voltage_admission)return p.voltage_policy->values?-1:3;const auto info=inspect_profile(p.document);for(const auto& t:info.targets)if(t=="power:board")return 0;for(const auto& t:info.targets)if(t.compare(0,13,"power:policy:")==0)return 2;return 1;};return rank(a)<rank(b);});
+            std::stable_sort(plans.begin(),plans.end(),[](const auto& a,const auto& b){const auto rank=[](const auto& p){if(p.voltage_policy&&p.voltage_policy->selection==voltage_admission)return p.voltage_policy->values?-1:4;if(p.scope==ProfileScope::curve)return 3;const auto info=inspect_profile(p.document);for(const auto& t:info.targets)if(t=="power:board")return 0;for(const auto& t:info.targets)if(t.compare(0,13,"power:policy:")==0)return 2;return 1;};return rank(a)<rank(b);});
             auto aggregate=std::make_unique<Undo>();aggregate->control=ControlId::count;remember(*aggregate);aggregate_index=undo_.size()-1;grouped=true;catalog_grouping_=true;
             for(auto& plan:plans){ActionResult action;
                 if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)action=profile_action(cmd,&plan.document);
                 else if(plan.scope==ProfileScope::scoped)action=scoped_action(cmd,&plan.document);
-                else if(plan.scope==ProfileScope::curve){auto fresh=catalog_curve_command(plan.document);if(fresh.curve_deltas.empty()){action.ok=true;action.message="Curve already matches";}else action=curve_action(fresh,false);}
+                else if(plan.scope==ProfileScope::curve){auto fresh=is_python_full_profile(plan.document)?*plan.curve:catalog_curve_command(plan.document);if(fresh.curve_deltas.empty()){action.ok=true;action.message="Curve already matches";}else action=curve_action(fresh,false);}
                 else if(plan.scope==ProfileScope::python_power)action=catalog_power_action(*plan.power,false);
                 else if(plan.scope==ProfileScope::fan)action=fan_profile_action(&plan.document,{});
                 else if(plan.scope==ProfileScope::power_saving){
@@ -1430,7 +1546,7 @@ class Client final : public IBackend {
             }
             // A later writer can affect an earlier selected field. Verify the
             // complete desired composition again, not only each local write.
-            for(const auto& plan:plans){ActionResult verified;
+            for(auto& plan:plans){ActionResult verified;
                 if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)verified=profile_action(cmd,&plan.document,true,true);
                 else if(plan.scope==ProfileScope::scoped)verified=scoped_action(cmd,&plan.document,true,true);
                 else if(plan.scope==ProfileScope::python_power)verified=catalog_power_action(*plan.power,true,true);
@@ -1441,7 +1557,7 @@ class Client final : public IBackend {
                 else if(plan.scope==ProfileScope::voltage_limits){const auto checked=voltage_limits_->verify(*plan.voltage_limits);verified.ok=checked.ok;verified.message=checked.message;}
                 else if(plan.scope==ProfileScope::power_integral){const auto checked=power_integral_->verify(*plan.integral);verified.ok=checked.ok;verified.message=checked.message;last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());}
                 else if(plan.scope==ProfileScope::voltage_policy){auto expected=*plan.voltage_policy;expected.expected=expected.values;const auto checked=voltage_policy_->preview(expected);verified.ok=checked.ok;verified.message=checked.message;last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());}
-                else if(plan.scope==ProfileScope::curve){const auto current=catalog_curve_command(plan.document);verified.ok=true;for(const auto& d:current.curve_deltas){const auto p=std::find_if(current.expected_curve.begin(),current.expected_curve.end(),[&](const auto& x){return x.idx==d.idx;});if(p==current.expected_curve.end()||p->delta_khz!=d.delta_khz)verified.ok=false;}verified.message="Final selected curve deltas differ";}
+                else if(plan.scope==ProfileScope::curve){const auto current=catalog_curve_command(plan.document);verified.ok=true;if(is_python_full_profile(plan.document))verified.ok=current.expected_curve_freq_div==plan.curve->expected_curve_freq_div&&same_curve_mapping(plan.curve->expected_curve,current.expected_curve,current.expected_curve_freq_div)&&same_curve_layout(*plan.curve->expected_curve_layout,*current.expected_curve_layout);for(const auto& d:current.curve_deltas){const auto p=std::find_if(current.expected_curve.begin(),current.expected_curve.end(),[&](const auto& x){return x.idx==d.idx;});if(p==current.expected_curve.end()||p->delta_khz!=d.delta_khz)verified.ok=false;}verified.message="Final selected curve deltas or qualified geometry differ";}
                 else if(plan.scope==ProfileScope::timing){dc_gpu_identity id{};const auto fresh=timings_->capture();if(!identity(id))throw std::runtime_error("Final timing identity changed");const auto requests=validate_timing_profile(plan.document,id,fresh);const auto comparison=timings_->preview(requests);verified.ok=comparison.ok&&comparison.no_change;verified.message="Final selected timing fields differ or are stale";}
                 else if(plan.scope==ProfileScope::icx){verified.ok=true;} // sole component, hook verifies exact complete settings
                 if(!verified.ok)throw std::runtime_error(plan.name+": final composition verification failed: "+verified.message);

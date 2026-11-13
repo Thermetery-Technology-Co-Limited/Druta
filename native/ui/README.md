@@ -85,10 +85,10 @@ Python frontend parity and Vista/7 qualification remain open.
   exclude individual power policies, rail limits and the full V/F point table;
   no profile enables a session gate automatically. A saved core scalar cannot
   restore a sculpted curve; live core-write Undo is separate.
-- Import accepts only Python schema-2 `scope: tuning_action` profiles of kind
+- This standalone Load action accepts Python schema-2 `scope: tuning_action` profiles of kind
   `memory`, `boost`, clock `domain` or NVVDD `rail_offset`. Other Python
   scopes/kinds, full-tune/combined profiles and unknown native fields are
-  refused. Broader existing-format import is pending.
+  refused by this action. Use the Profile catalog for the broader import scopes below.
 
 **Focused Daily** exposes independently qualified Crossbar, SYS, Video and LTC
 offsets. **Advanced** contains additional memory offset and available
@@ -579,9 +579,12 @@ either skin without a read or write. Catalog Apply is explicit and session-only.
 Saving and clock transactions retain typed issued-prefix recovery and previous
 Undo; final verification includes selected no-op fields and recovery checks all
 candidates before restoring any. Adaptive requests with unknown prior state are
-refused. Adaptive plus idle and GR plus individual acquisition combinations
-remain blocked pending a qualified handover. To change an already held gating
-request to the opposite mode, explicitly Release it before the new Apply.
+refused. Adaptive plus idle profiles apply adaptive first and the selected idle
+thresholds last; Undo restores their original typed requests in that order.
+Exclusive GR/individual or GR/DIFR handovers release the witnessed owner before
+acquiring the next. Simultaneous overlapping ownership cannot be qualified.
+Qualified ELCG/SLCG opposite modes release and verify the old request before
+acquiring the new one. BLCG exposes only Disable and Release.
 Ownership epochs prevent stale Undo after release and reacquisition; typed
 handover retains earlier catalog history and panel Undo/recover uses the matching
 receipt. Unknown allocation or FREE outcomes leave cleanup unresolved and block
@@ -589,10 +592,22 @@ further candidate control or repeated FREE; only guaranteed non-dispatch allows
 retry. No implicit reset is issued. Independently resolved PCIe recovery is not
 revived by later Undo. Adaptive recovery remains pending if restoration reads
 fail, and an allocated GR object whose request was not dispatched is cleaned up
-once. These changes await the final integration rerun.
+once.
 
 Catalog voltage composition checks all selected fields first, projects an
 explicitly selected admission enable during preflight, and checks actual
 admission when writing. Admission enable is ordered first and disable last.
 Final verification includes selected no-op fields; issued-only typed receipts
 retain partial recovery and previous Undo. Profiles never apply on restart.
+
+The catalog also imports selected controls from unscoped Python schema-2 full
+tunes. It retains the complete source alongside an explicit target selection.
+Indexed curves bind to fresh current geometry; the old format contains no
+historical point voltages. Memory uses saved driver units on the same memory,
+then checks the current scale and grid. Per-fan policies, raw/estimated rail
+requests and clock/voltage offsets use their existing qualified writers.
+Coupled power preserves explicit pins and freshly derived unpinned requests
+after board and named-current changes. The whole selection is preflighted
+before any write, and partial failure retains grouped Undo. Full-tune I2C and
+power-name annotation execution remain pending and must be explicitly omitted
+to apply other selected fields; they are never silently discarded.

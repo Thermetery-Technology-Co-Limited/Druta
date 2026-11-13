@@ -44,6 +44,9 @@ public:
     ~PowerSavingService(); // no writes, persistence, or automatic replay
     const PowerSavingData& read(uint32_t families=31);
     PowerSavingResult apply(const PowerSavingRequest&);
+    // Coupled profiles retain selected idle originals before adaptive effects.
+    // GR/count composition supports attributable exclusive handovers; shared
+    // simultaneous ownership without an independent count proof is refused.
     PowerSavingPlan preview(const std::vector<PowerSavingRequest>&);
     PowerSavingResult apply_profile(const PowerSavingPlan&,const std::function<void(const PowerSavingReceipt&)>& before_write);
     PowerSavingResult restore(const PowerSavingReceipt&);

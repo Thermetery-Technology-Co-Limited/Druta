@@ -8,6 +8,7 @@
 #include "profile_catalog.h"
 #include "curve_profile.h"
 #include "fan_profile.h"
+#include "python_full_profile.h"
 static bool catalog_interference=false;
 static bool catalog_refresh_throw=false;
 static bool catalog_boost_refuse=false;
@@ -80,6 +81,43 @@ static void fan_catalog_tests(){std::string error;reset_catalog_fans();catalog_f
  changed_id=false;CHECK(client->read(false).undo_available);const auto restored_writes=catalog_fan_writes;
  CHECK(client->execute(undo).ok&&catalog_fan_writes==restored_writes&&!client->read(false).undo_available);
  client->close();}
+static bool full_curve_drift=false;
+static bool full_current_coupling=false;static int full_generic_peer=100;
+static dc_status DC_CALL full_memory_set(dc_gpu* g,uint32_t t,double v,int32_t p,dc_outcome* o){const auto status=setter(g,t,v,p,o);if(full_curve_drift&&t==2)++voltage_shift;return status;}
+static dc_status DC_CALL full_policies(dc_gpu* g,dc_cl_confirm_fn c,void* cx,dc_cl_policy_inputs_fn in,void* ix,dc_policy_row* rows,uint32_t cap,uint32_t* n,dc_error* e){const auto status=policies(g,c,cx,in,ix,rows,cap,n,e);if(status==DC_OK){rows[2]={};rows[2].policy=8;rows[2].type=13;rows[2].channel=15;rows[2].unit=-1;rows[2].requested=77;rows[2].maximum=100;*n=3;if(full_current_coupling){rows[1].named_current=1;rows[3]={};rows[3].policy=2;rows[3].channel=3;rows[3].unit=0;rows[3].requested=full_generic_peer;rows[3].maximum=500;rows[3].writable=rows[3].consistent=1;*n=4;}}return status;}
+static dc_status DC_CALL full_policy_set(dc_gpu* g,dc_cl_confirm_fn c,void* cx,dc_cl_policy_inputs_fn in,void* ix,int64_t id,int32_t whole,int64_t value,int32_t pin,int32_t xoc,int32_t* ok,char* text,size_t cap,size_t* needed){if(full_current_coupling&&id==2){++policy_writes;full_generic_peer=static_cast<int>(value);*ok=1;*needed=1;return DC_OK;}const auto status=policy_set(g,c,cx,in,ix,id,whole,value,pin,xoc,ok,text,cap,needed);if(full_current_coupling&&status==DC_OK&&*ok)full_generic_peer=260;return status;}
+static ProfileJson full_document(){return {{"schema",2},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","Alternate adapter"},{"vbios",nullptr},{"driver","unlisted"},{"uuid","GPU-A"},{"slot","0000:02:00.0"},{"mem_type_id",nullptr}}},{"incomplete",ProfileJson::array()},{"core_off_mhz",12},{"mem_off_units",80},{"mem_off_true_mhz",5},{"mem_off_scale",16},{"volt_boost_pct",30},{"vf_deltas",{{"3",1000},{"4",2000}}}};}
+#if defined(_MSC_VER)
+__declspec(noinline)
+#endif
+static void full_tune_tests(){
+ std::string error;Command undo;undo.operation=Command::Operation::undo;current=40;boost_value=10;delta=123;delta2=456;mode=0;voltage_shift=0;core_value=30;board=200000;peer=100;pin_present=true;pinned_value=100;
+ auto a=catalog_api();a.set_offset=full_memory_set;a.policy_read=full_policies;a.policy_set=full_policy_set;auto client=create_core_backend_for_test(a);CHECK(client->open("0000:02:00.0",error));
+ auto doc=full_document();auto before=writes,before_curve=curve_writes;CHECK(client->execute(catalog_command(doc,true)).ok&&writes==before&&curve_writes==before_curve);
+ auto applied=client->execute(catalog_command(doc));if(!applied.ok)std::fprintf(stderr,"Full tune: %s\n",applied.message.c_str());CHECK(applied.ok&&current==80&&boost_value==30&&delta==1000&&delta2==2000&&core_value==30);CHECK(client->execute(undo).ok&&current==40&&boost_value==10&&delta==123&&delta2==456);
+ // No historical geometry is claimed: complete current indices are required,
+ // then the preflight binding stays fixed through earlier component writes.
+ auto invalid=doc;invalid["vf_deltas"]["5"]=3;before=writes;CHECK(!client->execute(catalog_command(invalid)).ok&&writes==before);
+ full_curve_drift=true;before_curve=curve_writes;auto drift=client->execute(catalog_command(doc));CHECK(!drift.ok&&drift.may_have_changed&&curve_writes==before_curve);full_curve_drift=false;voltage_shift=0;CHECK(client->execute(undo).ok&&current==40&&boost_value==10);
+ // Unhandled controller state remains visible, never silently omitted. Only
+ // an explicit selection may omit it, while malformed source still refuses.
+ auto with_i2c=doc;with_i2c["i2c"]={{"offset_mv",10}};before=writes;CHECK(!client->execute(catalog_command(with_i2c)).ok&&writes==before);auto selected=select_profile_targets(with_i2c,{"clock:memory"});CHECK(client->execute(catalog_command(selected)).ok&&current==80&&boost_value==10);CHECK(client->execute(undo).ok&&current==40);
+ auto malformed=selected;malformed["source"]["msvdd_offsets_mv"]={{"5",0.0001}};before=writes;CHECK(!client->execute(catalog_command(malformed)).ok&&writes==before);
+ // Whole-source identities and canonical overlaps are enforced on imports.
+ auto foreign=doc;foreign["device"]["uuid"]="GPU-foreign";CHECK(!client->execute(catalog_command(foreign)).ok&&writes==before);
+ auto duplicate=ProfileJson{{"format","druta-native-combined"},{"version",1},{"components",ProfileJson::array({{{"name","Full"},{"state",doc}},{{"name","Memory"},{"state",catalog_daily("memory",80)}}})}};CHECK(!client->execute(catalog_command(duplicate)).ok&&writes==before);
+ // Unpinned saved rows keep a newly derived driver request. An unrelated
+ // read-only row neither becomes a setter nor disables the saved controls.
+ auto power=doc;power["power_limit_mw"]=250000;power["power_policies"]={{"1",{{"value",150},{"type",0},{"channel",0}}}};power=select_profile_targets(power,{"power:*"});
+ CHECK(client->execute(catalog_command(power,true)).ok);auto pr=client->execute(catalog_command(power));if(!pr.ok)std::fprintf(stderr,"Full power: %s\n",pr.message.c_str());CHECK(pr.ok&&board==250000&&peer==200&&!pin_present);CHECK(client->execute(undo).ok&&board==200000&&peer==100&&pin_present&&pinned_value==100);
+ auto pinned=python_full_source(power);pinned["power_policy_pins"]={{"1",{{"value",150},{"type",0},{"channel",0}}}};pinned=select_profile_targets(pinned,{"power:*"});CHECK(client->execute(catalog_command(pinned)).ok&&peer==150&&pin_present&&pinned_value==150);CHECK(client->execute(undo).ok&&board==200000&&peer==100&&pinned_value==100);
+ auto badpin=pinned;badpin["source"]["power_policy_pins"]["1"]["channel"]=9;const auto before_power=power_writes;CHECK(!client->execute(catalog_command(badpin)).ok&&power_writes==before_power);
+ // A possibly dispatched board failure retains original coupled recovery.
+ power_throw=true;auto failed=client->execute(catalog_command(power));CHECK(!failed.ok&&failed.may_have_changed&&client->read(false).undo_available);power_throw=false;CHECK(client->execute(undo).ok&&board==200000&&peer==100&&pin_present);
+ full_current_coupling=true;full_generic_peer=100;auto coupled=python_full_source(power);coupled["current_limits_ma"]={{"1",150}};coupled["power_policies"]["2"]={{"value",190},{"channel",3},{"type",0}};coupled=select_profile_targets(coupled,{"power:*"});
+ auto cr=client->execute(catalog_command(coupled));if(!cr.ok)std::fprintf(stderr,"Full coupled current: %s\n",cr.message.c_str());CHECK(cr.ok&&board==250000&&peer==150&&full_generic_peer==260&&!pin_present);CHECK(client->execute(undo).ok&&board==200000&&peer==100&&full_generic_peer==100&&pin_present);full_current_coupling=false;
+ client->close();
+}
 int main(){std::string error;Command undo;undo.operation=Command::Operation::undo;
  current=40;boost_value=10;writes=boost_writes=0;mode=0;auto a=catalog_api();
  auto backend=create_core_backend_for_test(a);CHECK(backend->open("0000:02:00.0",error));
@@ -149,5 +187,6 @@ int main(){std::string error;Command undo;undo.operation=Command::Operation::und
  current=60;const auto writes_after_completed_memory=writes;auto nested_retry=nested->execute(undo);CHECK(!nested_retry.ok&&current==60&&boost_value==10&&writes==writes_after_completed_memory&&nested->read(false).undo_available);
  CHECK(nested->execute(undo).ok&&current==40&&boost_value==10&&!nested->read(false).undo_available);
  fan_catalog_tests();
+ full_tune_tests();
  std::printf("Catalog worker integration: %d checks, %d failures\n",checks,failures);return failures?1:0;
 }

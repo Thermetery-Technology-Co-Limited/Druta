@@ -69,8 +69,9 @@ void validate_python_power_live(const PythonPowerProfile& saved,const ScopedTarg
  if(saved.rows->size()!=current->size())fail("power policy identities changed");std::set<uint32_t> seen;
  for(const auto& r:*saved.rows){const PythonPowerRow* live=nullptr;for(const auto& c:*current)if(c.policy==r.policy){if(live)fail("duplicate live policy");live=&c;}
   if(!live||!seen.insert(r.policy).second||r.type!=live->type||r.channel!=live->channel||r.unit!=live->unit||r.minimum!=live->minimum||r.maximum!=live->maximum||r.board!=live->board||r.named_current!=live->named_current)fail("power policy identity, geometry or units changed");
-  if(!r.board&&(r.writable||r.named_current)&&(r.requested<r.minimum||r.requested>r.maximum))fail("saved policy request is outside its restorable range");
-  if(!r.board&&r.requested!=live->requested&&(!live->consistent||!(live->writable||live->named_current)||!live->unit))fail("changed saved policy has no qualified setter");
+  const bool selected=!r.board&&(!saved.selected_policies||std::find(saved.selected_policies->begin(),saved.selected_policies->end(),r.policy)!=saved.selected_policies->end());
+  if(selected&&(r.writable||r.named_current)&&(r.requested<r.minimum||r.requested>r.maximum))fail("saved policy request is outside its restorable range");
+  if(selected&&(saved.selected_policies||r.requested!=live->requested)&&(!live->consistent||!(live->writable||live->named_current)||!live->unit))fail("selected saved policy has no qualified setter");
   const auto p=saved.pins.find(r.policy);if(p!=saved.pins.end()&&(r.board||!live->unit||!live->consistent||!(live->writable||live->named_current)||p->second<r.minimum||p->second>r.maximum))fail("saved pin is not restorable through selected policy");
  }
 }

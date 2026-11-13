@@ -3,7 +3,9 @@
 #include "power_saving_service.h"
 #include <algorithm>
 #include <cstring>
+#include <exception>
 #include <map>
+#include <set>
 #include <random>
 #include <stdexcept>
 #include <limits>
@@ -58,6 +60,11 @@ struct PowerSavingReceipt::State {
     std::shared_ptr<State> previous_external;
     std::map<uint32_t,uint64_t> epochs;
     std::map<uint32_t,uint64_t> original_epochs;
+    // Selected first-threshold requests can be affected by an adaptive SET.
+    // These are typed raw observations, never replayable transport packets.
+    std::map<uint32_t,Sample> coupled_idle,effects;
+    std::set<uint32_t> unobserved_effects;
+    bool incomplete=false;
 };
 struct PowerSavingService::Impl {
     PowerSavingApi api;dc_gpu* gpu;dc_gpu_identity opened;std::optional<dc_target> target;
@@ -153,17 +160,34 @@ struct PowerSavingService::Impl {
             if(request.value){check(before.transport.header[12]&&before.transport.header[13],"Profiler requires captured root and parent");check(std::any_of(before.controllers.begin(),before.controllers.end(),[](const auto& c){return c.supported&&!(c.a&1);}),"GR acquisition has no independent reason transition available");}}
     }
     std::shared_ptr<PowerSavingPlan::State> prepare(const std::vector<PowerSavingRequest>& requests){
-        check(!pending&&!allocation_uncertain,"Resolve uncertain request or profiler object before profile preflight");check(!requests.empty()&&requests.size()<=24,"Select between one and twenty-four power-saving requests");
+        check(!pending&&!allocation_uncertain&&(!external||(!external->incomplete&&external->unobserved_effects.empty())),"Resolve uncertain request, coupled effect or profiler object before profile preflight");check(!requests.empty()&&requests.size()<=24,"Select between one and twenty-four power-saving requests");
         auto plan=std::make_shared<PowerSavingPlan::State>();plan->session=session;
-        bool adaptive=false,idle=false,gr=false,count=false;
+        const auto selected_gr=std::find_if(requests.begin(),requests.end(),[](const auto& r){return r.key.family==PowerSavingFamily::gr_elpg;});
+        const auto& gr_owner=owners[id({PowerSavingFamily::gr_elpg,0})];
+        const bool release_gr=selected_gr!=requests.end()&&selected_gr->value==0&&gr_owner.owned;
+        if(release_gr)witness(sample({PowerSavingFamily::gr_elpg,0}));
+        bool desired_count=false,original_count=false;
         for(const auto& r:requests){check(valid(r.key),"Invalid power-saving selection");check(std::none_of(plan->requests.begin(),plan->requests.end(),[&](const auto& old){return old.key==r.key;}),"Duplicate power-saving target");
-            auto current=sample(r.key);qualify_request(r,current);auto frozen=r;frozen.expected=row(r.key).value;current.row.value=frozen.expected;plan->requests.push_back(std::move(frozen));plan->before.push_back(std::move(current));plan->epochs[id(r.key)]=epochs[id(r.key)];
-            adaptive|=r.key.family==PowerSavingFamily::adaptive;idle|=r.key.family==PowerSavingFamily::idle_threshold;
-            gr|=r.key.family==PowerSavingFamily::gr_elpg&&(r.value||row(r.key).value==1u);
-            count|=(r.key.family==PowerSavingFamily::individual||r.key.family==PowerSavingFamily::difr)&&(r.value||row(r.key).value==1u);
+            auto current=sample(r.key);auto projected=current;const bool counted=r.key.family==PowerSavingFamily::individual||r.key.family==PowerSavingFamily::difr;
+            if(counted){desired_count|=r.value!=0;original_count|=owners[id(r.key)].owned;
+                if(gr_owner.owned&&r.value!=row(r.key).value.value_or(0))check(release_gr,"Select owned GR Release to qualify the shared-count handover");
+                const uint32_t controller=r.key.family==PowerSavingFamily::difr?9:r.key.index;
+                if(release_gr&&!owners[id(r.key)].owned&&std::find(gr_owner.witnesses.begin(),gr_owner.witnesses.end(),controller)!=gr_owner.witnesses.end())projected.row.reason_a&=~1u;
+            }
+            if(r.key.family==PowerSavingFamily::gr_elpg&&!gr_owner.owned&&r.value)for(const auto& count:requests){const auto& owner=owners[id(count.key)];if(count.value||!owner.owned)continue;
+                const uint32_t controller=count.key.family==PowerSavingFamily::difr?9:count.key.index;
+                if(count.key.family!=PowerSavingFamily::individual&&count.key.family!=PowerSavingFamily::difr)continue;
+                if(controller<projected.controllers.size()){if(count.key.family==PowerSavingFamily::difr&&owner.bank==1)projected.controllers[controller].b&=~1u;else projected.controllers[controller].a&=~1u;}}
+            qualify_request(r,projected);auto frozen=r;frozen.expected=row(r.key).value;current.row.value=frozen.expected;plan->requests.push_back(std::move(frozen));plan->before.push_back(std::move(current));plan->epochs[id(r.key)]=epochs[id(r.key)];
         }
-        check(!(adaptive&&idle),"Adaptive plus idle-threshold composition requires coupled original restoration; apply separately");
-        check(!(gr&&count),"Overlapping GR/count composition requires an owned handover; apply separately");
+        if(selected_gr!=requests.end()){
+            check(!(selected_gr->value&&desired_count),"Simultaneous GR/count requests lack an independent shared-count ownership getter; select an exclusive handover");
+            check(!(gr_owner.owned&&original_count),"Original simultaneous GR/count ownership cannot be independently restored; release it explicitly first");}
+        // Adaptive can reevaluate thresholds; selected explicit idle requests
+        // are applied only after all selected adaptive requests are settled.
+        std::vector<size_t> order;for(size_t i=0;i<plan->requests.size();++i)order.push_back(i);
+        std::stable_sort(order.begin(),order.end(),[&](size_t a,size_t b){const auto rank=[&](size_t n){const auto& r=plan->requests[n];if(r.key.family==PowerSavingFamily::adaptive)return -1;if(selected_gr==requests.end())return 0;if(r.key.family==PowerSavingFamily::idle_threshold)return 3;if(!r.value)return 0;return r.key.family==PowerSavingFamily::gr_elpg?2:1;};return rank(a)<rank(b);});
+        auto old_requests=std::move(plan->requests);auto old_before=std::move(plan->before);for(auto i:order){plan->requests.push_back(std::move(old_requests[i]));plan->before.push_back(std::move(old_before[i]));}
         bind();plan->target=*target;plan->verification_epochs=plan->epochs;return plan;
     }
     void paired(const std::shared_ptr<int>& token,const dc_target& expected){check(token==session,"Power-saving transaction belongs to another service session");
@@ -178,7 +202,22 @@ struct PowerSavingService::Impl {
         if(!allow_uncertain)witness(current);
         check(current.row.supported&&current.row.writable,"Selected power-saving capability unavailable");
     }
-    void flags(){data.undo_available=((undo_record&&undo_record->before.has_value())||(external&&!external->issued.empty()))&&!pending&&!allocation_uncertain;data.recovery_pending=pending.has_value()||allocation_uncertain;data.owned_requests=false;for(const auto& [key,o]:owners){const auto family=static_cast<PowerSavingFamily>(key/32);if(family==PowerSavingFamily::gr_elpg||family==PowerSavingFamily::individual||family==PowerSavingFamily::difr)data.owned_requests|=o.owned||o.uncertain;}data.owned_requests|=profiler!=0||allocation_uncertain;++data.revision;}
+    void selected_raw(PowerSavingKey key,const Sample& baseline,uint32_t raw){const auto current=sample(key);
+        check(current.row.binding==baseline.row.binding&&current.row.scale==baseline.row.scale&&current.row.supported&&current.row.writable,"Selected idle capability, scale or binding changed");
+        check(current.row.raw_first==raw,"Selected idle request changed outside the coupled transaction");}
+    void observe_effects(PowerSavingReceipt::State& state){std::string failure;
+        for(const auto& [key,baseline]:state.coupled_idle)try{const auto current=sample(baseline.row.key);
+            check(current.row.binding==baseline.row.binding&&current.row.scale==baseline.row.scale&&current.row.supported&&current.row.writable,"Adaptive effect changed selected idle layout or scale");
+            state.effects[key]=current;state.unobserved_effects.erase(key);
+        }catch(const std::exception& error){state.unobserved_effects.insert(key);if(failure.empty())failure=error.what();}
+        if(!failure.empty())fail("Selected adaptive idle effect could not be qualified: "+failure,A::transient);
+    }
+    void issued_effects(PowerSavingReceipt::State& state){for(const auto& [key,baseline]:state.coupled_idle){(void)baseline;++epochs[key];state.epochs[key]=epochs[key];state.unobserved_effects.insert(key);}}
+    bool idle_candidate(const PowerSavingReceipt::State& state,const Receipt& record,const Sample& current){
+        if(current.row.raw_first==record.sample.row.raw_first||current.row.raw_first==std::max<uint64_t>(1,uint64_t(record.wanted)*current.row.scale/1000))return true;
+        const auto observed=state.effects.find(id(record.key));return observed!=state.effects.end()&&current.row.raw_first==observed->second.row.raw_first;
+    }
+    void flags(){data.undo_available=((undo_record&&undo_record->before.has_value())||(external&&!external->issued.empty()))&&!pending&&!allocation_uncertain;data.recovery_pending=pending.has_value()||allocation_uncertain||(external&&(external->incomplete||!external->unobserved_effects.empty()));data.owned_requests=false;for(const auto& [key,o]:owners){const auto family=static_cast<PowerSavingFamily>(key/32);if(family==PowerSavingFamily::gr_elpg||family==PowerSavingFamily::individual||family==PowerSavingFamily::difr)data.owned_requests|=o.owned||o.uncertain;}data.owned_requests|=profiler!=0||allocation_uncertain;++data.revision;}
     void allocate(const Sample& s){check(!profiler&&!allocation_uncertain,"Profiler allocation is already owned or uncertain");check(s.transport.header[12]&&s.transport.header[13],"Profiler requires captured root and parent");uint32_t candidate=0;if(api.profiler_handle)candidate=api.profiler_handle();else{std::random_device random;candidate=0x60000000u|(random()&0xFFFFFFu);}check((candidate&0xFF000000u)==0x60000000u&&candidate!=s.transport.header[12]&&candidate!=s.transport.header[13],"Invalid fresh profiler candidate");Words words(s.transport.header,s.transport.header+12);words.insert(words.end(),{s.transport.header[12],s.transport.header[13],candidate,0xB2CC,8,0x77FEF81E,0,UINT32_MAX,0,0});words[2]=88;words[4]=0x0500002A;words[5]=words[11]=0;bool dispatched=false;try{send(words,s.transport,19,{},&dispatched,true);}catch(...){if(dispatched&&!profiler)allocation_uncertain=true;throw;}}
     void profiler_control(uint32_t command,const Words& payload,bool& dispatched){check(profiler&&profiler_transport,"No confirmed owned profiler");Words words(profiler_transport->header,profiler_transport->header+17);words.insert(words.end(),payload.begin(),payload.end());words[2]=static_cast<uint32_t>(words.size()*4);words[5]=words[11]=0;words[13]=profiler;words[14]=command;words[15]=static_cast<uint32_t>(payload.size()*4);words[16]=UINT32_MAX;const auto result=send(words,*profiler_transport,16,command==0xB0CC0301?std::vector<size_t>{17,19}:std::vector<size_t>{},&dispatched);if(command==0xB0CC0301)check(result[17]==0&&((result[19]>>6)&3)==0,"GR ELPG disable request rejected");}
     void free_profiler(){if(!profiler)return;MutationScope scope(mutation_key,{PowerSavingFamily::gr_elpg,0});check(!allocation_uncertain,"Profiler object outcome uncertain; driver reset required");const auto& t=*profiler_transport;Words words(t.header,t.header+12);words.insert(words.end(),{t.header[12],t.header[13],profiler,UINT32_MAX});words[2]=64;words[4]=0x0500000C;words[5]=words[11]=0;bool issued=false;try{send(words,t,15,{},&issued);}catch(...){if(issued)allocation_uncertain=true;throw;}profiler=0;profiler_requested=false;profiler_transport.reset();}
@@ -190,8 +229,8 @@ struct PowerSavingService::Impl {
         if(f==PowerSavingFamily::individual){check(d==b&&(wanted?c==(a|1u):(c==(a&~1u)||c==a)),"Individual gating reason readback changed unrelated fields");return;}
         if(wanted){const bool first=c==(a|1u)&&c!=a&&d==b,second=d==(b|1u)&&d!=b&&c==a;check(first!=second,"DIFR acquisition has no unique reason-bank witness");owner.bank=first?0:1;}else check(owner.bank==0?(c==(a&~1u)&&d==b):(d==(b&~1u)&&c==a),"DIFR release did not verify owned bank");}
     uint32_t restore_us(const PowerSavingRow& r,uint32_t raw){check(r.scale&&raw,"Idle original raw value is not representable");const uint64_t us=(uint64_t(raw)*1000+r.scale-1)/r.scale;check(us&&us<=r.maximum_us&&std::max<uint64_t>(1,us*r.scale/1000)==raw,"Original idle raw threshold has no exact integer-us request");return static_cast<uint32_t>(us);}
-    PowerSavingResult execute(const PowerSavingRequest& request,bool record=true){PowerSavingResult result;if(!valid(request.key)){result.message="Invalid power-saving selection";return result;}MutationScope scope(mutation_key,request.key);const bool replace_adaptive=pending&&pending->key==request.key&&request.key.family==PowerSavingFamily::adaptive;if(pending&&!replace_adaptive){result.message="Resolve uncertain request before another edit";return result;}auto& owner=owners[id(request.key)];Receipt receipt;receipt.key=request.key;receipt.wanted=request.value;
-        try{const auto before=fresh(request.key);publish(before);check(request.binding.empty()||request.binding==before.row.binding,"Staged power-saving binding changed");const auto current=row(request.key).value;check(!request.expected||current==request.expected,"Selected request changed since staging");check(before.row.writable,"Selected family is unavailable or not qualified");check(!owner.uncertain||replace_adaptive,"Request ownership is uncertain");const auto f=request.key.family;check(f==PowerSavingFamily::idle_threshold||request.value<=1,"Power-saving request is not Boolean");
+    PowerSavingResult execute(const PowerSavingRequest& request,bool record=true,std::optional<uint32_t> expected_raw={}){PowerSavingResult result;if(!valid(request.key)){result.message="Invalid power-saving selection";return result;}MutationScope scope(mutation_key,request.key);const bool replace_adaptive=pending&&pending->key==request.key&&request.key.family==PowerSavingFamily::adaptive;if(pending&&!replace_adaptive){result.message="Resolve uncertain request before another edit";return result;}auto& owner=owners[id(request.key)];Receipt receipt;receipt.key=request.key;receipt.wanted=request.value;
+        try{const auto before=fresh(request.key);publish(before);check(request.binding.empty()||request.binding==before.row.binding,"Staged power-saving binding changed");const auto current=row(request.key).value;check(!request.expected||current==request.expected,"Selected request changed since staging");check(!expected_raw||before.row.raw_first==*expected_raw,"Selected raw idle request changed since coupled qualification");check(before.row.writable,"Selected family is unavailable or not qualified");check(!owner.uncertain||replace_adaptive,"Request ownership is uncertain");const auto f=request.key.family;check(f==PowerSavingFamily::idle_threshold||request.value<=1,"Power-saving request is not Boolean");
             receipt.before=current;receipt.sample=before;if(f==PowerSavingFamily::individual&&!request.value&&!(before.row.reason_a&1)){owner={};publish(before);result.ok=true;result.message="Owned reason is already clear; no decrement issued";flags();return result;}if(f==PowerSavingFamily::idle_threshold){check(request.value&&request.value<=before.row.maximum_us,"Idle request exceeds current-adapter bounds");receipt.before=before.row.value;if(std::max<uint64_t>(1,uint64_t(request.value)*before.row.scale/1000)==before.row.raw_first){result.ok=true;result.message="Selected raw threshold already matches";return result;}}
             else if(f!=PowerSavingFamily::adaptive&&owner.owned==(request.value!=0)){if(owner.owned){check(owner.binding==before.row.binding,"Owned request binding changed");if(f==PowerSavingFamily::individual)check((before.row.reason_a&1)!=0,"Owned individual witness disappeared");else if(f==PowerSavingFamily::difr)check(owner.bank==0?((before.row.reason_a&1)&&!(before.row.reason_b&1)):((before.row.reason_b&1)&&!(before.row.reason_a&1)),"Owned DIFR bank witness disappeared");else for(auto n:owner.witnesses)check(n<before.controllers.size()&&before.controllers[n].supported&&(before.controllers[n].a&1),"Owned GR witness disappeared");}result.ok=true;result.message="This application's request already matches";return result;}
             if(f==PowerSavingFamily::individual&&request.value)check(!(before.row.reason_a&1),"Reason zero already has a foreign individual owner");
@@ -244,21 +283,35 @@ PowerSavingResult PowerSavingService::apply_profile(const PowerSavingPlan& plan,
         (void)p.prepare(plan.state->requests); // Whole selected freshness before allocation or SET.
         receipt.state=std::make_shared<PowerSavingReceipt::State>();receipt.state->session=p.session;receipt.state->target=plan.state->target;
         receipt.state->previous_undo=p.undo_record;receipt.state->previous_external=p.external;receipt.state->original_epochs=plan.state->epochs;
-        std::vector<uint32_t> expected;for(const auto& before:plan.state->before)expected.push_back(*before.row.value);
+        const bool adaptive_change=std::any_of(plan.state->requests.begin(),plan.state->requests.end(),[](const auto& r){return r.key.family==PowerSavingFamily::adaptive&&r.expected!=r.value;});
+        if(adaptive_change)for(const auto& before:plan.state->before)if(before.row.key.family==PowerSavingFamily::idle_threshold)receipt.state->coupled_idle[id(before.row.key)]=before;
+        std::vector<uint32_t> expected;for(const auto& before:plan.state->before)expected.push_back(before.row.key.family==PowerSavingFamily::idle_threshold?before.row.raw_first:*before.row.value);
         for(size_t i=0;i<plan.state->requests.size();++i){
-            for(size_t n=0;n<expected.size();++n)p.selected(plan.state->requests[n],plan.state->before[n],expected[n]);
-            const auto& request=plan.state->requests[i];if(expected[i]==request.value)continue;
-            const auto field_serial=p.mutation_serial;bool added=false;
-            p.before_mutation=[&]{if(!added){Receipt record;record.key=request.key;record.before=plan.state->before[i].row.value;record.wanted=request.value;record.sample=plan.state->before[i];receipt.state->issued.push_back(std::move(record));added=true;}if(journal)journal(receipt);};
-            PowerSavingResult action;
-            try{action=p.execute(request,false);}catch(...){p.before_mutation={};if(added&&p.mutation_serial==field_serial)receipt.state->issued.pop_back();else if(added)receipt.state->epochs[id(request.key)]=p.epochs[id(request.key)];throw;}
-            p.before_mutation={};if(added&&p.mutation_serial==field_serial)receipt.state->issued.pop_back();
-            if(p.mutation_serial!=field_serial){p.external=receipt.state;receipt.state->epochs[id(request.key)]=p.epochs[id(request.key)];plan.state->verification_epochs[id(request.key)]=p.epochs[id(request.key)];}
-            check(action.ok,action.message.c_str());expected[i]=request.value;
+            for(size_t n=0;n<expected.size();++n){const auto& selected=plan.state->requests[n];if(selected.key.family==PowerSavingFamily::idle_threshold)p.selected_raw(selected.key,plan.state->before[n],expected[n]);else p.selected(selected,plan.state->before[n],expected[n]);}
+            auto request=plan.state->requests[i];const bool idle=request.key.family==PowerSavingFamily::idle_threshold;
+            const auto desired=idle?static_cast<uint32_t>(std::max<uint64_t>(1,uint64_t(request.value)*plan.state->before[i].row.scale/1000)):request.value;
+            if(expected[i]==desired)continue;
+            if(idle)request.expected=p.row(request.key).value; // authorized by exact raw guard, not a new initial capture
+            const auto field_serial=p.mutation_serial;const auto journal_start=receipt.state->issued.size();
+            const auto append=[&](size_t index){const auto& r=plan.state->requests[index];if(std::none_of(receipt.state->issued.begin(),receipt.state->issued.end(),[&](const auto& old){return old.key==r.key;})){
+                Receipt record;record.key=r.key;record.before=plan.state->before[index].row.value;record.wanted=r.value;record.sample=plan.state->before[index];receipt.state->issued.push_back(std::move(record));}};
+            p.before_mutation=[&]{append(i);if(request.key.family==PowerSavingFamily::adaptive)for(size_t n=0;n<plan.state->requests.size();++n)if(receipt.state->coupled_idle.count(id(plan.state->requests[n].key)))append(n);if(journal)journal(receipt);};
+            PowerSavingResult action;std::exception_ptr raised;
+            try{action=p.execute(request,false,idle?std::optional<uint32_t>(expected[i]):std::nullopt);}catch(...){raised=std::current_exception();}
+            p.before_mutation={};
+            if(p.mutation_serial==field_serial)receipt.state->issued.resize(journal_start);
+            else{p.external=receipt.state;receipt.state->epochs[id(request.key)]=p.epochs[id(request.key)];plan.state->verification_epochs[id(request.key)]=p.epochs[id(request.key)];
+                if(request.key.family==PowerSavingFamily::adaptive&&!receipt.state->coupled_idle.empty()){
+                    p.issued_effects(*receipt.state);for(const auto& entry:receipt.state->coupled_idle)plan.state->verification_epochs[entry.first]=p.epochs[entry.first];
+                    try{p.observe_effects(*receipt.state);for(size_t n=0;n<plan.state->requests.size();++n){const auto effect=receipt.state->effects.find(id(plan.state->requests[n].key));if(effect!=receipt.state->effects.end())expected[n]=effect->second.row.raw_first;}}
+                    catch(...){if(!raised)raised=std::current_exception();}
+                }
+            }
+            if(raised)std::rethrow_exception(raised);check(action.ok,action.message.c_str());expected[i]=desired;
         }
         for(size_t i=0;i<plan.state->requests.size();++i){check(p.epochs[id(plan.state->requests[i].key)]==plan.state->verification_epochs.at(id(plan.state->requests[i].key)),"Selected request lifecycle has been replaced");p.selected(plan.state->requests[i],plan.state->before[i],plan.state->requests[i].value);}
         result.ok=true;result.message="Selected request intent and owned witnesses verified; adaptive aggregate remains independent";
-    }catch(const std::exception& error){p.before_mutation={};result.message=error.what();if(receipt.state&&!receipt.state->issued.empty()&&p.mutation_serial!=serial)p.external=receipt.state;
+    }catch(const std::exception& error){p.before_mutation={};result.message=error.what();if(receipt.state&&!receipt.state->issued.empty()&&p.mutation_serial!=serial){receipt.state->incomplete=true;p.external=receipt.state;}
         if(p.pending)p.unavailable(p.pending->key,Error(A::transient,result.message));}
     result.may_have_changed=p.mutation_serial!=serial;p.data.message=result.message;p.flags();return result;
 }
@@ -285,7 +338,7 @@ PowerSavingResult PowerSavingService::restore(const PowerSavingReceipt& receipt)
             check(current.row.binding==record.sample.row.binding&&current.row.supported&&current.row.writable,"Selected capability or binding changed");
             const bool pending=p.pending&&p.pending->key==record.key;const auto family=record.key.family;
             if(family==PowerSavingFamily::idle_threshold){check(current.row.scale==record.sample.row.scale,"Selected idle scale changed");const auto original=std::max<uint64_t>(1,uint64_t(*record.before)*current.row.scale/1000),wanted=std::max<uint64_t>(1,uint64_t(record.wanted)*current.row.scale/1000);
-                check(current.row.raw_first==original||current.row.raw_first==wanted,"Selected idle request replaced; no restoration issued");}
+                check(current.row.raw_first==original||current.row.raw_first==wanted||p.idle_candidate(state,record,current),"Selected idle request replaced or adaptive effect unobserved; no restoration issued");}
             else{const auto value=p.row(record.key).value;check(value==record.before||value==record.wanted,"Selected explicit request replaced; no restoration issued");}
             if(pending&&family==PowerSavingFamily::difr)fail("DIFR counted outcome is uncertain; no blind decrement or retry is safe");
             if(pending&&family==PowerSavingFamily::individual){auto& o=p.owners[id(record.key)];if(o.release_attempted)check(!(current.row.reason_a&1),"Release already attempted; shared count cannot be decremented twice");
@@ -293,7 +346,12 @@ PowerSavingResult PowerSavingService::restore(const PowerSavingReceipt& receipt)
             if(!pending)p.witness(current);
         }
         const bool active=p.external==receipt.state;
-        for(auto it=state.issued.rbegin();it!=state.issued.rend();++it){const auto& record=*it;bool force_adaptive=false;std::optional<Receipt> deferred_pending;const auto before_serial=p.mutation_serial;
+        std::vector<size_t> order;
+        if(p.pending&&p.pending->key.family!=PowerSavingFamily::adaptive)for(size_t i=0;i<state.issued.size();++i)if(state.issued[i].key==p.pending->key)order.push_back(i);
+        for(size_t i=state.issued.size();i>0;--i)if(state.issued[i-1].key.family==PowerSavingFamily::adaptive)order.push_back(i-1);
+        for(size_t i=state.issued.size();i>0;--i)if(state.issued[i-1].key.family!=PowerSavingFamily::adaptive&&state.issued[i-1].key.family!=PowerSavingFamily::idle_threshold)order.push_back(i-1);
+        for(size_t i=state.issued.size();i>0;--i)if(state.issued[i-1].key.family==PowerSavingFamily::idle_threshold)order.push_back(i-1);
+        for(auto index:order){const auto& record=state.issued[index];bool force_adaptive=false,effect_recorded=false;std::optional<Receipt> deferred_pending;const auto before_serial=p.mutation_serial;
             try{if(p.pending&&p.pending->key==record.key){
                     if(record.key.family==PowerSavingFamily::idle_threshold||record.key.family==PowerSavingFamily::adaptive){force_adaptive=record.key.family==PowerSavingFamily::adaptive;deferred_pending=p.pending;}
                     else{const auto recovered=p.recover_pending();check(recovered.ok,recovered.message.c_str());}}
@@ -304,14 +362,15 @@ PowerSavingResult PowerSavingService::restore(const PowerSavingReceipt& receipt)
                 const auto current=p.sample(record.key);check(current.row.binding==record.sample.row.binding&&current.row.supported&&current.row.writable,"Restoration capability or binding changed");
                 if(record.key.family==PowerSavingFamily::idle_threshold){check(current.row.scale==record.sample.row.scale,"Selected idle scale changed during restoration");
                     const auto desired=std::max<uint64_t>(1,uint64_t(record.wanted)*current.row.scale/1000);
-                    check(current.row.raw_first==record.sample.row.raw_first||current.row.raw_first==desired,"Selected idle request replaced during restoration");}
+                    check(current.row.raw_first==record.sample.row.raw_first||current.row.raw_first==desired||p.idle_candidate(state,record,current),"Selected idle request replaced during restoration");}
                 else check(p.row(record.key).value==record.before||p.row(record.key).value==record.wanted,"Selected request replaced during restoration");
                 p.witness(current);
                 bool original=p.row(record.key).value==record.before;
                 if(record.key.family==PowerSavingFamily::idle_threshold)original=current.row.scale==record.sample.row.scale&&current.row.raw_first==record.sample.row.raw_first;
-                if(!original||force_adaptive){if(deferred_pending){p.pending.reset();p.owners[id(record.key)].uncertain=false;}const auto restored=p.execute({record.key,*record.before,current.row.binding,p.row(record.key).value},false);check(restored.ok,restored.message.c_str());}
+                if(!original||force_adaptive){if(deferred_pending){p.pending.reset();p.owners[id(record.key)].uncertain=false;}const auto restored=p.execute({record.key,*record.before,current.row.binding,p.row(record.key).value},false,record.key.family==PowerSavingFamily::idle_threshold?std::optional<uint32_t>(current.row.raw_first):std::nullopt);
+                    if(record.key.family==PowerSavingFamily::adaptive&&p.mutation_serial!=before_serial&&!state.coupled_idle.empty()){p.issued_effects(state);effect_recorded=true;p.observe_effects(state);}check(restored.ok,restored.message.c_str());}
                 else if(deferred_pending){p.pending.reset();p.owners[id(record.key)].uncertain=false;p.publish(current);}
-            }catch(...){if(deferred_pending&&p.mutation_serial==before_serial){p.pending=deferred_pending;p.owners[id(record.key)].uncertain=true;}if(p.mutation_serial!=before_serial)state.epochs[id(record.key)]=p.epochs[id(record.key)];throw;}
+            }catch(...){if(deferred_pending&&p.mutation_serial==before_serial){p.pending=deferred_pending;p.owners[id(record.key)].uncertain=true;}if(p.mutation_serial!=before_serial){state.epochs[id(record.key)]=p.epochs[id(record.key)];if(record.key.family==PowerSavingFamily::adaptive&&!effect_recorded&&!state.coupled_idle.empty()){p.issued_effects(state);try{p.observe_effects(state);}catch(...){}}}throw;}
             state.epochs[id(record.key)]=p.epochs[id(record.key)];
         }
         for(const auto& record:state.issued)p.selected({record.key,record.wanted,record.sample.row.binding,{}},record.sample,*record.before);
@@ -319,15 +378,15 @@ PowerSavingResult PowerSavingService::restore(const PowerSavingReceipt& receipt)
             // Known reverse handover transfers the current owned lifecycle back
             // to the earlier matching typed receipt, never an observed Boolean.
             for(const auto& record:state.issued)for(auto prior=state.previous_external;prior;prior=prior->previous_external){const auto stamp=prior->epochs.find(id(record.key));const auto match=std::find_if(prior->issued.begin(),prior->issued.end(),[&](const auto& r){return r.key==record.key&&r.wanted==*record.before;});if(match!=prior->issued.end()&&stamp!=prior->epochs.end()&&stamp->second==state.original_epochs.at(id(record.key))){stamp->second=p.epochs[id(record.key)];break;}}}
-        result.ok=result.rollback_verified=true;result.message="Issued requests restored with fresh verification; prior standalone Undo preserved";
-    }catch(const std::exception& error){result.message=std::string(error.what())+"; typed catalog receipt retained";if(p.pending)p.unavailable(p.pending->key,Error(A::transient,result.message));}
+        state.unobserved_effects.clear();state.incomplete=false;result.ok=result.rollback_verified=true;result.message="Issued requests restored with fresh verification; prior standalone Undo preserved";
+    }catch(const std::exception& error){if(receipt.state&&receipt.state->session==p.session&&!receipt.state->issued.empty())receipt.state->incomplete=true;result.message=std::string(error.what())+"; typed catalog receipt retained";if(p.pending)p.unavailable(p.pending->key,Error(A::transient,result.message));}
     result.may_have_changed=p.mutation_serial!=serial;p.data.message=result.message;p.flags();return result;
 }
 PowerSavingResult PowerSavingService::restore_initial(const PowerSavingKey& key){auto& p=*impl_;Lock lock(p.api.transport,p.gpu);if(!lock.held)return {false,false,false,"GPU lock unavailable"};if(!valid(key))return {false,false,false,"Invalid selection"};const auto initial=p.row(key).initial;if(!initial)return {false,false,false,"Captured initial request is unknown"};PowerSavingRequest request{key,*initial,p.row(key).binding,{}};const auto serial=p.mutation_serial;auto result=p.execute(request);if(p.mutation_serial!=serial)p.external.reset();p.flags();return result;}
 PowerSavingResult PowerSavingService::undo(){auto& p=*impl_;if(p.external)return restore({p.external});Lock lock(p.api.transport,p.gpu);if(!lock.held)return {false,false,false,"GPU lock unavailable"};if(!p.undo_record||!p.undo_record->before||p.pending)return {false,false,false,"No qualified previous request"};auto receipt=*p.undo_record;
     try{const auto current=p.fresh(receipt.key);p.publish(current);check(current.row.binding==receipt.sample.row.binding,"Undo binding changed");if(receipt.key.family==PowerSavingFamily::idle_threshold){const auto wanted=std::max<uint64_t>(1,uint64_t(receipt.wanted)*receipt.sample.row.scale/1000);check(current.row.raw_first==wanted,"Selected idle request was replaced; Undo refused");}}
     catch(const Error& e){return {false,false,false,e.what()};}const auto result=p.execute({receipt.key,*receipt.before,receipt.sample.row.binding,{}},false);if(result.ok)p.undo_record.reset();p.flags();return result;}
-PowerSavingResult PowerSavingService::recover(){auto& p=*impl_;if(p.external&&(p.pending||p.allocation_uncertain))return restore({p.external});Lock lock(p.api.transport,p.gpu);if(!lock.held)return {false,false,false,"GPU lock unavailable"};return p.recover_pending();}
+PowerSavingResult PowerSavingService::recover(){auto& p=*impl_;if(p.external&&(p.pending||p.allocation_uncertain||p.external->incomplete||!p.external->unobserved_effects.empty()))return restore({p.external});Lock lock(p.api.transport,p.gpu);if(!lock.held)return {false,false,false,"GPU lock unavailable"};return p.recover_pending();}
 bool PowerSavingService::has_owned_requests()const{return impl_->data.owned_requests;}
 PowerSavingResult PowerSavingService::release_owned(){auto& p=*impl_;if(p.pending){const auto family=p.pending->key.family;if(family==PowerSavingFamily::idle_threshold||family==PowerSavingFamily::adaptive){if(!has_owned_requests())return {true,false,false,"Ordinary request recovery retained; no close-time Undo issued"};return {false,false,false,"Resolve ordinary request uncertainty before releasing counted ownership"};}PowerSavingResult resolved;{Lock lock(p.api.transport,p.gpu);if(!lock.held)return {false,false,false,"GPU lock unavailable"};resolved=p.recover_pending();}if(!resolved.ok)return resolved;}if(p.profiler&&!p.owners[id({PowerSavingFamily::gr_elpg,0})].owned){Lock lock(p.api.transport,p.gpu);if(!lock.held)return {false,false,false,"GPU lock unavailable"};try{p.free_profiler();p.owners[id({PowerSavingFamily::gr_elpg,0})]={};p.flags();}catch(const Error& e){return {false,true,false,e.what()};}}if(p.allocation_uncertain)return {false,false,false,"Profiler allocation ownership is unknown; driver reset required"};for(const auto& r:p.data.rows)if(r.owned){const auto result=apply({r.key,0,r.binding,{}});if(!result.ok)return result;}return {true,false,false,"Owned requests released"};}
 ProfileJson capture_power_saving_profile(const PowerSavingData& data,const std::vector<PowerSavingKey>& keys){if(!text(data.identity.uuid)||!data.identity.uuid[0])throw std::runtime_error("Saved profiles require a GPU UUID");ProfileJson rows=ProfileJson::array();for(const auto& key:keys){check(valid(key),"Invalid saved selection");const auto it=std::find_if(data.rows.begin(),data.rows.end(),[&](const auto& r){return r.key==key;});check(it!=data.rows.end()&&!it->stale&&it->availability==A::available&&it->value&&!it->uncertain,"Selected request is unknown, stale or uncertain");rows.push_back({{"family",static_cast<uint32_t>(key.family)},{"index",key.index},{"value",*it->value},{"binding",it->capability}});}check(!rows.empty(),"No selected requests");return {{"schema",1},{"scope","power_saving_requests"},{"uuid",data.identity.uuid},{"slot",data.identity.slot},{"requests",rows}};}

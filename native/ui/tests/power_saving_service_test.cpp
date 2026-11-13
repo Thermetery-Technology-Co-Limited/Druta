@@ -8,6 +8,97 @@ static int checks=0;
 #define CHECK(x) do{++checks;if(!(x)){std::fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,#x);std::abort();}}while(false)
 template<class F>static void profile_rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}CHECK(rejected);}
 static ProfileJson python_lowpower(const Fake& f,const char* kind,const char* mode,ProfileJson index=nullptr){return {{"schema",2},{"scope","lowpower_requests"},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","alternate"},{"vbios",nullptr},{"driver",nullptr},{"uuid",f.identity.uuid},{"slot",f.identity.slot}}},{"incomplete",ProfileJson::array()},{"lowpower_requests",{{"kind",kind},{"index",index},{"mode",mode},{"identity",{{"slot",f.identity.slot},{"architecture",7},{"device_id",f.identity.nvapi_devid},{"subsystem_id",f.identity.nvapi_subsys}}}}}};}
+struct CoupledFake:Fake {
+    std::vector<std::string> events;
+    bool fail_adaptive=false,fail_idle=false,block_idle=false;
+    int fail_idle_reads=0,fail_idle_reads_on_effect=0;
+};
+static dc_status DC_CALL coupled_escape(dc_gpu* gpu,uint8_t* bytes,size_t size,const dc_escape_fields* fields,int32_t* nt,dc_error* error){
+    auto& x=static_cast<CoupledFake&>(power_saving_test::f(gpu));auto* packet=reinterpret_cast<uint32_t*>(bytes);const auto command=packet[14];
+    const bool attribute=command==0x2080A801||command==0x2080E802;
+    const auto group=attribute?half(bytes+68,4):0,index=attribute?half(bytes+68,6):0,attr=attribute?half(bytes+68,8):0;
+    if(command==0x2080A801&&group==3&&x.fail_idle_reads>0){--x.fail_idle_reads;*nt=-1;return DC_OK;}
+    if(command==0x2080E802&&group==3&&attr==0x3A&&x.block_idle){error->kind=DC_ERR_UNSUPPORTED;return DC_E_UNAVAILABLE;}
+    const auto status=escape(gpu,bytes,size,fields,nt,error);
+    if(command==0x2080E802&&group==4){x.events.push_back("adaptive");
+        x.raw[0]=static_cast<uint32_t>(uint64_t(x.adaptive[index]?1000:2000)*x.factor/1000);
+        x.raw[4]=static_cast<uint32_t>(uint64_t(x.adaptive[index]?1500:2500)*x.factor/1000);
+        x.second[0]=static_cast<uint32_t>(uint64_t(x.adaptive[index]?3500:3000)*x.factor/1000);x.fail_idle_reads=x.fail_idle_reads_on_effect;
+        if(x.fail_adaptive)*nt=-1;
+    }else if(command==0x2080E802&&group==3&&attr==0x3A){x.events.push_back("idle:"+std::to_string(index));if(x.fail_idle)*nt=-1;}
+    return status;
+}
+static PowerSavingApi coupled_api(){auto a=api();a.transport.escape=coupled_escape;return a;}
+static void coupled_transactions(){
+    for(uint32_t factor:{1000u,2000u}){CoupledFake f;f.factor=factor;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();
+        CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok);CHECK(s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);f.events.clear();
+        auto plan=s.preview({request(s,PowerSavingFamily::idle_threshold,0,7000),request(s,PowerSavingFamily::adaptive,0,1)});PowerSavingReceipt receipt;const auto original=f.raw[0];bool before_effect=false;
+        if(!plan.ok)std::fprintf(stderr,"Coupled preview factor=%u: %s\n",factor,plan.message.c_str());CHECK(plan.ok);
+        const auto applied=s.apply_profile(plan,[&](const auto& r){receipt=r;if(f.events.empty()){CHECK(f.raw[0]==original);before_effect=true;}});
+        if(!applied.ok)std::fprintf(stderr,"Coupled Apply factor=%u: %s\n",factor,applied.message.c_str());CHECK(applied.ok);
+        CHECK(before_effect&&f.events==std::vector<std::string>({"adaptive","idle:0"})&&f.raw[0]==7u*factor&&f.second[0]==7u*factor/2u&&s.verify(plan).ok);
+        f.events.clear();const auto restored=s.restore(receipt);if(!restored.ok)std::fprintf(stderr,"Coupled Undo factor=%u: %s\n",factor,restored.message.c_str());CHECK(restored.ok&&f.events==std::vector<std::string>({"adaptive","idle:0"})&&f.raw[0]==original&&f.second[0]==3u*factor&&s.verify(receipt,true).ok);
+        CHECK(s.undo().ok&&f.raw[0]==2u*factor); // Prior standalone Undo survived the coupled transaction.
+    }
+    {CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok&&s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);
+        auto plan=s.preview({request(s,PowerSavingFamily::idle_threshold,0,1000),request(s,PowerSavingFamily::adaptive,0,1)});PowerSavingReceipt receipt;f.events.clear();
+        CHECK(plan.ok&&s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&f.events==std::vector<std::string>({"adaptive"})); // Effect already satisfies selected idle; original still journaled.
+        CHECK(s.restore(receipt).ok&&f.raw[0]==5000&&s.verify(receipt,true).ok);
+    }
+    {CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok&&s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);
+        auto plan=s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,5000)});PowerSavingReceipt receipt;f.events.clear();
+        CHECK(plan.ok&&s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&f.events==std::vector<std::string>({"adaptive","idle:0"})); // Initial no-op needs reassertion after adaptive effect.
+        CHECK(s.restore(receipt).ok&&f.raw[0]==5000);
+    }
+    for(bool idle_failure:{false,true}){CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok&&s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);
+        const auto plan=s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,7000)});PowerSavingReceipt receipt;f.fail_adaptive=!idle_failure;f.fail_idle=idle_failure;
+        const auto result=s.apply_profile(plan,[&](const auto& r){receipt=r;});CHECK(!result.ok&&result.may_have_changed&&s.state().recovery_pending&&f.raw[0]==(idle_failure?7000u:1000u));
+        f.fail_adaptive=f.fail_idle=false;CHECK(s.recover().ok&&f.raw[0]==5000&&!f.adaptive[0]&&s.verify(receipt,true).ok);
+    }
+    {CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok&&s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);
+        auto plan=s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,7000)});PowerSavingReceipt receipt;f.block_idle=true;
+        CHECK(!s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&f.raw[0]==1000&&s.state().recovery_pending);f.block_idle=false;
+        CHECK(s.recover().ok&&f.raw[0]==5000); // Only indirect threshold effect occurred, yet complete originals survive.
+    }
+    {CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok&&s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);
+        auto plan=s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,7000)});PowerSavingReceipt receipt;f.fail_idle_reads_on_effect=1;
+        CHECK(s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&f.reset_count>0);f.fail_idle_reads_on_effect=0;f.raw[0]=9999;const auto sets=f.sets;
+        CHECK(!s.restore(receipt).ok&&f.sets==sets&&f.raw[0]==9999); // An unrelated later raw value is never a new authorized baseline.
+    }
+    {CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok&&s.apply(request(s,PowerSavingFamily::idle_threshold,0,5000)).ok);
+        auto plan=s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,7000)});PowerSavingReceipt receipt;f.fail_idle_reads_on_effect=1000;
+        CHECK(!s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&s.state().recovery_pending);f.fail_idle_reads=f.fail_idle_reads_on_effect=0;const auto sets=f.sets;
+        CHECK(!s.recover().ok&&f.sets==sets);f.raw[0]=5000;CHECK(s.recover().ok&&f.raw[0]==5000); // Unobserved effect cannot authorize an arbitrary replacement.
+    }
+    {CoupledFake f;PowerSavingService s(coupled_api(),f.gpu(),f.identity);s.read();const auto plan=s.preview({request(s,PowerSavingFamily::idle_threshold,0,7000),request(s,PowerSavingFamily::adaptive,0,1)});
+        CHECK(!plan.ok&&plan.message.find("known prior")!=std::string::npos&&f.sets==0);
+    }
+    for(auto family:{PowerSavingFamily::individual,PowerSavingFamily::difr})for(bool start_gr:{false,true}){
+        Fake f;f.supported.fill(false);f.supported[family==PowerSavingFamily::difr?9:0]=true;PowerSavingService s(api(),f.gpu(),f.identity);s.read();
+        CHECK(s.apply(request(s,start_gr?PowerSavingFamily::gr_elpg:family,0,1)).ok);PowerSavingReceipt receipt;
+        const auto plan=s.preview({request(s,PowerSavingFamily::gr_elpg,0,start_gr?0u:1u),request(s,family,0,start_gr?1u:0u)});
+        CHECK(plan.ok&&s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&s.verify(plan).ok);
+        CHECK(row(s,PowerSavingFamily::gr_elpg).value==(start_gr?0u:1u)&&row(s,family).value==(start_gr?1u:0u));
+        CHECK(s.restore(receipt).ok&&s.verify(receipt,true).ok&&row(s,PowerSavingFamily::gr_elpg).value==(start_gr?1u:0u)&&row(s,family).value==(start_gr?0u:1u));
+        CHECK(s.undo().ok&&!s.has_owned_requests());
+    }
+    for(auto family:{PowerSavingFamily::individual,PowerSavingFamily::difr}){Fake f;auto a=api();a.transport.escape=[](dc_gpu* gpu,uint8_t* bytes,size_t size,const dc_escape_fields* fields,int32_t* nt,dc_error* error)->dc_status{
+            const auto* packet=reinterpret_cast<uint32_t*>(bytes);const bool acquire=(packet[14]==0x2080E802&&half(bytes+68,8)==0x37&&packet[20]==0)||(packet[14]==0x20802801&&packet[17]==1);
+            const auto status=escape(gpu,bytes,size,fields,nt,error);if(acquire)*nt=-1;return status;};
+        PowerSavingService s(a,f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::gr_elpg,0,1)).ok);
+        const auto plan=s.preview({request(s,PowerSavingFamily::gr_elpg,0,0),request(s,family,0,1)});PowerSavingReceipt receipt;CHECK(plan.ok&&!s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&f.handle==0&&s.state().recovery_pending);
+        if(family==PowerSavingFamily::individual)CHECK(s.recover().ok&&s.verify(receipt,true).ok&&f.handle&&f.reasons[0]==1);
+        else{const auto sets=f.sets,frees=f.frees;CHECK(!s.recover().ok&&f.sets==sets&&f.frees==frees&&f.handle==0);} // Uncertain shared DIFR count is never guessed or decremented.
+    }
+    {Fake f;static int count_writes=0;count_writes=0;auto a=api();a.transport.escape=[](dc_gpu* gpu,uint8_t* bytes,size_t size,const dc_escape_fields* fields,int32_t* nt,dc_error* error)->dc_status{
+            const auto command=reinterpret_cast<uint32_t*>(bytes)[14];if(command==0x2080E802&&half(bytes+68,8)==0x37)++count_writes;
+            const auto status=escape(gpu,bytes,size,fields,nt,error);if(command==0xB0CC0302)power_saving_test::f(gpu).reasons[0]|=1;return status;};
+        PowerSavingService s(a,f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::gr_elpg,0,1)).ok);
+        const auto plan=s.preview({request(s,PowerSavingFamily::gr_elpg,0,0),request(s,PowerSavingFamily::individual,0,1)});PowerSavingReceipt receipt;
+        CHECK(plan.ok&&!s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&count_writes==0);CHECK(s.recover().ok&&count_writes==0);
+        CHECK(s.release_owned().ok&&f.reasons[0]==1&&count_writes==0); // Masked foreign count survives; failed GR release proof cannot authorize a count acquisition.
+    }
+}
 static void catalog_transactions(){
     {Fake f;PowerSavingService s(api(),f.gpu(),f.identity);s.read();CHECK(s.apply(request(s,PowerSavingFamily::idle_threshold,12,8000)).ok);
         const auto plan=s.preview({request(s,PowerSavingFamily::individual,0,1),request(s,PowerSavingFamily::idle_threshold,0,6000),request(s,PowerSavingFamily::idle_threshold,4,2000)});CHECK(plan.ok&&f.sets==1);
@@ -20,7 +111,7 @@ static void catalog_transactions(){
     {Fake f;f.supported[12]=false;PowerSavingService s(api(),f.gpu(),f.identity);s.read();CHECK(!s.preview({request(s,PowerSavingFamily::individual,0,1),request(s,PowerSavingFamily::individual,12,1)}).ok&&f.sets==0);
         CHECK(s.preview({request(s,PowerSavingFamily::individual,4,1)}).ok);CHECK(!s.preview({request(s,PowerSavingFamily::adaptive,0,0)}).ok);
         CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok);const auto sets=f.sets;
-        CHECK(!s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,6000)}).ok&&f.sets==sets);
+        CHECK(s.preview({request(s,PowerSavingFamily::adaptive,0,1),request(s,PowerSavingFamily::idle_threshold,0,6000)}).ok&&f.sets==sets);
         CHECK(!s.preview({request(s,PowerSavingFamily::gr_elpg,0,1),request(s,PowerSavingFamily::individual,0,1)}).ok&&f.allocations==0&&f.sets==sets);
         CHECK(!s.preview({request(s,PowerSavingFamily::gr_elpg,0,1),request(s,PowerSavingFamily::difr,0,1)}).ok&&f.allocations==0);
         auto plan=s.preview({request(s,PowerSavingFamily::adaptive,0,1)});PowerSavingReceipt receipt;CHECK(plan.ok&&s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&s.verify(plan).ok&&s.restore(receipt).ok&&!f.adaptive[0]);
@@ -104,6 +195,7 @@ static void catalog_transactions(){
     }
 }
 int main(){
+    coupled_transactions();
     catalog_transactions();
     {Fake f;f.supported[12]=false;PowerSavingService s(api(),f.gpu(),f.identity);s.read();auto python=python_lowpower(f,"individual","disabled",4);const auto description=describe_power_saving_profile(python);CHECK(description.targets==std::vector<std::string>{"saving:1:4"});auto requests=stage_power_saving_profile(python,s.state());CHECK(requests.size()==1&&requests[0].key.index==4&&requests[0].value==1&&requests[0].expected==0&&f.sets==0&&f.allocations==0);CHECK(select_power_saving_profile(python,{"saving:1:4"})==python);
         auto wrong=python;wrong["lowpower_requests"]["identity"]["architecture"]=8;profile_rejects([&]{stage_power_saving_profile(wrong,s.state());});wrong=python;wrong["lowpower_requests"]["index"]=3;profile_rejects([&]{describe_power_saving_profile(wrong);});wrong=python;wrong["lowpower_requests"]["mode"]="enabled";profile_rejects([&]{describe_power_saving_profile(wrong);});wrong=python;wrong["incomplete"].push_back("failed");profile_rejects([&]{split_saving_profile(wrong);});
