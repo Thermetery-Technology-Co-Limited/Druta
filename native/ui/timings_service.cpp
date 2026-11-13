@@ -1,6 +1,7 @@
 /* Druta - Copyright (C) 2026 Thermetery Technology Co Limited
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "timings_service.h"
+#include "vendor/json/json.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -76,6 +77,54 @@ void state(TimingsApi& api,dc_gpu* gpu,std::optional<uint32_t>& memory,std::opti
     if(api.telemetry(gpu,&t)!=DC_OK)return;
     if(t.present&DC_T_MEM)memory=t.mem;if(t.present&DC_T_PSTATE)pstate=t.pstate;if(t.present&DC_T_MEM_OFF)offset=t.mem_off;
 }
+bool diagnostic_capture(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity& id,TimingTransport& t,TimingSnapshot& s) {
+    dc_capabilities caps{};caps.size=sizeof(caps);
+    if(api.capabilities && api.capabilities(gpu,&caps)==DC_OK && (caps.present&DC_C_MEM_DIV) && caps.mem_div) {
+        s.diagnostic_evidence.memory_clock_divisor=caps.mem_div;
+        s.diagnostic_evidence.divisor_provenance="Current adapter memory type capability";
+    }
+    // Released nvtune decoder treats parsed fields on a known layout as cycle
+    // counts. Split fragments and RFC/WL must not become time values.
+    static const std::vector<std::string> suffixes={"_LO","_HI","_MSB","_LSB","_MID"};
+    if(known_layout(s.codename))for(const auto& f:s.fields) {
+        if(f.structural || f.inferred || f.overlapping)continue;
+        bool split=false;
+        for(const auto& suffix:suffixes) {
+            for(const auto& other:s.fields)if(other.name==f.name+suffix)split=true;
+            if(f.name.size()>suffix.size() && f.name.compare(f.name.size()-suffix.size(),suffix.size(),suffix)==0) {
+                const auto head=f.name.substr(0,f.name.size()-suffix.size());
+                for(const auto& other:s.fields)if(other.name!=f.name && (other.name==head || other.name.rfind(head+"_",0)==0))split=true;
+            }
+        }
+        s.diagnostic_evidence.units.push_back({f.name,f.reg,s.codename,f.lo,f.hi,true,!split && f.name!="RFC" && f.name!="WL","nvtune field metadata; released timing decoder"});
+    }
+    std::optional<uint32_t> before,after,pb,pa;std::optional<int32_t> ob,oa;
+    state(api,gpu,before,pb,ob);const auto saved=t.run(TimingCommand::save,id.slot,"",0,false,false);state(api,gpu,after,pa,oa);
+    if(!identity(api,gpu,id))return false;
+    if(!run_ok(saved)||!before||!after||*before!=*after||!s.memory_clock_stable || !s.memory_before_mhz || *before!=*s.memory_before_mhz ||
+       !pb || !pa || !s.pstate_before || !s.pstate_after || *pb!=*pa || *pb!=*s.pstate_before || *pb!=*s.pstate_after ||
+       !ob || !oa || !s.offset_before || !s.offset_after || *ob!=*oa || *ob!=*s.offset_before || *ob!=*s.offset_after)return true;
+    try {
+        const auto doc=nlohmann::json::parse(saved.output);if(!doc.is_object() || !doc.contains("slot") || !doc["slot"].is_string() || !same_slot(doc["slot"].get<std::string>(),s.slot) ||
+            !doc.contains("codename") || !doc["codename"].is_string() || doc["codename"].get<std::string>()!=s.codename || !doc.contains("registers") || !doc["registers"].is_object())return true;
+        const auto& registers=doc["registers"];if(!registers.contains("broadcast") || !registers["broadcast"].is_object())return true;
+        auto parse_word=[](const nlohmann::json& j,uint32_t& out){if(!j.is_string())return false;const auto text=j.get<std::string>();
+            if(text.size()<3 || text.size()>10 || text[0]!='0' || (text[1]!='x'&&text[1]!='X') || text.find_first_not_of("0123456789abcdefABCDEF",2)!=std::string::npos)return false;
+            try{out=static_cast<uint32_t>(std::stoul(text,nullptr,16));return true;}catch(...){return false;}};
+        const auto& broadcast=registers["broadcast"];
+        for(const auto& w:s.broadcast){uint32_t value=0;if(!broadcast.contains(w.name)||!parse_word(broadcast[w.name],value)||value!=w.value)return true;}
+        std::vector<TimingPartition> partitions;
+        for(auto it=registers.begin();it!=registers.end();++it){if(it.key()=="broadcast")continue;
+            if(!std::regex_match(it.key(),std::regex("fbpa[0-9]{1,3}")) || !it.value().is_object() || partitions.size()>=256)return true;
+            TimingPartition part;part.scope=it.key();
+            for(auto word=it.value().begin();word!=it.value().end();++word){if(part.words.size()>=256 || !std::regex_match(word.key(),std::regex("[A-Za-z][A-Za-z0-9_]{0,63}")))return true;
+                uint32_t value=0;if(!parse_word(word.value(),value))return true;TimingWord entry;entry.name=word.key();entry.value=value;part.words.push_back(entry);}
+            partitions.push_back(std::move(part));
+        }
+        s.diagnostic_evidence.partitions=std::move(partitions);
+    }catch(...){return true;}
+    return true;
+}
 TimingSnapshot capture_locked(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity& id,TimingTransport& t) {
     TimingSnapshot s; if(!identity(api,gpu,id)){s.message="GPU identity unavailable";return s;}
     std::optional<int32_t> before_offset,after_offset;
@@ -145,7 +194,14 @@ bool preview_matches(const std::string& text,const TimingPlan& plan) {
 }
 }
 TimingsService::TimingsService(TimingsApi a,dc_gpu* gpu,const dc_gpu_identity& id,TimingTransport& t):api_(a),gpu_(gpu),target_(id),transport_(t){}
-TimingSnapshot TimingsService::capture(){Guard g(api_,gpu_);TimingSnapshot s;if(!g.held){s.message="GPU lock unavailable";return s;} Pin p(transport_);std::string error;if(!(p.held=transport_.pin(error))){s.message="Helper unavailable: "+error;return s;}s=capture_locked(api_,gpu_,target_,transport_);remember_initial(s,transport_.token());return s;}
+TimingSnapshot TimingsService::capture(){Guard g(api_,gpu_);TimingSnapshot s;if(!g.held){s.message="GPU lock unavailable";return s;} Pin p(transport_);std::string error;if(!(p.held=transport_.pin(error))){s.message="Helper unavailable: "+error;return s;}s=capture_locked(api_,gpu_,target_,transport_);if(s.ok) {
+    if(!diagnostic_capture(api_,gpu_,target_,transport_,s)){s.ok=false;s.message="GPU identity unavailable after timing diagnostics";s.diagnostic_evidence={};return s;}
+    if(!s.diagnostic_evidence.partitions.empty()){last_diagnostic_=s;last_diagnostic_token_=transport_.token();}
+    else if(last_diagnostic_ && last_diagnostic_token_==transport_.token() && same_slot(last_diagnostic_->slot,s.slot) && last_diagnostic_->codename==s.codename && last_diagnostic_->broadcast.size()==s.broadcast.size()) {
+        bool same=true;for(size_t i=0;i<s.broadcast.size();++i)if(s.broadcast[i].name!=last_diagnostic_->broadcast[i].name || s.broadcast[i].offset!=last_diagnostic_->broadcast[i].offset || s.broadcast[i].value!=last_diagnostic_->broadcast[i].value)same=false;
+        if(same){s.diagnostic_evidence.partitions=last_diagnostic_->diagnostic_evidence.partitions;s.diagnostic_evidence.partitions_stale=true;}
+    }
+}remember_initial(s,transport_.token());return s;}
 TimingPlan TimingsService::preview(const std::string& field,uint32_t value) {
     Guard g(api_,gpu_);TimingPlan p;if(!g.held){p.message="GPU lock unavailable";return p;}Pin pin(transport_);std::string error;
     if(!(pin.held=transport_.pin(error))){p.message=error;return p;}

@@ -8,6 +8,7 @@
 #include "shunt_view.h"
 #include "app_actions.h"
 #include "scoped_profile_view.h"
+#include "profile_catalog_view.h"
 #include "frequency_lock_view.h"
 #include "power_integral_view.h"
 #include "voltage_policy_view.h"
@@ -38,6 +39,8 @@ struct ViewState {
     bool hotkey_available = true;
     AppActionsState app_actions;
     ScopedProfileViewState scoped_profile_view;
+    ProfileCatalogViewState profile_catalog_view;
+    std::vector<ProfileCatalogIntent> profile_catalog_intents;
     FrequencyLockViewState frequency_view;
     PowerIntegralViewState power_integral_view;
     VoltagePolicyViewState voltage_policy_view;
@@ -104,6 +107,7 @@ struct ViewState {
     double i2c_target_mv = 1100;
     int i2c_scan_scope = 0;
     bool i2c_save_profile_requested = false, i2c_load_profile_requested = false;
+    bool i2c_cancel_requested = false;
     std::vector<std::pair<std::string, ControlDraft>> i2c_field_drafts;
     std::vector<I2cField> i2c_field_cache;
     uint64_t i2c_draft_generation = 0, i2c_draft_selection_revision = 0;

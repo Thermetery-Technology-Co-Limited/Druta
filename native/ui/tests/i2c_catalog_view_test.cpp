@@ -112,9 +112,10 @@ int main() {
     frame(state); activate(state,button("##controller-candidate"));
     if(!context->OpenPopupStack.empty() && context->OpenPopupStack.back().Window) {
         auto* popup=context->OpenPopupStack.back().Window;
-        activate(state,popup->GetID("1: uPI uP9512R - port 2, 0x2A"));
+        activate(state,popup->GetID("1: uPI uP9512R - port 2, 0x2A (unverified candidate)"));
         check(state.commands.size()==1 && state.commands.back().operation==Command::Operation::i2c_select &&
-            state.commands.back().i2c_family==I2cFamily::up9512r && state.commands.back().i2c_route->port==2,
+            state.commands.back().i2c_family==I2cFamily::up9512r && state.commands.back().i2c_route
+            && state.commands.back().i2c_route->port==2 && state.commands.back().i2c_route->addr7==0x2a,
             "candidate selection carries that candidate's family and route");
     } else check(false,"candidate list opens for explicit selection");
     state.commands.clear(); frame(state); activate(state,button("IC to scan"));

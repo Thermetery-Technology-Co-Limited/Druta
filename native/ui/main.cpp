@@ -149,6 +149,90 @@ struct App {
     unsigned long long frames = 0, presents = 0, fixture_sample_ticks = 0, resets = 0;
     bool i2c_save_waiting = false;
     uint64_t i2c_save_generation = 0, i2c_save_selection = 0, i2c_save_action = 0;
+    struct CatalogPending {
+        uint64_t generation=0,actions=0;
+        druta::ui::Command::Operation operation;
+        druta::ui::ProfileJson document;
+    };
+    std::optional<CatalogPending> catalog_pending;
+    static std::string path_utf8(const std::wstring& path) {
+        const int length=WideCharToMultiByte(CP_UTF8,0,path.data(),static_cast<int>(path.size()),nullptr,0,nullptr,nullptr);
+        std::string text(static_cast<size_t>(std::max(0,length)),'\0');
+        if(length) WideCharToMultiByte(CP_UTF8,0,path.data(),static_cast<int>(path.size()),text.data(),length,nullptr,nullptr);
+        return text;
+    }
+    void consume_profile_catalog() {
+        using namespace druta::ui;
+        auto& workspace=view.profile_catalog_view;
+        const auto snapshot=session->snapshot();
+        sync_profile_catalog_generation(workspace,snapshot->generation);
+        if(catalog_pending) {
+            if(snapshot->generation!=catalog_pending->generation) catalog_pending.reset();
+            else if(!snapshot->busy && snapshot->completed_actions>catalog_pending->actions) {
+                const auto pending=*catalog_pending; catalog_pending.reset();
+                std::string message="Profile result unavailable; run preflight again.";
+                bool ok=false;
+                if(snapshot->last_action_operation==pending.operation) {
+                    ok=snapshot->last_action_ok;
+                    const auto log=std::find_if(snapshot->log.begin(),snapshot->log.end(),[&](const auto& entry){return entry.id==snapshot->last_action_log_id;});
+                    if(log!=snapshot->log.end()) message=log->message;
+                }
+                record_profile_catalog_preflight(workspace,pending.generation,pending.document,
+                    pending.operation==Command::Operation::preflight_catalog_profile && ok,message);
+            }
+        }
+        const auto intents=std::move(view.profile_catalog_intents); view.profile_catalog_intents.clear();
+        for(const auto& intent:intents) try {
+            if(intent.operation==ProfileCatalogIntent::Operation::save_capture) {
+                switch(intent.scope) {
+                case ProfileScope::daily:view.save_profile_requested=true;break;
+                case ProfileScope::curve:view.save_curve_profile_requested=true;break;
+                case ProfileScope::scoped:{
+                    view.scoped_profile_view.open=true;
+                    Command command;command.operation=Command::Operation::prepare_scoped_profile;
+                    if(!session->submit(command,snapshot->generation)) throw std::runtime_error("Session is busy; retry capture.");
+                    workspace.status="Choose fields in Rail/power profiles, then Save selected requests.";break;
+                }
+                case ProfileScope::timing:view.timing_save_profile_requested=true;break;
+                case ProfileScope::icx:view.i2c_save_profile_requested=true;break;
+                default:throw std::runtime_error("Choose a supported capture scope.");
+                }
+                continue;
+            }
+            if(intent.operation==ProfileCatalogIntent::Operation::preflight || intent.operation==ProfileCatalogIntent::Operation::apply) {
+                if(catalog_pending) throw std::runtime_error("A profile operation is still running.");
+                Command command; command.operation=intent.operation==ProfileCatalogIntent::Operation::preflight ? Command::Operation::preflight_catalog_profile : Command::Operation::apply_catalog_profile;
+                command.catalog_profile=std::make_shared<const ProfileJson>(intent.document);
+                const auto before=session->snapshot();
+                if(before->generation!=workspace.generation || !session->submit(command,before->generation)) throw std::runtime_error("GPU session changed or is busy; run preflight again.");
+                catalog_pending=CatalogPending{before->generation,before->completed_actions,command.operation,intent.document};
+                workspace.preflight_ok=false;
+                workspace.status=intent.operation==ProfileCatalogIntent::Operation::preflight ? "Checking all selected scopes; no writes." : "Applying selected scopes; see operation log.";
+                continue;
+            }
+            const bool save=intent.operation==ProfileCatalogIntent::Operation::save_composed;
+            std::vector<wchar_t> buffer(32768,0); OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);
+            dialog.hwndOwner=window;dialog.lpstrFile=buffer.data();dialog.nMaxFile=static_cast<DWORD>(buffer.size());
+            dialog.lpstrFilter=L"Druta profiles (*.json)\0*.json\0\0";dialog.lpstrDefExt=L"json";
+            dialog.lpstrTitle=save ? L"Save composed profile" : L"Add profile files to catalog";
+            dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST|OFN_ALLOWMULTISELECT);
+            const BOOL chosen=save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog);
+            policy.note_activity(now_seconds());
+            if(!chosen) { if(CommDlgExtendedError()) throw std::runtime_error("Profile file dialog failed.");continue; }
+            if(session->snapshot()->generation!=snapshot->generation) throw std::runtime_error("Adapter changed while choosing profile files.");
+            if(save) { write_profile(buffer.data(),intent.document);workspace.status="Composed profile saved. No settings applied.";continue; }
+            const std::wstring first(buffer.data());const wchar_t* next=buffer.data()+first.size()+1;
+            std::vector<std::wstring> paths;
+            if(!*next) paths.push_back(first);
+            else while(*next) { const std::wstring name(next);paths.push_back(first+L"\\"+name);next+=name.size()+1; }
+            std::string errors;
+            for(const auto& path:paths) try {
+                const auto document=read_profile(path);const auto name=path_utf8(path.substr(path.find_last_of(L"\\/")+1));
+                add_profile_catalog_item(workspace,path_utf8(path),name,document);
+            } catch(const std::exception& error) {if(!errors.empty())errors+="; ";errors+=path_utf8(path)+": "+error.what();}
+            workspace.status=errors.empty()?"Files loaded. Choose included controls and compose to stage.":errors;
+        } catch(const std::exception& error) {workspace.preflight_ok=false;workspace.status=error.what();}
+    }
 
     void i2c_profile_dialog(bool save, const druta::ui::SessionSnapshot& snapshot) {
         const auto& data=snapshot.data.i2c;
@@ -247,6 +331,7 @@ struct App {
     void consume_actions() {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
+        consume_profile_catalog();
         if(druta::ui::take_shunt_save_request(view.shunt)) {
             try {
                 view.shunt.config.save();view.shunt.dirty=false;
@@ -259,6 +344,10 @@ struct App {
             session->reconnect();
         }
         if (view.refresh_requested) { session->request_poll(true); view.refresh_requested = false; }
+        if (view.i2c_cancel_requested) {
+            view.i2c_cancel_requested=false;
+            if (view.live) session->cancel_i2c_discovery(view.live->generation);
+        }
         if(i2c_save_waiting) {
             const auto snap=session->snapshot();
             if(snap->generation!=i2c_save_generation || snap->data.i2c.selection_revision!=i2c_save_selection) i2c_save_waiting=false;
@@ -601,11 +690,11 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[12] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    const wchar_t* captures[14] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp"};
-    const char* names[12] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp"};
+    const char* names[14] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -634,12 +723,13 @@ struct Smoke {
         }
         if (phase == 10) ok = ok && app.width == 1024 && app.height == 768 && app.resets > 0;
         if (phase == 11) ok = ok && app.view.shunt.open && !app.view.shunt.dirty && !app.view.shunt.save_requested;
+        if (phase >= 12) ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok && app.view.profile_catalog_intents.empty();
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 11 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 13 ? "" : ",");
         report += row;
-        if (++phase == 12) {
+        if (++phase == 14) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -663,6 +753,10 @@ struct Smoke {
         if (phase == 9) { app.view.presentation = druta::ui::Presentation::focused; app.view.page = druta::ui::Page::monitor; }
         if (phase == 10) { app.view.page = druta::ui::Page::daily; app.client_size(1024, 768); }
         if (phase == 11) app.view.shunt.open = true;
+        if (phase == 12) {
+            app.view.shunt.open=false;app.client_size(1800,1200);app.view.profile_catalog_view.open=true;
+        }
+        if (phase == 13) app.view.presentation=druta::ui::Presentation::classic;
         begin(app);
     }
 };
@@ -713,7 +807,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         auto backend = druta::ui::create_core_backend(options.core_path);
         app.view.planner_api = backend->planner_api(); // pure calls, module pinned by Session for the UI lifetime
         app.session = std::make_unique<druta::ui::Session>(std::move(backend),
-            [window = app.window] { PostMessageW(window, session_update_message, 0, 0); });
+            [window = app.window] { PostMessageW(window, session_update_message, 0, 0); },
+            app.view.shunt.config.path.empty() ? std::wstring{} : app.view.shunt.config.path.substr(0,app.view.shunt.config.path.find_last_of(L"\\/")) + L"\\i2c-routes-native.json");
         app.session->start(options.slot,options.expected_uuid);
         app.view.live = app.session->snapshot();
     }

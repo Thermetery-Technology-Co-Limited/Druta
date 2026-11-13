@@ -5,6 +5,7 @@
 #include "curve_planner.h"
 #include "i2c_controls.h"
 #include "i2c_driver.h"
+#include "i2c_route_cache.h"
 #include "tuning_actions.h"
 #include "frequency_lock.h"
 #include <array>
@@ -47,6 +48,7 @@ struct I2cControlProfile {
     std::vector<double> presets_mv;
 };
 struct I2cViewData {
+    I2cDiscoveryProgress discovery;
     bool available = false, gate = false, verified = false, clock_owned = false;
     uint32_t clock_mhz = 0;
     std::vector<I2cCandidate> candidates;
@@ -113,7 +115,8 @@ struct Command {
         frequency_lock_apply, frequency_lock_max, frequency_legacy_p0_max_fan, frequency_lock_release, frequency_lock_refresh,
         timings_preview_batch, timings_apply_batch, timings_restore_initial, timings_save_profile,
         refresh_power_arbitration, power_integral_read, power_integral_apply, power_integral_undo, power_integral_restore,
-        voltage_policy_read, voltage_policy_apply, voltage_policy_restore, voltage_policy_undo, voltage_policy_recover };
+        voltage_policy_read, voltage_policy_apply, voltage_policy_restore, voltage_policy_undo, voltage_policy_recover,
+        preflight_catalog_profile, apply_catalog_profile };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -126,6 +129,7 @@ struct Command {
     uint64_t i2c_preset_revision = 0;
     std::wstring profile_path;
     std::shared_ptr<const ScopedProfileRequest> scoped_profile;
+    std::shared_ptr<const ProfileJson> catalog_profile;
     std::wstring timing_helper_path;
     std::shared_ptr<const TimingEditorRequest> timing_editor;
     std::string timing_field;
@@ -171,6 +175,9 @@ class IBackend {
 public:
     virtual ~IBackend() = default;
     virtual PlannerApi planner_api() const { return {}; }
+    // Installed before the worker starts. Only read-only discovery observes
+    // cancellation; restoration and hardware writes always finish normally.
+    virtual void configure_i2c_discovery(std::function<bool()>, std::function<void(const I2cDiscoveryProgress&)>, const std::wstring&) {}
     virtual std::vector<Device> enumerate() = 0;
     virtual bool open(const std::string& slot, std::string& error) = 0;
     virtual void close() = 0;

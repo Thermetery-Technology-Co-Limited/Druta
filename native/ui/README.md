@@ -437,3 +437,35 @@ Power arbitration shows requested and effective policy values and available
 host/firmware inputs. Its packets are acquired sequentially, so changing
 firmware votes are not an atomic snapshot. Missing or unknown fields remain
 unavailable or raw; they do not disable ordinary power controls.
+
+## Profile catalog, discovery and timing diagnostics
+
+**Profile catalog...** (Focused) or **Profiles...** (Classic) opens a shared
+workspace. Add saved files, select their included controls, and compose a staged
+profile. Preflight checks every component before Apply can issue a write; Apply
+repeats that check. Duplicate targets and incompatible adapters are rejected.
+The worker verifies the complete selected result and retains grouped Undo,
+including partial failures. Capture and Save never apply settings.
+
+Supported catalog formats are native daily/advanced controls, V/F curves,
+selected rail/power policies, timing fields and iCX, plus Python tuning-action,
+rail-limit and coupled power-action profiles. Python power imports retain the
+distinction between requested rows and explicit pins. Unsupported Python scopes
+are named in the catalog. iCX applies separately because it owns its controller
+and clock lifecycle. Timing profiles apply separately from memory-offset changes
+so their operating band can be qualified. Board-only Python power snapshots
+without qualified peer-preserving semantics are refused before writes.
+
+I2C Connect / Scan can remember a UUID-bound route and recipe under the local
+Druta state directory. This stores a discovery hint only: connection still probes
+and reads the controller, and does not restore gates, verification or requests.
+Full scan bypasses hints. Progress and Cancel remain available while discovery
+runs; cancellation preserves the established selection and stops at a read-only
+boundary. Partial candidates remain visibly unverified.
+
+Explicit timing capture also attempts the helper's read-only partition snapshot.
+Partition words are compared only after matching target, broadcast words and
+operating state. Optional failures retain a matching last capture as stale.
+Cycle and nanosecond displays require understood field metadata, a stable clock
+and the current adapter's memory divisor; split fields and RFC/WL do not acquire
+misleading nanosecond values. Missing evidence remains raw or unavailable.

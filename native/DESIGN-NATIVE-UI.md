@@ -548,3 +548,15 @@ atomic gate history cannot become a guessed rollback. All remain session-only.
 record the 54-suite validation, current-adapter read results, and the different
 policy layout that remains outside the traced feedback/arbitration decoder.
 The [full review ledger](ui/validation/PARITY-COMPLETION.md) remains open.
+
+## Continuation checkpoint: catalog, discovery and timing diagnostics
+
+Both skins now expose selected profile composition with whole preflight and
+explicit Apply. Typed Python rail/power imports preserve pin semantics; grouped
+Undo verifies the complete original selection and retains partial recovery.
+Remembered I2C routes are discovery hints only, with progress and read-only
+cancellation. Timing capture adds qualified units and partition comparison.
+
+[Scope and validation](ui/validation/2026-11-13-parity-sixth-increment.md) record
+the remaining composition restrictions and physical qualification boundaries.
+Ordinary tuning remains session-only; the full review ledger remains open.

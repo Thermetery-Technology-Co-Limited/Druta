@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -15,9 +16,16 @@ namespace druta::ui {
 namespace {
 ActionResult failure(const std::string& message) { ActionResult r; r.message=message; return r; }
 ActionResult result(const I2cResult& source) { ActionResult r; r.ok=source.ok; r.may_have_changed=source.may_have_changed; r.message=source.message; return r; }
+struct DiscoveryCancelled {};
+struct ReadOnlyScope {
+    bool& flag;bool prior;
+    explicit ReadOnlyScope(bool& value,bool next=true):flag(value),prior(value){flag=next;}
+    ~ReadOnlyScope(){flag=prior;}
+};
+bool terminated(const char* text,size_t length){return std::memchr(text,0,length)!=nullptr;}
 }
 I2cSession::I2cSession(I2cApi api, dc_gpu* gpu, dc_gpu_identity id)
-    : api_(std::move(api)), gpu_(gpu), identity_(id), service_(*this) {
+    : api_(std::move(api)), gpu_(gpu), identity_(id), service_(std::make_unique<I2cControls>(static_cast<I2cTransport&>(*this))) {
     if (!api_.sleep) api_.sleep=[](unsigned ms) {
 #ifdef _WIN32
         Sleep(ms);
@@ -32,20 +40,40 @@ I2cSession::I2cSession(I2cApi api, dc_gpu* gpu, dc_gpu_identity id)
 }
 bool I2cSession::bound() const {
     dc_gpu_identity id{}; id.size=sizeof(id);
-    return gpu_ && api_.identity && api_.identity(gpu_,&id)==DC_OK && id.nvapi_ok && id.nvapi_selected &&
-        !id.pairing_error[0] && id.nvapi_handle==identity_.nvapi_handle && id.nvapi_devid==identity_.nvapi_devid &&
+    return gpu_ && api_.identity && api_.identity(gpu_,&id)==DC_OK && id.size==sizeof(id) && identity_.size==sizeof(identity_)
+        && terminated(id.slot,sizeof(id.slot)) && terminated(identity_.slot,sizeof(identity_.slot))
+        && terminated(id.uuid,sizeof(id.uuid)) && terminated(identity_.uuid,sizeof(identity_.uuid))
+        && terminated(id.pairing_error,sizeof(id.pairing_error)) && terminated(identity_.pairing_error,sizeof(identity_.pairing_error))
+        && id.slot[0] && id.nvapi_handle && id.nvapi_ok && id.nvapi_selected &&
+        !id.pairing_error[0] && !identity_.pairing_error[0] && id.nvapi_handle==identity_.nvapi_handle && id.nvapi_devid==identity_.nvapi_devid &&
         id.nvapi_subsys==identity_.nvapi_subsys && id.nvml_selected==identity_.nvml_selected &&
         std::strcmp(id.slot,identity_.slot)==0 && std::strcmp(id.uuid,identity_.uuid)==0;
 }
+void I2cSession::cancellation_boundary() const {
+    if(!discovery_readonly_ || !discovery_cancel_allowed_ || !api_.discovery_cancelled)return;
+    bool cancelled=true;try{cancelled=api_.discovery_cancelled();}catch(...){}
+    if(cancelled)throw DiscoveryCancelled{};
+}
+void I2cSession::sleep_ms(unsigned ms) {cancellation_boundary();api_.sleep(ms);cancellation_boundary();}
+void I2cSession::progress() {data_.discovery=discovery_;if(api_.discovery_progress)try{api_.discovery_progress(discovery_);}catch(...){ /* observer cannot authorize or alter discovery */ }}
+void I2cSession::remember_route() {
+    if(api_.route_cache_path.empty() || !data_.selected || !bound() || !terminated(identity_.uuid,sizeof(identity_.uuid)) || !identity_.uuid[0])return;
+    I2cRouteHint hint{identity_.uuid,data_.family,*data_.selected,data_.control_profile,i2c_route_contract(data_.family,data_.control_profile)};
+    if(!valid_i2c_route_hint(hint))return;
+    try{remember_i2c_route(api_.route_cache_path,hint);}catch(const std::exception& error){discovery_.label=std::string("Route selected; cache unchanged: ")+error.what();progress();}
+}
 bool I2cSession::read(uint8_t port,uint8_t addr,uint8_t reg,uint8_t width,uint32_t& value) {
+    cancellation_boundary();
     dc_error error{}; error.size=sizeof(error);
-    return bound() && api_.read && api_.read(gpu_,port,addr,reg,width,&value,&error)==DC_OK && bound();
+    const bool ok=bound() && api_.read && api_.read(gpu_,port,addr,reg,width,&value,&error)==DC_OK && bound();
+    cancellation_boundary();return ok;
 }
 bool I2cSession::write(uint8_t port,uint8_t addr,uint8_t reg,uint8_t width,uint32_t value) {
     dc_error error{}; error.size=sizeof(error);
-    return clock_request() && api_.write && api_.write(gpu_,port,addr,reg,width,value,&error)==DC_OK && bound();
+    return !discovery_readonly_ && clock_request() && api_.write && api_.write(gpu_,port,addr,reg,width,value,&error)==DC_OK && bound();
 }
 bool I2cSession::read_bytes(I2cRoute route, uint8_t reg, size_t count, std::vector<uint8_t>& out) {
+    cancellation_boundary();
     if (!bound() || !count || count > 32) return false;
     std::vector<uint8_t> value(count); dc_error error{}; error.size=sizeof(error);
     if (api_.read_bytes) {
@@ -55,10 +83,10 @@ bool I2cSession::read_bytes(I2cRoute route, uint8_t reg, size_t count, std::vect
         if (count>4 || !read(route.port,route.addr7,reg,static_cast<uint8_t>(count),raw)) return false;
         for(size_t i=0;i<count;++i) value[i]=static_cast<uint8_t>(raw>>(i*8));
     }
-    out=std::move(value); return true;
+    cancellation_boundary();out=std::move(value); return true;
 }
 bool I2cSession::write_bytes(I2cFamily family,I2cRoute route,uint8_t reg,const std::vector<uint8_t>& bytes) {
-    if (!bound() || !api_.controller_write || bytes.empty() || bytes.size()>32 ||
+    if (discovery_readonly_ || !bound() || !api_.controller_write || bytes.empty() || bytes.size()>32 ||
         (controller_ && controller_->needs_clock_clamp() && !clock_request())) return false;
     dc_error error{}; error.size=sizeof(error);
     selection_write_attempted_=true;
@@ -108,35 +136,76 @@ std::unique_ptr<ControllerDriver> I2cSession::driver(I2cFamily family,I2cRoute r
     default:return{};
     }
 }
-bool I2cSession::select(I2cFamily family,I2cRoute route,const std::string& recipe) {
+bool I2cSession::select(I2cFamily family,I2cRoute route,const std::string& recipe,bool cancellable) {
     if(owned())return false;
+    ReadOnlyScope cancel_scope(discovery_cancel_allowed_,discovery_cancel_allowed_ && cancellable);
+    ReadOnlyScope scope(discovery_readonly_);cancellation_boundary();
+    if(route.port>7 || route.addr7<8 || route.addr7>0x77 || !bound())return false;
     // The original MP2888 offset recipe is the default. Manual PMBus is an
     // explicit recipe choice, never inferred from an adapter's marketing name.
     const bool manual=family==I2cFamily::mp2888 && recipe=="mp2888a-pmbus";
+    if(!recipe.empty() && recipe!=(family==I2cFamily::mp2888?"mp2888a-offset":"controller") && !manual)return false;
+    auto service=std::make_unique<I2cControls>(static_cast<I2cTransport&>(*this));
     auto chosen=manual ? nullptr : driver(family,route);
-    if(manual ? !service_.select(route) : (!chosen || !chosen->probe()))return false;
+    const bool present=manual?service->select(route):(chosen && chosen->probe());
+    cancellation_boundary();if(!present)return false;
+    ControllerView view;I2cStatus status;
+    if(manual){status=service->status();cancellation_boundary();if(!status.readable)return false;}
+    else {view=chosen->read(xoc());cancellation_boundary();if(!view.readable)return false;}
+    cancellation_boundary();if(!bound())return false;
+    // Linearization point: every cancellable probe/read is complete. Finish
+    // publication/cache metadata as one non-cancellable commit, so a late
+    // cancel cannot claim that the established selection was retained.
+    ReadOnlyScope commit_scope(discovery_cancel_allowed_,false);
+    // Commit the freshly inspected controller and service together. A cancelled
+    // or partial probe has not touched the established selection or its drafts.
+    service_=std::move(service);
     controller_=std::move(chosen); data_.selected=route;data_.family=family; data_.verified=false;
-    data_.controller={};data_.status={}; ++data_.selection_revision;
+    data_.controller=std::move(view);data_.status=std::move(status); ++data_.selection_revision;
     data_.control_profile=manual?"mp2888a-pmbus":family==I2cFamily::mp2888?"mp2888a-offset":"controller";
     data_.needs_clock_clamp=manual || controller_->needs_clock_clamp();
-    service_.set_gate(data_.gate); captured_preset_.reset();pending_preset_.reset();prepared_preset_.reset();selection_write_attempted_=false;
-    refresh();return true;
+    service_->set_gate(data_.gate); captured_preset_.reset();pending_preset_.reset();prepared_preset_.reset();selection_write_attempted_=false;
+    refresh(false);remember_route();return true;
 }
 ActionResult I2cSession::scan(const Command& command) {
     if(owned())return failure("Release the owned I2C request before scanning");
+    ReadOnlyScope readonly(discovery_readonly_);
+    discovery_={};discovery_.running=true;discovery_.label="Preparing read-only controller probes";progress();
     const auto scope=command.i2c_full_scan ? I2cFamily::unknown : command.i2c_family;
     if(static_cast<size_t>(scope)>=i2c_family_names.size())return failure("Unknown controller scan scope");
+    cancellation_boundary();
     if(!command.i2c_full_scan && data_.selected && (scope==I2cFamily::unknown || scope==data_.family)) {
         // A reconnect is a bounded read of the established selection, not a
         // reason to discard it and infer a different route after a NACK.
         for(unsigned attempt=0;attempt<3;++attempt) {
-            auto check=driver(data_.family,*data_.selected);
-            if(check && check->probe()) { refresh();auto r=failure("Selected controller reconnected; no scan or write required");r.ok=true;return r; }
-            if(attempt<2)api_.sleep(20);
+            discovery_.total=3;discovery_.label="Rechecking selected controller";cancellation_boundary();
+            auto check=driver(data_.family,*data_.selected);bool present=false;
+            if(data_.family==I2cFamily::mp2888 && data_.control_profile=="mp2888a-pmbus"){
+                I2cControls temporary(static_cast<I2cTransport&>(*this));present=temporary.select(*data_.selected) && temporary.status().readable;
+            } else present=check && check->probe() && check->read(xoc()).readable;
+            ++discovery_.completed;progress();cancellation_boundary();
+            if(present) { refresh();cancellation_boundary();remember_route();discovery_.running=false;discovery_.label="Selected controller reconnected";progress();auto r=failure("Selected controller reconnected; no scan or write required");r.ok=true;return r; }
+            if(attempt<2)sleep_ms(20);
         }
+        discovery_.running=false;discovery_.label="Selected controller unreadable; route and recipe retained";progress();
         return failure("Selected controller did not answer; selection and recipe retained. Retry Connect or choose Full scan explicitly.");
     }
+    if(!command.i2c_full_scan && !api_.route_cache_path.empty()) {
+        try {
+            const auto hint=load_i2c_route_cache(api_.route_cache_path,identity_.uuid);
+            if(hint && (scope==I2cFamily::unknown || scope==hint->family)) {
+                discovery_.total=1;discovery_.label="Rechecking remembered route (unverified)";progress();cancellation_boundary();
+                if(select(hint->family,hint->route,hint->recipe)) {
+                    I2cCandidate candidate;candidate.route=hint->route;candidate.family=static_cast<uint32_t>(hint->family);candidate.description="Freshly probed remembered route; response verification is not cached";
+                    data_.candidates={candidate};discovery_.candidates=data_.candidates;discovery_.completed=1;discovery_.running=false;
+                    discovery_.label="Remembered route read; no gate or verification restored";progress();auto action=failure(discovery_.label);action.ok=true;return action;
+                }
+            }
+        }catch(const std::exception& error){discovery_.label=std::string("Route hint unavailable; scoped scan: ")+error.what();progress();}
+        cancellation_boundary();
+    }
     std::vector<I2cCandidate> found;
+    struct Probe {I2cFamily family;I2cRoute route;};std::vector<Probe> probes;
     for(uint32_t kind=1;kind<=6;++kind) {
         const auto family=static_cast<I2cFamily>(kind);if(scope!=I2cFamily::unknown && family!=scope)continue;
         for(uint8_t port=0;port<8;++port) {
@@ -146,17 +215,27 @@ ActionResult I2cSession::scan(const Command& command) {
             else if(family==I2cFamily::icx)addresses={0x2d};
             else {const uint8_t first=family==I2cFamily::up9512r?0x25:family==I2cFamily::mp29816?0x30:0x20;addresses.push_back(first);for(uint8_t a=8;a<=0x77;++a)if(a!=first)addresses.push_back(a);}
             for(const auto address:addresses) {
-                auto candidate=driver(family,{port,address});if(!candidate || !candidate->probe())continue;
-                I2cCandidate hit;hit.route={port,address};hit.family=kind;hit.description=i2c_family_name(family);found.push_back(std::move(hit));
+                probes.push_back({family,{port,address}});
             }
         }
     }
-    data_.candidates=std::move(found);
+    discovery_.completed=0;discovery_.total=static_cast<uint32_t>(probes.size());
+    for(const auto& probe:probes) {
+        cancellation_boundary();if(!bound()){data_.candidates=found;discovery_.running=false;discovery_.label="Selected GPU changed or unreadable; partial hits remain unverified";progress();return failure(discovery_.label);}
+        auto candidate=driver(probe.family,probe.route);
+        if(candidate && candidate->probe()) {
+            I2cCandidate hit;hit.route=probe.route;hit.family=static_cast<uint32_t>(probe.family);hit.description=std::string(i2c_family_name(probe.family))+"; unverified read-only candidate";found.push_back(std::move(hit));
+        }
+        ++discovery_.completed;discovery_.candidates=found;
+        discovery_.label=std::string(i2c_family_name(probe.family))+" port "+std::to_string(probe.route.port)+", address "+std::to_string(probe.route.addr7);
+        progress();cancellation_boundary();
+    }
+    data_.candidates=found;
     ActionResult action;action.ok=true;
     if(data_.candidates.size()==1 && select(static_cast<I2cFamily>(data_.candidates[0].family),data_.candidates[0].route))
         action.message="One controller selected; read and verify this control method before Apply";
-    else {controller_.reset();data_.selected.reset();data_.controller={};data_.status={};data_.verified=false;captured_preset_.reset();pending_preset_.reset();++data_.selection_revision;
-        action.message=std::to_string(data_.candidates.size())+" controller candidates; select one to inspect";}
+    else action.message=std::to_string(data_.candidates.size())+" controller candidates; select one to inspect. Established selection retained.";
+    discovery_.running=false;discovery_.label=action.message;progress();
     return action;
 }
 bool I2cSession::clock_request() const {
@@ -227,9 +306,9 @@ void I2cSession::publish_control_profiles() {
     if(data_.control_profile.empty())data_.control_profile=manual.id;
     data_.control_profiles = {std::move(offset),std::move(manual)};
 }
-void I2cSession::refresh() {
+void I2cSession::refresh(bool read_controller) {
     if(data_.selected && controller_) {
-        data_.controller=controller_->read(xoc());const auto& view=data_.controller;
+        if(read_controller)data_.controller=controller_->read(xoc());const auto& view=data_.controller;
         data_.verified=view.verified || !view.needs_verification;
         auto& status=data_.status;status.readable=view.readable;status.stale=view.stale;
         status.capable=view.capable;status.owned=view.owned;status.recovery_pending=view.recovery;
@@ -241,7 +320,7 @@ void I2cSession::refresh() {
         if(data_.family==I2cFamily::icx && !captured_preset_ && !selection_write_attempted_) {
             try { captured_preset_=capture_icx_preset(view).dump(); } catch(...) { /* partial read is retryable */ }
         }
-    } else if(data_.selected) {data_.status=service_.status();data_.controller={};}
+    } else if(data_.selected) {if(read_controller)data_.status=service_->status();data_.controller={};}
     data_.captured_preset=captured_preset_.has_value();data_.pending_preset=pending_preset_.has_value();
     data_.preset_preview=pending_preset_?describe_icx_preset(ProfileJson::parse(*pending_preset_)):"No iCX preset staged.";
     publish_control_profiles();
@@ -288,6 +367,92 @@ ActionResult I2cSession::preset(const Command& command) {
     }catch(const std::exception& error){action.message=std::string("iCX preset: ")+error.what();}
     return action;
 }
+bool I2cSession::icx_plan_bound(const IcxProfilePlan& plan) const {
+    const auto& id=plan.identity;
+    return bound() && data_.family==I2cFamily::icx && controller_ && data_.selected && id.size==sizeof(id)
+        && terminated(id.uuid,sizeof(id.uuid)) && terminated(id.slot,sizeof(id.slot))
+        && id.uuid[0] && std::strcmp(id.uuid,identity_.uuid)==0 && std::strcmp(id.slot,identity_.slot)==0
+        && id.nvapi_handle==identity_.nvapi_handle && id.nvapi_devid==identity_.nvapi_devid && id.nvapi_subsys==identity_.nvapi_subsys
+        && plan.route.port==data_.selected->port && plan.route.addr7==data_.selected->addr7
+        && plan.recipe==data_.control_profile && plan.selection_revision==data_.selection_revision;
+}
+ActionResult I2cSession::preflight_icx_profile(const ProfileJson& document,IcxProfilePlan& out) {
+    if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX preflight");
+    struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+    try {
+        if(!bound() || data_.family!=I2cFamily::icx || !data_.selected || !controller_ || !data_.gate || !data_.verified
+            || !api_.controller_write)return failure("Select iCX, enable its gate and qualify its current identity before catalog Apply");
+        if(owned())return failure("Release existing I2C requests before an independent iCX catalog transaction");
+        icx_preset_requests(document,xoc());
+        if(!api_.clock_status || !api_.vf_status || !api_.clocks || !api_.clamp || !api_.release || !api_.telemetry)
+            return failure("iCX catalog clock ownership interfaces unavailable");
+        dc_clk_lock_status clock{};dc_vf_lock_status vf{};
+        if(api_.clock_status(gpu_,&clock)!=DC_OK || api_.vf_status(gpu_,0,0,&vf)!=DC_OK || !terminated(clock.error,sizeof(clock.error))
+            || !terminated(vf.error,sizeof(vf.error)) || clock.error[0] || vf.error[0] || clock.locked || vf.locked)
+            return failure("Release existing V/F or frequency requests before iCX catalog preflight");
+        size_t count=0;const auto query=api_.clocks(gpu_,nullptr,0,&count);
+        if((query!=DC_OK && query!=DC_E_BUFFER) || !count || count>128)return failure("iCX catalog clock table unavailable");
+        std::vector<dc_clock_row> clocks(count);
+        if(api_.clocks(gpu_,clocks.data(),clocks.size(),&count)!=DC_OK || !count || count>clocks.size())return failure("iCX catalog clock table changed");
+        const dc_clock_row* top=nullptr;for(size_t i=0;i<count;++i)if(!top || clocks[i].mem_mhz>top->mem_mhz)top=&clocks[i];
+        if(!top || !top->count || top->count>512 || !*std::min_element(top->graphics,top->graphics+top->count))return failure("iCX catalog clock floor geometry unavailable");
+        IcxProfilePlan plan;plan.identity=identity_;plan.route=*data_.selected;plan.recipe=data_.control_profile;plan.selection_revision=data_.selection_revision;
+        plan.document=document;plan.prior=capture_icx_preset(controller_->read(xoc()));
+        if(!icx_plan_bound(plan))return failure("iCX catalog target changed during read-only preflight");
+        out=std::move(plan);ActionResult action;action.ok=true;action.message="Standalone iCX target and prior requests qualified; no requests staged or written";return action;
+    }catch(const std::exception& error){return failure(std::string("iCX preflight: ")+error.what());}
+}
+ActionResult I2cSession::apply_icx_profile(const IcxProfilePlan& plan) {
+    if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX catalog Apply");
+    struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+    ActionResult action;
+    try {
+        if(!icx_plan_bound(plan) || !data_.gate || !data_.verified || !api_.controller_write || owned())return failure("iCX catalog plan binding, gate or independent ownership changed");
+        const auto requests=icx_preset_requests(plan.document,xoc());const auto previous=icx_preset_requests(plan.prior,true);
+        const auto current=capture_icx_preset(controller_->read(xoc()));
+        if(current.at("settings")!=plan.prior.at("settings") || !icx_plan_bound(plan))return failure("iCX prior requests changed since catalog preflight; no write issued");
+        if(current.at("settings")==plan.document.at("settings")){action.ok=true;action.message="iCX requests already match; no write or ownership acquired";return action;}
+        catalog_plan_=plan;catalog_complete_=false; // Retain typed recovery before any possible SET.
+        std::string reason;
+        if(!clamp(reason)){action.may_have_changed=owned();action.message=reason;refresh();return action;}
+        action.may_have_changed=true;
+        for(const auto& request:requests) {
+            const auto old=std::find_if(previous.begin(),previous.end(),[&](const auto& candidate){return candidate.key==request.key;});
+            if(old!=previous.end() && old->reset==request.reset && (request.reset || old->value==request.value))continue;
+            const auto step=controller_->apply(request,{data_.gate,xoc()});action.may_have_changed|=step.may_have_changed;
+            if(!step.ok){action.message="iCX catalog incomplete; typed owned recovery retained: "+step.message;refresh();return action;}
+        }
+        const auto after=capture_icx_preset(controller_->read(xoc()));
+        action.ok=icx_plan_bound(plan) && after.at("settings")==plan.document.at("settings");
+        catalog_complete_=action.ok;
+        action.message=action.ok?"iCX catalog requests read back exactly; prior requests available for Undo":"iCX catalog readback differs; typed restoration retained";
+        refresh();return action;
+    }catch(const std::exception& error){action.message=std::string("iCX catalog Apply: ")+error.what();action.may_have_changed=action.may_have_changed || owned();refresh();return action;}
+}
+ActionResult I2cSession::restore_icx_profile(const IcxProfilePlan& plan) {
+    if(!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK)return failure("Could not lock GPU for iCX catalog Undo");
+    struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+    ActionResult action;
+    try {
+        if(!icx_plan_bound(plan) || !catalog_plan_ || !icx_plan_bound(*catalog_plan_) || plan.document!=catalog_plan_->document || plan.prior!=catalog_plan_->prior)
+            return failure("iCX Undo belongs to another controller, selection or catalog transaction");
+        icx_preset_requests(plan.prior,true);
+        if(catalog_complete_) {
+            const auto current=capture_icx_preset(controller_->read(xoc())).at("settings");
+            if(current==plan.prior.at("settings") && !owned()) {
+                catalog_plan_.reset();catalog_complete_=false;action.ok=true;action.message="iCX catalog prior requests already restored; no write required";return action;
+            }
+            if(current!=plan.document.at("settings"))return failure("iCX catalog requests changed after Apply; later requests left untouched");
+        }
+        // The controller restores only fields this transaction actually owned,
+        // using its exact selected-state guards. Never replay the prior document.
+        action=release();if(!action.ok)return action;
+        const auto after=capture_icx_preset(controller_->read(xoc()));
+        action.ok=icx_plan_bound(plan) && after.at("settings")==plan.prior.at("settings");
+        action.message=action.ok?"iCX catalog prior selected requests restored and verified; owned clock released":"iCX prior settings differ; foreign fields left untouched";
+        if(action.ok){catalog_plan_.reset();catalog_complete_=false;}refresh();return action;
+    }catch(const std::exception& error){action.ok=false;action.message=std::string("iCX catalog Undo: ")+error.what();action.may_have_changed=action.may_have_changed || owned();return action;}
+}
 ActionResult I2cSession::release() {
     if (!owned()) { ActionResult r; r.ok=true; r.message="No owned I2C request"; return r; }
     if (!api_.lock || !api_.unlock || api_.lock(gpu_)!=DC_OK) return failure("Could not lock GPU for I2C restoration");
@@ -298,8 +463,8 @@ ActionResult I2cSession::release() {
         if(!restored.ok){refresh();data_.message=restored.message;return result(restored);}
         controller_message=restored.message;
     }
-    if (service_.has_owned_control()) {
-        auto restored=service_.restore(clock_request()); changed=restored.may_have_changed;
+    if (service_->has_owned_control()) {
+        auto restored=service_->restore(clock_request()); changed=restored.may_have_changed;
         if (!restored.ok) { refresh(); data_.message=restored.message; return result(restored); }
     }
     if(verify_hold_) {
@@ -325,9 +490,13 @@ ActionResult I2cSession::release() {
 }
 ActionResult I2cSession::execute(const Command& cmd) {
     if(cmd.i2c_selection_revision && cmd.i2c_selection_revision!=data_.selection_revision)return failure("Controller selection or recipe changed; no operation issued");
+    if(catalog_plan_ && owned() && (cmd.operation==Command::Operation::i2c_apply || cmd.operation==Command::Operation::i2c_reset
+        || cmd.operation==Command::Operation::i2c_verify || cmd.operation==Command::Operation::i2c_apply_profile
+        || cmd.operation==Command::Operation::i2c_zero_nct_outputs || cmd.operation==Command::Operation::i2c_recipe))
+        return failure("Undo or release the owned iCX catalog transaction before another controller mutation");
     if(cmd.operation==Command::Operation::i2c_gate) {
         if(!cmd.enabled && owned()){auto restored=release();if(!restored.ok)return restored;}
-        data_.gate=cmd.enabled;service_.set_gate(cmd.enabled);
+        data_.gate=cmd.enabled;service_->set_gate(cmd.enabled);
         data_.status.writable=cmd.enabled && data_.verified && data_.status.request_eligible;
         auto action=failure(cmd.enabled?"I2C enabled; choose an IC, then Connect / Scan":"I2C disabled");action.ok=true;data_.message=action.message;return action;
     }
@@ -338,16 +507,27 @@ ActionResult I2cSession::execute(const Command& cmd) {
     if (api_.lock(gpu_)!=DC_OK) return failure("Could not lock selected GPU");
     struct Unlock { I2cApi& api; dc_gpu* gpu; ~Unlock(){ api.unlock(gpu); } } unlock{api_,gpu_};
     ActionResult action;
+    struct FinishDiscovery {
+        std::function<void()> finish;
+        ~FinishDiscovery(){finish();}
+    } finish_discovery{[this]{if(discovery_.running){discovery_.running=false;progress();}}};
+    if(cmd.operation==Command::Operation::i2c_select) {
+        discovery_={};discovery_.running=true;discovery_.total=1;discovery_.candidates=data_.candidates;discovery_.label="Inspecting explicit controller selection";progress();
+    }
+    try {
     switch(cmd.operation) {
     case Command::Operation::i2c_scan:
         action=scan(cmd);break;
     case Command::Operation::i2c_select:
-        if (!cmd.i2c_route || !select(cmd.i2c_family==I2cFamily::unknown?I2cFamily::mp2888:cmd.i2c_family,*cmd.i2c_route,cmd.i2c_recipe)) return failure("Candidate selection failed; no writes issued");
+        if (!cmd.i2c_route || !select(cmd.i2c_family==I2cFamily::unknown?I2cFamily::mp2888:cmd.i2c_family,*cmd.i2c_route,cmd.i2c_recipe)) {
+            discovery_.label="Candidate selection unavailable; established route retained, no writes issued";data_.message=discovery_.label;
+            return failure(discovery_.label);
+        }
         action.ok=true;action.message="Controller selected; physical rail assignment is not inferred";break;
     case Command::Operation::i2c_recipe:
         if(data_.family!=I2cFamily::mp2888 || !data_.selected || (cmd.i2c_recipe!="mp2888a-offset" && cmd.i2c_recipe!="mp2888a-pmbus"))return failure("Unknown controller recipe");
         if(owned()){action=release();if(!action.ok)return action;}
-        if(!select(data_.family,*data_.selected,cmd.i2c_recipe))return failure("Recipe selection failed after restoration");
+        if(!select(data_.family,*data_.selected,cmd.i2c_recipe,false))return failure("Recipe selection failed after restoration");
         action.ok=true;action.message="Control recipe selected; Verify this method before Apply";break;
     case Command::Operation::i2c_read: action.ok=true; action.message="Controller read refreshed"; break;
     case Command::Operation::i2c_release: return release();
@@ -432,11 +612,11 @@ ActionResult I2cSession::execute(const Command& cmd) {
         std::string reason; if (!clamp(reason)) { refresh(); data_.message=reason; return failure(reason); }
         if (cmd.operation==Command::Operation::i2c_verify) {
             I2cVerifyCallbacks callbacks; callbacks.core_clock_mhz=[this] {return observed_clock();}; callbacks.sleep_ms=api_.sleep;
-            auto verified=service_.verify(clock_request(),callbacks,{}); data_.verified=verified.ok; action=result(verified);
-            if (!service_.has_owned_control()) { auto released=release(); if (!released.ok) {action.ok=false;action.message+="; "+released.message;} }
+            auto verified=service_->verify(clock_request(),callbacks,{}); data_.verified=verified.ok; action=result(verified);
+            if (!service_->has_owned_control()) { auto released=release(); if (!released.ok) {action.ok=false;action.message+="; "+released.message;} }
         } else {
-            action=result(service_.apply(cmd.value,observed_clock().has_value(),{}));
-            if (!service_.has_owned_control()) {
+            action=result(service_->apply(cmd.value,observed_clock().has_value(),{}));
+            if (!service_->has_owned_control()) {
                 auto released=release();
                 if (!released.ok) { action.ok=false; action.message+="; "+released.message; }
             }
@@ -444,6 +624,13 @@ ActionResult I2cSession::execute(const Command& cmd) {
         break;
     }
     default: return failure("Unknown I2C operation");
+    }
+    }catch(const DiscoveryCancelled&) {
+        discovery_.running=false;discovery_.cancelled=true;discovery_.label="Read-only discovery cancelled; partial candidates are unverified. Established selection retained.";
+        data_.candidates=discovery_.candidates;data_.message=discovery_.label;progress();return failure(discovery_.label);
+    }
+    if(cmd.operation==Command::Operation::i2c_select) {
+        discovery_.running=false;discovery_.completed=1;discovery_.label=action.message;progress();
     }
     refresh(); data_.message=action.message; return action;
 }

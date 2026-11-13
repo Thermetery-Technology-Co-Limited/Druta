@@ -353,9 +353,10 @@ void draw_i2c_panel(ViewState& state) {
     if (data.selected) std::snprintf(selected_label,sizeof(selected_label),"%s / port %u, 0x%02X",i2c_family_name(data.family),data.selected->port,data.selected->addr7);
     ImGui::SetNextItemWidth(-1);
     if (ImGui::BeginCombo("##controller-candidate",data.selected?selected_label:"Select controller")) {
-        for (size_t i=0;i<data.candidates.size();++i) {
-            const auto& candidate=data.candidates[i]; const auto family=static_cast<I2cFamily>(candidate.family);
-            char label[192]{}; std::snprintf(label,sizeof(label),"%zu: %s - port %u, 0x%02X",i+1,i2c_family_name(family),candidate.route.port,candidate.route.addr7);
+        const auto& candidates=data.discovery.running?data.discovery.candidates:data.candidates;
+        for (size_t i=0;i<candidates.size();++i) {
+            const auto& candidate=candidates[i]; const auto family=static_cast<I2cFamily>(candidate.family);
+            char label[192]{}; std::snprintf(label,sizeof(label),"%zu: %s - port %u, 0x%02X (unverified candidate)",i+1,i2c_family_name(family),candidate.route.port,candidate.route.addr7);
             if (ImGui::Selectable(label,data.selected && data.family==family && same_route(*data.selected,candidate.route))) {
                 auto c=command(state,Command::Operation::i2c_select); c.i2c_route=candidate.route; c.i2c_family=family; state.commands.push_back(c);
             }
@@ -375,6 +376,18 @@ void draw_i2c_panel(ViewState& state) {
         ImGui::EndDisabled();
     }
     ImGui::EndDisabled();
+    if(data.discovery.running || data.discovery.cancelled || data.discovery.total) {
+        const auto& discovery=data.discovery;
+        const float fraction=discovery.total?std::min(1.0f,static_cast<float>(discovery.completed)/static_cast<float>(discovery.total)):0;
+        char progress[80];std::snprintf(progress,sizeof(progress),"%u / %u read-only probes",discovery.completed,discovery.total);
+        ImGui::ProgressBar(fraction,{-1,0},progress);
+        if(!discovery.label.empty())ImGui::TextWrapped("%s",discovery.label.c_str());
+        if(discovery.running) {
+            if(ImGui::Button("Cancel discovery"))state.i2c_cancel_requested=true;
+            ImGui::SameLine();ImGui::TextDisabled("Stops at the next read-only probe boundary.");
+        }
+        if(!discovery.candidates.empty())ImGui::TextDisabled("%zu read-only candidates; selection and write verification are separate.",discovery.candidates.size());
+    }
     if (data.selected) {
         if (state.presentation==Presentation::classic) classic_family_help(data);
         const auto profile_it=std::find_if(data.control_profiles.begin(),data.control_profiles.end(),[&](const auto& p){return p.id==data.control_profile;});

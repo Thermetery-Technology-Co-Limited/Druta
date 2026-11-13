@@ -40,6 +40,15 @@ void pages(Presentation presentation){
     auto live=std::make_shared<SessionSnapshot>();live->generation=1;live->selected_slot="0000:09:00.0";
     live->data.connected=true;std::strcpy(live->data.identity.uuid,"GPU-alternate");state.live=live;
     auto text=frame(state);auto* w=advanced_window(presentation);
+    auto* root=ImGui::FindWindowByName("Druta workspace");
+    check(root!=nullptr,"profile host exists");
+    if(root){
+        const auto catalog_id=root->GetID(presentation==Presentation::classic?"Profiles...":"Profile catalog...");
+        ImGui::ActivateItemByID(catalog_id);text=frame(state);
+        check(state.profile_catalog_view.open && text.find("Choose profile files...")!=std::string::npos,"header opens actual catalog in both skins");
+        check(state.commands.empty() && state.profile_catalog_intents.empty(),"opening catalog neither reads hardware nor applies settings");
+        state.profile_catalog_view.open=false;text=frame(state);
+    }
     check(w!=nullptr,"Advanced content window exists");if(!w)return;
     check(text.find("Power feedback ratios")!=std::string::npos && text.find("Voltage admission and V/F policies")!=std::string::npos && text.find("Power arbitration")!=std::string::npos,"Advanced exposes all service headers");
     check(state.commands.empty(),"drawing does not dispatch commands");

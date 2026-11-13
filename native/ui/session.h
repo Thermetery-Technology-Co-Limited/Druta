@@ -41,7 +41,7 @@ struct SessionSnapshot {
 };
 class Session {
 public:
-    explicit Session(std::unique_ptr<IBackend> backend, std::function<void()> notify);
+    explicit Session(std::unique_ptr<IBackend> backend, std::function<void()> notify, const std::wstring& i2c_cache_path = {});
     ~Session();
     Session(const Session&) = delete;
     Session& operator=(const Session&) = delete;
@@ -54,6 +54,7 @@ public:
     void request_poll(bool details = false);
     void set_paused(bool paused);
     bool submit(Command command, std::uint64_t expected_generation);
+    bool cancel_i2c_discovery(std::uint64_t expected_generation);
     std::shared_ptr<const SessionSnapshot> snapshot() const;
     void begin_shutdown();
     bool finished() const;

@@ -3,6 +3,7 @@
 #include "session.h"
 #include <windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <utility>
 
@@ -122,9 +123,21 @@ struct Session::Impl {
     std::uint64_t next_log = 0;
     std::string desired_slot, expected_uuid;
     bool identity_mismatch = false;
-    explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n) : backend(std::move(b)), notify(std::move(n)) {
+    std::atomic<bool> discovery_cancelled{false};
+    std::optional<std::uint64_t> discovery_generation;
+    static bool discovery_action(Command::Operation op) { return op==Command::Operation::i2c_scan || op==Command::Operation::i2c_select; }
+    explicit Impl(std::unique_ptr<IBackend> b, std::function<void()> n, const std::wstring& cache_path) : backend(std::move(b)), notify(std::move(n)) {
         InitializeCriticalSection(&lock);
         wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (backend) backend->configure_i2c_discovery([this] { return discovery_cancelled.load(); }, [this](const I2cDiscoveryProgress& progress) {
+            {
+                Guard guard(lock);
+                if (stopping || !discovery_generation || *discovery_generation!=state.generation) return;
+                state.data.i2c.discovery=progress;
+                publish_locked();
+            }
+            announce();
+        }, cache_path);
     }
     ~Impl() { if (thread) CloseHandle(thread); if (wake) CloseHandle(wake); DeleteCriticalSection(&lock); }
     void publish_locked() { ++state.revision; published = std::make_shared<SessionSnapshot>(state); }
@@ -251,7 +264,9 @@ struct Session::Impl {
                 Guard guard(lock);
                 if (stopping) work = Work::stop;
                 else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; required_uuid = expected_uuid; generation = state.generation; }
-                else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot; }
+                else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot;
+                    if (discovery_action(task.operation)) discovery_generation=generation;
+                }
                 else if (maintenance_active && GetTickCount64() >= maintenance_due) { work = Work::maintain; generation = state.generation; maintenance_inflight = true; maintenance_due = GetTickCount64() + 1000; }
                 else if (poll_pending && !state.paused) { work = Work::poll; poll_pending = false; details = details_pending; details_pending = false; generation = state.generation; }
                 if (work == Work::none && maintenance_active) {
@@ -291,6 +306,7 @@ struct Session::Impl {
                 bool current;
                 {
                     Guard guard(lock);
+                    discovery_generation.reset();
                     current = !stopping && generation == state.generation;
                     if (current) {
                         state.devices = std::move(devices);
@@ -343,6 +359,7 @@ struct Session::Impl {
                 bool current;
                 {
                     Guard guard(lock);
+                    discovery_generation.reset();
                     current = !stopping && generation == state.generation;
                     if (stopping && generation == state.generation) state.busy = false;
                     ++state.completed_actions;
@@ -389,7 +406,7 @@ struct Session::Impl {
         announce();
     }
 };
-Session::Session(std::unique_ptr<IBackend> backend, std::function<void()> notify) : impl_(std::make_unique<Impl>(std::move(backend), std::move(notify))) {}
+Session::Session(std::unique_ptr<IBackend> backend, std::function<void()> notify, const std::wstring& i2c_cache_path) : impl_(std::make_unique<Impl>(std::move(backend), std::move(notify), i2c_cache_path)) {}
 Session::~Session() { begin_shutdown(); if (impl_->thread) WaitForSingleObject(impl_->thread, INFINITE); }
 void Session::start(const std::string& slot, const std::string& expected_uuid) {
     { Guard guard(impl_->lock);
@@ -468,14 +485,22 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
       else if (impl_->state.opening || (!impl_->state.data.connected && !(impl_->backend_opened && (command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
-      else { impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
+      else { if (Impl::discovery_action(command.operation)) impl_->discovery_cancelled=false;
+          impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return accepted;
 }
 std::shared_ptr<const SessionSnapshot> Session::snapshot() const { Guard guard(impl_->lock); return impl_->published; }
+bool Session::cancel_i2c_discovery(std::uint64_t expected_generation) {
+    Guard guard(impl_->lock);
+    if (impl_->stopping || expected_generation!=impl_->state.generation || !impl_->state.busy || !Impl::discovery_action(impl_->command.operation)) return false;
+    impl_->discovery_cancelled=true;
+    return true;
+}
 void Session::begin_shutdown() {
     { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true; impl_->state.close_refused=false;
       impl_->poll_pending = impl_->details_pending = impl_->command_pending = impl_->switch_pending = false;
+      impl_->discovery_cancelled=true;
       if (!impl_->thread) impl_->done = true; }
     impl_->signal();
 }

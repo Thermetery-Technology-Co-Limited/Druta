@@ -435,7 +435,12 @@ int main() {
     doc["controls"]["boost"] = {{"unit", "%"}, {"value", 101}}; write_profile(path, doc); CHECK(!pb->execute(load).ok && writes == old_writes && power_writes == old_power); doc["controls"].erase("boost");
     doc["controls"]["power"] = {{"unit", "mW"}, {"value", 210000}}; doc["controls"]["core"] = {{"unit", "MHz"}, {"value", 50}}; write_profile(path, doc); mode = 1;
     auto failed_load = pb->execute(load); CHECK(!failed_load.ok && failed_load.may_have_changed && board == 210000 && pb->read(false).undo_label == "Undo profile");
-    delta = 333; mode = 2; CHECK(!pb->execute(undo).ok && board == 200000 && delta == 333); board = 199000; mode = 0; CHECK(pb->execute(undo).ok && board == 199000 && delta == 333); board = 200000; delta = 123;
+    delta = 333; mode = 2; CHECK(!pb->execute(undo).ok && board == 200000 && delta == 333);
+    // Completed power is still part of the original selected request set.
+    // A change between retries must fail final comparison and become explicit
+    // pending recovery, while the never-issued core edit remains untouched.
+    board = 199000; mode = 0; CHECK(!pb->execute(undo).ok && board == 199000 && delta == 333 && pb->read(false).undo_available);
+    CHECK(pb->execute(undo).ok && board == 200000 && delta == 333); delta = 123;
     doc["controls"].erase("power"); doc["controls"]["fan"] = {{"mode", "manual"}, {"unit", "%"}, {"value", 50}}; doc["controls"]["core"] = {{"unit", "MHz"}, {"value", 50}};
     core_value = 30; delta = 123; fan_level = 40; fan_mode = 1; fan_auto = false; write_profile(path, doc); CHECK(pb->execute(load).ok && core_value == 50 && delta == 999 && fan_level == 50);
     CHECK(pb->read(false).undo_label == "Undo profile"); CHECK(pb->execute(undo).ok && core_value == 30 && delta == 123 && fan_level == 40);

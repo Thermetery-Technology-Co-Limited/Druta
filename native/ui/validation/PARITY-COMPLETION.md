@@ -24,7 +24,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual V/F profiles, identity/geometry validation, stage/preview/explicit Apply | Implemented/tested in second checkpoint; standalone scope, not full-tune composition |
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
-| Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Rail/power selection workspace and its partial-failure Undo implemented/tested. Broader catalog, Python rail/power format import, cross-scope composition and conflict review remain open |
+| Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX is standalone, timing and memory-offset changes apply separately, and unqualified board-only Python power snapshots are refused before writes |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Implemented/tested in fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
@@ -33,13 +33,13 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Voltage constants and device switch delays | Open |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Open |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
-| Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Helper/process/parse diagnostics and raw-word/selected-field comparison improved in fourth checkpoint. Rich decoded units and partition-divergence qualification remain open |
+| Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
 | Timing profile save/load staged only | Implemented in fourth checkpoint: native typed save with staged overlay, validated load into local fields, explicit whole Preview/Apply; physical timing-write qualification remains open |
 | Bounded owned-P0 capture and qualifying-band auto-capture | Open |
 | Classic I2C per-family geometry/order/help and auto-open on discovery | Implemented/tested in second checkpoint across all six controller families; physical qualification remains controller-specific |
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
-| I2C remembered read-only discovery routes, progress and bounded cancellation | Open |
+| I2C remembered read-only discovery routes, progress and bounded cancellation | Implemented/tested in sixth: UUID/recipe-contract hints require fresh probe/read, Full scan bypasses hints, immutable worker progress and atomic Cancel, transactional selection and unverified partial candidates. No cached gates, verification or tuning replay; current 3070 Ti selection/read passed without owned requests |
 | Policy user annotations and reviewed Max-all with meaningful Undo | Open |
 
 ## Invariants and completion gate
@@ -48,6 +48,7 @@ Second checkpoint: [implementation and validation evidence](2026-11-12-parity-se
 Third checkpoint: [menus, selected profiles and validation evidence](2026-11-12-parity-third-increment.md).
 Fourth checkpoint: [clock ownership, timing batches and PERF diagnostics](2026-11-12-parity-fourth-increment.md).
 Fifth checkpoint: [feedback, voltage policies and arbitration](2026-11-13-parity-fifth-increment.md).
+Sixth checkpoint: [catalog composition, discovery and timing diagnostics](2026-11-13-parity-sixth-increment.md).
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated

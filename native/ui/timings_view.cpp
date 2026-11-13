@@ -125,19 +125,25 @@ TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* dat
     if(!state.message.empty())ImGui::TextWrapped("%s",state.message.c_str());
     ImGui::BeginDisabled(busy||!unlocked||!data->initial_available);
     if(ImGui::Button("Restore captured initial")){Command c{};c.operation=Command::Operation::timings_restore_initial;out.commands.push_back(c);}ImGui::EndDisabled();
-    ImGui::TextWrapped("Captured initial means this connection's first qualified capture, not factory defaults. Values are decoded broadcast fields; partition agreement and nanoseconds are not established by this raw helper capture.");
+    ImGui::TextWrapped("Captured initial means this connection's first qualified capture, not factory defaults. Values originate from captured broadcast fields; units and partition agreement require independent evidence.");
     if(!data->snapshot.ok)ImGui::TextDisabled("No current timing capture. Read timings to retry; staged edits are retained.");
     ImGui::Text("Adapter %s | %s | memory %s | top band %s",data->snapshot.slot.c_str(),data->snapshot.codename.c_str(),
         data->snapshot.memory_clock_stable?"stable":"unconfirmed",data->snapshot.top_band?"yes":"not established");
+    const auto diagnostics=timing_diagnostics(data->snapshot,data->snapshot.diagnostic_evidence);
+    ImGui::TextWrapped("%s | %s",diagnostics.clock_status.c_str(),diagnostics.partition_status.c_str());
     if(data->snapshot.ok&&ImGui::BeginTable("timing_fields",4,ImGuiTableFlags_Borders|ImGuiTableFlags_RowBg|ImGuiTableFlags_ScrollY,ImVec2(0,220))) {
         ImGui::TableSetupColumn("Field");ImGui::TableSetupColumn("Captured value");ImGui::TableSetupColumn("Register");ImGui::TableSetupColumn("Details");ImGui::TableHeadersRow();
         for(const auto& f:data->snapshot.fields){
             ImGui::TableNextRow();ImGui::TableSetColumnIndex(0);
             if(ImGui::Selectable(f.name.c_str(),state.field==f.name,ImGuiSelectableFlags_SpanAllColumns)) select_timing_field(state,*data,f.name);
-            ImGui::TableSetColumnIndex(1);const auto* w=word(*data,f);
-            if(w && f.lo<=f.hi && f.hi<32)ImGui::Text("%u",(w->value>>f.lo)&f.maximum);else ImGui::TextDisabled("--");
+            ImGui::TableSetColumnIndex(1);
+            const auto index=static_cast<size_t>(&f-data->snapshot.fields.data());
+            const auto& d=diagnostics.rows[index];
+            if(d.value) { if(d.nanoseconds) ImGui::Text("%u %s / %.3f ns",*d.value,d.unit.c_str(),*d.nanoseconds); else ImGui::Text("%u %s",*d.value,d.unit.c_str()); } else ImGui::TextDisabled("--");
             ImGui::TableSetColumnIndex(2);ImGui::TextUnformatted(f.reg.c_str());
             ImGui::TableSetColumnIndex(3);ImGui::TextUnformatted(f.description.c_str());
+            if(!d.provenance.empty())ImGui::TextWrapped("Units: %s",d.provenance.c_str());
+            for(const auto& p:d.partitions) { if(p.value) ImGui::Text("%s: %u%s",p.scope.c_str(),*p.value,p.differs?" (differs)":""); else ImGui::Text("%s: unavailable",p.scope.c_str()); }
         } ImGui::EndTable();
     }
     if(!state.field.empty()) {

@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include "timings_service.h"
+#include "timing_diagnostics.h"
 #include <optional>
 #include <string>
 namespace druta::ui {

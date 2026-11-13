@@ -18,6 +18,15 @@ struct TimingsApi {
 };
 struct TimingWord { std::string name, confidence; uint32_t offset = 0, value = 0; };
 struct TimingField { std::string name, reg, description; uint32_t lo=0, hi=0, maximum=0; bool structural=false, inferred=false, overlapping=false; };
+struct TimingPartition { std::string scope; std::vector<TimingWord> words; };
+struct TimingUnitEvidence { std::string field, reg, codename; uint32_t lo=0, hi=0; bool cycles=false, nanoseconds=false; std::string provenance; };
+struct TimingDiagnosticEvidence {
+    std::vector<TimingPartition> partitions;
+    bool partitions_stale=false;
+    std::vector<TimingUnitEvidence> units;
+    std::optional<double> memory_clock_divisor;
+    std::string divisor_provenance;
+};
 struct TimingSnapshot {
     bool ok = false, memory_clock_stable = false, top_band = false;
     std::string slot, codename, message;
@@ -25,6 +34,7 @@ struct TimingSnapshot {
     std::optional<int32_t> offset_before, offset_after; // raw driver units
     std::vector<TimingWord> broadcast;
     std::vector<TimingField> fields;
+    TimingDiagnosticEvidence diagnostic_evidence;
 };
 struct TimingRequest { std::string field; uint32_t value=0; };
 struct TimingPlan {
@@ -66,6 +76,8 @@ public:
 private:
     TimingsApi api_; dc_gpu* gpu_; dc_gpu_identity target_{}; TimingTransport& transport_;
     std::optional<TimingSnapshot> initial_;
+    std::optional<TimingSnapshot> last_diagnostic_;
+    std::string last_diagnostic_token_;
     std::string initial_token_;
     void remember_initial(const TimingSnapshot& snapshot,const std::string& token);
     TimingBatchResult apply_batch(const TimingBatchPlan& plan,const std::function<void(const TimingBatchPlan&)>& before_write);

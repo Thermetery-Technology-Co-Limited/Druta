@@ -74,12 +74,20 @@ public:
         static const std::regex field_re("^[A-Za-z][A-Za-z0-9_]{0,63}$");
         if (op!=TimingCommand::help && op!=TimingCommand::fields && !std::regex_match(slot,slot_re)) { result.error="Invalid selected PCI slot"; return result; }
         if ((op==TimingCommand::preview || op==TimingCommand::commit) && !std::regex_match(field,field_re)) { result.error="Invalid timing field"; return result; }
+        struct Temp { std::wstring path; ~Temp(){if(!path.empty())DeleteFileW(path.c_str());} } temp;
+        if(op==TimingCommand::save) {
+            wchar_t directory[MAX_PATH+1]{}, filename[MAX_PATH+1]{};
+            if(!GetTempPathW(MAX_PATH,directory) || !GetTempFileNameW(directory,L"dtu",0,filename)) { result.error="Could not create temporary snapshot path";return result; }
+            temp.path=filename;
+            if(!DeleteFileW(temp.path.c_str())) { result.error="Could not prepare temporary snapshot path";return result; }
+        }
         std::wstring args=L"\""+path_+L"\" ";
         if (op==TimingCommand::help) args+=L"--help";
         else if (op==TimingCommand::fields) args+=L"fields";
         else {
-            args+=(op==TimingCommand::dump ? L"dump" : L"set"); args+=L" -d "+std::wstring(slot.begin(),slot.end());
+            args+=(op==TimingCommand::dump ? L"dump" : op==TimingCommand::save ? L"save" : L"set"); args+=L" -d "+std::wstring(slot.begin(),slot.end());
             if (op==TimingCommand::dump) args+=L" --raw";
+            else if(op==TimingCommand::save) args+=L" -o \""+temp.path+L"\"";
             else { args+=L" "+std::wstring(field.begin(),field.end())+L"="+std::to_wstring(value);
                    if (op==TimingCommand::preview && preview_flag) args+=L" --dry-run";
                    if (op==TimingCommand::commit && commit_flag) args+=L" --commit"; }
@@ -116,6 +124,16 @@ public:
         DWORD code=1; if (pi.hProcess) GetExitCodeProcess(pi.hProcess,&code); result.exit_code=code;
         CloseHandle(pi.hThread); if (pi.hProcess) CloseHandle(pi.hProcess); CloseHandle(rd);
         if (!unchanged(error)) result.error=error;
+        if(op==TimingCommand::save && result.launched && !result.timed_out && !result.exit_code && result.error.empty()) {
+            HANDLE file=CreateFileW(temp.path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
+            LARGE_INTEGER size{};
+            if(file==INVALID_HANDLE_VALUE || !GetFileSizeEx(file,&size) || size.QuadPart<=0 || size.QuadPart>1024*1024) result.error="Snapshot file missing or exceeds limit";
+            else { std::string content(static_cast<size_t>(size.QuadPart),'\0');DWORD read=0;
+                if(!ReadFile(file,content.data(),static_cast<DWORD>(content.size()),&read,nullptr) || read!=content.size()) result.error="Snapshot file read failed";
+                else result.output=std::move(content);
+            }
+            if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);
+        }
         return result;
     }
 };

@@ -15,8 +15,8 @@ dc_status DC_CALL lock(dc_gpu*){return DC_OK;}dc_status DC_CALL unlock(dc_gpu*){
 dc_status DC_CALL telemetry(dc_gpu*,dc_telemetry* out){out->present=DC_T_MEM|DC_T_MEM_OFF|DC_T_PSTATE;out->mem=mem;out->mem_off=0;out->pstate=ps;return DC_OK;}
 dc_status DC_CALL caps(dc_gpu*,dc_capabilities* out){out->mem_clock_count=1;out->mem_clocks[0]=7000;return DC_OK;}
 struct Mock:TimingTransport {
-    uint32_t words[2]={0xA5A51234,0xCAFE3456};unsigned writes=0,reads=0,previews=0;
-    bool held=false,changed=false,process_pending=false,change_unknown=false,fail_dump=false;
+    uint32_t words[2]={0xA5A51234,0xCAFE3456};unsigned writes=0,reads=0,previews=0,saves=0;
+    bool held=false,changed=false,process_pending=false,change_unknown=false,fail_dump=false,malformed_save=false;
     std::string fail_preview,fail_launch,fail_write,pending_field,throw_field;
     bool pending()const override{return process_pending;}
     bool pin(std::string&)override{held=true;return true;}void unpin()override{held=false;}
@@ -28,6 +28,9 @@ struct Mock:TimingTransport {
         else if(op==TimingCommand::fields)r.output="A REG0 [7:0] 255 First\nB REG0 [15:8] 255 Second\nC REG1 [7:0] 255 Third\nSTRUCT REG1 [31:24] 255 [structural] Mode\n";
         else if(op==TimingCommand::dump){++reads;CHECK(slot=="0000:09:00.0");if(fail_dump){r.exit_code=1;r.output="driver could not be opened";return r;}
             char text[512]{};std::snprintf(text,sizeof(text),"0000:09:00.0 GP102 (Pascal)\n [broadcast] base 0x001000\n REG0 @0x001000 = 0x%08X (DOCUMENTED)\n REG1 @0x001004 = 0x%08X (DOCUMENTED)\n",words[0],words[1]);r.output=text;
+        }else if(op==TimingCommand::save){
+            ++saves;CHECK(slot=="0000:09:00.0" && f.empty() && !commit);
+            r.output=malformed_save?"{broken":"{\"slot\":\"0000:09:00.0\",\"codename\":\"GP102\",\"registers\":{\"broadcast\":{}}}";
         }else{
             CHECK(slot=="0000:09:00.0"&&(f=="A"||f=="B"||f=="C"));const unsigned index=f=="C"?1:0,shift=f=="B"?8:0;
             const uint32_t target=(words[index]&~(255u<<shift))|(value<<shift);
@@ -49,6 +52,8 @@ int main(){
     Mock m;TimingsService service(api,reinterpret_cast<dc_gpu*>(1),gpu_id,m);
     const std::vector<TimingRequest> requests={{"B",25},{"C",80},{"A",60}};
     const auto initial=service.capture();CHECK(initial.ok&&initial.top_band&&service.initial_snapshot());
+    CHECK(m.saves==1 && m.writes==0 && initial.diagnostic_evidence.partitions.empty());
+    m.malformed_save=true;const auto partial=service.capture();CHECK(partial.ok && partial.broadcast.size()==2 && partial.diagnostic_evidence.partitions.empty() && m.writes==0);m.malformed_save=false;
     auto plan=service.preview(requests);CHECK(plan.ok&&plan.fields.size()==3&&plan.fields[0].field=="A");
     CHECK(plan.fields[1].prior_word==0xA5A5123C&&plan.fields[1].target_word==0xA5A5193C);
     unsigned captured=0;auto result=service.apply(plan,[&](const auto& undo){++captured;CHECK(undo.fields.size()==captured);});

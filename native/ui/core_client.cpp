@@ -4,6 +4,8 @@
 #include "profile_io.h"
 #include "curve_profile.h"
 #include "scoped_profile.h"
+#include "profile_catalog.h"
+#include "python_scoped_profile.h"
 #include "clock_monitor_service.h"
 #include "timing_model.h"
 #include "timing_profile.h"
@@ -111,19 +113,23 @@ class Client final : public IBackend {
         last_.clock_monitor = std::make_shared<ClockMonitorData>(clock_monitor_.update(api_.clock_classify, input));
     }
     struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; std::optional<uint32_t> selected_policy; std::vector<uint32_t> selected_policies; bool guard_unselected_pins = false; };
-    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; };
+    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfilePlan> catalog_icx; };
     std::vector<Undo> undo_;
     bool suppress_undo_ = false;
+    bool catalog_grouping_ = false;
     bool rail_mode_ = false;
     std::unique_ptr<RailControls> rail_service_;
     std::unique_ptr<I2cSession> i2c_session_;
+    std::function<bool()> discovery_cancelled_;
+    std::function<void(const I2cDiscoveryProgress&)> discovery_progress_;
+    std::wstring route_cache_path_;
     std::unique_ptr<TuningActions> tuning_;
     std::unique_ptr<TimingTransport> timing_transport_;
     std::unique_ptr<TimingsService> timings_;
     TimingViewData timing_data_;
     std::optional<TimingPlan> timing_undo_;
     std::optional<TimingBatchPlan> timing_batch_undo_;
-    void remember(const Undo& u) { if (suppress_undo_) return; if (undo_.size() == 32) undo_.erase(undo_.begin()); undo_.push_back(u); }
+    void remember(const Undo& u) { if (suppress_undo_) return; if (!catalog_grouping_ && undo_.size() == 32) undo_.erase(undo_.begin()); undo_.push_back(u); }
     const char* label(ControlId c) const { switch (c) { case ControlId::core: return "core offset"; case ControlId::memory: return "memory offset"; case ControlId::fan: return "fan"; case ControlId::boost: return "voltage boost"; case ControlId::power: return "board power"; default: return "profile"; } }
     bool capture_fan(dc_fan_snapshot& snap) {
         dc_fan_state state{}; state.size = sizeof(state);
@@ -607,7 +613,7 @@ class Client final : public IBackend {
         }
         return true;
     }
-    ActionResult curve_action(const Command& cmd, bool undoing) {
+    ActionResult curve_action(const Command& cmd, bool undoing,bool preflight=false) {
         ActionResult result{}; const bool reset = cmd.operation == Command::Operation::reset_curve;
         if (!api_.lock || !api_.unlock || !api_.apply_deltas || (!undoing && reset && !api_.reset_curve) || (!undoing && !reset && !api_.envelopes)) { result.message = "V/F write interfaces unavailable"; return result; }
         if (api_.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU for V/F write"; return result; }
@@ -635,6 +641,7 @@ class Client final : public IBackend {
                 }
             }
         }
+        if(preflight){result.ok=true;result.message="Fresh V/F target, complete baseline, geometry and request preflight passed";return result;}
         if (same_curve(before, desired)) { result.ok = true; result.message = "V/F curve already matches"; if (undoing) undo_.pop_back(); return result; }
         if (!undoing) { Undo saved{}; saved.control = ControlId::count; saved.curve_entry = true; saved.curve = before; saved.curve_layout = before_layout; saved.curve_points = points; remember(saved); }
         const auto before_points = points; dc_outcome out{}; dc_status status;
@@ -801,7 +808,7 @@ class Client final : public IBackend {
         last_.scoped_profiles = std::make_shared<ScopedSnapshot>(snapshot);
         return snapshot;
     }
-    ActionResult scoped_action(const Command& cmd) {
+    ActionResult scoped_action(const Command& cmd,const ProfileJson* in_memory=nullptr,bool preflight=false,bool verify=false) {
         ActionResult result; bool aggregate_stored = false;
         if (!api_.lock || !api_.unlock || api_.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU for profile capture"; return result; }
         struct Unlock { CoreApi& api; dc_gpu* gpu; ~Unlock() { api.unlock(gpu); } } unlock{api_, gpu_};
@@ -811,13 +818,16 @@ class Client final : public IBackend {
             if (cmd.operation == Command::Operation::prepare_scoped_profile) {
                 result.ok = true; result.message = "Captured " + std::to_string(captured.entries.size()) + " understood rail/power requests for profile selection"; return result;
             }
-            if (!cmd.scoped_profile) throw std::runtime_error("No explicit profile selection/document");
+            if (!in_memory && !cmd.scoped_profile) throw std::runtime_error("No explicit profile selection/document");
             if (cmd.operation == Command::Operation::save_scoped_profile) {
                 if (cmd.profile_path.empty()) throw std::runtime_error("Choose a profile path");
                 write_profile(cmd.profile_path, capture_scoped_profile(captured, cmd.scoped_profile->selection));
                 result.ok = true; result.message = "Selected configured rail/power requests saved; omitted controls are unchanged. Loading previews; Apply is explicit."; return result;
             }
-            const auto plan = plan_scoped_profile(cmd.scoped_profile->document, captured);
+            const auto& document=in_memory?*in_memory:cmd.scoped_profile->document;
+            const auto plan = plan_scoped_profile(document, captured);
+            if(verify){const auto mismatch=scoped_profile_readback_error(plan,captured);result.ok=mismatch.empty();result.message=mismatch.empty()?"Final selected scoped requests verified":mismatch;return result;}
+            if(preflight){result.ok=true;result.message="Selected rail/power profile fresh preflight passed";return result;}
             if (std::none_of(plan.steps.begin(), plan.steps.end(), [](const auto& step) { return step.execute_required; })) {
                 result.ok = true; result.message = "Selected requests already match"; return result;
             }
@@ -868,13 +878,13 @@ class Client final : public IBackend {
         return result;
     }
 
-    ActionResult profile_action(const Command& cmd) {
+    ActionResult profile_action(const Command& cmd,const ProfileJson* in_memory=nullptr,bool preflight=false,bool verify=false) {
         ActionResult result{}; const bool save = cmd.operation == Command::Operation::save_profile;
-        if (cmd.profile_path.empty()) { result.message = "Choose a profile path"; return result; }
+        if (!in_memory && cmd.profile_path.empty()) { result.message = "Choose a profile path"; return result; }
         bool aggregate_stored = false;
         try {
             ProfileJson doc;
-            if (!save) doc = read_profile(cmd.profile_path);
+            if (!save) doc = in_memory?*in_memory:read_profile(cmd.profile_path);
             if (!api_.lock || !api_.unlock || api_.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU for profile"; return result; }
             struct Unlock { CoreApi& api; dc_gpu* gpu; ~Unlock() { api.unlock(gpu); } } unlock{api_, gpu_};
             dc_gpu_identity id{}; if (!identity(id)) { result.message = "A verified GPU identity and slot are required for profiles"; return result; }
@@ -925,6 +935,8 @@ class Client final : public IBackend {
                 }
             }
             if (save) { if (doc["controls"].empty() && !doc.contains("advanced")) throw std::runtime_error("no fully qualified controls to save"); write_profile(cmd.profile_path, doc); result.ok = true; result.message = "Native daily profile saved. Included: " + included + "." + (omitted.empty() ? "" : " Omitted: " + omitted + ".") + " Core curve, individual policy rows, and rail limits are not saved."; return result; }
+            if(verify){result.ok=items.empty();result.message=result.ok?"Final selected Daily / Advanced requests verified":"A selected Daily / Advanced request changed after another component";return result;}
+            if(preflight){result.ok=true;result.message="Daily / Advanced profile fresh preflight passed";return result;}
             if (items.empty()) { result.ok = true; result.message = python_profile ? "Python tuning action already matches current request" : "Profile already matches current requests; core curve is not saved"; return result; }
             Undo aggregate{}; aggregate.control = ControlId::count; remember(aggregate); aggregate_stored = true;
             suppress_undo_ = true;
@@ -933,6 +945,175 @@ class Client final : public IBackend {
             if (undo_.back().group.empty()) undo_.pop_back();
             result.ok = true; result.message = python_profile ? "Python tuning action profile applied" : "Native daily profile applied; core curve is not saved"; return result;
         } catch (const std::exception& e) { result.message = std::string("Profile failed: ") + e.what() + (aggregate_stored ? "; aggregate Undo retained" : ""); result.may_have_changed = aggregate_stored; return result; }
+    }
+
+    struct CatalogPrepared {
+        ProfileScope scope=ProfileScope::unsupported;std::string name;ProfileJson document;
+        std::optional<Command> curve;std::optional<TimingBatchPlan> timing;
+        std::optional<PythonPowerProfile> power;
+        std::optional<IcxProfilePlan> icx;
+    };
+    static std::vector<PythonPowerRow> python_power_rows(const PowerSnapshot& power) {
+        std::vector<PythonPowerRow> out;for(const auto& row:power.rows){PythonPowerRow r;
+            if(row.minimum<0||row.minimum>UINT32_MAX||row.maximum<0||row.maximum>UINT32_MAX||row.requested<0||row.requested>UINT32_MAX)throw std::runtime_error("Power row is not a canonical unsigned request");
+            r.policy=row.policy;r.type=row.type;r.channel=row.channel;r.minimum=static_cast<uint32_t>(row.minimum);r.maximum=static_cast<uint32_t>(row.maximum);r.requested=static_cast<uint32_t>(row.requested);
+            if(row.unit==0)r.unit="mW";else if(row.unit==1)r.unit="mA";
+            r.board=row.board!=0;r.named_current=row.named_current!=0;r.writable=row.writable!=0;r.consistent=row.consistent!=0;out.push_back(r);
+        }return out;
+    }
+    Command catalog_curve_command(const ProfileJson& document) {
+        dc_gpu_identity id{};dc_vf_delta_snapshot deltas{};dc_vf_layout layout{};std::vector<dc_vf_point> points;std::string why;
+        if(!identity(id)||!curve_table(deltas,points,why,&layout)||!api_.apply_deltas||!api_.envelopes)throw std::runtime_error("Fresh qualified curve unavailable: "+why);
+        dc_request_envelopes env{};env.size=sizeof(env);if(api_.envelopes(&env)!=DC_OK||env.max_abs_delta_khz<=0)throw std::runtime_error("Curve request envelope unavailable");
+        auto snapshot=std::make_unique<SessionSnapshot>();snapshot->generation=1;snapshot->curve_revision=1;snapshot->selected_slot=id.slot;
+        auto& data=snapshot->data;data.connected=true;data.identity=id;data.curve=points;data.curve_layout=layout;data.curve_freq_div=deltas.freq_div;data.curve_max_abs_delta_khz=env.max_abs_delta_khz;
+        CurveDraft draft;draft.observe(1,points,true,deltas.freq_div);stage_curve_profile(document,*snapshot,draft);
+        Command command;command.operation=Command::Operation::apply_curve;command.expected_curve=points;command.expected_curve_freq_div=deltas.freq_div;
+        for(const auto& point:draft.draft())command.curve_deltas.push_back({point.idx,point.delta_khz});return command;
+    }
+    ActionResult catalog_power_action(const PythonPowerProfile& saved,bool preflight,bool verify=false) {
+        ActionResult out;PowerSnapshot current;std::string why;dc_gpu_identity id{};
+        if(!saved.rows) {out.message="Python board-only power_action requires a peer-preserving route qualification not exposed by the native binding";return out;}
+        if(!identity(id)||!power_capture(current,why)){out.message="Fresh coupled power capture unavailable: "+why;return out;}
+        try{
+            validate_python_power_live(saved,{id.uuid,id.slot},python_power_rows(current),false);
+            auto board_item=std::make_unique<ProfileItem>();const ProfileJson board_request={{"value",saved.board_mw},{"unit","mW"}};
+            if(!profile_item(ControlId::power,&board_request,*board_item,why))throw std::runtime_error(why);
+            // The existing typed restoration path restores every selected row
+            // with pin=false, then reinstalls only verified saved pins.
+            PowerSnapshot desired=current;desired.board=saved.board_mw;desired.pin_ids.clear();desired.pin_values.clear();desired.selected_policies.clear();
+            for(auto& row:desired.rows){const auto it=std::find_if(saved.rows->begin(),saved.rows->end(),[&](const auto& r){return r.policy==row.policy;});row.requested=it->requested;if(!row.board)desired.selected_policies.push_back(row.policy);}
+            for(const auto& pin:saved.pins){desired.pin_ids.push_back(pin.first);desired.pin_values.push_back(pin.second);}
+            bool same=current.board==desired.board&&current.pin_ids==desired.pin_ids&&current.pin_values==desired.pin_values;
+            for(size_t i=0;i<current.rows.size();++i)same=same&&current.rows[i].requested==desired.rows[i].requested;
+            if(verify){out.ok=same;out.message=same?"Final coupled power requests and pins verified":"A selected coupled power request or pin changed after another component";return out;}
+            if(preflight){out.ok=true;out.message="Python coupled power requests and separate pins fresh preflight passed";return out;}
+            if(same){out.ok=true;out.message="Coupled power requests and pins already match";return out;}
+            auto prior=std::make_unique<Undo>();prior->control=ControlId::power;prior->power=current;
+            for(const auto& row:current.rows)if(!row.board)prior->power.selected_policies.push_back(row.policy);remember(*prior);
+            auto target=std::make_unique<Undo>();target->control=ControlId::power;target->power=std::move(desired);const auto target_index=undo_.size();undo_.push_back(std::move(*target));
+            try{Command restore;restore.operation=Command::Operation::undo;out=execute_power(restore,true);if(undo_.size()>target_index)undo_.pop_back();}
+            catch(...){if(undo_.size()>target_index)undo_.pop_back();throw;}
+            out.may_have_changed=true; // pin suppression/reinstallation itself is a selected mutation
+            if(out.ok){PowerSnapshot after;if(!power_capture(after,why))throw std::runtime_error("Power profile final readback unavailable");
+                validate_python_power_live(saved,{id.uuid,id.slot},python_power_rows(after),false);
+                if(after.board!=saved.board_mw)throw std::runtime_error("Saved board request readback differs");
+                for(const auto& row:*saved.rows){const auto it=std::find_if(after.rows.begin(),after.rows.end(),[&](const auto& r){return r.policy==row.policy;});if(it==after.rows.end()||it->requested!=row.requested)throw std::runtime_error("Saved power row readback differs");}
+                std::map<uint32_t,uint32_t> pins;for(size_t i=0;i<after.pin_ids.size();++i)pins.emplace(after.pin_ids[i],static_cast<uint32_t>(after.pin_values[i]));if(pins!=saved.pins)throw std::runtime_error("Saved power pins readback differs");
+                out.message="Python coupled power requests and exact saved pins verified";
+            }return out;
+        }catch(const std::exception& e){out.message=e.what();return out;}
+    }
+    ActionResult catalog_action(const Command& cmd) {
+        ActionResult result;const bool preflight=cmd.operation==Command::Operation::preflight_catalog_profile;
+        if(!cmd.catalog_profile){result.message="No staged catalog document";return result;}
+        if(!api_.lock||!api_.unlock||api_.lock(gpu_)!=DC_OK){result.message="Could not lock GPU for whole profile preflight";return result;}
+        struct Unlock{CoreApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}}unlock{api_,gpu_};
+        size_t aggregate_index=0;bool grouped=false;
+        std::optional<PowerSnapshot> original_power;bool power_recorded=false;
+        std::function<bool(Undo&,bool&)> prune_power=[&](Undo& item,bool& found){
+            if(item.control==ControlId::power){found=true;return false;}
+            for(auto it=item.group.begin();it!=item.group.end();)if(!prune_power(*it,found))it=item.group.erase(it);else ++it;
+            return item.control!=ControlId::count||!item.group.empty()||item.curve_entry||item.advanced_entry||item.rail_entry||item.catalog_timing||item.catalog_icx;
+        };
+        auto fold=[&]{if(!grouped)return;while(undo_.size()>aggregate_index+1){auto child=std::move(undo_[aggregate_index+1]);undo_.erase(undo_.begin()+aggregate_index+1);bool power_found=false;const bool keep=prune_power(child,power_found);
+                if(power_found&&!power_recorded&&original_power){auto power=std::make_unique<Undo>();power->control=ControlId::power;power->power=*original_power;undo_[aggregate_index].group.push_back(std::move(*power));power_recorded=true;}
+                if(keep)undo_[aggregate_index].group.push_back(std::move(child));}};
+        auto finish=[&]{fold();if(grouped&&undo_[aggregate_index].group.empty()){undo_.erase(undo_.begin()+aggregate_index);grouped=false;}catalog_grouping_=false;};
+        try{
+            const auto components=flatten_profile_collection(*cmd.catalog_profile);std::vector<CatalogPrepared> plans;
+            bool timing=false,memory=false,has_power=false,full_power=false;std::vector<uint32_t> selected_policies;
+            for(const auto& component:components){const auto info=inspect_profile(component.document);if(!info.valid)throw std::runtime_error(info.error);
+                timing=timing||info.scope==ProfileScope::timing;for(const auto& target:info.targets)memory=memory||target=="clock:memory"||target=="clock:domain:2";
+                for(const auto& target:info.targets)if(target.compare(0,6,"power:")==0){has_power=true;if(target=="power:*")full_power=true;else if(target.compare(0,13,"power:policy:")==0)selected_policies.push_back(static_cast<uint32_t>(std::stoul(target.substr(13))));}
+                if(info.scope==ProfileScope::icx&&components.size()!=1)throw std::runtime_error("iCX catalog profiles require a separate standalone application because their owned clock and restoration lifecycle cannot compose with other tuning writers");
+            }
+            if(timing&&memory)throw std::runtime_error("Timing profiles cannot compose with ordinary/additional memory offsets: the qualified operating band must be established before a separate timing preflight");
+            if(i2c_session_&&i2c_session_->owned())throw std::runtime_error("Release the owned I2C request and clock clamp before other catalog tuning");
+            if(maintenance_needed())throw std::runtime_error("Release the owned V/F hold before catalog tuning");
+            // Validate every component against fresh state before opening an
+            // Undo group or dispatching any selected write.
+            for(const auto& component:components){CatalogPrepared plan;plan.name=component.name;plan.document=component.document;plan.scope=inspect_profile(plan.document).scope;ActionResult checked;
+                if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)checked=profile_action(cmd,&plan.document,true);
+                else if(plan.scope==ProfileScope::scoped)checked=scoped_action(cmd,&plan.document,true);
+                else if(plan.scope==ProfileScope::python_rails){plan.document=import_python_rail_profile(plan.document,scoped_capture(),{},true);plan.scope=ProfileScope::scoped;checked=scoped_action(cmd,&plan.document,true);}
+                else if(plan.scope==ProfileScope::curve){plan.curve=catalog_curve_command(plan.document);checked=curve_action(*plan.curve,false,true);}
+                else if(plan.scope==ProfileScope::python_power){plan.power=parse_python_power_profile(plan.document);checked=catalog_power_action(*plan.power,true);}
+                else if(plan.scope==ProfileScope::icx){if(!i2c_session_)throw std::runtime_error("I2C session unavailable");plan.icx.emplace();checked=i2c_session_->preflight_icx_profile(plan.document,*plan.icx);last_.i2c=i2c_session_->data();}
+                else if(plan.scope==ProfileScope::timing){
+                    if(!timings_||timing_undo_||timing_batch_undo_)throw std::runtime_error("Select a qualified timing helper and resolve prior timing Undo first");
+                    dc_gpu_identity id{};const auto fresh=timings_->capture();if(!identity(id))throw std::runtime_error("Timing identity changed");
+                    const auto requests=validate_timing_profile(plan.document,id,fresh);plan.timing=timings_->preview(requests);checked.ok=plan.timing->ok;checked.message=plan.timing->message;
+                }else throw std::runtime_error("No typed catalog executor for "+std::string(profile_scope_name(plan.scope)));
+                if(!checked.ok)throw std::runtime_error(component.name+": "+checked.message);plans.push_back(std::move(plan));
+            }
+            if(has_power){PowerSnapshot capture;std::string why;if(!power_capture(capture,why))throw std::runtime_error("Original coupled power Undo capture unavailable: "+why);
+                if(full_power)for(const auto& row:capture.rows)if(!row.board)selected_policies.push_back(row.policy);
+                std::sort(selected_policies.begin(),selected_policies.end());selected_policies.erase(std::unique(selected_policies.begin(),selected_policies.end()),selected_policies.end());
+                for(const auto id:selected_policies){const auto row=std::find_if(capture.rows.begin(),capture.rows.end(),[&](const auto& r){return r.policy==id;});
+                    if(row==capture.rows.end()||row->board||!row->consistent||!(row->writable||row->named_current)||(row->unit!=0&&row->unit!=1)||row->requested<row->minimum||row->requested>row->maximum)throw std::runtime_error("Selected original power policy cannot be restored through its qualified setter");}
+                capture.selected_policies=selected_policies;capture.guard_unselected_pins=true;original_power=std::move(capture);
+            }
+            if(preflight){result.ok=true;result.message="Whole profile fresh preflight passed for "+std::to_string(plans.size())+" components; Apply remains explicit";return result;}
+            // Board writes may move peers. Apply explicit selected policy rows
+            // afterward, independent of input file order. All power Undo uses
+            // the single pre-transaction capture, never intermediate snapshots.
+            std::stable_sort(plans.begin(),plans.end(),[](const auto& a,const auto& b){const auto rank=[](const auto& p){const auto info=inspect_profile(p.document);for(const auto& t:info.targets)if(t=="power:board")return 0;for(const auto& t:info.targets)if(t.compare(0,13,"power:policy:")==0)return 2;return 1;};return rank(a)<rank(b);});
+            auto aggregate=std::make_unique<Undo>();aggregate->control=ControlId::count;remember(*aggregate);aggregate_index=undo_.size()-1;grouped=true;catalog_grouping_=true;
+            for(auto& plan:plans){ActionResult action;
+                if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)action=profile_action(cmd,&plan.document);
+                else if(plan.scope==ProfileScope::scoped)action=scoped_action(cmd,&plan.document);
+                else if(plan.scope==ProfileScope::curve){auto fresh=catalog_curve_command(plan.document);if(fresh.curve_deltas.empty()){action.ok=true;action.message="Curve already matches";}else action=curve_action(fresh,false);}
+                else if(plan.scope==ProfileScope::python_power)action=catalog_power_action(*plan.power,false);
+                else if(plan.scope==ProfileScope::icx){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_icx=plan.icx;remember(*saved);const auto position=undo_.size()-1;
+                    action=i2c_session_->apply_icx_profile(*plan.icx);last_.i2c=i2c_session_->data();if(!action.may_have_changed)undo_.erase(undo_.begin()+position);}
+                else if(plan.scope==ProfileScope::timing){
+                    std::optional<size_t> entry;const auto before=[&](const TimingBatchPlan& saved){if(!entry){auto u=std::make_unique<Undo>();u->control=ControlId::count;u->catalog_timing=saved;remember(*u);entry=undo_.size()-1;}else undo_[*entry].catalog_timing=saved;};
+                    const auto applied=timings_->apply(*plan.timing,before);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
+                    if(entry){if(applied.undo)undo_[*entry].catalog_timing=applied.undo;else if(!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);}
+                    timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=action.message;last_.timings=std::make_shared<TimingViewData>(timing_data_);
+                }
+                result.may_have_changed=result.may_have_changed||action.may_have_changed;fold();
+                if(!action.ok)throw std::runtime_error(plan.name+": "+action.message);
+            }
+            // A later writer can affect an earlier selected field. Verify the
+            // complete desired composition again, not only each local write.
+            for(const auto& plan:plans){ActionResult verified;
+                if(plan.scope==ProfileScope::daily||plan.scope==ProfileScope::python_tuning)verified=profile_action(cmd,&plan.document,true,true);
+                else if(plan.scope==ProfileScope::scoped)verified=scoped_action(cmd,&plan.document,true,true);
+                else if(plan.scope==ProfileScope::python_power)verified=catalog_power_action(*plan.power,true,true);
+                else if(plan.scope==ProfileScope::curve){const auto current=catalog_curve_command(plan.document);verified.ok=true;for(const auto& d:current.curve_deltas){const auto p=std::find_if(current.expected_curve.begin(),current.expected_curve.end(),[&](const auto& x){return x.idx==d.idx;});if(p==current.expected_curve.end()||p->delta_khz!=d.delta_khz)verified.ok=false;}verified.message="Final selected curve deltas differ";}
+                else if(plan.scope==ProfileScope::timing){dc_gpu_identity id{};const auto fresh=timings_->capture();if(!identity(id))throw std::runtime_error("Final timing identity changed");const auto requests=validate_timing_profile(plan.document,id,fresh);const auto comparison=timings_->preview(requests);verified.ok=comparison.ok&&comparison.no_change;verified.message="Final selected timing fields differ or are stale";}
+                else if(plan.scope==ProfileScope::icx){verified.ok=true;} // sole component, hook verifies exact complete settings
+                if(!verified.ok)throw std::runtime_error(plan.name+": final composition verification failed: "+verified.message);
+            }
+            finish();result.ok=true;result.message="Composed profile requests verified; "+std::string(grouped?"one grouped Undo retained":"all selected requests already matched");return result;
+        }catch(const std::exception& e){finish();result.may_have_changed=result.may_have_changed||grouped;result.message=std::string("Catalog profile failed: ")+e.what()+(grouped?"; grouped Undo retains only issued or uncertain requests":"; no selected writes issued");return result;}
+    }
+
+    bool verify_profile_undo(const Undo& saved) {
+        dc_gpu_identity id{};if(!identity(id))return false;
+        if(!saved.group.empty()||!saved.completed.empty()){for(const auto& child:saved.group)if(!verify_profile_undo(child))return false;for(const auto& child:saved.completed)if(!verify_profile_undo(child))return false;return true;}
+        if(saved.catalog_timing){if(!timings_)return false;std::vector<TimingRequest> requests;for(const auto& f:saved.catalog_timing->fields)requests.push_back({f.field,f.prior});
+            const auto now=timings_->preview(requests);if(!now.ok||!now.no_change||now.helper_token!=saved.catalog_timing->helper_token||now.slot!=saved.catalog_timing->slot||now.codename!=saved.catalog_timing->codename)return false;
+            for(const auto& f:saved.catalog_timing->fields){const auto n=std::find_if(now.fields.begin(),now.fields.end(),[&](const auto& x){return x.field==f.field;});if(n==now.fields.end()||n->mask!=f.mask||n->offset!=f.offset||n->reg!=f.reg)return false;}return true;
+        }
+        if(saved.rail_entry){if(!rail_service_)return false;const auto rows=rail_service_->read();if(saved.rail.rail<0||saved.rail.rail>=static_cast<int>(rows.size())||saved.rail.field>=DC_RAILS_LIMIT_FIELDS)return false;const auto& row=rows[saved.rail.rail];const auto& field=row.fields[saved.rail.field];return row.type&&*row.type==saved.rail.type&&!field.stale&&field.requested_uv&&*field.requested_uv==saved.rail.requested_uv;}
+        if(saved.advanced_entry){auto current=std::make_unique<Undo>();std::string why;return advanced_capture(saved.advanced,*current,why)&&current->value==saved.value&&layout_equal(current->advanced_layout,saved.advanced_layout);}
+        if(saved.curve_entry||saved.control==ControlId::core){dc_vf_delta_snapshot curve{};dc_vf_layout layout{};std::vector<dc_vf_point> points;std::string why;
+            if(!curve_table(curve,points,why,&layout)||!same_curve(curve,saved.curve)||!same_curve_layout(layout,saved.curve_layout)||!same_curve_mapping(saved.curve_points,points,curve.freq_div))return false;
+            if(saved.control==ControlId::core){dc_offset_range range{};if(retry(api_.range,gpu_,0u,&range)!=DC_OK||!range.present||range.current!=saved.value)return false;}return true;
+        }
+        if(saved.control==ControlId::memory){dc_offset_range range{};dc_mem_offset_scale scale{};return retry(api_.range,gpu_,2u,&range)==DC_OK&&range.present&&range.current==saved.value&&retry(api_.scale,gpu_,&scale)==DC_OK&&scale.scale==saved.scale;}
+        if(saved.control==ControlId::boost){int32_t current=0;return retry(api_.boost,gpu_,&current)==DC_OK&&current==saved.value;}
+        if(saved.control==ControlId::fan){dc_fan_snapshot current{};if(!capture_fan(current)||current.count!=saved.fan.count||std::strcmp(current.source,saved.fan.source))return false;
+            for(uint32_t i=0;i<saved.fan.count;++i){const auto& f=saved.fan.fans[i];bool match=false;for(uint32_t j=0;j<current.count;++j){const auto& c=current.fans[j];if(c.id==f.id&&(!f.manual||c.level==f.level)&&c.manual==f.manual&&c.policy==f.policy)match=true;}if(!match)return false;}return true;
+        }
+        if(saved.control==ControlId::power){PowerSnapshot current;std::string why;if(!power_capture(current,why)||!power_geometry(saved.power,current)||current.board!=saved.power.board)return false;
+            for(const auto& row:saved.power.rows){const bool selected=(saved.power.selected_policy&&*saved.power.selected_policy==row.policy)||std::find(saved.power.selected_policies.begin(),saved.power.selected_policies.end(),row.policy)!=saved.power.selected_policies.end()||std::find(saved.power.pin_ids.begin(),saved.power.pin_ids.end(),row.policy)!=saved.power.pin_ids.end();
+                if(selected&&!row.board){const auto now=std::find_if(current.rows.begin(),current.rows.end(),[&](const auto& r){return r.policy==row.policy;});if(now==current.rows.end()||now->requested!=row.requested)return false;}}
+            std::map<uint32_t,int64_t> expected,actual;for(size_t i=0;i<saved.power.pin_ids.size();++i)expected.emplace(saved.power.pin_ids[i],saved.power.pin_values[i]);for(size_t i=0;i<current.pin_ids.size();++i)actual.emplace(current.pin_ids[i],current.pin_values[i]);return expected==actual;
+        }return false;
     }
 
     ActionResult release_hold() {
@@ -1317,6 +1498,9 @@ public:
 #endif
     }
     PlannerApi planner_api() const override { return api_.planner; }
+    void configure_i2c_discovery(std::function<bool()> cancelled, std::function<void(const I2cDiscoveryProgress&)> progress, const std::wstring& cache_path) override {
+        discovery_cancelled_=std::move(cancelled); discovery_progress_=std::move(progress); route_cache_path_=cache_path;
+    }
     std::vector<Device> enumerate() override {
         std::vector<Device> result; if (!valid()) return result;
         size_t n = 0; dc_status s = api_.enumerate(nullptr, 0, &n);
@@ -1337,6 +1521,9 @@ public:
         last_.identity = opened_; last_.connected = true; rail_mode_ = false; last_.rail_mode_known = true; last_.rail_mode_enabled = false; rail_service_ = std::make_unique<RailControls>(api_.rails, gpu_, opened_);
         if (api_.clkdom_flags_set && api_.clkdom_flags && api_.clkdom_flags_set(gpu_, 0, 0) == DC_OK) { bool xoc = true; if (current_xoc(xoc) && !xoc) { last_.xoc_known = true; last_.xoc_enabled = false; } }
         auto i2c_api=api_.i2c;
+        i2c_api.discovery_cancelled=discovery_cancelled_;
+        i2c_api.discovery_progress=discovery_progress_;
+        i2c_api.route_cache_path=route_cache_path_;
         i2c_api.before_clock_acquire=[this](std::string& why) {
             if (!frequency_ || !frequency_->needs_cleanup()) return true;
             const auto result=release_frequency(); why=result.message; return result.ok;
@@ -1517,6 +1704,15 @@ public:
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
+        if(cmd.operation==Command::Operation::preflight_catalog_profile)return catalog_action(cmd);
+        // Standalone iCX catalog Undo must be able to release its own request
+        // before the ordinary cross-control owned-I2C refusal below.
+        if(cmd.operation==Command::Operation::undo&&!undo_.empty()){
+            const IcxProfilePlan* plan=undo_.back().catalog_icx?&*undo_.back().catalog_icx:nullptr;
+            if(!plan&&undo_.back().group.size()==1&&undo_.back().group.front().catalog_icx)plan=&*undo_.back().group.front().catalog_icx;
+            if(plan){if(!i2c_session_){result.message="I2C session unavailable; catalog Undo retained";return result;}
+                result=i2c_session_->restore_icx_profile(*plan);last_.i2c=i2c_session_->data();if(result.ok)undo_.pop_back();return result;}
+        }
         if (is_frequency_operation(cmd.operation)) return frequency_action(cmd);
         // These independent policy fields do not acquire or release a clock
         // request. Their own selected-field identity/readback gates apply.
@@ -1580,6 +1776,7 @@ public:
             result.message="Release the owned V/F hold before changing tuning requests"; return result;
         }
         if (is_timing_operation(cmd.operation)) return timing_action(cmd);
+        if(cmd.operation==Command::Operation::apply_catalog_profile)return catalog_action(cmd);
         if (cmd.operation == Command::Operation::save_profile || cmd.operation == Command::Operation::load_profile) return profile_action(cmd);
         if (cmd.operation == Command::Operation::apply_scoped_profile) return scoped_action(cmd);
         if (cmd.operation == Command::Operation::apply_curve || cmd.operation == Command::Operation::reset_curve) return curve_action(cmd, false);
@@ -1587,21 +1784,46 @@ public:
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().rail_entry) return rail_action(cmd, true);
         if (cmd.rail && (cmd.operation == Command::Operation::apply || cmd.operation == Command::Operation::stock)) return rail_action(cmd, false);
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().advanced_entry) return advanced_action(cmd, true);
+        if(cmd.operation==Command::Operation::undo&&!undo_.empty()&&undo_.back().catalog_timing){
+            if(!timings_){result.message="Timing helper unavailable; catalog Undo retained";return result;}
+            const auto restored=timings_->restore(*undo_.back().catalog_timing);result.ok=restored.ok;result.may_have_changed=restored.may_have_changed;result.message=restored.message;
+            if(result.ok)undo_.pop_back();timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=result.message;last_.timings=std::make_shared<TimingViewData>(timing_data_);return result;
+        }
         if (cmd.advanced && (cmd.operation == Command::Operation::apply || cmd.operation == Command::Operation::stock)) return advanced_action(cmd, false);
         if (cmd.power_policy && (cmd.operation == Command::Operation::apply || cmd.operation == Command::Operation::stock)) return execute_policy(cmd);
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().control == ControlId::count) {
-            // Restore each completed request only once; keep core V/F restoration last.
+            // Retain typed comparison receipts for completed fields until the
+            // whole original selection is verified. Later restores may affect
+            // them; only mismatched/unreadable receipts return to pending work.
+            const auto parent=undo_.size()-1;
+            const auto recheck_completed=[&]{auto& aggregate=undo_[parent];for(auto it=aggregate.completed.begin();it!=aggregate.completed.end();){bool matches=false;try{matches=verify_profile_undo(*it);}catch(...){matches=false;}
+                    if(!matches){aggregate.group.push_back(std::move(*it));it=aggregate.completed.erase(it);}else ++it;}};
             while (!undo_.back().group.empty()) {
                 auto& group = undo_.back().group;
                 auto it = std::find_if(group.begin(), group.end(), [](const Undo& item) { return item.control != ControlId::core; });
                 const size_t position = it == group.end() ? 0 : static_cast<size_t>(it - group.begin());
-                Undo item = group[position]; undo_.push_back(item); Command single{}; single.operation = Command::Operation::undo;
+                Undo item = group[position];const auto parent_index=undo_.size()-1,temporary_index=undo_.size();undo_.push_back(item); Command single{}; single.operation = Command::Operation::undo;
                 ActionResult step;
-                try { step = execute(single); } catch (const std::exception& e) { undo_.pop_back(); result.may_have_changed = true; result.message = std::string("Profile Undo failed: ") + e.what() + "; aggregate Undo retained"; return result; } catch (...) { undo_.pop_back(); result.may_have_changed = true; result.message = "Profile Undo failed; aggregate Undo retained"; return result; }
+                const auto retain_temporary_state=[&]{
+                    if(undo_.size()>temporary_index){ // nested child may have advanced its own recovery receipts
+                        undo_[parent_index].group[position]=std::move(undo_[temporary_index]);undo_.resize(temporary_index);
+                    }else if(undo_.size()==temporary_index){ // verified child consumed itself before a later failure
+                        auto& aggregate=undo_[parent_index];aggregate.completed.push_back(std::move(aggregate.group[position]));aggregate.group.erase(aggregate.group.begin()+position);
+                    }
+                };
+                const auto exception_result=[&](const std::string& reason){
+                    retain_temporary_state();
+                    recheck_completed();
+                    bool retained=undo_.size()>parent_index&&!undo_[parent_index].group.empty();
+                    if(!retained&&undo_.size()>parent_index)undo_.erase(undo_.begin()+parent_index);
+                    result.may_have_changed=true;result.message="Profile Undo refresh/operation failed: "+reason+(retained?"; remaining aggregate Undo retained":"; completed components removed from Undo");return result;
+                };
+                try { step = execute(single); } catch (const std::exception& e) { return exception_result(e.what()); } catch (...) { return exception_result("unknown failure"); }
                 result.may_have_changed = result.may_have_changed || step.may_have_changed;
-                if (!step.ok) { undo_.pop_back(); result.message = "Profile Undo incomplete: " + step.message + "; aggregate Undo retained"; return result; }
-                undo_.back().group.erase(undo_.back().group.begin() + position);
+                if (!step.ok) { retain_temporary_state();recheck_completed();result.message = "Profile Undo incomplete: " + step.message + "; aggregate Undo and completed-field receipts retained"; return result; }
+                auto& aggregate=undo_.back();aggregate.completed.push_back(std::move(aggregate.group[position]));aggregate.group.erase(aggregate.group.begin()+position);
             }
+            recheck_completed();if(!undo_.back().group.empty()){result.message="Profile Undo final selected readback differs or is unavailable; typed recovery and completed-field receipts retained";return result;}
             undo_.pop_back(); result.ok = true; result.message = "Profile requests restored"; return result;
         }
         const bool undoing = cmd.operation == Command::Operation::undo;

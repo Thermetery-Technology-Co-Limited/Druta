@@ -3,6 +3,7 @@
 #pragma once
 #include "backend.h"
 #include "i2c_verify_hold.h"
+#include "i2c_route_cache.h"
 #include <drutacore/i2c.h>
 #include <functional>
 namespace druta::ui {
@@ -26,7 +27,19 @@ struct I2cApi {
     // Called immediately before acquiring a new clock/verification hold.
     // A false result leaves the selected controller and clock untouched.
     std::function<bool(std::string&)> before_clock_acquire;
+    // Worker read-only discovery only. Host owns cancellation atomic and
+    // publishes progress tagged with its current session generation.
+    std::function<bool()> discovery_cancelled;
+    std::function<void(const I2cDiscoveryProgress&)> discovery_progress;
+    std::wstring route_cache_path;
     I2cVerifyHoldApi verify_hold;
+};
+struct IcxProfilePlan {
+    dc_gpu_identity identity{};
+    I2cRoute route{};
+    std::string recipe;
+    uint64_t selection_revision=0;
+    ProfileJson document,prior;
 };
 // Worker-owned: no bus polling from telemetry or rendering. Controller release
 // precedes clock release, including close and failure recovery.
@@ -36,17 +49,32 @@ public:
     const I2cViewData& data() const { return data_; }
     ActionResult execute(const Command& command);
     ActionResult release();
-    bool owned() const { return service_.has_owned_control() || (controller_ && controller_->owned()) || data_.clock_owned || (verify_hold_ && verify_hold_->owned()); }
+    // In-memory, standalone iCX catalog transaction. Preflight never stages UI
+    // drafts or acquires ownership. Existing owned requests must be released
+    // first; the host must reject composition with other tuning components.
+    ActionResult preflight_icx_profile(const ProfileJson& document,IcxProfilePlan& out);
+    ActionResult apply_icx_profile(const IcxProfilePlan& plan);
+    ActionResult restore_icx_profile(const IcxProfilePlan& plan);
+    bool owned() const { return service_->has_owned_control() || (controller_ && controller_->owned()) || data_.clock_owned || (verify_hold_ && verify_hold_->owned()); }
 private:
     I2cApi api_;
     dc_gpu* gpu_;
     dc_gpu_identity identity_;
-    I2cControls service_;
+    std::unique_ptr<I2cControls> service_;
     I2cViewData data_;
     std::unique_ptr<ControllerDriver> controller_;
     std::unique_ptr<I2cVerifyHold> verify_hold_;
     std::optional<std::string> captured_preset_, pending_preset_, prepared_preset_;
+    std::optional<IcxProfilePlan> catalog_plan_;
+    bool catalog_complete_=false;
+    bool icx_plan_bound(const IcxProfilePlan& plan) const;
     bool selection_write_attempted_ = false;
+    bool discovery_readonly_ = false;
+    bool discovery_cancel_allowed_ = true;
+    I2cDiscoveryProgress discovery_;
+    void cancellation_boundary() const;
+    void progress();
+    void remember_route();
     bool controller_bound() const override { return bound(); }
     bool read_bytes(I2cRoute, uint8_t, size_t, std::vector<uint8_t>&) override;
     bool write_bytes(I2cFamily, I2cRoute, uint8_t, const std::vector<uint8_t>&) override;
@@ -54,10 +82,10 @@ private:
     std::optional<double> reference_mv() const override;
     std::optional<double> core_clock_mhz() const override;
     std::optional<ControllerOperatingPoint> operating_point() const override;
-    void sleep_ms(unsigned ms) override { api_.sleep(ms); }
+    void sleep_ms(unsigned ms) override;
     bool xoc() const;
     std::unique_ptr<ControllerDriver> driver(I2cFamily, I2cRoute);
-    bool select(I2cFamily, I2cRoute, const std::string& recipe = {});
+    bool select(I2cFamily, I2cRoute, const std::string& recipe = {},bool cancellable=true);
     ActionResult scan(const Command&);
     ActionResult preset(const Command&);
     bool bound() const override;
@@ -66,7 +94,7 @@ private:
     bool clamp(std::string& reason);
     bool clock_request() const;
     std::optional<double> observed_clock() const;
-    void refresh();
+    void refresh(bool read_controller=true);
     void publish_control_profiles();
 };
 }

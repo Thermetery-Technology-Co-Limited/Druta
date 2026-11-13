@@ -882,9 +882,9 @@ void i2c_panel_wiring(Presentation presentation) {
     auto* choices = ImGui::FindWindowByName("##Combo_00");
     check(choices && choices->Active, "detected controller choices open as a friendly dropdown");
     if (choices) {
-        ImGui::ActivateItemByID(choices->GetID("2: MPS MP2888A - port 3, 0x42")); panel_frame();
+        ImGui::ActivateItemByID(choices->GetID("2: MPS MP2888A - port 3, 0x42 (unverified candidate)")); panel_frame();
         check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::i2c_select
-            && exact_route(state.commands[0]), "friendly candidate selection sends the selected detected route without Apply");
+            && state.commands[0].i2c_family==I2cFamily::mp2888 && exact_route(state.commands[0]), "friendly candidate selection sends the selected detected route without Apply");
         state.commands.clear();
     }
     activate_panel("Probe route");

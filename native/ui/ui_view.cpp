@@ -162,6 +162,8 @@ void top_bar(ViewState& state) {
             if (ImGui::Button("Load profile...")) state.load_profile_requested = true;
             ImGui::EndDisabled();
             hint("Select a saved profile to apply explicitly in this session. Unlock tuning controls first.");
+            ImGui::SameLine();
+            if (ImGui::Button("Profile catalog...")) state.profile_catalog_view.open=true;
             if (!snapshot->data.connected || snapshot->opening || snapshot->busy)
                 ImGui::TextWrapped("%s", snapshot->status.c_str());
             if (identity.pairing_error[0])
@@ -1401,6 +1403,8 @@ void classic_header(ViewState& state) {
     ImGui::BeginDisabled(!ready || !state.controls_unlocked);
     if (ImGui::Button("Load profile...")) state.load_profile_requested = true;
     ImGui::EndDisabled(); ImGui::SameLine();
+    if (ImGui::Button("Profiles...")) state.profile_catalog_view.open=true;
+    ImGui::SameLine();
     ImGui::Checkbox("Always refresh", &state.always_refresh); ImGui::SameLine();
     if (ImGui::Button("Pause")) state.pause_requested = true;
     ImGui::SameLine();
@@ -1909,6 +1913,11 @@ void draw(ViewState& state) {
         }
     }
     if (state.live) draw_scoped_profile_workspace(state.scoped_profile_view, *state.live, state.controls_unlocked, state.commands);
+    {
+        auto output=draw_profile_catalog_workspace(state.profile_catalog_view,state.live ? state.live->generation : 0,
+            !state.live || state.live->busy || state.live->opening || !state.live->data.connected,state.controls_unlocked);
+        state.profile_catalog_intents.insert(state.profile_catalog_intents.end(),output.intents.begin(),output.intents.end());
+    }
     if (classic) classic_floating_pages(state);
     draw_curve_window(state);
     draw_shunt_window(state.shunt);
