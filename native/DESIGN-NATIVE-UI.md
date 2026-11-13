@@ -611,3 +611,22 @@ retaining earlier meaningful Undo. New standalone Python import adapters cover
 voltage requests, device switch delays, low-power requests and PCIe speed.
 Their catalog integration still requires equivalent external transaction
 contracts; accepting a standalone file does not imply combined execution.
+
+
+## Continuation increment: voltage catalog transactions
+
+Native voltage request/limit profiles and released Python voltage requests and
+switch delays compose through session-bound typed plans and issued receipts.
+Whole preflight projects only an explicitly selected admission enable; each
+write checks actual admission. Admission enable precedes dependent requests and
+disable follows them. Final selected verification includes no-ops, while
+partial recovery preserves prior Undo. Failed fresh publications distinguish
+malformed, unsupported and transient results without inventing semantic
+providers. Catalog capture selectors navigate to the appropriate Advanced panel
+in both skins without an implicit read, write or save.
+
+The Release build, 92/92 test suites and 22-phase read-only renderer smoke
+passed; no hardware writes were issued. Low-power and clock/PCIe catalog adapters,
+unscoped full-tune import, iCX and timing/memory composition, CUDA fallback,
+ROM/scaffold evidence providers and the relationship-weight exception remain
+open. See the [eleventh increment](ui/validation/2026-11-13-parity-eleventh-increment.md).

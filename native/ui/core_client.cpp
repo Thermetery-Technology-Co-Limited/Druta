@@ -244,7 +244,7 @@ class Client final : public IBackend {
     // Integral receipts include the full adapter identity. Keep them immutable
     // on the heap so unrelated, recursively grouped Undo paths do not pay that
     // stack cost for every local record.
-    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::optional<dc_fan_snapshot> fan_after; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfilePlan> catalog_icx; std::shared_ptr<const PowerIntegralPlan> catalog_integral; std::optional<VoltagePolicyReceipt> catalog_voltage_policy; };
+    struct Undo { ControlId control; int32_t value = 0; uint32_t scale = 1; dc_vf_delta_snapshot curve{}; dc_vf_layout curve_layout{}; dc_fan_snapshot fan{}; std::optional<dc_fan_snapshot> fan_after; std::vector<dc_vf_point> curve_points; PowerSnapshot power; std::vector<Undo> group,completed; bool curve_entry = false; bool advanced_entry = false; AdvancedId advanced{}; dc_clkdom_layout advanced_layout{}; bool rail_entry = false; RailUndo rail{}; std::optional<TimingBatchPlan> catalog_timing; std::optional<IcxProfilePlan> catalog_icx; std::shared_ptr<const PowerIntegralPlan> catalog_integral; std::optional<VoltagePolicyReceipt> catalog_voltage_policy; std::optional<VoltageTablesReceipt> catalog_voltage_tables; std::optional<VoltageLimitsReceipt> catalog_voltage_limits; };
     std::vector<Undo> undo_;
     bool suppress_undo_ = false;
     bool catalog_grouping_ = false;
@@ -1169,6 +1169,7 @@ class Client final : public IBackend {
         std::optional<PythonPowerProfile> power;
         std::optional<IcxProfilePlan> icx;
         std::optional<PowerIntegralPlan> integral;std::optional<VoltagePolicyRequest> voltage_policy;
+        std::optional<VoltageTablesPlan> voltage_tables;std::optional<VoltageLimitsPlan> voltage_limits;
     };
     static std::vector<PythonPowerRow> python_power_rows(const PowerSnapshot& power) {
         std::vector<PythonPowerRow> out;for(const auto& row:power.rows){PythonPowerRow r;
@@ -1256,12 +1257,12 @@ class Client final : public IBackend {
         std::function<bool(Undo&,bool&)> prune_power=[&](Undo& item,bool& found){
             if(item.control==ControlId::power){found=true;return false;}
             for(auto it=item.group.begin();it!=item.group.end();)if(!prune_power(*it,found))it=item.group.erase(it);else ++it;
-            return item.control!=ControlId::count||!item.group.empty()||item.curve_entry||item.advanced_entry||item.rail_entry||item.catalog_timing||item.catalog_icx||item.catalog_integral||item.catalog_voltage_policy;
+            return item.control!=ControlId::count||!item.group.empty()||item.curve_entry||item.advanced_entry||item.rail_entry||item.catalog_timing||item.catalog_icx||item.catalog_integral||item.catalog_voltage_policy||item.catalog_voltage_tables||item.catalog_voltage_limits;
         };
         auto fold=[&]{if(!grouped)return;while(undo_.size()>aggregate_index+1){auto child=std::move(undo_[aggregate_index+1]);undo_.erase(undo_.begin()+aggregate_index+1);bool power_found=false;const bool keep=prune_power(child,power_found);
                 if(power_found&&!power_recorded&&original_power){auto power=std::make_unique<Undo>();power->control=ControlId::power;power->power=*original_power;undo_[aggregate_index].group.push_back(std::move(*power));power_recorded=true;}
                 if(keep)undo_[aggregate_index].group.push_back(std::move(child));}};
-        auto finish=[&]{fold();if(grouped&&undo_[aggregate_index].group.empty()){undo_.erase(undo_.begin()+aggregate_index);grouped=false;}catalog_grouping_=false;if(voltage_policy_)last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());if(power_integral_)last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());};
+        auto finish=[&]{fold();if(grouped&&undo_[aggregate_index].group.empty()){undo_.erase(undo_.begin()+aggregate_index);grouped=false;}catalog_grouping_=false;if(voltage_policy_)last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());if(power_integral_)last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());if(voltage_tables_)last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());if(voltage_limits_)last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());};
         try{
             const auto components=flatten_profile_collection(*cmd.catalog_profile);std::vector<CatalogPrepared> plans;
             bool timing=false,memory=false,has_power=false,full_power=false;std::vector<uint32_t> selected_policies;
@@ -1277,9 +1278,23 @@ class Client final : public IBackend {
             // preflight. A lower-only file may rely on another file's upper.
             std::vector<PowerIntegralRequest> integral_requests;std::optional<PowerIntegralData> integral_data;
             std::optional<VoltagePolicyRequest> admission_request,vf_request;
+            std::vector<VoltageTableRequest> table_requests;std::shared_ptr<const VoltageTablesData> table_data;
+            std::vector<VoltageLimitRequest> limit_requests;std::shared_ptr<const VoltageLimitsData> limit_data;
             // Validate every component against fresh state before opening an
             // Undo group or dispatching any selected write.
             for(const auto& component:components){CatalogPrepared plan;plan.name=component.name;plan.document=component.document;plan.scope=inspect_profile(plan.document).scope;ActionResult checked;
+                if(plan.scope==ProfileScope::voltage_tables){
+                    if(!voltage_tables_)throw std::runtime_error("Voltage request service unavailable");
+                    if(!table_data)table_data=std::make_shared<VoltageTablesData>(voltage_tables_->read(1));
+                    const auto requests=stage_voltage_tables_profile(plan.document,*table_data);
+                    table_requests.insert(table_requests.end(),requests.begin(),requests.end());continue;
+                }
+                if(plan.scope==ProfileScope::voltage_limits){
+                    if(!voltage_limits_)throw std::runtime_error("Voltage definitions/device delay service unavailable");
+                    if(!limit_data)limit_data=std::make_shared<VoltageLimitsData>(voltage_limits_->read());
+                    const auto requests=stage_voltage_limits_profile(plan.document,*limit_data);
+                    limit_requests.insert(limit_requests.end(),requests.begin(),requests.end());continue;
+                }
                 if(plan.scope==ProfileScope::power_integral){
                     if(!power_integral_)throw std::runtime_error("Power feedback service unavailable");
                     if(!integral_data)integral_data=power_integral_->read();
@@ -1317,6 +1332,17 @@ class Client final : public IBackend {
                 const auto checked=voltage_policy_->preview(*selected);last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());
                 if(!checked.ok)throw std::runtime_error(checked.message);CatalogPrepared plan;plan.scope=ProfileScope::voltage_policy;plan.name=selected->selection==1?"Voltage admission":"Selected VF flags";plan.voltage_policy=selected;plans.push_back(std::move(plan));
             }
+            if(!table_requests.empty()){
+                CatalogPrepared plan;plan.scope=ProfileScope::voltage_tables;plan.name="Selected voltage requests";
+                const auto projected=admission_request&&(admission_request->values&voltage_admission)?std::optional<bool>(true):std::nullopt;
+                plan.voltage_tables=voltage_tables_->preview(table_requests,projected);
+                if(!plan.voltage_tables->ok)throw std::runtime_error(plan.voltage_tables->message);plans.push_back(std::move(plan));
+            }
+            if(!limit_requests.empty()){
+                CatalogPrepared plan;plan.scope=ProfileScope::voltage_limits;plan.name="Selected voltage definitions / device delays";
+                plan.voltage_limits=voltage_limits_->preview(limit_requests);
+                if(!plan.voltage_limits->ok)throw std::runtime_error(plan.voltage_limits->message);plans.push_back(std::move(plan));
+            }
             if(has_power){PowerSnapshot capture;std::string why;if(!power_capture(capture,why))throw std::runtime_error("Original coupled power Undo capture unavailable: "+why);
                 if(full_power)for(const auto& row:capture.rows)if(!row.board)selected_policies.push_back(row.policy);
                 std::sort(selected_policies.begin(),selected_policies.end());selected_policies.erase(std::unique(selected_policies.begin(),selected_policies.end()),selected_policies.end());
@@ -1324,7 +1350,7 @@ class Client final : public IBackend {
                     if(row==capture.rows.end()||row->board||!row->consistent||!(row->writable||row->named_current)||(row->unit!=0&&row->unit!=1)||row->requested<row->minimum||row->requested>row->maximum)throw std::runtime_error("Selected original power policy cannot be restored through its qualified setter");}
                 capture.selected_policies=selected_policies;capture.guard_unselected_pins=true;original_power=std::move(capture);
             }
-            if(preflight){result.ok=true;result.message="Whole profile fresh preflight passed for "+std::to_string(plans.size())+" components; Apply remains explicit";return result;}
+            if(preflight){result.ok=true;result.message="Whole profile fresh preflight passed for "+std::to_string(plans.size())+" components; Apply remains explicit";finish();return result;}
             // Board writes may move peers. Apply explicit selected policy rows
             // afterward, independent of input file order. All power Undo uses
             // the single pre-transaction capture, never intermediate snapshots.
@@ -1336,6 +1362,16 @@ class Client final : public IBackend {
                 else if(plan.scope==ProfileScope::curve){auto fresh=catalog_curve_command(plan.document);if(fresh.curve_deltas.empty()){action.ok=true;action.message="Curve already matches";}else action=curve_action(fresh,false);}
                 else if(plan.scope==ProfileScope::python_power)action=catalog_power_action(*plan.power,false);
                 else if(plan.scope==ProfileScope::fan)action=fan_profile_action(&plan.document,{});
+                else if(plan.scope==ProfileScope::voltage_tables){
+                    std::optional<size_t> entry;const auto journal=[&](const VoltageTablesReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_tables=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_voltage_tables=receipt;};
+                    const auto applied=voltage_tables_->apply_profile(*plan.voltage_tables,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
+                    if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);
+                }
+                else if(plan.scope==ProfileScope::voltage_limits){
+                    std::optional<size_t> entry;const auto journal=[&](const VoltageLimitsReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_limits=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_voltage_limits=receipt;};
+                    const auto applied=voltage_limits_->apply_profile(*plan.voltage_limits,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
+                    if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);
+                }
                 else if(plan.scope==ProfileScope::power_integral){
                     std::optional<size_t> entry;const auto journal=[&](const PowerIntegralPlan& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_integral=std::make_shared<const PowerIntegralPlan>(receipt);remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_integral=std::make_shared<const PowerIntegralPlan>(receipt);};
                     const auto applied=power_integral_->apply(plan.integral->requests,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
@@ -1364,6 +1400,8 @@ class Client final : public IBackend {
                 else if(plan.scope==ProfileScope::scoped)verified=scoped_action(cmd,&plan.document,true,true);
                 else if(plan.scope==ProfileScope::python_power)verified=catalog_power_action(*plan.power,true,true);
                 else if(plan.scope==ProfileScope::fan)verified=fan_profile_action(&plan.document,{},true,true);
+                else if(plan.scope==ProfileScope::voltage_tables){const auto checked=voltage_tables_->verify(*plan.voltage_tables);verified.ok=checked.ok;verified.message=checked.message;}
+                else if(plan.scope==ProfileScope::voltage_limits){const auto checked=voltage_limits_->verify(*plan.voltage_limits);verified.ok=checked.ok;verified.message=checked.message;}
                 else if(plan.scope==ProfileScope::power_integral){const auto checked=power_integral_->verify(*plan.integral);verified.ok=checked.ok;verified.message=checked.message;last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());}
                 else if(plan.scope==ProfileScope::voltage_policy){auto expected=*plan.voltage_policy;expected.expected=expected.values;const auto checked=voltage_policy_->preview(expected);verified.ok=checked.ok;verified.message=checked.message;last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());}
                 else if(plan.scope==ProfileScope::curve){const auto current=catalog_curve_command(plan.document);verified.ok=true;for(const auto& d:current.curve_deltas){const auto p=std::find_if(current.expected_curve.begin(),current.expected_curve.end(),[&](const auto& x){return x.idx==d.idx;});if(p==current.expected_curve.end()||p->delta_khz!=d.delta_khz)verified.ok=false;}verified.message="Final selected curve deltas differ";}
@@ -1378,6 +1416,8 @@ class Client final : public IBackend {
     bool verify_profile_undo(const Undo& saved) {
         dc_gpu_identity id{};if(!identity(id))return false;
         if(!saved.group.empty()||!saved.completed.empty()){for(const auto& child:saved.group)if(!verify_profile_undo(child))return false;for(const auto& child:saved.completed)if(!verify_profile_undo(child))return false;return true;}
+        if(saved.catalog_voltage_tables){if(!voltage_tables_)return false;const auto checked=voltage_tables_->verify(*saved.catalog_voltage_tables,true);last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());return checked.ok;}
+        if(saved.catalog_voltage_limits){if(!voltage_limits_)return false;const auto checked=voltage_limits_->verify(*saved.catalog_voltage_limits,true);last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());return checked.ok;}
         if(saved.catalog_integral){if(!power_integral_)return false;const auto checked=power_integral_->verify(*saved.catalog_integral,true);last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());return checked.ok;}
         if(saved.catalog_voltage_policy){if(!voltage_policy_)return false;const auto checked=voltage_policy_->verify(*saved.catalog_voltage_policy,true);last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());return checked.ok;}
         if(saved.catalog_timing){if(!timings_)return false;std::vector<TimingRequest> requests;for(const auto& f:saved.catalog_timing->fields)requests.push_back({f.field,f.prior});
@@ -2134,6 +2174,16 @@ public:
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().rail_entry) return rail_action(cmd, true);
         if (cmd.rail && (cmd.operation == Command::Operation::apply || cmd.operation == Command::Operation::stock)) return rail_action(cmd, false);
         if (cmd.operation == Command::Operation::undo && !undo_.empty() && undo_.back().advanced_entry) return advanced_action(cmd, true);
+        if(cmd.operation==Command::Operation::undo&&!undo_.empty()&&undo_.back().catalog_voltage_tables){
+            if(!voltage_tables_){result.message="Voltage request service unavailable; catalog Undo retained";return result;}
+            const auto restored=voltage_tables_->restore(*undo_.back().catalog_voltage_tables);result.ok=restored.ok;result.may_have_changed=restored.may_have_changed;result.message=restored.message;
+            if(result.ok)undo_.pop_back();last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());return result;
+        }
+        if(cmd.operation==Command::Operation::undo&&!undo_.empty()&&undo_.back().catalog_voltage_limits){
+            if(!voltage_limits_){result.message="Voltage definitions/device delay service unavailable; catalog Undo retained";return result;}
+            const auto restored=voltage_limits_->restore(*undo_.back().catalog_voltage_limits);result.ok=restored.ok;result.may_have_changed=restored.may_have_changed;result.message=restored.message;
+            if(result.ok)undo_.pop_back();last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());return result;
+        }
         if(cmd.operation==Command::Operation::undo&&!undo_.empty()&&undo_.back().catalog_integral){
             if(!power_integral_){result.message="Power feedback service unavailable; catalog Undo retained";return result;}
             const auto restored=power_integral_->restore(*undo_.back().catalog_integral);result.ok=restored.ok;result.may_have_changed=restored.may_have_changed;result.message=restored.message;

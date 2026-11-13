@@ -1205,7 +1205,9 @@ void live_semantic_controls(ViewState& state, bool classic) {
     const bool busy = snapshot.busy || snapshot.opening || !snapshot.data.connected;
     const bool voltage_navigation=state.open_voltage_policy_requested;
     const bool integral_navigation=state.open_power_integral_requested;
-    const bool policy_navigation=voltage_navigation||integral_navigation;
+    const bool tables_navigation=state.open_voltage_tables_requested;
+    const bool limits_navigation=state.open_voltage_limits_requested;
+    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation;
     ImGui::PushID("advanced-semantic-controls");
     if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
     if(state.open_power_saving_requested){ImGui::SetNextItemOpen(true);state.open_power_saving_requested=false;}
@@ -1220,18 +1222,22 @@ void live_semantic_controls(ViewState& state, bool classic) {
         auto intents=draw_clock_gating_controls(state.clock_gating_view,snapshot.data.clock_gating.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
         state.clock_gating_intents.insert(state.clock_gating_intents.end(),intents.begin(),intents.end());
     }
-    if(policy_navigation)ImGui::SetNextItemOpen(false);
+    if(policy_navigation)ImGui::SetNextItemOpen(tables_navigation);
+    state.open_voltage_tables_requested=false;
     if (ImGui::CollapsingHeader("Voltage request and offset tables")) {
+        if(tables_navigation)ImGui::SetScrollHereY(0.0f);
         auto intents=draw_voltage_tables_controls(state.voltage_tables_view,snapshot.data.voltage_tables.get(),snapshot.generation,busy,state.controls_unlocked,classic);
         state.voltage_tables_intents.insert(state.voltage_tables_intents.end(),intents.begin(),intents.end());
     }
-    if(policy_navigation)ImGui::SetNextItemOpen(false);
+    if(policy_navigation)ImGui::SetNextItemOpen(limits_navigation);
+    state.open_voltage_limits_requested=false;
     if (ImGui::CollapsingHeader("Voltage definitions and device delays")) {
+        if(limits_navigation)ImGui::SetScrollHereY(0.0f);
         auto intents=draw_voltage_limits_controls(state.voltage_limits_view,snapshot.data.voltage_limits.get(),snapshot.generation,busy,state.controls_unlocked,classic);
         state.voltage_limits_intents.insert(state.voltage_limits_intents.end(),intents.begin(),intents.end());
     }
-    if(state.open_voltage_policy_requested)ImGui::SetNextItemOpen(false);
-    if(state.open_power_integral_requested){ImGui::SetNextItemOpen(true);state.open_power_integral_requested=false;}
+    if(policy_navigation)ImGui::SetNextItemOpen(integral_navigation);
+    state.open_power_integral_requested=false;
     if (ImGui::CollapsingHeader("Power feedback ratios")) {
         if(integral_navigation)ImGui::SetScrollHereY(0.0f);
         PowerIntegralViewContext context;
@@ -1258,8 +1264,8 @@ void live_semantic_controls(ViewState& state, bool classic) {
             command.integral_raw = intent.raw; state.commands.push_back(std::move(command));
         }
     }
-    if(policy_navigation&&!state.open_voltage_policy_requested)ImGui::SetNextItemOpen(false);
-    if(state.open_voltage_policy_requested){ImGui::SetNextItemOpen(true);state.open_voltage_policy_requested=false;}
+    if(policy_navigation)ImGui::SetNextItemOpen(voltage_navigation);
+    state.open_voltage_policy_requested=false;
     if (ImGui::CollapsingHeader("Voltage admission and V/F policies")) {
         if(voltage_navigation)ImGui::SetScrollHereY(0.0f);
         auto output = draw_voltage_policy_controls(state.voltage_policy_view, snapshot.data.voltage_policies.get(),

@@ -6,6 +6,8 @@
 #include "fan_profile.h"
 #include "timing_profile.h"
 #include "semantic_policy_profile.h"
+#include "voltage_tables_service.h"
+#include "voltage_limits_service.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -36,6 +38,10 @@ ProfileDescription leaf(const J& d){
   semantic(ProfileScope::voltage_policy,describe_voltage_policy_profile(d));
  }else if(d.value("format",J())=="druta-native-power-integral"||d.value("scope",J())=="power_integral"){
   semantic(ProfileScope::power_integral,describe_power_integral_profile(d));
+ }else if(d.value("format",J())=="druta-native-voltage-requests"||d.value("scope",J())=="voltage_requests"){
+  semantic(ProfileScope::voltage_tables,describe_voltage_tables_profile(d));
+ }else if(d.value("format",J())=="druta-native-voltage-limits"||(d.value("scope",J())=="voltage_controls"&&d.contains("voltage_controls")&&d["voltage_controls"].is_object()&&d["voltage_controls"].value("kind",J())=="switch_delay")){
+  semantic(ProfileScope::voltage_limits,describe_voltage_limits_profile(d));
  }else if((d.contains("format")&&d["format"]=="druta-native-fan")||(d.contains("scope")&&d["scope"]=="fan")){
   const auto fan=parse_fan_profile(d);out.scope=ProfileScope::fan;out.slot=fan.slot;if(!fan.uuid.empty())out.uuid=fan.uuid;add(out,"fan:policy");
  }else if(is_legacy_timing_profile(d)){
@@ -97,7 +103,7 @@ void validate_components(const std::vector<ProfileComponent>& components){
  }
 }
 }
-const char* profile_scope_name(ProfileScope s){switch(s){case ProfileScope::daily:return "Daily / Advanced";case ProfileScope::curve:return "V/F curve";case ProfileScope::scoped:return "Rail / policy requests";case ProfileScope::timing:return "Memory timings";case ProfileScope::icx:return "iCX settings";case ProfileScope::python_tuning:return "Python tuning action";case ProfileScope::python_rails:return "Python rail limits";case ProfileScope::python_power:return "Python coupled power action";case ProfileScope::fan:return "Individual fan requests";case ProfileScope::legacy_timing:return "Timing exchange import";case ProfileScope::voltage_policy:return "Voltage admission / VF flags";case ProfileScope::power_integral:return "Power feedback ratios";case ProfileScope::combined:return "Combined";default:return "Unsupported";}}
+const char* profile_scope_name(ProfileScope s){switch(s){case ProfileScope::daily:return "Daily / Advanced";case ProfileScope::curve:return "V/F curve";case ProfileScope::scoped:return "Rail / policy requests";case ProfileScope::timing:return "Memory timings";case ProfileScope::icx:return "iCX settings";case ProfileScope::python_tuning:return "Python tuning action";case ProfileScope::python_rails:return "Python rail limits";case ProfileScope::python_power:return "Python coupled power action";case ProfileScope::fan:return "Individual fan requests";case ProfileScope::legacy_timing:return "Timing exchange import";case ProfileScope::voltage_policy:return "Voltage admission / VF flags";case ProfileScope::power_integral:return "Power feedback ratios";case ProfileScope::voltage_tables:return "Voltage requests";case ProfileScope::voltage_limits:return "Voltage definitions / device delays";case ProfileScope::combined:return "Combined";default:return "Unsupported";}}
 bool profile_targets_overlap(const std::string& a,const std::string& b){if(a==b)return true;const auto wildcard=[](const std::string& x,const std::string& y){return x.size()>1&&x.back()=='*'&&y.compare(0,x.size()-1,x,0,x.size()-1)==0;};return wildcard(a,b)||wildcard(b,a);}
 std::vector<ProfileComponent> flatten_profile_collection(const J& d){
  if(!collection(d)){auto description=leaf(d);return {{profile_scope_name(description.scope),d}};}
@@ -121,6 +127,8 @@ J select_profile_targets(const J& d,const std::vector<std::string>& selection){c
  else if(desc.scope==ProfileScope::timing){J fields=J::array();for(const auto& e:out["fields"])if(selected.count("timing:"+e["field"].get<std::string>()))fields.push_back(e);out["fields"]=fields;}
  else if(desc.scope==ProfileScope::voltage_policy)out=select_voltage_policy_profile(out,selection);
  else if(desc.scope==ProfileScope::power_integral)out=select_power_integral_profile(out,selection);
+ else if(desc.scope==ProfileScope::voltage_tables)out=select_voltage_tables_profile(out,selection);
+ else if(desc.scope==ProfileScope::voltage_limits)out=select_voltage_limits_profile(out,selection);
  else if(desc.scope==ProfileScope::python_rails){constexpr const char* fields[]={"reliability","alt_reliability","overvoltage","vmin"};J rails=J::object();for(auto r=out["rail_limits"].begin();r!=out["rail_limits"].end();++r)for(uint32_t f=0;f<4;++f)if(r.value().contains(fields[f])&&selected.count("rail:"+r.key()+":"+std::to_string(f)))rails[r.key()][fields[f]]=r.value()[fields[f]];out["rail_limits"]=rails;}
  // Other formats expose one atomic semantic target.
  (void)leaf(out);return out;

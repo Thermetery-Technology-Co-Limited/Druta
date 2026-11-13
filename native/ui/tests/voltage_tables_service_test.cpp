@@ -89,5 +89,92 @@ void nvapi_only(){Fake x;x.id.uuid[0]=0;x.id.nvml_ok=x.id.nvml_selected=0;Voltag
     Fake mismatch;VoltageTablesService ms(api(),mismatch.gpu(),mismatch.id);ms.read(1);const auto saved=request(ms,0,0,5000);
     std::snprintf(mismatch.id.uuid,sizeof(mismatch.id.uuid),"GPU-other");check(!ms.apply(saved).ok&&mismatch.sets==0,"nonempty UUID mismatch refuses runtime table write");
 }
+void catalog_transactions(){Fake x;VoltageTablesService s(api(),x.gpu(),x.id);s.read(1);
+    check(s.apply(request(s,1,5,9000)).ok,"catalog fixture has meaningful earlier standalone Undo");
+    const auto before_sets=x.sets;const auto plan=s.preview({request(s,0,0,5000),request(s,0,1,1111),request(s,1,4,8000)});
+    check(plan.ok&&x.sets==before_sets,"whole catalog preview includes no-op selected fields without writes");
+    VoltageTablesReceipt receipt;int journals=0;
+    auto applied=s.apply_profile(plan,[&](const auto& r){receipt=r;++journals;check(x.sets==before_sets+journals-1,"receipt published before each possible dispatch");});
+    check(applied.ok&&journals==2&&s.verify(plan).ok&&s.verify(receipt).ok,"catalog receipt includes only two issued changes; complete selected plan verifies");
+    x.set(0,1,12345);check(!s.verify(plan).ok&&s.verify(receipt).ok,"final plan detects interference with selected initial no-op absent from receipt");
+    x.set(1,0,7654);x.public_rows[1][0x3C]=0x33;
+    check(s.restore(receipt).ok&&s.verify(receipt,true).ok&&x.value(0,0)==1000&&x.value(1,4)==2444&&x.value(0,1)==12345&&x.value(1,0)==7654&&x.public_rows[1][0x3C]==0x33,"receipt restores only issued selections rebased onto current unrelated values and unknown fields");
+    check(s.undo().ok&&x.value(1,5)==2555&&x.value(0,1)==12345,"catalog restoration preserves prior meaningful standalone Undo");
+    s.read(1);const auto noop=s.preview({request(s,0,0,1000)});const auto count=x.sets;
+    check(noop.ok&&s.apply_profile(noop,[&](const auto&){check(false,"no-op must not journal");}).ok&&x.sets==count,"all-no-op catalog plan dispatches and journals nothing");
+    x.set(0,0,2222);check(!s.apply_profile(noop,{}).ok&&x.sets==count,"selected plan stale baseline rejected before any SET");
+    Fake other;VoltageTablesService other_service(api(),other.gpu(),other.id);other_service.read(1);
+    check(!other_service.apply_profile(plan,{}).ok&&!other_service.verify(plan).ok&&!other_service.restore(receipt).ok&&other.sets==0,"even matching target cannot reuse another process-local service plan or receipt");
 }
-int main(){normal();qualification();recovery();profiles();exchange_profiles();nvapi_only();std::printf("Voltage tables service: %d failures\n",failures);return failures?1:0;}
+void catalog_qualification(){Fake x;x.info[12+0x33]=5;std::snprintf(x.id.uuid,sizeof(x.id.uuid),"GPU-catalog-alternate");VoltageTablesService s(api(),x.gpu(),x.id);s.read(1);
+    x.admission=false;check(!s.preview({request(s,0,0,5000)}).ok,"ordinary preview refuses disabled admission");
+    const auto projected=s.preview({request(s,0,0,5000)},true);check(projected.ok&&!x.admission&&x.sets==0,"projected admission permits only read-only whole preflight");
+    check(!s.apply_profile(projected,{}).ok&&x.sets==0,"actual Apply rechecks actual gate rather than trusting projected enable");
+    x.admission=true;VoltageTablesReceipt r;check(s.apply_profile(projected,[&](const auto& v){r=v;}).ok&&s.restore(r).ok,"same qualified projected plan applies after explicit external gate enable");
+    x.exports=false;check(!s.preview({request(s,0,0,5000)}).ok,"whole preview checks actual setter export");x.exports=true;
+    x.public_present=1;check(!s.preview({request(s,0,0,5000)}).ok,"whole preview requires complete inventory despite readable selected rail");x.public_present=3;
+    x.fail_reads=1;check(s.preview({request(s,0,0,5000)}).ok&&x.refreshes>0,"preview uses bounded read-only transient recovery");
+    x.fail_reads=100;const auto sets=x.sets;check(!s.preview({request(s,0,0,5000)}).ok&&x.sets==sets,"exhausted transient preview never writes");x.fail_reads=0;
+    const auto identity_plan=s.preview({request(s,0,0,5000)});std::snprintf(x.id.uuid,sizeof(x.id.uuid),"GPU-replaced");
+    check(identity_plan.ok&&!s.apply_profile(identity_plan,{}).ok&&x.sets==sets,"current paired identity revalidated before catalog launch");
+}
+void catalog_partial(){Fake x;VoltageTablesService s(api(),x.gpu(),x.id);s.read(1);check(s.apply(request(s,1,5,9000)).ok,"uncertain catalog fixture earlier edit");
+    auto a=api(); // Replace only the injected setter; preserve real packet semantics.
+    a.public_set=[](dc_gpu* gpu,uint8_t* bytes,size_t size,int32_t& status,dc_error& error){auto& fake=f(gpu);const auto out=setter(gpu,bytes,size,status,error);if(fake.sets==4){fake.fail_reads=100;status=-1;}return out;};
+    VoltageTablesService grouped(a,x.gpu(),x.id);grouped.read(1);check(grouped.apply(request(grouped,1,5,9100)).ok,"grouped service captures its own earlier Undo");
+    const auto plan=grouped.preview({request(grouped,0,0,5000),request(grouped,0,1,6000),request(grouped,0,2,7000)});VoltageTablesReceipt receipt;
+    // Existing writes count two; the second catalog SET is accepted but unreadable.
+    const auto result=grouped.apply_profile(plan,[&](const auto& r){receipt=r;});
+    check(!result.ok&&result.may_have_changed&&grouped.state().recovery_pending&&x.sets==4&&x.value(0,0)==5000&&x.value(0,1)==6000&&x.value(0,2)==1222,"accepted-but-failed catalog SET retains only launched subset without blind rollback or third write");
+    check(!grouped.preview({request(grouped,0,1,6000)}).ok,"pending external recovery blocks a fresh plan");x.fail_reads=0;
+    check(grouped.restore(receipt).ok&&x.value(0,0)==1000&&x.value(0,1)==1111&&grouped.undo().ok&&x.value(1,5)==9000,"explicit receipt recovery restores issued subset and earlier meaningful internal Undo");
+    Fake failed;VoltageTablesService fs(api(),failed.gpu(),failed.id);fs.read(1);auto fp=fs.preview({request(fs,0,0,5000)});failed.foreign_after_set=true;VoltageTablesReceipt fr;
+    check(!fs.apply_profile(fp,[&](const auto& r){fr=r;}).ok,"foreign replacement fixture retains catalog receipt");const auto count=failed.sets;
+    check(!fs.restore(fr).ok&&failed.value(0,0)==987654&&failed.sets==count&&fs.state().recovery_pending,"external selected replacement blocks recovery without erasing receipt or overwriting foreign value");
+}
+void catalog_chain_and_exceptions(){Fake x;VoltageTablesService s(api(),x.gpu(),x.id);s.read(1);
+    check(s.apply(request(s,1,5,9000)).ok,"receipt chain starts with an ordinary edit");
+    VoltageTablesReceipt first,second;auto plan=s.preview({request(s,0,0,5000)});
+    check(s.apply_profile(plan,[&](const auto& r){first=r;}).ok,"first independent catalog component applies");
+    plan=s.preview({request(s,0,1,6000)});check(s.apply_profile(plan,[&](const auto& r){second=r;}).ok,"second independent catalog component applies");
+    x.admission=false;check(!s.apply(request(s,0,2,7000)).ok,"unissued standalone edit after catalog refuses disabled admission");x.admission=true;
+    check(s.restore(second).ok&&s.restore(first).ok&&s.undo().ok&&x.value(1,5)==2555&&x.value(0,0)==1000&&x.value(0,1)==1111,"reverse receipts preserve the entire earlier internal Undo chain");
+    plan=s.preview({request(s,0,0,5000)});const auto count=x.sets;VoltageTablesReceipt cancelled;
+    check(!s.apply_profile(plan,[&](const auto& r){cancelled=r;throw std::runtime_error("journal failure");}).ok&&x.sets==count&&!s.state().recovery_pending,"journal exception before launch does not dispatch or manufacture pending recovery");
+    check(!s.restore(cancelled).ok,"non-issued journal cannot authorize restoration");
+    Fake thrown;auto a=api();a.public_set=[](dc_gpu* gpu,uint8_t* bytes,size_t size,int32_t& status,dc_error& error)->dc_status{
+        setter(gpu,bytes,size,status,error);throw std::runtime_error("transport raised after dispatch");};
+    VoltageTablesService ts(a,thrown.gpu(),thrown.id);ts.read(1);const auto tp=ts.preview({request(ts,0,0,5000)});VoltageTablesReceipt tr;
+    check(!ts.apply_profile(tp,[&](const auto& r){tr=r;}).ok&&thrown.sets==1&&ts.state().recovery_pending,"exception after SET retains uncertain launched receipt");
+    // This fake throws after every SET; a failed restore may nevertheless land.
+    check(!ts.restore(tr).ok&&thrown.value(0,0)==1000&&ts.state().recovery_pending,"accepted-but-throwing restoration keeps recovery until fresh verification");
+    check(ts.restore(tr).ok&&thrown.sets==2&&!ts.state().recovery_pending,"later fresh original readback resolves uncertainty without duplicate SET");
+}
+void catalog_publication(){Fake x;auto a=api();a.transport.escape=[](dc_gpu* gpu,uint8_t* bytes,size_t size,const dc_escape_fields* fields_arg,int32_t* nt,dc_error* error)->dc_status{
+        if(reinterpret_cast<uint32_t*>(bytes)[14]==0x2080B201){
+            if(f(gpu).fail_reads==-999){++f(gpu).reads;error->kind=DC_ERR_INVALID;return DC_E_FAILED;}
+            if(f(gpu).fail_reads==-888)throw std::runtime_error("fresh sampling exception");
+        }return escape(gpu,bytes,size,fields_arg,nt,error);};
+    VoltageTablesService s(a,x.gpu(),x.id);s.read(1);auto plan=s.preview({request(s,0,0,5000)});
+    check(plan.ok&&!s.verify(plan).ok&&!s.state().rows[0].stale&&s.state().rows[0].availability==VoltagePolicyAvailability::available,"desired mismatch is current valid data, not transient unavailability");
+    x.set(0,0,1001);check(!s.apply_profile(plan,{}).ok&&s.state().rows[0].value==1001&&!s.state().rows[0].stale,"stale selected plan rejects SET while publishing freshly sampled replacement");
+    check(!s.verify(VoltageTablesPlan{}).ok&&!s.state().rows[0].stale,"foreign or malformed plan does not downgrade established row availability");
+    plan=s.preview({request(s,0,0,5000)});x.fail_reads=100;
+    check(!s.verify(plan).ok&&s.state().rows[0].stale&&s.state().rows[0].value==1001&&s.state().rows[0].availability==VoltagePolicyAvailability::transient,"exhausted verify capture publishes retained last-good value stale/transient");
+    x.fail_reads=0;s.read(1);x.fail_reads=-888;
+    check(!s.preview({request(s,0,0,5000)}).ok&&s.state().rows[0].stale&&s.state().rows[0].availability==VoltagePolicyAvailability::transient,"transport exception during preview cannot leave last-good data advertised fresh");
+    x.fail_reads=0;s.read(1);const auto reads=x.reads;x.fail_reads=-999;
+    check(!s.preview({request(s,0,0,5000)}).ok&&x.reads==reads+1&&s.state().rows[0].availability==VoltagePolicyAvailability::invalid,"malformed/invalid capability status is not retried or mislabeled transient");
+}
+void catalog_restore_whole_preflight(){Fake x;VoltageTablesService s(api(),x.gpu(),x.id);s.read(1);
+    const auto plan=s.preview({request(s,0,0,5000),request(s,1,1,6000)});VoltageTablesReceipt receipt;
+    check(s.apply_profile(plan,[&](const auto& r){receipt=r;}).ok,"whole-restore preflight fixture issues both selected fields");
+    x.set(0,0,7777);const auto sets=x.sets;
+    check(!s.restore(receipt).ok&&x.sets==sets&&x.value(0,0)==7777&&x.value(1,1)==6000&&s.state().recovery_pending,
+        "conflict in earlier issued field prevents every restoration SET, including the reverse-first peer");
+    check(!s.recover().ok&&x.sets==sets&&x.value(1,1)==6000,"repeated recovery retains whole conflicting receipt without partial mutation");
+    x.set(0,0,5000);check(s.restore(receipt).ok&&s.verify(receipt,true).ok&&x.value(0,0)==1000&&x.value(1,1)==2111,
+        "after conflict resolves, retained receipt restores both selected originals with fresh final verification");
+}
+}
+int main(){normal();qualification();recovery();profiles();exchange_profiles();nvapi_only();catalog_transactions();catalog_qualification();catalog_partial();catalog_chain_and_exceptions();catalog_publication();catalog_restore_whole_preflight();std::printf("Voltage tables service: %d failures\n",failures);return failures?1:0;}

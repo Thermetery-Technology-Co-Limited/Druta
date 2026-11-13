@@ -15,7 +15,7 @@ constexpr uint32_t eq_info=0x2080A0B5,eq_control=0x2080A0B6,eq_set=0x2080E0B7,de
 using Bytes=std::vector<uint8_t>;using Availability=VoltagePolicyAvailability;
 struct Error:std::runtime_error{Availability kind;Error(const std::string& s,Availability a):std::runtime_error(s),kind(a){}};
 [[noreturn]]void fail(const std::string& message,Availability kind=Availability::invalid){throw Error(message,kind);}
-Availability error_kind(const dc_error& error){return error.kind==DC_ERR_UNSUPPORTED?Availability::unsupported:error.kind==DC_ERR_IDENTITY||error.kind==DC_ERR_MALFORMED?Availability::invalid:Availability::transient;}
+Availability error_kind(const dc_error& error){return error.kind==DC_ERR_TRANSIENT||error.kind==DC_ERR_UNSTABLE?Availability::transient:error.kind==DC_ERR_UNSUPPORTED?Availability::unsupported:Availability::invalid;}
 uint32_t u32(const Bytes& b,size_t at){if(at+4>b.size())fail("Voltage packet field is out of bounds");uint32_t v;std::memcpy(&v,b.data()+at,4);return v;}
 uint32_t u16(const Bytes& b,size_t at){if(at+2>b.size())fail("Voltage packet field is out of bounds");uint16_t v;std::memcpy(&v,b.data()+at,2);return v;}
 void put(Bytes& b,size_t at,uint32_t v){if(at+4>b.size())fail("Voltage projection is out of bounds");std::memcpy(b.data()+at,&v,4);}
@@ -31,6 +31,8 @@ Bytes identity_control(Bytes bytes,bool rel){for(size_t at:rel?std::vector<size_
 struct Guard{VoltagePolicyApi& api;dc_gpu* gpu;bool held;Guard(VoltagePolicyApi& a,dc_gpu* g):api(a),gpu(g),held(a.lock&&a.unlock&&a.lock(g)==DC_OK){}~Guard(){if(held)api.unlock(gpu);}};
 struct Capture{bool device=false;dc_target target{};Bytes info,control;dc_rm_transport transport{};std::optional<VoltageEquationEvidence> evidence;};
 struct Record{VoltageLimitRequest request;int64_t before=0;std::optional<int64_t> before_lower;dc_rm_transport transport{};};
+bool same_record(const Record& a,const Record& b){return a.request.key==b.request.key&&a.request.binding==b.request.binding&&a.request.value==b.request.value&&a.request.lower==b.request.lower&&a.before==b.before&&a.before_lower==b.before_lower;}
+bool same_records(const std::vector<Record>& a,const std::vector<Record>& b){if(a.size()!=b.size())return false;for(size_t i=0;i<a.size();++i)if(!same_record(a[i],b[i]))return false;return true;}
 std::string role_token(const VoltageEquationRole& r){std::ostringstream s;s<<int(r.key.kind)<<':'<<r.key.rail<<':'<<r.key.index<<':'<<r.next<<':'<<r.variable<<':'<<r.graph_complete<<':'<<r.shared<<':'<<r.affected_clock_roots<<':'<<r.stored_lower<<':'<<r.stored_value<<':'<<hex(r.info_row)<<':'<<hex(r.control_identity);for(const auto& root:r.roots){s<<'/'<<root.rail<<':'<<root.equation<<':'<<root.alt;for(auto i:root.dependencies)s<<','<<i;}return s.str();}
 bool same_evidence(const VoltageEquationEvidence& a,const VoltageEquationEvidence& b){
  if(!term_equal(a.target,b.target)||a.image_sha256!=b.image_sha256||a.boost_percent!=b.boost_percent||a.policy_identity!=b.policy_identity||a.rail_requests!=b.rail_requests||a.clock_requests!=b.clock_requests||a.retained_requests_qualified!=b.retained_requests_qualified)return false;
@@ -39,9 +41,20 @@ bool same_evidence(const VoltageEquationEvidence& a,const VoltageEquationEvidenc
  return true; // evaluated curve is observed, not a stable request baseline
 }
 }
+struct VoltageLimitsPlan::State {
+ std::shared_ptr<int> session;dc_target target{};
+ std::vector<VoltageLimitRequest> requests;
+ std::vector<VoltageLimitRow> before;
+};
+struct VoltageLimitsReceipt::State {
+ std::shared_ptr<int> session;dc_target target{};
+ std::vector<Record> records,previous_undo,previous_completed;
+ bool issued=false;
+};
 struct VoltageLimitsService::Impl {
  VoltageLimitsApi api;dc_gpu* gpu;dc_gpu_identity identity;std::optional<dc_target> sticky;VoltageLimitsData data;
  std::vector<Record> undo,completed;std::optional<Record> recovery;
+ std::shared_ptr<int> session=std::make_shared<int>(0);
  Impl(VoltageLimitsApi a,dc_gpu* g,const dc_gpu_identity& id):api(std::move(a)),gpu(g),identity(id){data.identity=id;}
  dc_target bind(){auto& a=api.transport;if(!a.identity||!a.bind||!a.architecture_supported||!a.transport||!a.escape)fail("Paired voltage transport interfaces unavailable",Availability::unsupported);
   dc_gpu_identity now{};now.size=sizeof(now);if(a.identity(gpu,&now)!=DC_OK)fail("Selected adapter identity unavailable",Availability::transient);
@@ -53,13 +66,13 @@ struct VoltageLimitsService::Impl {
  dc_rm_transport transport(){bind();dc_rm_transport t{};t.size=sizeof(t);dc_error error{};error.size=sizeof(error);if(api.transport.transport(gpu,&t,&error)!=DC_OK)fail("Voltage escape transport unavailable",error_kind(error));
   if(!t.captured||t.header_count!=17||uint64_t(t.header[2])!=68+uint64_t(t.header[15])||t.header[0]!=0x4E564441||t.header[1]!=0x10002||t.header[3]!=0x4E562A2A||t.header[4]!=0x0500002B)fail("Voltage escape envelope is not understood");bind();return t;
  }
- Bytes call(uint32_t command,size_t size,const dc_rm_transport& t,const Bytes* payload=nullptr,const Bytes* mask=nullptr,bool* dispatched=nullptr){
+ Bytes call(uint32_t command,size_t size,const dc_rm_transport& t,const Bytes* payload=nullptr,const Bytes* mask=nullptr,bool* dispatched=nullptr,const std::function<void()>& on_launch={}){
   std::vector<uint32_t> guarded((68+size)/4+32,0xA5A5A5A5);auto* p=guarded.data()+16;std::copy(t.header,t.header+17,p);p[2]=uint32_t(68+size);p[14]=command;p[15]=uint32_t(size);p[16]=0;p[5]=p[11]=0;auto* bytes=reinterpret_cast<uint8_t*>(p+17);
   if(payload){if(payload->size()!=size)fail("Voltage SET projection size changed");std::memcpy(bytes,payload->data(),size);}if(mask){if(mask->size()+4>size)fail("Voltage inventory is out of bounds");std::memcpy(bytes+4,mask->data(),mask->size());}
-  std::array<uint32_t,16> expected;std::copy(p,p+16,expected.begin());bind();dc_error error{};error.size=sizeof(error);int32_t nt=0;if(dispatched)*dispatched=true;
+  std::array<uint32_t,16> expected;std::copy(p,p+16,expected.begin());bind();dc_error error{};error.size=sizeof(error);int32_t nt=0;if(on_launch)on_launch();if(dispatched)*dispatched=true;
   const auto status=api.transport.escape(gpu,reinterpret_cast<uint8_t*>(p),68+size,&t.fields,&nt,&error);if(dispatched&&status==DC_E_UNAVAILABLE)*dispatched=false;
   if(!std::all_of(guarded.begin(),guarded.begin()+16,[](uint32_t v){return v==0xA5A5A5A5;})||!std::all_of(guarded.end()-16,guarded.end(),[](uint32_t v){return v==0xA5A5A5A5;}))fail("Voltage packet exceeded bounds");bind();
-  if(status!=DC_OK||nt)fail("Voltage escape failed",error_kind(error));
+  if(status!=DC_OK)fail("Voltage escape failed",error_kind(error));if(nt)fail("Voltage escape failed (NTSTATUS)",Availability::transient);
   for(size_t i=0;i<16;++i)if(i!=5&&i!=11&&p[i]!=expected[i])fail("Voltage response changed routing/geometry");if(p[5]>1)fail("Voltage context output is malformed");if(p[11]!=1)fail("Voltage escape has no completed response",Availability::transient);
   if(p[16])fail("Voltage RM request rejected: "+std::to_string(p[16]),p[16]==0x1F||p[16]==0x56?Availability::unsupported:Availability::transient);
   Bytes result(bytes,bytes+size);if(payload&&result!=*payload)fail("Voltage SET changed its caller-owned request");if(mask&&!std::equal(mask->begin(),mask->end(),result.begin()+4))fail("Voltage CONTROL changed its requested inventory");return result;
@@ -159,9 +172,9 @@ struct VoltageLimitsService::Impl {
   else{const size_t at=eq_header+request.key.index*eq_control_stride;if(request.key.kind==VoltageLimitKind::rel){if(request.lower)put_uv(projected,at+4,*request.lower);put_uv(projected,at+8,request.value,true);}else for(size_t offset:{size_t{4},size_t{8},size_t{0x10}})put_uv(projected,at+offset,request.value,request.key.kind!=VoltageLimitKind::alt);}
   return projected;
  }
- Capture write(const Capture& before,const VoltageLimitRequest& request,bool& dispatched){validate(before,request);const auto original=row(before,request.key);const auto projected=project(before,request);auto payload=projected;
+ Capture write(const Capture& before,const VoltageLimitRequest& request,bool& dispatched,const std::function<void()>& on_launch={}){validate(before,request);const auto original=row(before,request.key);const auto projected=project(before,request);auto payload=projected;
   if(before.device)put(payload,4,1u<<request.key.index);else{std::fill(payload.begin()+4,payload.begin()+4+1024,uint8_t{0});payload[4+request.key.index/8]=uint8_t(1u<<(request.key.index%8));}
-  call(before.device?dev_set:eq_set,payload.size(),before.transport,&payload,nullptr,&dispatched);
+  call(before.device?dev_set:eq_set,payload.size(),before.transport,&payload,nullptr,&dispatched,on_launch);
   const auto after=fresh(before.device,&before.transport);if(after.info!=before.info||after.control!=projected)fail("Voltage selected SET did not preserve the exact complete fresh projection");
   if(row(after,request.key).binding!=request.binding)fail("Selected semantic voltage binding changed during SET");
   verify_policy(before,after,request,*original.value);publish(after);return after;
@@ -173,6 +186,19 @@ struct VoltageLimitsService::Impl {
     VoltageLimitRequest restore=record.request;restore.value=record.before;restore.lower=record.before_lower;restore.expected_value=selected.value;restore.expected_lower=selected.lower;bool attempted=false;
     try{write(current,restore,attempted);return true;}catch(...){if(!attempted)throw;const auto after=fresh(device,&current.transport);if(after.info!=current.info||after.control!=project(current,restore))throw;verify_policy(current,after,restore,*selected.value);publish(after);return true;}
    }catch(const std::exception& e){message=e.what();return false;}}
+ Capture sample(bool device){try{auto captured=fresh(device);publish(captured);return captured;}catch(const Error& e){unavailable(device,e.kind,e.what());throw;}catch(const std::exception& e){unavailable(device,Availability::transient,e.what());throw;}}
+ dc_target checked_bind(bool device,bool equation){try{return bind();}catch(const Error& e){if(device)unavailable(true,e.kind,e.what());if(equation)unavailable(false,e.kind,e.what());throw;}catch(const std::exception& e){if(device)unavailable(true,Availability::transient,e.what());if(equation)unavailable(false,Availability::transient,e.what());throw;}}
+ VoltageLimitsPlan prepare(const std::vector<VoltageLimitRequest>& requests){
+  if(recovery)fail("Recover pending selected voltage requests before profile preflight");if(requests.empty()||requests.size()>40)fail("Select between one and forty voltage controls");
+  auto state=std::make_shared<VoltageLimitsPlan::State>();state->session=session;std::optional<Capture> device,equation;std::vector<VoltageLimitKey> seen;
+  for(const auto& request:requests){const auto& key=request.key;const bool dev=key.kind==VoltageLimitKind::switch_delay;if(static_cast<uint32_t>(key.kind)>4||key.rail>1||key.index>=(dev?32u:8192u)||(dev&&key.rail))fail("Invalid selected voltage key");for(const auto& old:seen)if(old==key||(!dev&&old.kind!=VoltageLimitKind::switch_delay&&old.index==key.index))fail("Duplicate or aliased selected voltage control");seen.push_back(key);
+   auto& capture=dev?device:equation;if(!capture)capture=sample(dev);validate(*capture,request);auto original=row(*capture,key);auto frozen=request;frozen.expected_value=original.value;if(frozen.lower)frozen.expected_lower=original.lower;state->requests.push_back(std::move(frozen));state->before.push_back(std::move(original));
+  }
+  state->target=checked_bind(device.has_value(),equation.has_value());VoltageLimitsPlan plan;plan.ok=true;plan.message="All selected voltage controls freshly preflighted; no writes";plan.state=std::move(state);return plan;
+ }
+ const VoltageLimitsPlan::State& qualify(const VoltageLimitsPlan& plan){if(!plan.ok||!plan.state||plan.state->session!=session||plan.state->requests.empty()||plan.state->requests.size()!=plan.state->before.size())fail("Voltage plan belongs to another session or is invalid");bool device=false,equation=false;for(const auto& r:plan.state->requests)(r.key.kind==VoltageLimitKind::switch_delay?device:equation)=true;if(!term_equal(plan.state->target,checked_bind(device,equation)))fail("Voltage plan target changed");return *plan.state;}
+ VoltageLimitsReceipt::State& qualify(const VoltageLimitsReceipt& receipt){if(!receipt.state||receipt.state->session!=session||!receipt.state->issued||receipt.state->records.empty())fail("Voltage receipt belongs to another session or was not issued");bool device=false,equation=false;for(const auto& r:receipt.state->records)(r.request.key.kind==VoltageLimitKind::switch_delay?device:equation)=true;if(!term_equal(receipt.state->target,checked_bind(device,equation)))fail("Voltage receipt target changed");return *receipt.state;}
+ void check_selected(const std::vector<VoltageLimitRequest>& requests,bool validate_requests=false){std::optional<Capture> device,equation;for(const auto& request:requests){auto& capture=request.key.kind==VoltageLimitKind::switch_delay?device:equation;if(!capture)capture=sample(request.key.kind==VoltageLimitKind::switch_delay);if(validate_requests)validate(*capture,request);else{const auto current=row(*capture,request.key);if(current.binding!=request.binding||current.value!=request.value||(request.lower&&current.lower!=request.lower))fail("Final selected voltage profile readback differs");}}}
  VoltageLimitsResult apply(const std::vector<VoltageLimitRequest>& requests){VoltageLimitsResult result;Guard guard(api.transport,gpu);if(!guard.held){result.message="GPU lock unavailable";return result;}if(recovery){result.message="Recover the pending selected voltage request first";return result;}
   std::vector<Record> issued;const auto prior=undo,prior_completed=completed;bool started=false;
   const auto read_fresh=[&](bool device){try{auto capture=fresh(device);publish(capture);return capture;}catch(const Error& e){unavailable(device,e.kind,e.what());throw;}catch(const std::exception& e){unavailable(device,Availability::transient,e.what());throw;}};
@@ -200,6 +226,35 @@ const VoltageLimitsData& VoltageLimitsService::read(uint32_t families){auto& p=*
  p.data.message="Voltage inspection refreshed; evaluate each family's independent status";p.flags();return p.data;
 }
 VoltageLimitsResult VoltageLimitsService::apply(const std::vector<VoltageLimitRequest>& requests){return impl_->apply(requests);}
+VoltageLimitsPlan VoltageLimitsService::preview(const std::vector<VoltageLimitRequest>& requests){auto& p=*impl_;VoltageLimitsPlan result;Guard guard(p.api.transport,p.gpu);try{if(!guard.held)fail("GPU lock unavailable");result=p.prepare(requests);}catch(const std::exception& e){result.message=e.what();}p.data.message=result.message;p.flags();return result;}
+VoltageLimitsResult VoltageLimitsService::apply_profile(const VoltageLimitsPlan& plan,const std::function<void(const VoltageLimitsReceipt&)>& journal){
+ auto& p=*impl_;VoltageLimitsResult result;Guard guard(p.api.transport,p.gpu);VoltageLimitsReceipt receipt;
+ try{if(!guard.held)fail("GPU lock unavailable");const auto& prepared=p.qualify(plan);if(p.recovery)fail("Recover pending voltage requests before profile Apply");p.check_selected(prepared.requests,true);
+  const auto old_undo=p.undo,old_completed=p.completed;
+  for(const auto& request:prepared.requests){auto guarded=prepared.requests;if(receipt.state)for(const auto& issued:receipt.state->records)for(auto& entry:guarded)if(entry.key==issued.request.key){entry.expected_value=issued.request.value;if(entry.lower)entry.expected_lower=issued.request.lower;}p.check_selected(guarded,true);
+   const bool device=request.key.kind==VoltageLimitKind::switch_delay;const auto current=p.sample(device);p.validate(current,guarded[static_cast<size_t>(&request-prepared.requests.data())]);const auto selected=p.row(current,request.key);if(selected.value==request.value&&(!request.lower||selected.lower==request.lower))continue;
+   Record record{request,*selected.value,request.lower?selected.lower:std::nullopt,current.transport};bool dispatched=false,added=false;
+   try{p.write(current,request,dispatched,[&]{if(!receipt.state){receipt.state=std::make_shared<VoltageLimitsReceipt::State>();receipt.state->session=p.session;receipt.state->target=prepared.target;receipt.state->previous_undo=old_undo;receipt.state->previous_completed=old_completed;}auto& state=*receipt.state;state.records.push_back(record);added=true;state.issued=true;if(journal)journal(receipt);p.undo=state.records;p.completed.clear();});}
+   catch(...){if(added&&!dispatched){receipt.state->records.pop_back();receipt.state->issued=!receipt.state->records.empty();p.undo=receipt.state->records.empty()?old_undo:receipt.state->records;p.completed=receipt.state->records.empty()?old_completed:std::vector<Record>{};}if(dispatched){p.recovery=record;p.unavailable(device,Availability::transient,"Selected catalog write unconfirmed; typed recovery retained");}throw;}
+  }
+  p.check_selected(prepared.requests);result.ok=true;result.message="All selected voltage profile requests verified; physical effects are not measured";
+ }catch(const std::exception& e){result.message=std::string(e.what())+(receipt.state&&receipt.state->issued?"; issued selected catalog receipt retained":"; no selected catalog write issued");}
+ result.may_have_changed=receipt.state&&receipt.state->issued;p.data.message=result.message;p.flags();return result;
+}
+VoltageLimitsResult VoltageLimitsService::verify(const VoltageLimitsPlan& plan){auto& p=*impl_;VoltageLimitsResult result;Guard guard(p.api.transport,p.gpu);try{if(!guard.held)fail("GPU lock unavailable");const auto& prepared=p.qualify(plan);p.check_selected(prepared.requests);result.ok=true;result.message="Entire selected voltage plan verified";}catch(const std::exception& e){result.message=e.what();}p.data.message=result.message;p.flags();return result;}
+VoltageLimitsResult VoltageLimitsService::verify(const VoltageLimitsReceipt& receipt,bool original){auto& p=*impl_;VoltageLimitsResult result;Guard guard(p.api.transport,p.gpu);try{if(!guard.held)fail("GPU lock unavailable");const auto& state=p.qualify(receipt);std::vector<VoltageLimitRequest> requests;for(const auto& record:state.records){auto request=record.request;if(original){request.value=record.before;request.lower=record.before_lower;}requests.push_back(std::move(request));}p.check_selected(requests);result.ok=true;result.message=original?"Original issued voltage requests verified":"Issued desired voltage requests verified";}catch(const std::exception& e){result.message=e.what();}p.data.message=result.message;p.flags();return result;}
+VoltageLimitsResult VoltageLimitsService::restore(const VoltageLimitsReceipt& receipt){
+ auto& p=*impl_;VoltageLimitsResult result;Guard guard(p.api.transport,p.gpu);
+ try{if(!guard.held)fail("GPU lock unavailable");auto& state=p.qualify(receipt);if(p.recovery&&std::none_of(state.records.begin(),state.records.end(),[&](const auto& r){return same_record(r,*p.recovery);}))fail("A different voltage recovery is pending");
+  // Validate every selected candidate before the first restore. repair() also
+  // rechecks each immediately before projecting onto fresh unknown fields.
+  for(const auto& record:state.records){const auto current=p.sample(record.request.key.kind==VoltageLimitKind::switch_delay);const auto selected=p.row(current,record.request.key);if(selected.binding!=record.request.binding||(selected.value!=record.before&&selected.value!=record.request.value)||(record.before_lower&&selected.lower!=record.before_lower&&selected.lower!=record.request.lower))fail("Selected voltage receipt was replaced; restoration refused");}
+  const bool replace_undo=same_records(p.undo,state.records);for(auto it=state.records.rbegin();it!=state.records.rend();++it){std::string reason;result.may_have_changed=true;if(!p.repair(*it,reason)){p.recovery=*it;p.unavailable(it->request.key.kind==VoltageLimitKind::switch_delay,Availability::transient,reason);fail(reason);}}
+  std::vector<VoltageLimitRequest> originals;for(const auto& record:state.records){auto request=record.request;request.value=record.before;request.lower=record.before_lower;originals.push_back(std::move(request));}p.check_selected(originals);
+  if(replace_undo){p.undo=state.previous_undo;p.completed=state.previous_completed;}if(p.recovery&&std::any_of(state.records.begin(),state.records.end(),[&](const auto& r){return same_record(r,*p.recovery);}))p.recovery.reset();result.ok=result.rollback_verified=true;result.message="Issued selected voltage requests restored; prior standalone Undo preserved";
+ }catch(const std::exception& e){result.message=std::string(e.what())+"; catalog receipt retained";}
+ p.data.message=result.message;p.flags();return result;
+}
 VoltageLimitsResult VoltageLimitsService::restore_initial(const VoltageLimitKey& key){for(const auto& r:impl_->data.rows)if(r.key==key&&r.initial_value)return apply(VoltageLimitRequest{key,*r.initial_value,r.initial_lower,r.binding,r.value,r.lower});return {false,false,false,"Qualified captured initial request unavailable"};}
 VoltageLimitsResult VoltageLimitsService::restore_rom(const VoltageLimitKey& key){for(const auto& r:impl_->data.rows)if(r.key==key&&r.stored_value)return apply(VoltageLimitRequest{key,*r.stored_value,r.stored_lower,r.binding,r.value,r.lower});return {false,false,false,"Current-ROM qualified bounds/constant unavailable"};}
 VoltageLimitsResult VoltageLimitsService::recover(){auto& p=*impl_;VoltageLimitsResult out;Guard guard(p.api.transport,p.gpu);if(!guard.held){out.message="GPU lock unavailable";return out;}if(!p.recovery){out.ok=true;out.message="No selected recovery pending";return out;}std::string error;out.ok=p.repair(*p.recovery,error);out.may_have_changed=true;out.rollback_verified=out.ok;if(out.ok){p.recovery.reset();out.message="Selected prior request restored and verified; current unselected fields preserved";}else{out.message="Selected recovery pending: "+error;p.unavailable(p.recovery->request.key.kind==VoltageLimitKind::switch_delay,Availability::transient,out.message);}p.data.message=out.message;p.flags();return out;}

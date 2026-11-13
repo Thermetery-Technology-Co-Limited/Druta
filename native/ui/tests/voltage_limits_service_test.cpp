@@ -11,7 +11,7 @@ static unsigned checks=0;
 template<class F>static void rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}CHECK(rejected);}
 namespace {
 using Bytes=std::vector<uint8_t>;dc_gpu_identity device{};Bytes di,dc,ei,ec;bool equations=false,foreign=false,foreign_after=false,nt_after=false,drift_after=false,no_dispatch=false,bad_graph=false,omit_ov=false;
-int failed_gets=0,block_after=0,sets=0,resets=0,transport_calls=0,binding_calls=0,bind_error=0,transport_error=0;
+int failed_gets=0,block_after=0,sets=0,resets=0,transport_calls=0,binding_calls=0,bind_error=0,transport_error=0,catalog_fail_at=0;
 uint32_t get(const Bytes& b,size_t at){uint32_t n;std::memcpy(&n,b.data()+at,4);return n;}void put(Bytes& b,size_t at,uint32_t n){std::memcpy(b.data()+at,&n,4);}void volts(Bytes& b,size_t at,uint32_t n){float f=float(n);std::memcpy(b.data()+at,&f,4);}int64_t voltage(const Bytes& b,size_t at){float f;std::memcpy(&f,b.data()+at,4);return int64_t(f);}
 dc_status DC_CALL id(const dc_gpu*,dc_gpu_identity* out){*out=device;if(foreign)++out->nvapi_devid;return DC_OK;}
 dc_status DC_CALL lock(dc_gpu*){return DC_OK;}dc_status DC_CALL unlock(dc_gpu*){return DC_OK;}
@@ -28,11 +28,11 @@ dc_status DC_CALL escape(dc_gpu*,uint8_t* raw,size_t size,const dc_escape_fields
  else if(command==0x2080A0B5){CHECK(equations&&p[15]==ei.size());std::memcpy(bytes,ei.data(),ei.size());}
  else if(command==0x2080A0B6){CHECK(p[15]==ec.size()&&std::equal(ei.begin()+4,ei.begin()+1028,bytes+4));std::memcpy(bytes,ec.data(),ec.size());}
  else {CHECK(command==0x2080E0B7&&p[15]==ec.size());++sets;unsigned count=0;for(uint32_t i=0;i<8192;++i)if(bytes[4+i/8]&(1u<<(i%8))){++count;const auto at=0x408+i*0x80;std::memcpy(ec.data()+at,bytes+at,0x80);}CHECK(count==1);}
- if(setting){if(foreign_after){foreign_after=false;foreign=true;}if(nt_after){nt_after=false;*nt=-1;}if(block_after){failed_gets=block_after;block_after=0;}}
+ if(setting){if(foreign_after){foreign_after=false;foreign=true;}if(nt_after){nt_after=false;*nt=-1;}if(catalog_fail_at==sets)*nt=-1;if(block_after){failed_gets=block_after;block_after=0;}}
  return DC_OK;
 }
 void fresh(){device={};device.size=sizeof(device);std::strcpy(device.slot,"0000:09:00.0");std::strcpy(device.uuid,"GPU-alternate-limits");device.nvapi_ok=device.nvapi_selected=1;device.nvapi_handle=42;device.nvapi_devid=0x4567;device.nvapi_subsys=0xAABBCCDD;
- equations=foreign=foreign_after=nt_after=drift_after=no_dispatch=bad_graph=omit_ov=false;failed_gets=block_after=sets=resets=transport_calls=binding_calls=bind_error=transport_error=0;
+ equations=foreign=foreign_after=nt_after=drift_after=no_dispatch=bad_graph=omit_ov=false;failed_gets=block_after=sets=resets=transport_calls=binding_calls=bind_error=transport_error=catalog_fail_at=0;
  di.assign(0x708,0xA5);dc.assign(0x188,0xA5);di[0]=dc[0]=2;const auto mask=(1u<<1)|(1u<<7)|(1u<<12);put(di,4,mask);put(dc,4,mask);
  for(uint32_t i:{1u,7u,12u}){const size_t at=8+i*56,ct=8+i*12;di[at]=di[at+1]=dc[ct]=dc[ct+1]=i==7?4:3;di[at+2]=i==12?3:1;di[at+3]=5;di[at+4]=i==12?4:1;put(di,at+8,700000);put(di,at+12,1300000);put(di,at+16,1000);put(dc,ct+4,i==12?40:20);put(dc,ct+8,0xC0FFEE);}
  ei.assign(0xE0408,0xA5);ec.assign(0x100408,0xA5);ei[0]=ec[0]=3;std::fill(ei.begin()+4,ei.begin()+1028,0);std::fill(ec.begin()+4,ec.begin()+1028,0);
@@ -70,7 +70,41 @@ static void exchange_profiles(){fresh();std::strcpy(device.uuid,"GPU-delay-impor
  fresh();equations=true;VoltageLimitsService qualified(api(true),reinterpret_cast<dc_gpu*>(1),device);qualified.read();const auto native=capture_voltage_limits_profile(qualified.state(),{{VoltageLimitKind::switch_delay,0,1},{VoltageLimitKind::ov,0,3}});
  CHECK(describe_voltage_limits_profile(native).targets==std::vector<std::string>({"voltage:delay:1","voltage:equation:2:0:3"}));const auto native_subset=select_voltage_limits_profile(native,{"voltage:delay:1"});CHECK(stage_voltage_limits_profile(native_subset,qualified.state()).size()==1&&sets==0);bad=native;bad["entries"].push_back(bad["entries"][0]);rejects([&]{describe_voltage_limits_profile(bad);});
 }
+static void catalog_contract(){
+ fresh();{
+  std::strcpy(device.uuid,"GPU-catalog-alternate");device.nvapi_handle=99;VoltageLimitsService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read(2);
+  const auto a=request(service,VoltageLimitKind::switch_delay,1,30),b=request(service,VoltageLimitKind::switch_delay,12,40);const auto plan=service.preview({a,b});CHECK(plan.ok&&plan.state&&sets==0);CHECK(!service.preview({a,a}).ok&&sets==0&&!service.state().rows[0].stale);
+  auto stale_draft=a;stale_draft.expected_value=19;CHECK(!service.preview({stale_draft}).ok&&!service.state().rows[0].stale&&service.state().rows[0].writable);CHECK(!service.verify(VoltageLimitsPlan{}).ok&&!service.state().rows[0].stale);
+  auto bad=b;bad.key.index=7;CHECK(!service.preview({a,bad}).ok&&sets==0); // unrelated unsupported device never hides valid index1
+  failed_gets=2;CHECK(!service.preview({a}).ok&&service.state().rows[0].stale&&service.state().rows[0].value==20&&sets==0);service.read(2);
+  auto stale_plan=service.preview({a});di[8+56+3]=6;CHECK(!service.apply_profile(stale_plan,{}).ok&&sets==0);di[8+56+3]=5;service.read(2);
+  VoltageLimitsReceipt receipt;int journal=0;CHECK(service.apply_profile(plan,[&](const auto& r){CHECK(sets==0);receipt=r;++journal;}).ok&&sets==1&&journal==1);CHECK(service.verify(plan).ok&&service.verify(receipt).ok&&!service.verify(receipt,true).ok&&!service.state().rows[0].stale);
+  failed_gets=2;CHECK(!service.verify(plan).ok&&service.state().rows[0].stale&&service.state().rows[0].writable&&service.state().rows[0].value==30);CHECK(service.verify(receipt).ok&&!service.state().rows[0].stale);
+  put(dc,8+12*12+4,45);CHECK(!service.verify(plan).ok&&service.verify(receipt).ok); // entire desired selection includes no-op index12
+  CHECK(service.restore(receipt).ok&&get(dc,24)==20&&get(dc,8+12*12+4)==45&&service.verify(receipt,true).ok); // issued-only restore preserves foreign no-op field
+  VoltageLimitsService other(api(),reinterpret_cast<dc_gpu*>(1),device);other.read(2);const auto before=sets;CHECK(!other.verify(plan).ok&&!other.restore(receipt).ok&&sets==before&&!other.state().rows[0].stale);
+ }
+ fresh();{
+  VoltageLimitsService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read(2);CHECK(service.apply(request(service,VoltageLimitKind::switch_delay,1,25)).ok);const auto old_sets=sets;auto noop=service.preview({request(service,VoltageLimitKind::switch_delay,1,25)});int journal=0;CHECK(service.apply_profile(noop,[&](const auto&){++journal;}).ok&&sets==old_sets&&journal==0&&service.state().undo_available);
+  const auto plan=service.preview({request(service,VoltageLimitKind::switch_delay,12,50)});VoltageLimitsReceipt receipt;CHECK(service.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&service.restore(receipt).ok&&get(dc,8+12*12+4)==40&&service.state().undo_available);CHECK(service.undo().ok&&get(dc,24)==20); // earlier standalone Undo reconstructed
+ }
+ fresh();{
+  VoltageLimitsService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read(2);const auto plan=service.preview({request(service,VoltageLimitKind::switch_delay,1,30),request(service,VoltageLimitKind::switch_delay,12,50)});VoltageLimitsReceipt receipt;catalog_fail_at=2;int journal=0;const auto result=service.apply_profile(plan,[&](const auto& r){receipt=r;++journal;});CHECK(!result.ok&&result.may_have_changed&&sets==2&&journal==2&&service.state().recovery_pending);CHECK(service.verify(receipt).ok);catalog_fail_at=0;
+  put(dc,24,99);const auto before=sets;CHECK(!service.restore(receipt).ok&&sets==before);put(dc,24,30);const auto opaque=dc[2];dc[2]^=0x11;CHECK(service.restore(receipt).ok&&get(dc,24)==20&&get(dc,8+12*12+4)==40&&dc[2]==uint8_t(opaque^0x11)&&!service.state().recovery_pending);
+ }
+ fresh();{
+  VoltageLimitsService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read(2);CHECK(service.apply(request(service,VoltageLimitKind::switch_delay,1,25)).ok);auto plan=service.preview({request(service,VoltageLimitKind::switch_delay,12,50)});VoltageLimitsReceipt receipt;no_dispatch=true;const auto before=sets;CHECK(!service.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&sets==before&&service.state().undo_available&&!service.state().recovery_pending);CHECK(!service.verify(receipt).ok&&service.undo().ok&&get(dc,24)==20);
+ }
+ fresh();equations=true;{
+  VoltageLimitsService service(api(true),reinterpret_cast<dc_gpu*>(1),device);service.read();const auto plan=service.preview({request(service,VoltageLimitKind::switch_delay,1,30),request(service,VoltageLimitKind::ov,3,1250000)});CHECK(plan.ok);VoltageLimitsReceipt receipt;CHECK(service.apply_profile(plan,[&](const auto& r){receipt=r;}).ok&&sets==2&&service.verify(plan).ok);CHECK(service.restore(receipt).ok&&get(dc,24)==20&&voltage(ec,0x408+3*0x80+4)==1200000);
+ }
+ fresh();{
+  VoltageLimitsService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read(2);auto delay=request(service,VoltageLimitKind::switch_delay,1,30);VoltageLimitRequest unknown{{VoltageLimitKind::ov,0,3},1250000,{},"unbound",{}, {}};CHECK(!service.preview({delay,unknown}).ok&&sets==0&&service.state().rows[0].writable); // no semantic provider is invented
+  const auto before=binding_calls;bind_error=DC_ERR_INVALID;CHECK(!service.preview({delay}).ok&&binding_calls==before+1&&sets==0&&service.state().rows[0].stale&&service.state().rows[0].availability==VoltagePolicyAvailability::invalid);
+ }
+}
 int main(){
+ catalog_contract();
  exchange_profiles();
  fresh();{VoltageLimitsService s(api(),reinterpret_cast<dc_gpu*>(1),device);auto data=s.read();CHECK(data.rows.size()==3&&data.rows[0].writable&&!data.rows[1].writable&&data.rows[2].writable);CHECK(data.equations_message.find("exports")!=std::string::npos);
  auto r=request(s,VoltageLimitKind::switch_delay,1,250);CHECK(s.apply(r).ok&&get(dc,24)==250&&get(dc,28)==0xC0FFEE);CHECK(s.undo().ok&&get(dc,24)==20);

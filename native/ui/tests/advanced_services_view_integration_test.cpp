@@ -52,6 +52,17 @@ void pages(Presentation presentation){
     check(w!=nullptr,"Advanced content window exists");if(!w)return;
     check(text.find("Power feedback ratios")!=std::string::npos && text.find("Voltage admission and V/F policies")!=std::string::npos && text.find("Power arbitration")!=std::string::npos,"Advanced exposes all service headers");
     check(state.commands.empty(),"drawing does not dispatch commands");
+    state.voltage_tables_view.initialized=true;state.voltage_tables_view.generation=1;
+    state.voltage_tables_view.drafts.push_back({});state.voltage_tables_view.drafts.back().dirty=true;std::strcpy(state.voltage_tables_view.drafts.back().text.data(),"17.25");
+    state.voltage_limits_view.initialized=true;state.voltage_limits_view.generation=1;state.voltage_limits_view.drafts.push_back({});state.voltage_limits_view.drafts.back().dirty=true;state.voltage_limits_view.drafts.back().value=321;
+    state.open_voltage_tables_requested=true;text=frame(state);
+    check(!state.open_voltage_tables_requested&&text.find("Read voltage requests")!=std::string::npos,"table navigation opens the actual panel");
+    check(state.commands.empty()&&state.voltage_tables_intents.empty()&&state.voltage_limits_intents.empty()&&state.voltage_tables_view.drafts[0].dirty&&std::strcmp(state.voltage_tables_view.drafts[0].text.data(),"17.25")==0,"table navigation preserves drafts and issues no commands");
+    state.open_voltage_limits_requested=true;text=frame(state);
+    check(!state.open_voltage_limits_requested&&text.find("Read voltage device delays")!=std::string::npos,"definitions navigation opens the actual panel");
+    check(state.commands.empty()&&state.voltage_tables_intents.empty()&&state.voltage_limits_intents.empty()&&state.voltage_limits_view.drafts[0].dirty&&state.voltage_limits_view.drafts[0].value==321,"definitions navigation preserves drafts and issues no commands");
+    state.open_voltage_policy_requested=true;text=frame(state);check(!state.open_voltage_policy_requested&&text.find("Read voltage policies")!=std::string::npos,"policy navigation remains available");
+    state.open_power_integral_requested=true;text=frame(state);check(!state.open_power_integral_requested&&text.find("Read feedback requests")!=std::string::npos&&state.commands.empty(),"integral navigation remains command-free");
     open_header(w,"advanced-semantic-controls","Power feedback ratios");
     open_header(w,"advanced-semantic-controls","Voltage admission and V/F policies");
     open_header(w,nullptr,"Power arbitration");

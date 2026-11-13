@@ -66,6 +66,8 @@ struct VoltageLimitRequest {
     std::string binding;std::optional<int64_t> expected_value,expected_lower;
 };
 struct VoltageLimitsResult {bool ok=false,may_have_changed=false,rollback_verified=false;std::string message;};
+struct VoltageLimitsPlan {struct State;bool ok=false;std::string message;std::shared_ptr<const State> state;};
+struct VoltageLimitsReceipt {struct State;std::shared_ptr<State> state;};
 class VoltageLimitsService {
 public:
     VoltageLimitsService(VoltageLimitsApi,dc_gpu*,const dc_gpu_identity&);
@@ -73,6 +75,11 @@ public:
     // bit1: equations/roles; bit2: switch-delay devices. No automatic polling.
     const VoltageLimitsData& read(uint32_t families=3);
     VoltageLimitsResult apply(const std::vector<VoltageLimitRequest>&);
+    VoltageLimitsPlan preview(const std::vector<VoltageLimitRequest>&);
+    VoltageLimitsResult apply_profile(const VoltageLimitsPlan&,const std::function<void(const VoltageLimitsReceipt&)>& before_write);
+    VoltageLimitsResult restore(const VoltageLimitsReceipt&);
+    VoltageLimitsResult verify(const VoltageLimitsPlan&);
+    VoltageLimitsResult verify(const VoltageLimitsReceipt&,bool original=false);
     VoltageLimitsResult apply(const VoltageLimitRequest& request){return apply(std::vector<VoltageLimitRequest>{request});}
     VoltageLimitsResult restore_initial(const VoltageLimitKey&);
     VoltageLimitsResult restore_rom(const VoltageLimitKey&);

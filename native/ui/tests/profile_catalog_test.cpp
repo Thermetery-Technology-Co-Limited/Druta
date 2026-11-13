@@ -35,5 +35,19 @@ int main(){
  rejects([&]{select_profile_targets(d,{"clock:memory","clock:memory"});});rejects([&]{select_profile_targets(d,{"unknown"});});
  CHECK(profile_targets_overlap("power:*","power:policy:9")&&!profile_targets_overlap("power:board","power:policy:9"));
  CHECK(!inspect_profile(ProfileJson{{"schema",2},{"scope","voltage_requests"}}).valid);bad=combined;bad["components"][0]["state"]=combined;CHECK(!inspect_profile(bad).valid);
+ auto requests=ProfileJson{{"format","druta-native-voltage-requests"},{"version",1},{"target",target()},{"fields",ProfileJson::array({{{"rail",1},{"field",3},{"policy_type",3},{"control_type",2},{"value_uv",15000}},{{"rail",0},{"field",5},{"policy_type",1},{"control_type",0},{"value_uv",500}}})}};
+ auto limits=ProfileJson{{"format","druta-native-voltage-limits"},{"version",1},{"target",target()},{"entries",ProfileJson::array({{{"kind",4},{"rail",0},{"index",1},{"binding","delay-binding"},{"unit","us"},{"value",350}},{{"kind",4},{"rail",0},{"index",2},{"binding","delay-two"},{"unit","us"},{"value",400}}})}};
+ CHECK(inspect_profile(requests).scope==ProfileScope::voltage_tables&&inspect_profile(limits).scope==ProfileScope::voltage_limits);
+ CHECK(select_profile_targets(requests,{"rail:1:3"})["fields"].size()==1&&select_profile_targets(limits,{"voltage:delay:2"})["entries"].size()==1);
+ rejects([&]{compose_profiles({{"Scoped",s},{"Requests",requests}});});
+ auto mixed=compose_profiles({{"Requests",requests},{"Delays",limits},{"Memory",subset}});CHECK(inspect_profile(mixed).valid&&flatten_profile_collection(select_profile_targets(mixed,{"voltage:request:0:5","voltage:delay:2"})).size()==2);
+ bad=requests;bad["fields"][1]["value_uv"]=true;CHECK(!inspect_profile(bad).valid);rejects([&]{select_profile_targets(bad,{"rail:1:3"});});
+ bad=limits;bad["target"]["uuid"]="GPU-other-device";rejects([&]{compose_profiles({{"Requests",requests},{"Foreign",bad}});});
+ const auto ident=ProfileJson{{"slot","0000:06:00.0"},{"architecture",7},{"device_id",0x1234},{"subsystem_id",42}};
+ auto pyrequests=ProfileJson{{"schema",2},{"scope","voltage_requests"},{"device",{{"uuid","GPU-other"},{"slot","0000:06:00.0"}}},{"voltage_requests",{{"identity",ident},{"rails",{{"1",{{"identity",{{"name","MSVDD"},{"policy_type",3},{"control_type",2}}},{"offsets_uv",{{"VMIN",123},{"VCRIT high",456}}}}}}}}}};
+ auto pydelays=ProfileJson{{"schema",2},{"scope","voltage_controls"},{"device",{{"uuid","GPU-other"},{"slot","0000:06:00.0"}}},{"voltage_controls",{{"kind","switch_delay"},{"identity",ident},{"rows",ProfileJson::array({{{"index",1},{"type",3},{"voltage_domain",1},{"operation_type",1},{"i2c_device_index",5},{"switch_delay_us",350}},{{"index",2},{"type",3},{"voltage_domain",2},{"operation_type",2},{"i2c_device_index",6},{"switch_delay_us",400}}})}}}};
+ CHECK(inspect_profile(pyrequests).scope==ProfileScope::voltage_tables&&inspect_profile(pydelays).scope==ProfileScope::voltage_limits);
+ CHECK(select_profile_targets(pyrequests,{"rail:1:3"})["voltage_requests"]["rails"]["1"]["offsets_uv"].size()==1&&select_profile_targets(pydelays,{"voltage:delay:2"})["voltage_controls"]["rows"].size()==1);
+ rejects([&]{compose_profiles({{"Python",pyrequests},{"Scoped",s}});});bad=pydelays;bad["voltage_controls"]["rows"][1]["type"]=2;rejects([&]{select_profile_targets(bad,{"voltage:delay:1"});});bad=pydelays;bad["voltage_controls"]["kind"]="constants";CHECK(!inspect_profile(bad).valid);
  std::printf("Profile catalog: %u checks\n",checks);return 0;
 }

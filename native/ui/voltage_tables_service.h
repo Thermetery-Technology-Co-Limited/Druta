@@ -34,6 +34,9 @@ struct VoltageTableRequest {
     std::optional<int32_t> expected;
 };
 struct VoltageTablesResult {bool ok=false,may_have_changed=false,rollback_verified=false;std::string message;};
+// Process-local selected-value contracts; no captured packet is replayed.
+struct VoltageTablesPlan {struct State;bool ok=false;std::string message;std::shared_ptr<const State> state;};
+struct VoltageTablesReceipt {struct State;std::shared_ptr<State> state;};
 struct VoltageTablesApi {
     VoltagePolicyApi transport;
     decltype(&dc_rails_blocks) rails_blocks=nullptr;
@@ -56,6 +59,12 @@ public:
     const VoltageTablesData& read(uint32_t families=3); // bit1 requests, bit2 scaffold offsets
     VoltageTablesResult apply(const VoltageTableRequest&);
     VoltageTablesResult apply(const std::vector<VoltageTableRequest>&);
+    VoltageTablesPlan preview(const std::vector<VoltageTableRequest>&,std::optional<bool> projected_admission={});
+    VoltageTablesResult apply_profile(const VoltageTablesPlan&,
+        const std::function<void(const VoltageTablesReceipt&)>& before_write);
+    VoltageTablesResult restore(const VoltageTablesReceipt&);
+    VoltageTablesResult verify(const VoltageTablesPlan&);
+    VoltageTablesResult verify(const VoltageTablesReceipt&,bool original=false);
     VoltageTablesResult undo();
     VoltageTablesResult recover();
     VoltageTablesResult restore_initial(const VoltageTableKey&);

@@ -111,7 +111,7 @@ add_test(NAME druta-ui-voltage-policy-catalog-service COMMAND druta-ui-voltage-p
 add_executable(druta-ui-integral-profile-client-test tests/integral_profile_client_test.cpp)
 target_link_libraries(druta-ui-integral-profile-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-integral-profile-client COMMAND druta-ui-integral-profile-client-test)
-foreach(catalog_client IN ITEMS policy integral)
+foreach(catalog_client IN ITEMS policy integral voltage)
   add_executable(druta-ui-${catalog_client}-catalog-client-test tests/${catalog_client}_catalog_client_test.cpp)
   target_link_libraries(druta-ui-${catalog_client}-catalog-client-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${catalog_client}-catalog-client COMMAND druta-ui-${catalog_client}-catalog-client-test)

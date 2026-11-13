@@ -412,6 +412,8 @@ struct App {
                 }
                 case ProfileScope::voltage_policy:view.page=Page::advanced;view.open_voltage_policy_requested=true;workspace.open=false;break;
                 case ProfileScope::power_integral:view.page=Page::advanced;view.open_power_integral_requested=true;workspace.open=false;break;
+                case ProfileScope::voltage_tables:view.page=Page::advanced;view.open_voltage_tables_requested=true;workspace.open=false;break;
+                case ProfileScope::voltage_limits:view.page=Page::advanced;view.open_voltage_limits_requested=true;workspace.open=false;break;
                 case ProfileScope::timing:view.timing_save_profile_requested=true;break;
                 case ProfileScope::icx:view.i2c_save_profile_requested=true;break;
                 case ProfileScope::fan:{std::wstring path;if(!selected_profile_path(true,snapshot->generation,path))break;
@@ -963,11 +965,11 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[20] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    const wchar_t* captures[22] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp", L"19-policy-profiles.bmp", L"20-integral-profiles.bmp"};
-    const char* names[20] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls", "policy_profile_controls", "integral_profile_controls"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp", L"19-policy-profiles.bmp", L"20-integral-profiles.bmp", L"21-voltage-requests.bmp", L"22-device-delays.bmp"};
+    const char* names[22] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls", "policy_profile_controls", "integral_profile_controls", "voltage_request_controls", "voltage_delay_controls"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -1003,12 +1005,14 @@ struct Smoke {
         if(phase==17)ok=ok&&app.view.clock_gating_intents.empty()&&!app.view.open_clock_gating_requested;
         if(phase==18)ok=ok&&app.view.voltage_policy_profile_intents.empty()&&!app.view.open_voltage_policy_requested;
         if(phase==19)ok=ok&&app.view.power_integral_profile_intents.empty()&&!app.view.open_power_integral_requested;
+        if(phase==20)ok=ok&&app.view.voltage_tables_intents.empty()&&!app.view.open_voltage_tables_requested;
+        if(phase==21)ok=ok&&app.view.voltage_limits_intents.empty()&&!app.view.open_voltage_limits_requested;
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 19 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 21 ? "" : ",");
         report += row;
-        if (++phase == 20) {
+        if (++phase == 22) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -1042,6 +1046,8 @@ struct Smoke {
         if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=true;}
         if(phase==18){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_policy_requested=true;}
         if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=true;}
+        if(phase==20){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_tables_requested=true;}
+        if(phase==21){app.view.presentation=druta::ui::Presentation::classic;app.view.open_voltage_limits_requested=true;}
         begin(app);
     }
 };

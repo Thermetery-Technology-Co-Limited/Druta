@@ -569,5 +569,14 @@ only requests that were issued, including uncertain partial writes.
 The standalone voltage-request, device switch-delay, low-power and PCIe-speed
 editors now accept their released Python profiles. Load checks saved identity,
 units and selected metadata against current adapter evidence and stages local
-drafts. These families still use their own explicit Apply; their integration
-into combined catalog transactions remains open.
+drafts. Voltage requests and device switch delays can also be selected in
+the catalog alongside native voltage request/limit profiles. Catalog capture
+selectors open the appropriate Advanced panel in either skin without reading
+or applying a control. Low-power and clock/PCIe families still use their own
+explicit Apply; their catalog integration remains open.
+
+Catalog voltage composition checks all selected fields first, projects an
+explicitly selected admission enable during preflight, and checks actual
+admission when writing. Admission enable is ordered first and disable last.
+Final verification includes selected no-op fields; issued-only typed receipts
+retain partial recovery and previous Undo. Profiles never apply on restart.
