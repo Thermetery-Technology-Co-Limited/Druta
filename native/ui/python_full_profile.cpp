@@ -45,6 +45,7 @@ ProfileDescription source_description(const J& s){
  if(present(s,"i2c")){const auto& i=s["i2c"];exact_keys(i,{"profile","sha256","port","addr7","rail","format","current_dac_control","control","offset_mv","display_name"});if(!i.empty()){need(!present(i,"format")||i["format"]=="i2c.current_dac_control"||i["format"]=="i2c.multi_state_offset","Unknown I2C profile format");for(const auto k:{"profile","sha256","rail","display_name","format"})if(i.contains(k))strnull(i[k]);for(const auto k:{"port","addr7"})if(present(i,k))integer(i[k],0,UINT32_MAX);if(present(i,"offset_mv"))(void)num(i["offset_mv"]);need(!(i.contains("offset_mv")&&(i.contains("control")||i.contains("current_dac_control")))&&!(i.contains("control")&&i.contains("current_dac_control")),"Conflicting I2C control forms");if(i.contains("current_dac_control")||i.value("format",J())=="i2c.current_dac_control")(void)parse_python_nct3933_profile(i);
  else if(i.value("format",J())=="i2c.multi_state_offset" || (i.contains("control")&&i["control"].is_object()&&i["control"].value("kind",J())=="up9512r-offset-v1"))(void)parse_python_up9512r_profile(i);
  else if(i.contains("control")){need(i["control"].is_object()&&i["control"].value("kind",J())=="absolute_vid","Unknown compound I2C control");(void)parse_python_ncp4206_profile(i);}
+ else if(i.contains("offset_mv"))(void)parse_python_offset_profile(i);
  add(d,"i2c:controller");}}
  need(!d.targets.empty(),"Full profile selects no controls");d.summary="Python full tune: "+std::to_string(d.targets.size())+" targets; fresh preflight required";return d;
 }

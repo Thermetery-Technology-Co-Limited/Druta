@@ -29,7 +29,7 @@ target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/back
 target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
 
 add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
-  profile_catalog.cpp semantic_policy_profile.cpp saving_profile.cpp fan_profile.cpp python_scoped_profile.cpp python_full_profile.cpp python_i2c_profile.cpp ../src/core/sha256.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp
+  profile_catalog.cpp controller_profile_order.cpp semantic_policy_profile.cpp saving_profile.cpp fan_profile.cpp python_scoped_profile.cpp python_full_profile.cpp python_i2c_profile.cpp ../src/core/sha256.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
   i2c_icx.cpp i2c_mp2888_offset.cpp i2c_mp29816.cpp icx_preset.cpp i2c_verify_hold.cpp i2c_warmup.cpp
   tuning_actions.cpp timings_service.cpp timing_transport.cpp perf_view_model.cpp frequency_lock.cpp
@@ -123,7 +123,7 @@ add_test(NAME druta-ui-profile-catalog-client COMMAND druta-ui-profile-catalog-c
 add_executable(druta-ui-full-tune-fields-test tests/full_tune_fields_test.cpp)
 target_link_libraries(druta-ui-full-tune-fields-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-full-tune-fields COMMAND druta-ui-full-tune-fields-test)
-foreach(profile_test IN ITEMS python-i2c-profile i2c-profile-session i2c-profile-catalog-client i2c-compound-catalog-client timing-memory-catalog)
+foreach(profile_test IN ITEMS controller-profile-order python-i2c-profile i2c-profile-session i2c-profile-catalog-client i2c-compound-catalog-client i2c-composed-catalog-client timing-memory-catalog)
   string(REPLACE "-" "_" profile_source ${profile_test})
   add_executable(druta-ui-${profile_test}-test tests/${profile_source}_test.cpp)
   target_link_libraries(druta-ui-${profile_test}-test PRIVATE druta_ui_session)
@@ -265,7 +265,7 @@ add_test(NAME druta-ui-shunt-model COMMAND druta-ui-shunt-model-test ${CMAKE_CUR
 add_executable(druta-ui-shunt-view-test tests/shunt_view_test.cpp)
 target_link_libraries(druta-ui-shunt-view-test PRIVATE druta_ui_shunt)
 add_test(NAME druta-ui-shunt-view COMMAND druta-ui-shunt-view-test)
-foreach(controller_test i2c_nct_ncp nct_profile_driver up_profile_driver ncp_profile_driver i2c_compound_profile_session i2c_up_icx i2c_mp2888_offset i2c_mp29816 icx_preset icx_session i2c_verify_hold i2c_warmup)
+foreach(controller_test i2c_nct_ncp nct_profile_driver up_profile_driver ncp_profile_driver mp2888_profile_driver mp29816_profile_driver i2c_compound_profile_session i2c_offset_profile_session i2c_up_icx i2c_mp2888_offset i2c_mp29816 icx_preset icx_session i2c_verify_hold i2c_warmup)
   add_executable(druta-ui-${controller_test}-test tests/${controller_test}_test.cpp)
   target_link_libraries(druta-ui-${controller_test}-test PRIVATE druta_ui_session)
   if(MSVC)

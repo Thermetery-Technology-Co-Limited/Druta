@@ -101,7 +101,7 @@ static void full_tune_tests(){
  full_curve_drift=true;before_curve=curve_writes;auto drift=client->execute(catalog_command(doc));CHECK(!drift.ok&&drift.may_have_changed&&curve_writes==before_curve);full_curve_drift=false;voltage_shift=0;CHECK(client->execute(undo).ok&&current==40&&boost_value==10);
  // Unhandled controller state remains visible, never silently omitted. Only
  // an explicit selection may omit it, while malformed source still refuses.
- auto with_i2c=doc;with_i2c["i2c"]={{"offset_mv",10}};before=writes;CHECK(!client->execute(catalog_command(with_i2c)).ok&&writes==before);auto selected=select_profile_targets(with_i2c,{"clock:memory"});CHECK(client->execute(catalog_command(selected)).ok&&current==80&&boost_value==10);CHECK(client->execute(undo).ok&&current==40);
+ auto with_i2c=doc;with_i2c["i2c"]={{"profile","RTX 2080 Ti - NVVDD (MP2888A)"},{"sha256","4a3979d6500eca53c3f37e7ccf7f0a1ad2ea71ee819a8e26c11a535c912470f7"},{"port",1},{"addr7",32},{"rail","NVVDD"},{"display_name","offset"},{"offset_mv",12.5}};before=writes;CHECK(!client->execute(catalog_command(with_i2c)).ok&&writes==before);auto selected=select_profile_targets(with_i2c,{"clock:memory"});CHECK(client->execute(catalog_command(selected)).ok&&current==80&&boost_value==10);CHECK(client->execute(undo).ok&&current==40);
  auto malformed=selected;malformed["source"]["msvdd_offsets_mv"]={{"5",0.0001}};before=writes;CHECK(!client->execute(catalog_command(malformed)).ok&&writes==before);
  // Whole-source identities and canonical overlaps are enforced on imports.
  auto foreign=doc;foreign["device"]["uuid"]="GPU-foreign";CHECK(!client->execute(catalog_command(foreign)).ok&&writes==before);

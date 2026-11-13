@@ -30,7 +30,7 @@ int main(){ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr
  record_profile_catalog_preflight(state,0,*state.staged,true,"Wrong generation");CHECK(!state.preflight_ok);
  sync_profile_catalog_generation(state,2);CHECK(!state.staged&&!state.preflight_ok&&!state.items[0].included&&state.items.size()==2);
  add_profile_catalog_item(state,"bad.json","Unsupported",{{"scope","mystery"},{"schema",2}});CHECK(!state.items.back().description.valid);state.items.back().included=true;CHECK(!stage_profile_catalog_selection(state));
- state.items.clear();sync_profile_catalog_generation(state,1);auto full=ProfileJson{{"schema",2},{"device",{{"uuid","GPU-alternate"},{"slot","0000:04:00.0"}}},{"mem_off_units",400},{"vf_deltas",{{"0",30000}}},{"i2c",{{"offset_mv",10}}}};
+ state.items.clear();sync_profile_catalog_generation(state,1);auto full=ProfileJson{{"schema",2},{"device",{{"uuid","GPU-alternate"},{"slot","0000:04:00.0"}}},{"mem_off_units",400},{"vf_deltas",{{"0",30000}}},{"i2c",{{"profile","RTX 2080 Ti - NVVDD (MP2888A)"},{"sha256","4a3979d6500eca53c3f37e7ccf7f0a1ad2ea71ee819a8e26c11a535c912470f7"},{"port",1},{"addr7",32},{"rail","NVVDD"},{"display_name","offset"},{"offset_mv",12.5}}}};
  add_profile_catalog_item(state,"full.json","Python full tune",full);CHECK(state.items[0].description.valid&&state.items[0].selected_targets.size()==3);CHECK(frame(state,true).intents.empty());
  state.items[0].included=true;state.items[0].selected_targets={"clock:memory"};CHECK(stage_profile_catalog_selection(state)&&state.staged);CHECK((*state.staged)["components"][0]["state"]["source"]==full);
  CHECK(frame(state,true,false,"Apply staged profile").intents.empty());

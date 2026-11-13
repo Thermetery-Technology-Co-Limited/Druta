@@ -4,14 +4,24 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <stdexcept>
 
 namespace druta::ui {
 namespace {
+struct MpOffsetSnapshot { unsigned address=0,word=0,limit=0,mode=0,voltage=0; };
+struct MpOffsetPlan final : OffsetProfilePlanState {
+    std::shared_ptr<int> session;MpOffsetSnapshot before;OffsetProfileRequest request;unsigned target=0;uint64_t epoch=0;
+};
+struct MpOffsetReceipt final : OffsetProfileReceiptState {
+    std::shared_ptr<int> session;std::shared_ptr<const MpOffsetPlan> plan;bool issued=false;uint64_t epoch=0;
+};
 class MpOffset final : public ControllerDriver {
     ControllerIo& io; I2cRoute route;
     bool identified=false, verified=false, recovery=false;
     std::optional<unsigned> initial, last, attempted;
-    struct State { unsigned address=0, word=0, limit=0, mode=0, voltage=0; };
+    using State=MpOffsetSnapshot;
+    std::shared_ptr<int> session=std::make_shared<int>(0);
+    std::shared_ptr<MpOffsetReceipt> profile;uint64_t epoch=0;
     static int sign(unsigned x) {x &= 255; return x&128 ? int(x)-256 : int(x);}
     bool get(uint8_t reg,size_t size,unsigned& out) {
         for(int i=0;i<3;++i) {std::vector<uint8_t> bytes; if(io.controller_bound() && io.read_bytes(route,reg,size,bytes) && bytes.size()==size && io.controller_bound()) {out=0; for(size_t j=0;j<size;++j) out|=unsigned(bytes[j])<<(8*j); return true;}}
@@ -29,7 +39,24 @@ class MpOffset final : public ControllerDriver {
         return s.address==addr2 && s.word==word2 && s.mode==mode2 && s.limit==limit2;
     }
     bool same(const State& a,const State& b) {return a.address==b.address && a.word==b.word && a.limit==b.limit && a.mode==b.mode;}
-    bool write(unsigned word) {return io.write_bytes(I2cFamily::mp2888,route,0x23,{uint8_t(word),uint8_t(word>>8)});}
+    bool write(unsigned word) {++epoch;return io.write_bytes(I2cFamily::mp2888,route,0x23,{uint8_t(word),uint8_t(word>>8)});}
+    static void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
+    State profile_capture(bool voltage_needed=true){State value;require(capture(value,voltage_needed),"MP2888 coarse-offset target/state unavailable or foreign manual mode active");return value;}
+    static bool geometry(const State& a,const State& b){return a.address==b.address&&a.limit==b.limit&&a.mode==b.mode;}
+    unsigned profile_guard(const OffsetProfileRequest& request,const ControllerContext& context,const State& before){
+        require(request.page==-1&&request.scale==-1,"MP2888 coarse offset has no saved PAGE/scale selector");
+        require(context.gate&&verified,"Enable I2C and verify the selected coarse-offset response first");
+        require(std::isfinite(request.mv)&&request.mv/6.25==std::trunc(request.mv/6.25),"Saved MP2888 offset must be an exact finite 6.25 mV request");
+        require(context.xoc||(request.mv>=-200&&request.mv<=100),"Saved MP2888 offset exceeds the current mode envelope");
+        const double steps=request.mv/6.25;require(steps>=-111&&steps<=112,"Saved MP2888 offset is outside the controller encoding");
+        const double predicted=double(before.voltage)-sign(before.word)*6.25+request.mv;
+        const double ceiling=std::min(before.limit*6.25,context.xoc?2000.0:1200.0);
+        require((context.xoc||(before.voltage>=400&&before.voltage<=1300))&&predicted<=ceiling&&predicted<=2000,"Controller VOUT or projected estimate exceeds current live limits");
+        return (before.word&0xff00u)|(unsigned(int(steps))&255u);
+    }
+    std::shared_ptr<const MpOffsetPlan> qualify(const OffsetProfilePlan& wrapped){const auto plan=std::dynamic_pointer_cast<const MpOffsetPlan>(wrapped.state);require(plan&&plan->session==session,"Offset plan belongs to another recipe or selected driver");require(plan->epoch==epoch&&!profile&&!initial&&!recovery,"MP2888 scalar/profile lifecycle changed since preflight");return plan;}
+    std::shared_ptr<MpOffsetReceipt> qualify(const OffsetProfileReceipt& wrapped){const auto receipt=std::dynamic_pointer_cast<MpOffsetReceipt>(wrapped.state);require(receipt&&receipt->session==session&&receipt->plan&&receipt->issued,"Offset receipt belongs to another recipe/driver or has no issued request");require(receipt->epoch==epoch&&(!profile||profile==receipt)&&!initial,"MP2888 offset ownership lifecycle was replaced");return receipt;}
+    void candidate(const MpOffsetReceipt& receipt,const State& current){require(geometry(current,receipt.plan->before),"MP2888 address, E1 mode or live limit changed; restoration refused");require(current.word==receipt.plan->before.word||current.word==receipt.plan->target,"MP2888 offset changed outside the issued request; restoration refused");}
     bool restore_word(unsigned word) {
         State before,after; if(!capture(before,false)) return false;
         // Only accept a value known to have belonged to this transaction.
@@ -61,17 +88,38 @@ public:
     // when reading or operating the offset method.
     bool probe() override {identified=fingerprint(); return identified;}
     ControllerView read(bool xoc) override {
-        ControllerView v; v.name="MP2888A offset candidate"; v.owned=bool(initial); v.recovery=recovery; v.verified=verified;
+        ControllerView v; v.name="MP2888A offset candidate"; v.owned=owned(); v.recovery=recovery; v.verified=verified;
         State s; if(!capture(s)) {v.stale=true; v.message="Offset state unavailable or manual mode active"; return v;}
         v.readable=v.capable=true; I2cField f; f.key="offset"; f.label="Offset"; f.unit="mV"; f.value=sign(s.word)*6.25; f.minimum=xoc?-111*6.25:-200; f.maximum=xoc?112*6.25:100; f.step=6.25; f.writable=verified&&!recovery; f.resettable=true; f.reset_label="Stock / zero"; f.detail="Controller offset command; physical voltage requires a meter"; v.fields.push_back(f); v.readings.emplace_back("Controller-reported VOUT",std::to_string(s.voltage)+" mV"); v.message="Candidate fingerprint; electrical rail is unassigned"; return v;
     }
-    I2cResult apply(const ControllerRequest& r,const ControllerContext& c) override {if(!c.gate || !verified) return {false,false,recovery,"Unlock controls and verify offset response first"}; if(recovery) return {false,false,true,"Restore uncertain offset first"}; if(r.key!="offset") return {false,false,recovery,"Unknown field"}; return set(r.reset?0:r.value,c.xoc);}
-    I2cResult restore() override {if(!initial) return {true,false,false,"No owned offset"}; if(!restore_word(*initial)) {recovery=true; return {false,true,true,"Captured offset restoration is unconfirmed"};} initial.reset();last.reset();attempted.reset();recovery=false;return {true,true,false,"Captured offset word restored"};}
-    bool owned() const override {return bool(initial);}
+    I2cResult apply(const ControllerRequest& r,const ControllerContext& c) override {if(profile)return {false,false,recovery,"Restore the owned coarse-offset profile before scalar edits"};if(!c.gate || !verified) return {false,false,recovery,"Unlock controls and verify offset response first"}; if(recovery) return {false,false,true,"Restore uncertain offset first"}; if(r.key!="offset") return {false,false,recovery,"Unknown field"}; return set(r.reset?0:r.value,c.xoc);}
+    I2cResult restore() override {if(profile)return restore_offset_profile({profile});if(!initial) return {true,false,false,"No owned offset"}; if(!restore_word(*initial)) {recovery=true; return {false,true,true,"Captured offset restoration is unconfirmed"};} initial.reset();last.reset();attempted.reset();recovery=false;return {true,true,false,"Captured offset word restored"};}
+    bool owned() const override {return bool(initial)||bool(profile);}
+    I2cResult preview_offset_profile(const OffsetProfileRequest& request,const ControllerContext& context,OffsetProfilePlan& out) override {
+        out={};try{require(!owned()&&!recovery,"Release existing coarse-offset ownership before profile preflight");const auto current=profile_capture();const auto target=profile_guard(request,context,current);auto plan=std::make_shared<MpOffsetPlan>();plan->session=session;plan->before=current;plan->request=request;plan->target=target;plan->epoch=epoch;out.state=std::move(plan);return {true,false,false,"Exact MP2888 coarse offset and original runtime geometry preflighted without writes"};}catch(const std::exception& error){return {false,false,recovery,error.what()};}
+    }
+    I2cResult apply_offset_profile(const OffsetProfilePlan& wrapped,const ControllerContext& context,const std::function<void(const OffsetProfileReceipt&)>& journal) override {
+        I2cResult result;try{const auto plan=qualify(wrapped);const auto before=profile_capture();require(same(before,plan->before),"MP2888 offset or runtime geometry changed since preflight");require(profile_guard(plan->request,context,before)==plan->target,"MP2888 exact target encoding changed");
+            if(before.word==plan->target)return {true,false,false,"Exact coarse offset already matches; no write or ownership acquired"};
+            const auto guarded=profile_capture();require(same(guarded,before)&&profile_guard(plan->request,context,guarded)==plan->target,"MP2888 state or guard changed before profile dispatch");
+            auto receipt=std::make_shared<MpOffsetReceipt>();receipt->session=session;receipt->plan=plan;receipt->epoch=epoch;receipt->issued=true;
+            try{if(journal)journal({receipt});}catch(...){receipt->issued=false;throw;}
+            profile=receipt;recovery=true;receipt->epoch=epoch+1;result.may_have_changed=true;const bool accepted=write(plan->target);const auto after=profile_capture();require(accepted&&geometry(after,plan->before)&&after.word==plan->target,"MP2888 profile write/readback unverified; typed original retained without automatic SET retry");
+            recovery=false;result.ok=true;result.message="Exact coarse-offset word verified; E1, address and live limit preserved";
+        }catch(const std::exception& error){result.message=error.what();}result.recovery_pending=recovery;return result;
+    }
+    I2cResult verify_offset_profile(const OffsetProfilePlan& wrapped) override {try{const auto plan=std::dynamic_pointer_cast<const MpOffsetPlan>(wrapped.state);require(plan&&plan->session==session,"Offset plan belongs to another recipe or driver");require((profile&&profile->plan==plan&&profile->epoch==epoch)||(!profile&&plan->epoch==epoch),"MP2888 profile lifecycle changed");const auto current=profile_capture(false);require(!recovery&&geometry(current,plan->before)&&current.word==plan->target,"Selected MP2888 coarse offset or geometry differs");return {true,false,false,"Selected exact coarse offset and runtime geometry verified"};}catch(const std::exception& error){return {false,false,recovery,error.what()};}}
+    I2cResult verify_offset_profile(const OffsetProfileReceipt& wrapped,bool original=false) override {try{const auto receipt=qualify(wrapped);const auto current=profile_capture(false);require(!recovery&&geometry(current,receipt->plan->before)&&current.word==(original?receipt->plan->before.word:receipt->plan->target),"Issued coarse offset or runtime geometry differs");return {true,false,false,"Issued exact coarse offset verified"};}catch(const std::exception& error){return {false,false,recovery,error.what()};}}
+    I2cResult restore_offset_profile(const OffsetProfileReceipt& wrapped) override {
+        I2cResult result;try{const auto receipt=qualify(wrapped);const auto before=profile_capture(false);candidate(*receipt,before);
+            if(before.word!=receipt->plan->before.word){const auto guarded=profile_capture(false);candidate(*receipt,guarded);require(same(guarded,before),"MP2888 state changed before restoration");profile=receipt;recovery=true;receipt->epoch=epoch+1;result.may_have_changed=true;const bool accepted=write(receipt->plan->before.word);const auto after=profile_capture(false);require(accepted&&geometry(after,receipt->plan->before)&&after.word==receipt->plan->before.word,"MP2888 original write/readback unverified; typed recovery retained");}
+            const auto after=profile_capture(false);require(geometry(after,receipt->plan->before)&&after.word==receipt->plan->before.word,"MP2888 original state unavailable or differs");if(profile==receipt)profile.reset();recovery=false;result.ok=true;result.message="Captured original coarse-offset word restored; current unselected state preserved";
+        }catch(const std::exception& error){result.message=error.what();}result.recovery_pending=recovery;return result;
+    }
     I2cResult verify(const ControllerContext& c) override;
 };
 I2cResult MpOffset::verify(const ControllerContext& c) {
-    verified=false; if(!c.gate || initial || recovery) return {false,false,recovery,"Verification requires unlocked controls and no owned offset"};
+    verified=false; if(!c.gate || initial || profile || recovery) return {false,false,recovery,"Verification requires unlocked controls and no owned offset"};
     auto point=io.operating_point(); if(!point || point->pstate!=0 || !point->core_mhz || !point->memory_mhz || !std::isfinite(*point->core_mhz) || !std::isfinite(*point->memory_mhz) || *point->core_mhz<=0 || *point->memory_mhz<=0) return {false,false,false,"Stable P0 and both clocks are required"};
     auto stable=[&](){auto p=io.operating_point(); return p && p->pstate==0 && p->core_mhz==point->core_mhz && p->memory_mhz==point->memory_mhz;};
     struct Sample {double median=0,noise=0;};

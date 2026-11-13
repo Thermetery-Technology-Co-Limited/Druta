@@ -23,11 +23,11 @@ struct I2cProfilePlanState {
     std::string recipe;
     uint64_t selection_revision=0;
     I2cFamily family=I2cFamily::unknown;
-    std::variant<Nct3933Plan,Up9512rPlan,Ncp4206Plan> driver;
+    std::variant<Nct3933Plan,Up9512rPlan,Ncp4206Plan,OffsetProfilePlan> driver;
 };
 struct I2cProfileReceiptState {
     std::shared_ptr<const I2cProfilePlanState> plan;
-    std::variant<Nct3933Receipt,Up9512rReceipt,Ncp4206Receipt> driver;
+    std::variant<Nct3933Receipt,Up9512rReceipt,Ncp4206Receipt,OffsetProfileReceipt> driver;
 };
 namespace {
 ActionResult failure(const std::string& message) { ActionResult r; r.message=message; return r; }
@@ -511,6 +511,14 @@ ActionResult I2cSession::preflight_i2c_profile(const ProfileJson& document,I2cPr
             if(!route_matches(saved.route))return failure("Saved controller route or recipe differs from the selected controller");
             Ncp4206Plan typed;checked=controller_->preview_ncp4206({saved.enabled,saved.command},xoc(),typed);plan->driver=typed;break;
         }
+        case I2cFamily::mp2888:
+        case I2cFamily::mp29816: {
+            const auto saved=parse_python_offset_profile(document);
+            const auto expected_recipe=data_.family==I2cFamily::mp2888?"mp2888a-offset":"controller";
+            if(saved.family!=data_.family || saved.route.port!=plan->route.port || saved.route.addr7!=plan->route.addr7 || plan->recipe!=expected_recipe)
+                return failure("Saved coarse controller route, family or recipe differs from the selected controller");
+            OffsetProfilePlan typed;checked=controller_->preview_offset_profile({saved.offset_mv,saved.page,saved.scale},{data_.gate,xoc()},typed);plan->driver=typed;break;
+        }
         default:return failure("This selected controller has no qualified full-tune profile adapter yet");
         }
         if(!checked.ok)return result(checked);
@@ -536,7 +544,8 @@ ActionResult I2cSession::apply_i2c_profile(const I2cProfilePlan& plan,const std:
             using T=std::decay_t<decltype(typed)>;
             if constexpr(std::is_same_v<T,Nct3933Plan>)return controller_->apply_nct3933(typed,context,save);
             else if constexpr(std::is_same_v<T,Up9512rPlan>)return controller_->apply_up9512r(typed,context,save);
-            else return controller_->apply_ncp4206(typed,context,save);
+            else if constexpr(std::is_same_v<T,Ncp4206Plan>)return controller_->apply_ncp4206(typed,context,save);
+            else return controller_->apply_offset_profile(typed,context,save);
         },plan.state->driver));
         action.may_have_changed=action.may_have_changed || issued;refresh();return action;
     }catch(const std::exception& error){action.message=std::string("Controller profile Apply: ")+error.what();action.may_have_changed=issued || owned();refresh();return action;}
@@ -549,7 +558,8 @@ ActionResult I2cSession::verify_i2c_profile(const I2cProfilePlan& plan) {
         using T=std::decay_t<decltype(typed)>;
         if constexpr(std::is_same_v<T,Nct3933Plan>)return controller_->verify_nct3933(typed);
         else if constexpr(std::is_same_v<T,Up9512rPlan>)return controller_->verify_up9512r(typed);
-        else return controller_->verify_ncp4206(typed);
+        else if constexpr(std::is_same_v<T,Ncp4206Plan>)return controller_->verify_ncp4206(typed);
+        else return controller_->verify_offset_profile(typed);
     },plan.state->driver));}
     catch(const std::exception& error){return failure(std::string("Controller profile verification: ")+error.what());}
 }
@@ -561,7 +571,8 @@ ActionResult I2cSession::verify_i2c_profile(const I2cProfileReceipt& receipt,boo
         using T=std::decay_t<decltype(typed)>;
         if constexpr(std::is_same_v<T,Nct3933Receipt>)return controller_->verify_nct3933(typed,original);
         else if constexpr(std::is_same_v<T,Up9512rReceipt>)return controller_->verify_up9512r(typed,original);
-        else return controller_->verify_ncp4206(typed,original);
+        else if constexpr(std::is_same_v<T,Ncp4206Receipt>)return controller_->verify_ncp4206(typed,original);
+        else return controller_->verify_offset_profile(typed,original);
     },receipt.state->driver));}
     catch(const std::exception& error){return failure(std::string("Controller receipt verification: ")+error.what());}
 }
@@ -574,7 +585,8 @@ ActionResult I2cSession::restore_i2c_profile(const I2cProfileReceipt& receipt) {
         using T=std::decay_t<decltype(typed)>;
         if constexpr(std::is_same_v<T,Nct3933Receipt>)return controller_->restore_nct3933(typed);
         else if constexpr(std::is_same_v<T,Up9512rReceipt>)return controller_->restore_up9512r(typed);
-        else return controller_->restore_ncp4206(typed);
+        else if constexpr(std::is_same_v<T,Ncp4206Receipt>)return controller_->restore_ncp4206(typed);
+        else return controller_->restore_offset_profile(typed);
     },receipt.state->driver));if(action.ok&&profile_receipt_==receipt.state)profile_receipt_.reset();refresh();return action;}
     catch(const std::exception& error){action.message=std::string("Controller profile Undo: ")+error.what();action.may_have_changed=owned();refresh();return action;}
 }

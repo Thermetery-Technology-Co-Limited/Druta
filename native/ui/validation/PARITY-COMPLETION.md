@@ -25,7 +25,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX remains standalone and unqualified board-only Python power snapshots are refused before writes. Fourteenth adds timing plus ordinary/additional memory composition with timing first, memory-first Undo and frozen baselines; 100/100 suites and 22 read-only renderer phases passed |
-| Remaining manual profiles, Python imports and catalog composition | Fifteenth adds standalone exact uP9512R and NCP4206 imports alongside NCT3933; coarse MP2888/MP29816 full-tune imports and power annotation execution remain pending. Timing plus ordinary/additional memory catalog ordering is implemented with frozen baselines; 100/100 suites and 22 read-only renderer phases passed. The fifteenth increment passes all 104 suites and 22 read-only renderer phases; see [evidence](2026-11-13-parity-fifteenth-increment.md) and the historical [scope audit](2026-11-13-profile-scope-gap-map.md) |
+| Remaining manual profiles, Python imports and catalog composition | Sixteenth adds exact coarse MP2888/MP29816 imports alongside NCT3933, uP9512R and NCP4206. Qualified legacy controllers now compose with ordinary requests in released voltage/controller-before-clock order, with frozen memory originals and controller-first grouped Undo. All 109 suites and 22 read-only renderer phases pass; see [evidence](2026-11-13-parity-sixteenth-increment.md). Power annotation execution and iCX composition remain open; the historical [scope audit](2026-11-13-profile-scope-gap-map.md) predates these additions |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
@@ -60,6 +60,7 @@ Twelfth increment: [saving and clock catalog transactions](2026-11-13-parity-twe
 Thirteenth increment: [selected full-tune import and handover](2026-11-13-parity-thirteenth-increment.md); 95/95 suites passed in 14.43 seconds and 22 read-only renderer phases passed.
 Fourteenth increment: [NCT profile import and timing ordering](2026-11-13-parity-fourteenth-increment.md); 100/100 suites and 22 read-only renderer phases passed.
 Fifteenth increment: [exact uP/NCP imports and recovery](2026-11-13-parity-fifteenth-increment.md); all 104 suites and 22 read-only renderer phases passed.
+Sixteenth increment: [coarse controller imports and composition](2026-11-13-parity-sixteenth-increment.md); all 109 suites and 22 read-only renderer phases pass.
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -80,7 +81,7 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the fifteenth increment
+## Remaining scope after the sixteenth increment
 
 - Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
   providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
@@ -96,10 +97,15 @@ active until every applicable review requirement has authoritative evidence.
   composition is validated within its documented boundaries. Thirteenth-increment
   handovers qualify adaptive/idle, exclusive GR/count and opposite ELCG/SLCG;
   unknown adaptive prior, simultaneous shared GR/count and BLCG ENABLE remain
-  unqualified. Selected full-tune NCT, uP and NCP imports are implemented as standalone
-  transactions; coarse MP2888/MP29816 full-tune imports and power annotation
-  execution remain pending. iCX remains standalone. Timing plus ordinary/additional memory catalog
-  ordering is implemented with frozen baselines; 100/100 suites and 22 read-only renderer phases passed.
+  unqualified. Selected full-tune NCT, uP, NCP and coarse MP2888/MP29816 imports
+  compose with ordinary catalog requests using qualified controller ownership,
+  exact readback and frozen memory baselines. Power annotation execution remains
+  pending; its [implementation map](2026-11-13-full-tune-annotations-port-map.md)
+  records UI-thread ownership and independent metadata completion. iCX remains
+  standalone; its [composition map](2026-11-13-icx-composition-port-map.md) also
+  records existing partial-Undo retry and retired-lifecycle defects that must be
+  fixed before composition. Timing plus ordinary/additional memory catalog
+  ordering retains its documented qualification boundaries.
 - Physical effects, controller coverage and Vista/7 execution retain their original
   qualification boundaries. Mock transport tests and current read-only evidence do
   not establish those results.
