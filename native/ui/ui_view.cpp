@@ -109,13 +109,14 @@ void top_bar(ViewState& state) {
         + ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + u(60 + 164)
         + style.ItemSpacing.x * 2 + u(12);
     const float brand_width = ImGui::CalcTextSize("DRUTA").x * 1.2f + u(12)
-        + ImGui::CalcTextSize("PREVIEW / SAMPLE DATA").x + style.FramePadding.x * 2;
+        + ImGui::CalcTextSize("PREVIEW / SAMPLE DATA").x + style.FramePadding.x * 2 + u(205);
     const bool wrap_controls = ImGui::GetContentRegionAvail().x < brand_width + u(20) + control_width;
     ImGui::SetWindowFontScale(1.2f);
     ImGui::TextColored(accent, "DRUTA");
     ImGui::SetWindowFontScale(1.0f);
     ImGui::SameLine(0, u(12));
     badge(state.preview ? "PREVIEW / SAMPLE DATA" : "LIVE SESSION", state.preview ? amber : teal);
+    ImGui::SameLine();draw_device_restart_button(state);
     if (!wrap_controls) {
         const float x = ImGui::GetWindowContentRegionMax().x - control_width;
         ImGui::SameLine(x);
@@ -1204,6 +1205,16 @@ void live_semantic_controls(ViewState& state, bool classic) {
     const bool busy = snapshot.busy || snapshot.opening || !snapshot.data.connected;
     ImGui::PushID("advanced-semantic-controls");
     if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
+    if(state.open_power_saving_requested){ImGui::SetNextItemOpen(true);state.open_power_saving_requested=false;}
+    if(ImGui::CollapsingHeader("Power saving")){
+        auto intents=draw_power_saving_controls(state.power_saving_view,snapshot.data.power_saving.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
+        state.power_saving_intents.insert(state.power_saving_intents.end(),intents.begin(),intents.end());
+    }
+    if(state.open_clock_gating_requested){ImGui::SetNextItemOpen(true);state.open_clock_gating_requested=false;}
+    if(ImGui::CollapsingHeader("Clock gating and PCIe speed")){
+        auto intents=draw_clock_gating_controls(state.clock_gating_view,snapshot.data.clock_gating.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
+        state.clock_gating_intents.insert(state.clock_gating_intents.end(),intents.begin(),intents.end());
+    }
     if (ImGui::CollapsingHeader("Voltage request and offset tables")) {
         auto intents=draw_voltage_tables_controls(state.voltage_tables_view,snapshot.data.voltage_tables.get(),snapshot.generation,busy,state.controls_unlocked,classic);
         state.voltage_tables_intents.insert(state.voltage_tables_intents.end(),intents.begin(),intents.end());
@@ -1263,7 +1274,7 @@ void live_advanced(ViewState& state, bool verbose) {
     if (ImGui::Button("Frequency locks...")) state.frequency_view.open=true;
     ImGui::EndDisabled();
     if (!verbose) draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::additional_memory);
-    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose);
+    draw_advanced_controls(snapshot, state.controls_unlocked, verbose, state.advanced_view, state.commands, verbose, verbose, &state.policy_annotations);
     live_semantic_controls(state, verbose);
     const auto flags = verbose ? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
     live_perf_panel(state);
@@ -1379,6 +1390,11 @@ unsigned push_classic_palette() {
 
 void classic_header(ViewState& state) {
     draw_app_actions_menu(state);
+    if(ImGui::GetContentRegionAvail().x>u(1250)){
+        const auto origin=ImGui::GetCursorPos();
+        const float width=ImGui::CalcTextSize("Panic / restart GPU").x+ImGui::GetStyle().FramePadding.x*2;
+        ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x-width);draw_device_restart_button(state);ImGui::SetCursorPos(origin);
+    }else draw_device_restart_button(state);
     const auto snapshot = state.live;
     const auto* id = snapshot ? &snapshot->data.identity : nullptr;
     const float scale = ImGui::GetFontSize() / 16.0f;
@@ -1576,10 +1592,10 @@ void classic_advanced(ViewState& state) {
         ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize, ImGuiWindowFlags_HorizontalScrollbar)) {
     if (!s.log.empty()) ImGui::TextColored(s.log.back().ok ? secondary : amber, "%s", s.log.back().message.c_str());
     if (ImGui::CollapsingHeader("Power policies"))
-        draw_power_policy_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+        draw_power_policy_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands,&state.policy_annotations);
     if (ImGui::CollapsingHeader("Registry / BIOS")) ImGui::TextDisabled("Native workflow pending");
     if (ImGui::CollapsingHeader("Session controls"))
-        draw_advanced_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands);
+        draw_advanced_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands,true,true,&state.policy_annotations);
     live_semantic_controls(state, true);
     if (ImGui::CollapsingHeader("Diagnostics")) {
         live_identity(s);
@@ -1925,7 +1941,7 @@ void draw(ViewState& state) {
         const auto& s=*state.live;
         draw_scoped_profile_workspace(state.scoped_profile_view, s, state.controls_unlocked, state.commands);
         const auto output=draw_policy_workspace(state.policy_workspace,state.policy_annotations,s.data.scoped_profiles.get(),s.generation,s.busy||s.opening,s.data.connected,state.controls_unlocked);
-        state.save_policy_annotations|=output.save_annotations;
+        state.save_policy_annotations|=output.save_annotations;state.import_policy_annotations|=output.import_annotations;
         if(output.refresh) {Command c;c.operation=Command::Operation::prepare_scoped_profile;state.commands.push_back(c);}
         if(output.apply) {Command c;c.operation=Command::Operation::apply_scoped_profile;auto request=std::make_shared<ScopedProfileRequest>();request->document=*output.apply;c.scoped_profile=std::move(request);state.commands.push_back(c);}
     }

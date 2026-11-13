@@ -497,5 +497,41 @@ telemetry samples and acquires no hold; Pause and minimized refresh policy apply
 **Policy workspace...** offers labels tied to the adapter and policy binding,
 plus selected maximum previews. It lists skipped policies and uses fresh selected
 requests and grouped Undo on explicit Apply. Labels persist as display metadata
-only. Connector presets, shared-channel labels and per-wire current coloring
-from Python remain to be ported; generic policy notes do not imply those features.
+only. Connector presets and free text propagate to fresh same-channel bindings.
+Explicit Import Python labels accepts matching UUID/policy/channel/type entries;
+unmatched and unknown native metadata is preserved. Current-per-wire colors use
+reported current divided by the selected connector's wire count, with the even
+split assumption labelled. They are not measurements of individual wires.
+
+
+## Power saving, clock gating and recovery
+
+Both skins expose Power saving and Clock gating / PCIe from Advanced and the
+Clocks menu. Read is explicit; opening, rendering and ordinary telemetry never
+capture those tables. Each family reports its own capabilities. The interface
+preserves unknown request fields, stale readings and uncertain ownership.
+
+GR/individual gating and DIFR hold counted or profiler requests. Release frees
+only this application's owned request; it never replays another application's
+state. Idle thresholds and adaptive power have separate semantics: aggregate
+enabled state is not ownership, and Allow does not restore idle thresholds.
+Power-saving profiles stage individual requests; each Apply has its own Undo.
+Clock profiles preflight the complete selection and retain typed partial Undo.
+A driver restart starts a fresh session and receives no tuning/profile requests.
+
+Panic / restart GPU verifies one selected NVIDIA PCI display device through
+SetupAPI. A separate helper waits for Druta to exit, restarts exactly that PnP
+instance, records the result, and opens a fresh Druta. The restart handoff drains
+the admitted worker call and exits without
+attempting restoration of uncertain tuning requests. If the old process cannot
+finish, the helper times out without a restart or second window. No system reboot
+is issued. Device discovery runs off the renderer thread; the selected session
+is checked again before handoff. Reboot-required and uncertain results remain
+visible in a bounded recovery receipt.
+
+Native source qualification and physical testing are distinct. The current
+3070 Ti exposes GR/MS and ELCG/BLCG/SLCG inspection; idle/adaptive and PCIe target
+layouts remain outside the traced support on that adapter. New writes, their
+physical effects, actual PnP restart and Vista/7 execution have not been qualified
+by this checkpoint. See the completion ledger for remaining firmware providers
+and the persistent relationship-weight configuration exception.

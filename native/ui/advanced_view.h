@@ -7,6 +7,7 @@
 #include <functional>
 namespace druta::ui {
 struct SessionSnapshot;
+class PolicyAnnotations;
 enum class OffsetGroup { all, daily_clocks, additional_memory };
 struct AdvancedDraft {
     double value = 0;
@@ -23,7 +24,7 @@ RiskAssessment session_risk(const LiveData& data);
 void draw_mode_bar(const SessionSnapshot& snapshot, bool& unlocked, std::vector<Command>& commands,
     bool classic = false, const std::function<void()>& i2c_gate = {}, AdvancedViewState* view = nullptr);
 void draw_advanced_controls(const SessionSnapshot& snapshot, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails = true, bool include_offsets = true);
+    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails = true, bool include_offsets = true, const PolicyAnnotations* annotations = nullptr);
 void draw_clock_voltage_offsets(const SessionSnapshot& snapshot, bool unlocked, bool classic,
     AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group = OffsetGroup::all);
 // Common row services reused by the original Control layout and Focused Daily.
@@ -34,5 +35,5 @@ void draw_core_current_limit(const SessionSnapshot& snapshot, bool unlocked, boo
 void draw_daily_rail_controls(const SessionSnapshot& snapshot, bool unlocked, bool classic,
     AdvancedViewState& state, std::vector<Command>& commands, bool include_offsets = true);
 void draw_power_policy_controls(const SessionSnapshot& snapshot, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands);
+    AdvancedViewState& state, std::vector<Command>& commands, const PolicyAnnotations* annotations = nullptr);
 }

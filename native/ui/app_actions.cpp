@@ -40,10 +40,17 @@ std::wstring ascii(const std::string& text) {
 }
 AppTarget app_target(const SessionSnapshot& s) { return {s.generation,s.selected_slot,s.data.identity.uuid}; }
 void cancel_pending_app_actions(AppActionsState& state) {
-    state.second_window.reset();state.save_report_requested=false;state.exit_requested=false;
+    state.restart_device.reset();state.second_window.reset();state.save_report_requested=false;state.exit_requested=false;
 }
 bool app_target_matches(const AppTarget& t,const SessionSnapshot& s) {
     return t.generation==s.generation && t.slot==s.selected_slot && t.uuid==s.data.identity.uuid;
+}
+std::optional<AppTarget> restart_device_target(const SessionSnapshot& s,std::string& why,bool administrator){
+    const auto& id=s.data.identity;
+    if(s.opening||s.busy)why="Wait for the current hardware operation to finish.";
+    else if(s.selected_slot.empty()||(id.slot[0]&&s.selected_slot!=id.slot)||id.pairing_error[0])why="A verified selected PCI slot is required.";
+    else if(!administrator&&!id.admin)why="Run Druta as administrator to restart the selected GPU.";
+    else{why.clear();return app_target(s);}return {};
 }
 std::optional<AppTarget> second_window_target(const SessionSnapshot& s,std::string& why) {
     const auto& id=s.data.identity;

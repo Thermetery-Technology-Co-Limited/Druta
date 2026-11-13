@@ -576,3 +576,18 @@ capture and cleanup. Adapter changes are excluded while this action is running.
 Auto-capture consumes already-published telemetry and never creates a background
 polling loop. Policy labels and selected maximum previews use the existing typed
 scoped-profile writer; connector-specific annotation parity remains open.
+
+
+## Continuation checkpoint: power saving and recovery
+
+Power-saving, clock-gating and PCIe families now have explicit independent
+inspection, typed requests, owned cleanup and manual profile staging. The worker
+retains uncertain counted requests and profiler objects across reads and blocks
+adapter changes until cleanup is resolved. Ordinary idle/adaptive/PCIe requests
+are never restored merely because the application closes.
+
+PnP recovery runs after the old renderer/process has exited and reopens only the
+selected slot/UUID/core, with a durable result and no tuning replay. Connector
+presets, channel-shared notes, explicit Python label import and labelled per-wire
+current colors complete that annotation workflow. The current-ROM/scaffold
+providers and relationship-weight exception remain open in the full ledger.

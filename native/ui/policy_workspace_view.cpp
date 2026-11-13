@@ -12,13 +12,25 @@ PolicyWorkspaceOutput draw_policy_workspace(PolicyWorkspaceViewState& state,Poli
  if(!ImGui::Begin("Policy workspace###druta_policy_workspace",&state.open)){ImGui::End();return out;}
  ImGui::TextWrapped("Annotations are display notes only. Maximum requests are selected current limits, not factory defaults.");
  ImGui::BeginDisabled(busy||!connected);if(ImGui::Button("Refresh policies"))out.refresh=true;ImGui::EndDisabled();
+ if(snapshot){ImGui::SameLine();ImGui::BeginDisabled(busy||!connected);if(ImGui::Button("Import Python labels..."))out.import_annotations=true;ImGui::EndDisabled();}
  if(snapshot){ImGui::SameLine();if(ImGui::Button("Select all policies")){state.selected.clear();for(const auto& row:snapshot->entries)if(row.key.kind==ScopedKey::Kind::policy)state.selected.push_back(row.key);state.preview.reset();}}
  if(snapshot){for(const auto& row:snapshot->entries)if(row.key.kind==ScopedKey::Kind::policy){
    ImGui::PushID(static_cast<int>(row.key.policy));bool selected=std::find(state.selected.begin(),state.selected.end(),row.key)!=state.selected.end();
    if(ImGui::Checkbox("Include",&selected)){if(selected)state.selected.push_back(row.key);else state.selected.erase(std::remove(state.selected.begin(),state.selected.end(),row.key),state.selected.end());state.preview.reset();}
    ImGui::SameLine();ImGui::Text("Policy %u | current %lld | limit %lld %s%s",row.key.policy,static_cast<long long>(row.value),static_cast<long long>(row.high),row.unit.c_str(),row.fresh?"":" (stale)");
-   auto note=notes.get(snapshot->target,row);std::snprintf(state.label.data(),state.label.size(),"%s",note.c_str());
-   ImGui::SetNextItemWidth(240);if(ImGui::InputText("Display note",state.label.data(),state.label.size())){try{notes.set(snapshot->target,row,state.label.data());out.save_annotations=true;}catch(const std::exception& e){state.status=e.what();}}
+   auto note=notes.get(snapshot->target,row);const char* choices[]={"-","PCIE 8pin","PCIE","EPS 8pin","12VHPWR/12V-2x6","others"};
+   const bool known=note==choices[1]||note==choices[2]||note==choices[3]||note==choices[4];
+   const bool custom=row.key.policy<32 && (state.custom_note[row.key.policy] || (!note.empty()&&!known));
+   const char* choice=custom?choices[5]:note.empty()?choices[0]:note.c_str();
+   ImGui::BeginDisabled(!row.fresh || !row.channel || !row.policy_type);
+   ImGui::SetNextItemWidth(180);if(ImGui::BeginCombo("Connector",choice)){
+    for(unsigned i=0;i<6;++i)if(ImGui::Selectable(choices[i],std::string(choice)==choices[i])){
+      if(row.key.policy<32)state.custom_note[row.key.policy]=i==5;
+      if(i!=5)try{notes.set_channel(*snapshot,row.key,i==0?"":choices[i]);out.save_annotations=true;}catch(const std::exception& e){state.status=e.what();}
+    }ImGui::EndCombo();}
+   if(custom){std::snprintf(state.label.data(),state.label.size(),"%s",known?"":note.c_str());
+    ImGui::SetNextItemWidth(240);if(ImGui::InputText("Display note",state.label.data(),state.label.size()))try{notes.set_channel(*snapshot,row.key,state.label.data());out.save_annotations=true;}catch(const std::exception& e){state.status=e.what();}}
+   ImGui::EndDisabled();
    ImGui::PopID();}
   ImGui::BeginDisabled(busy||!connected||state.selected.empty());if(ImGui::Button("Preview selected maxima"))state.preview=preview_policy_max(*snapshot,state.selected);ImGui::EndDisabled();
  }

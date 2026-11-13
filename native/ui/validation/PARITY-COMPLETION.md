@@ -13,7 +13,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Classic real tabs and copyable monospaced log | Implemented/tested in `4c6f1f5`; floating pages remain below |
 | Same-session floating pages, dock-back, preserved drafts, no duplicate controls | Implemented/tested in second checkpoint: real headless drag/dock/close events, all four pages |
 | Classic two-press Reset, scope display, expiry/adapter-change cancellation | Implemented/tested in second checkpoint; Focused retains its existing action |
-| Header Device/Panic actions and menu hierarchy | Device report/copy/save, capability refresh, explicit-target second window and helper navigation implemented/tested in third checkpoint. Exact-target out-of-process PnP service and no-replay recovery remain open |
+| Header Device/Panic actions and menu hierarchy | Device report/copy/save, capability refresh, explicit-target second window and helper navigation implemented/tested in third checkpoint. Eighth checkpoint adds exact-target out-of-process PnP recovery, bounded parent-exit handoff, durable result and fresh relaunch without tuning; actual driver restart remains physically unqualified |
 | Help, licences and About | Implemented/tested in third checkpoint; actual bundled licence/guide sources and keyboard help |
 | Seven Monitor tiles, reason statuses, power/utilization, PCIe/state/fans, optional histories | Implemented/tested in `4c6f1f5`; second checkpoint adds independent partial fan last-good merging |
 | Classified A/B clock-domain table with architecture/unit/unknown-domain handling | Implemented/tested in second checkpoint, including real pure C ABI classifier |
@@ -25,22 +25,24 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX is standalone, timing and memory-offset changes apply separately, and unqualified board-only Python power snapshots are refused before writes |
+| Remaining manual profiles, Python imports and catalog composition | Open: [scope audit](2026-11-13-profile-scope-gap-map.md) identifies gate/VF flags, power-integral and per-fan manual workflows; existing standalone families need import/catalog adapters; full-tune and timing exchange imports remain missing |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Implemented/tested in fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
 | Voltage gate, VF monotonicity/smoothing | Implemented/tested in fifth: independent admission/VF reads, selected requests, atomic-prior-aware recovery, Undo and captured-initial requests. Current 3070 Ti read-only evidence recorded; physical effects remain unproven |
 | Voltage offset/request tables, REL bounds | Seventh: all six request fields, complete preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Scaffold offsets and semantic REL remain open pending native current-ROM graph + installed-receipt/policy providers; no persistent scaffold activation |
 | Voltage constants and device switch delays | Seventh: independent typed device-delay controls, exact readback, Undo and native profiles implemented/tested. Loaded VFE definitions are inspectable; production semantic constants remain open pending current-ROM role/graph and retained-request provider |
-| GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Open |
+| GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Eighth: independent qualified inspection and typed requests, counted/profiler ownership, explicit release/recovery, Undo and manual profile staging implemented/tested. Current 3070 Ti read-only GR/MS and ELCG/BLCG/SLCG paths qualify; idle/adaptive/PCIe target layouts remain outside traced support there. No new physical writes claimed |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
 | Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
 | Timing profile save/load staged only | Implemented in fourth checkpoint: native typed save with staged overlay, validated load into local fields, explicit whole Preview/Apply; physical timing-write qualification remains open |
 | Bounded owned-P0 capture and qualifying-band auto-capture | Seventh: scoped helper pin, observed P0/current-adapter band, bounded temporary hold and owned-only cleanup, switch exclusion/recovery and telemetry-only auto-capture implemented/tested. No CUDA workload fallback or new physical timing-write qualification claimed |
+| Optional CUDA workload fallback for bounded P0 timing capture | Not ported; temporary hold and observed-band capture are implemented. Keep this release behavior explicit in the final scope audit |
 | Classic I2C per-family geometry/order/help and auto-open on discovery | Implemented/tested in second checkpoint across all six controller families; physical qualification remains controller-specific |
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
 | I2C remembered read-only discovery routes, progress and bounded cancellation | Implemented/tested in sixth: UUID/recipe-contract hints require fresh probe/read, Full scan bypasses hints, immutable worker progress and atomic Cancel, transactional selection and unverified partial candidates. No cached gates, verification or tuning replay; current 3070 Ti selection/read passed without owned requests |
-| Policy user annotations and reviewed Max-all with meaningful Undo | Seventh: binding-scoped free-text labels and reviewed selected policy maxima reuse whole preflight/readback/grouped Undo. Connector presets, channel-shared labels and per-wire current coloring remain open |
+| Policy user annotations and reviewed Max-all with meaningful Undo | Seventh: binding-scoped free-text labels and reviewed selected policy maxima reuse whole preflight/readback/grouped Undo. Eighth adds source connector presets, guarded channel-shared labels, explicit Python name-store import and observed-current/per-wire coloring with an explicit even-split assumption |
 
 ## Invariants and completion gate
 
@@ -50,6 +52,7 @@ Fourth checkpoint: [clock ownership, timing batches and PERF diagnostics](2026-1
 Fifth checkpoint: [feedback, voltage policies and arbitration](2026-11-13-parity-fifth-increment.md).
 Sixth checkpoint: [catalog composition, discovery and timing diagnostics](2026-11-13-parity-sixth-increment.md).
 Seventh checkpoint: [voltage requests, device delays and temporary P0 capture](2026-11-13-parity-seventh-increment.md).
+Eighth checkpoint: [power saving, recovery and annotations](2026-11-13-parity-eighth-increment.md).
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -68,3 +71,24 @@ and rendered or runtime evidence appropriate to its scope. Record remaining
 device/OS qualification separately from implementation. A green test suite or a
 partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
+
+
+## Remaining scope after the eighth checkpoint
+
+- Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
+  providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
+  records existing captures and missing bounded interfaces; it is not an implementation.
+- Persistent relationship-weight exception: selected preview, journal, exact registry
+  projection, explicit refresh, image/INFO verification and three-way removal. The
+  [port map](2026-11-13-relationship-weight-port-map.md) retains all stages and failures.
+- Port the optional CUDA capture fallback and remaining Python profile scopes.
+  The [CUDA map](2026-11-13-cuda-capture-port-map.md) traces workload lifetime,
+  cancellation and P2 diagnostic/qualification boundaries without implementing them.
+  The [profile scope audit](2026-11-13-profile-scope-gap-map.md) distinguishes missing
+  gate/flag, power-integral and per-fan manual profiles from standalone native
+  profiles awaiting import/catalog integration. Full-tune and timing exchange
+  imports and bounded composition restrictions remain open; naming them unsupported
+  does not port them.
+- Physical effects, controller coverage and Vista/7 execution retain their original
+  qualification boundaries. Mock transport tests and current read-only evidence do
+  not establish those results.

@@ -22,6 +22,8 @@ struct ScopedCurrent {
     int64_t value=0,low=0,high=0;
     bool fresh=false,writable=false;
     std::optional<int64_t> pin_value;
+    // Reported identity metadata used for display annotations, never replayed.
+    std::optional<uint32_t> channel,policy_type;
 };
 struct ScopedSnapshot {ScopedTarget target;std::vector<ScopedCurrent> entries;};
 struct ScopedProfileRequest {

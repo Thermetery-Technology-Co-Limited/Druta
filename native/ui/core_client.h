@@ -10,6 +10,8 @@
 #include "voltage_policy_service.h"
 #include "voltage_tables_service.h"
 #include "voltage_limits_service.h"
+#include "power_saving_service.h"
+#include "clock_gating_service.h"
 namespace druta::ui {
 // Injected table also permits deterministic tests without loading a driver.
 struct CoreApi {
@@ -20,6 +22,8 @@ struct CoreApi {
     VoltagePolicyApi voltage_policy{};
     VoltageTablesApi voltage_tables{};
     VoltageLimitsApi voltage_limits{};
+    PowerSavingApi power_saving{};
+    ClockGatingApi clock_gating{};
     TuningApi tuning{};
     decltype(&dc_gpu_reset_all) reset_all = nullptr;
     I2cApi i2c{};

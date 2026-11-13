@@ -15,6 +15,8 @@
 #include "voltage_tables_view.h"
 #include "voltage_limits_view.h"
 #include "policy_workspace_view.h"
+#include "power_saving_view.h"
+#include "clock_gating_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -51,9 +53,12 @@ struct ViewState {
     VoltageLimitsViewState voltage_limits_view;
     std::vector<VoltageTablesIntent> voltage_tables_intents;
     std::vector<VoltageLimitsIntent> voltage_limits_intents;
+    bool open_power_saving_requested=false,open_clock_gating_requested=false;
+    PowerSavingViewState power_saving_view;ClockGatingViewState clock_gating_view;
+    std::vector<PowerSavingIntent> power_saving_intents;std::vector<ClockGatingIntent> clock_gating_intents;
     PolicyWorkspaceViewState policy_workspace;
     PolicyAnnotations policy_annotations;
-    bool save_policy_annotations=false;
+    bool save_policy_annotations=false,import_policy_annotations=false;
     float core_offset_mhz = 0.0f;
     float memory_offset_mhz = 0.0f;
     float power_limit_w = 310.0f;

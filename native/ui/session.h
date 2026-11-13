@@ -29,6 +29,7 @@ struct SessionSnapshot {
     bool i2c_ownership_uncertain = false;
     bool tuning_ownership_uncertain = false;
     bool frequency_ownership_uncertain = false;
+    bool auxiliary_cleanup_pending = false;
     std::uint64_t telemetry_stale_mask = 0;
     bool curve_stale = false;
     std::uint64_t curve_revision = 0;
@@ -57,6 +58,10 @@ public:
     bool cancel_i2c_discovery(std::uint64_t expected_generation);
     std::shared_ptr<const SessionSnapshot> snapshot() const;
     void begin_shutdown();
+    // Process-exit-only handoff, after a recovery helper has been launched.
+    // Drain in-flight work, then retain backend/DLL until OS teardown without
+    // issuing restoration writes. This Session cannot be reused afterward.
+    void begin_device_restart_shutdown();
     bool finished() const;
 private:
     bool change_device(const std::string& slot, bool preserve_constraint);

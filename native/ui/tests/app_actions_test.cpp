@@ -30,7 +30,12 @@ std::vector<std::wstring> arguments(const std::wstring& command) {
     if(values){for(int i=0;i<count;++i)out.emplace_back(values[i]);LocalFree(values);}return out;
 }
 void targets_and_reports() {
-    auto s=fixture();std::string why;auto target=second_window_target(s,why);
+    auto s=fixture();std::string why;
+    auto disconnected=s;disconnected.data={};
+    check(bool(restart_device_target(disconnected,why,true)),"explicit selected slot permits exact PnP recovery without live GPU identity");
+    check(!restart_device_target(disconnected,why,false),"PnP recovery requires process elevation evidence");
+    disconnected.busy=true;check(!restart_device_target(disconnected,why,true),"PnP handoff waits for active hardware operation");
+    auto target=second_window_target(s,why);
     check(bool(target) && why.empty(),"alternate adapter identity is eligible without a developer-device allowlist");
     auto report=selected_device_report(s);
     check(has(report.text,"CORE CLOCK: unavailable") && has(report.text,"Driver: unavailable")

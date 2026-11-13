@@ -52,6 +52,55 @@ class Client final : public IBackend {
     std::unique_ptr<VoltagePolicyService> voltage_policy_;
     std::unique_ptr<VoltageTablesService> voltage_tables_;
     std::unique_ptr<VoltageLimitsService> voltage_limits_;
+    std::unique_ptr<PowerSavingService> power_saving_;
+    std::unique_ptr<ClockGatingService> clock_gating_;
+    ActionResult power_saving_action(const Command& cmd) {
+        ActionResult out;if(!power_saving_){out.message="Power saving controls unavailable";return out;}
+        try {
+            if(cmd.operation==Command::Operation::power_saving_read){
+                const auto& data=power_saving_->read(cmd.saving_families);out.message=data.message;
+                out.ok=std::any_of(data.rows.begin(),data.rows.end(),[&](const auto& row){return (cmd.saving_families&(1u<<static_cast<unsigned>(row.key.family))) && row.availability==VoltagePolicyAvailability::available && !row.stale;});
+            }else if(cmd.operation==Command::Operation::power_saving_save){
+                if(!cmd.power_saving_selection||cmd.profile_path.empty())throw std::runtime_error("Choose power saving fields and profile path");
+                write_profile(cmd.profile_path,capture_power_saving_profile(power_saving_->read(),*cmd.power_saving_selection));out.ok=true;out.message="Selected power saving requests saved";
+            }else{
+                PowerSavingResult result;
+                if(cmd.operation==Command::Operation::power_saving_apply && cmd.power_saving_requests && cmd.power_saving_requests->size()==1)result=power_saving_->apply(cmd.power_saving_requests->front());
+                else if(cmd.operation==Command::Operation::power_saving_restore && cmd.power_saving_selection && cmd.power_saving_selection->size()==1)result=power_saving_->restore_initial(cmd.power_saving_selection->front());
+                else if(cmd.operation==Command::Operation::power_saving_undo)result=power_saving_->undo();
+                else if(cmd.operation==Command::Operation::power_saving_recover)result=power_saving_->recover();
+                else if(cmd.operation==Command::Operation::power_saving_release)result=power_saving_->release_owned();
+                else throw std::runtime_error("Choose one power saving request to apply");
+                out.ok=result.ok;out.may_have_changed=result.may_have_changed;out.message=result.message;
+            }
+        }catch(const std::exception& error){out.message=error.what();}
+        last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());return out;
+    }
+    ActionResult clock_gating_action(const Command& cmd) {
+        ActionResult out;if(!clock_gating_){out.message="Clock gating controls unavailable";return out;}
+        try {
+            if(cmd.operation==Command::Operation::clock_gating_read){
+                const auto& data=clock_gating_->read(cmd.clock_families);out.message=data.message;
+                for(size_t i=0;i<data.families.size();++i)if((cmd.clock_families&(1u<<i))&&data.families[i].availability==VoltagePolicyAvailability::available&&!data.families[i].stale)out.ok=true;
+            }else if(cmd.operation==Command::Operation::clock_gating_save){
+                if(!cmd.clock_gating_selection||cmd.profile_path.empty())throw std::runtime_error("Choose clock gating fields and profile path");
+                write_profile(cmd.profile_path,capture_clock_gating_profile(clock_gating_->read(),*cmd.clock_gating_selection));out.ok=true;out.message="Selected clock gating requests saved";
+            }else{
+                ClockGatingResult result;
+                if(cmd.operation==Command::Operation::clock_gating_apply && cmd.clock_gating_requests)result=clock_gating_->apply(*cmd.clock_gating_requests);
+                else if(cmd.operation==Command::Operation::clock_gating_undo)result=clock_gating_->undo();
+                else if(cmd.clock_gating_selection && cmd.clock_gating_selection->size()==1){
+                    const auto family=cmd.clock_gating_selection->front();
+                    if(cmd.operation==Command::Operation::clock_gating_release)result=clock_gating_->release(family);
+                    else if(cmd.operation==Command::Operation::clock_gating_restore)result=clock_gating_->restore_initial(family);
+                    else if(cmd.operation==Command::Operation::clock_gating_recover)result=clock_gating_->recover(family);
+                    else throw std::runtime_error("Invalid clock gating operation");
+                }else throw std::runtime_error("Choose a clock gating family");
+                out.ok=result.ok;out.may_have_changed=result.may_have_changed;out.message=result.message;
+            }
+        }catch(const std::exception& error){out.message=error.what();}
+        last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());return out;
+    }
     ActionResult voltage_tables_action(const Command& cmd) {
         ActionResult out;
         if (!voltage_tables_) { out.message="Voltage request tables unavailable"; return out; }
@@ -917,6 +966,7 @@ class Client final : public IBackend {
             for (const auto& policy : power.rows) {
                 if (policy.board || !policy.consistent || !(policy.writable || policy.named_current) || (policy.unit != 0 && policy.unit != 1)) continue;
                 ScopedCurrent row; row.key = ScopedKey::policy_request(policy.policy); row.binding = policy_binding(policy);
+                row.channel=policy.channel;row.policy_type=policy.type;
                 row.unit = policy.unit == 0 ? "mW" : "mA"; row.value = policy.requested;
                 row.low = policy.minimum; row.high = policy.maximum; row.fresh = row.writable = true;
                 auto pin = std::find(power.pin_ids.begin(), power.pin_ids.end(), policy.policy);
@@ -1605,6 +1655,8 @@ public:
         LOAD(voltage_policy.architecture_supported, dc_perf_probe_architecture); LOAD(voltage_policy.transport, dc_perf_transport);
         LOAD(voltage_policy.escape, dc_rm_escape_raw); LOAD(voltage_policy.reset_transport, dc_rm_transport_reset);
         LOAD(voltage_policy.lock, dc_gpu_lock); LOAD(voltage_policy.unlock, dc_gpu_unlock);
+        api_.power_saving.transport=api_.voltage_policy;
+        api_.clock_gating.transport=api_.voltage_policy;
         api_.voltage_tables.transport=api_.voltage_policy;
         api_.voltage_limits.transport=api_.voltage_policy;
         LOAD(voltage_tables.rails_blocks, dc_rails_blocks); LOAD(voltage_tables.rails_state, dc_rails_state);
@@ -1693,13 +1745,26 @@ public:
         last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
         voltage_policy_ = std::make_unique<VoltagePolicyService>(api_.voltage_policy, gpu_, opened_);
         last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
+        power_saving_=std::make_unique<PowerSavingService>(api_.power_saving,gpu_,opened_);
+        clock_gating_=std::make_unique<ClockGatingService>(api_.clock_gating,gpu_,opened_);
+        last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
+        last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
         voltage_tables_=std::make_unique<VoltageTablesService>(api_.voltage_tables,gpu_,opened_);
         voltage_limits_=std::make_unique<VoltageLimitsService>(api_.voltage_limits,gpu_,opened_);
         last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());
         last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
         error.clear(); return true;
     }
+    bool auxiliary_cleanup_needed()const override{return (power_saving_&&power_saving_->has_owned_requests())||(clock_gating_&&clock_gating_->needs_cleanup());}
     ActionResult prepare_close() override {
+        if(power_saving_&&power_saving_->has_owned_requests()){
+            const auto result=power_saving_->release_owned();last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
+            if(!result.ok||power_saving_->has_owned_requests()){ActionResult out;out.message=result.message+"; owned requests still require release";out.may_have_changed=result.may_have_changed;return out;}
+        }
+        if(clock_gating_&&clock_gating_->needs_cleanup()){
+            const auto result=clock_gating_->close();last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
+            if(!result.ok||clock_gating_->needs_cleanup()){ActionResult out;out.message=result.message+"; owned requests still require release";out.may_have_changed=result.may_have_changed;return out;}
+        }
         if (timings_ && timings_->pending()) { ActionResult r; r.message="Timing helper is still running; keeping the session open until its exit is confirmed"; return r; }
         if(timing_owner_!=TimingOwner::none){const auto result=release_timing_hold();if(!result.ok)return result;}
         if (i2c_session_ && i2c_session_->owned()) { auto result=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!result.ok) return result; }
@@ -1738,10 +1803,13 @@ public:
         arbitration_.reset();
         power_integral_.reset();
         voltage_policy_.reset();
+        power_saving_.reset();clock_gating_.reset();
         voltage_tables_.reset(); voltage_limits_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
     }
     LiveData read(bool details) override {
+        if(power_saving_)last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
+        if(clock_gating_)last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
         if (voltage_tables_) last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());
         if (voltage_limits_) last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
         if (voltage_policy_) last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
@@ -1825,6 +1893,8 @@ public:
                         if (it != captured.rows.end()) { ++candidates; candidate_id = current.policy; }
                     }
                     for (const auto& row : captured.rows) { PowerPolicy policy{}; policy.id = row.policy; policy.label = "Policy " + std::to_string(row.policy); policy.named_current = row.named_current != 0; policy.binding = policy_binding(row);
+                        policy.channel=row.channel;policy.policy_type=row.type;
+                        if(row.unit==1 && row.consistent && row.value>=0)policy.observed_amps=row.value/1000.0;
                         if (current_answered) policy.core_current = candidates == 1 && candidate_id == row.policy;
                         else if (row.named_current && row.unit == 1 && row.consistent) { auto old = std::find_if(previous_policies.begin(), previous_policies.end(), [&](const PowerPolicy& p) { return p.id == row.policy && p.binding == policy.binding && p.core_current; }); policy.core_current = old != previous_policies.end(); }
                         if (policy.core_current) policy.label = "Core current (NVVDD)"; policy.state.availability = Availability::available; policy.state.current = row.requested / 1000.0; policy.state.low = row.minimum / 1000.0; policy.state.high = row.maximum / 1000.0; policy.state.stock = row.default_value / 1000.0; policy.state.unit = row.unit == 0 ? "W" : row.unit == 1 ? "A" : "unknown"; policy.state.step = 0.001; policy.state.writable = !row.board && row.consistent && (row.writable || row.named_current) && (row.unit == 0 || row.unit == 1); policy.state.stock_writable = policy.state.writable && row.default_value >= row.minimum && row.default_value <= row.maximum; policy.state.detail = row.board ? "Board request is controlled separately" : row.consistent ? "Configured policy request" : "Policy record is inconsistent"; last_.power_policies.push_back(std::move(policy)); }
@@ -1888,6 +1958,9 @@ public:
             return power_integral_action(cmd);
         if (cmd.operation >= Command::Operation::voltage_policy_read && cmd.operation <= Command::Operation::voltage_policy_recover)
             return voltage_policy_action(cmd);
+        // These independently qualified requests own their own RM objects and
+        // do not replace an I2C clamp, V/F hold, curve or clock-lock request.
+        if(is_auxiliary_operation(cmd.operation))return cmd.operation<=Command::Operation::power_saving_save?power_saving_action(cmd):clock_gating_action(cmd);
         if (cmd.operation==Command::Operation::voltage_tables_read || cmd.operation==Command::Operation::voltage_tables_save)
             return voltage_tables_action(cmd);
         if (cmd.operation==Command::Operation::voltage_limits_read || cmd.operation==Command::Operation::voltage_limits_save)

@@ -11,6 +11,8 @@
 #include "imgui_impl_dx9.h"
 #include "refresh_policy.h"
 #include "ui_view.h"
+#include "device_recovery.h"
+#include <future>
 #include "timing_capture.h"
 #include "classic_layout.h"
 #include "session.h"
@@ -81,7 +83,8 @@ public:
 struct Options {
     int width = 1280, height = 800;
     float scale = 0;
-    std::wstring smoke_dir, capture, core_path;
+    std::wstring smoke_dir, capture, core_path,recovery_receipt,restart_instance;
+    bool recovery_helper=false,restart_child=false;uint32_t parent_pid=0;
     std::string slot, expected_uuid;
     druta::ui::Page page = druta::ui::Page::daily;
     bool classic = false, preview = false;
@@ -93,7 +96,9 @@ bool parse_options(Options& o) {
     bool valid = true;
     for (int i = 1; i < count && valid; ++i) {
         const std::wstring key = args[i];
-        if (key == L"--classic") o.classic = true;
+        if(key==L"--device-recovery-helper")o.recovery_helper=true;
+        else if(key==L"--device-restart-child")o.restart_child=true;
+        else if (key == L"--classic") o.classic = true;
         else if (key == L"--preview") o.preview = true;
         else if (i + 1 >= count) valid = false;
         else {
@@ -102,6 +107,9 @@ bool parse_options(Options& o) {
             else if (key == L"--live-smoke-test") { o.smoke_dir = value; o.preview = false; }
             else if (key == L"--capture") o.capture = value;
             else if (key == L"--core") o.core_path = value;
+            else if(key==L"--recovery-result")o.recovery_receipt=value;
+            else if(key==L"--expected-instance")o.restart_instance=value;
+            else if(key==L"--parent-pid"){wchar_t* end=nullptr;const auto pid=wcstoul(value,&end,10);valid=*value&&end&&!*end&&pid>0;o.parent_pid=pid;}
             else if (key == L"--gpu") {
                 const std::wstring slot(value);
                 valid = slot.size() < 24 && std::all_of(slot.begin(), slot.end(), [](wchar_t c) { return c > 0 && c < 128; });
@@ -143,6 +151,8 @@ struct App {
     std::unique_ptr<druta::ui::Session> session;
     std::wstring active_core_path, app_executable, app_directory;
     bool closing = false;
+    std::future<druta::ui::DeviceRecoveryRequest> recovery_preparation;
+    std::optional<druta::ui::AppTarget> recovery_target;
     UINT width = 1280, height = 800;
     bool resize_pending = false, device_lost = false, initialized = false, quit = false;
     float pending_scale = 0, scale = 1;
@@ -234,6 +244,59 @@ struct App {
             if(!session->submit(command,before->generation))throw std::runtime_error("Session is busy or changed; retry the voltage operation");
             status=save?"Capturing selected requests; save result appears in the operation log.":"Operation queued; see the operation log.";
         }catch(const std::exception& e){status=e.what();}
+    }
+    void saving_profile_or_command(druta::ui::Command command,bool power,bool save,bool load){
+        using namespace druta::ui;auto& status=power?view.power_saving_view.status:view.clock_gating_view.status;const auto before=session->snapshot();
+        try{
+            if(save||load){
+                wchar_t path[32768]{};OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=window;dialog.lpstrFile=path;dialog.nMaxFile=static_cast<DWORD>(std::size(path));
+                dialog.lpstrFilter=L"Druta request profile (*.json)\0*.json\0\0";dialog.lpstrDefExt=L"json";dialog.lpstrTitle=save?L"Save selected requests":L"Load requests into draft";
+                dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
+                const bool chosen=(save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog))!=FALSE;policy.note_activity(now_seconds());
+                if(!chosen){if(CommDlgExtendedError())throw std::runtime_error("Profile file dialog failed");return;}
+                auto current=session->snapshot();if(current->generation!=before->generation)throw std::runtime_error("Adapter changed while choosing profile");
+                if(load){
+                    const auto document=read_profile(path);current=session->snapshot();if(current->generation!=before->generation)throw std::runtime_error("Adapter changed while reading profile");
+                    if(power){if(!current->data.power_saving)throw std::runtime_error("Read power saving controls first");stage_power_saving_document(view.power_saving_view,document,*current->data.power_saving);}
+                    else{if(!current->data.clock_gating)throw std::runtime_error("Read clock gating controls first");stage_clock_gating_document(view.clock_gating_view,document,*current->data.clock_gating);}
+                    return;
+                }command.profile_path=path;
+            }
+            if(!session->submit(command,before->generation))throw std::runtime_error("Session busy or changed; retry the operation");
+            status="Operation queued; see operation log.";
+        }catch(const std::exception& e){status=e.what();}
+    }
+    void consume_saving_controls(){
+        using namespace druta::ui;
+        const auto saving=std::move(view.power_saving_intents);view.power_saving_intents.clear();
+        for(const auto& intent:saving){
+            Command command;command.saving_families=intent.families;command.power_saving_requests=std::make_shared<const std::vector<PowerSavingRequest>>(intent.requests);command.power_saving_selection=std::make_shared<const std::vector<PowerSavingKey>>(intent.selection);bool save=false,load=false;
+            switch(intent.operation){
+            case PowerSavingIntent::Operation::read:command.operation=Command::Operation::power_saving_read;break;
+            case PowerSavingIntent::Operation::apply:command.operation=Command::Operation::power_saving_apply;break;
+            case PowerSavingIntent::Operation::restore_initial:command.operation=Command::Operation::power_saving_restore;break;
+            case PowerSavingIntent::Operation::undo:command.operation=Command::Operation::power_saving_undo;break;
+            case PowerSavingIntent::Operation::recover:command.operation=Command::Operation::power_saving_recover;break;
+            case PowerSavingIntent::Operation::release_owned:command.operation=Command::Operation::power_saving_release;break;
+            case PowerSavingIntent::Operation::save_profile:save=true;command.operation=Command::Operation::power_saving_save;break;
+            case PowerSavingIntent::Operation::load_profile:load=true;break;
+            }saving_profile_or_command(std::move(command),true,save,load);
+        }
+        const auto clocks=std::move(view.clock_gating_intents);view.clock_gating_intents.clear();
+        for(const auto& intent:clocks){
+            Command command;command.clock_families=intent.families;command.clock_gating_requests=std::make_shared<const std::vector<ClockGatingRequest>>(intent.requests);
+            auto selection=intent.selection;if(selection.empty())selection.push_back(intent.family);command.clock_gating_selection=std::make_shared<const std::vector<ClockGatingFamily>>(selection);bool save=false,load=false;
+            switch(intent.operation){
+            case ClockGatingIntent::Operation::read:command.operation=Command::Operation::clock_gating_read;break;
+            case ClockGatingIntent::Operation::apply:command.operation=Command::Operation::clock_gating_apply;break;
+            case ClockGatingIntent::Operation::restore_initial:command.operation=Command::Operation::clock_gating_restore;break;
+            case ClockGatingIntent::Operation::undo:command.operation=Command::Operation::clock_gating_undo;break;
+            case ClockGatingIntent::Operation::recover:command.operation=Command::Operation::clock_gating_recover;break;
+            case ClockGatingIntent::Operation::release:command.operation=Command::Operation::clock_gating_release;break;
+            case ClockGatingIntent::Operation::save_profile:save=true;command.operation=Command::Operation::clock_gating_save;break;
+            case ClockGatingIntent::Operation::load_profile:load=true;break;
+            }saving_profile_or_command(std::move(command),false,save,load);
+        }
     }
     void consume_voltage_controls() {
         using namespace druta::ui;
@@ -379,9 +442,9 @@ struct App {
         if (session) { session->set_paused(false); session->request_poll(); }
         SetForegroundWindow(window);
     }
-    void request_close() {
+    void request_close(bool for_device_restart=false) {
         closing = true;
-        if (session) session->begin_shutdown();
+        if (session) {if(for_device_restart)session->begin_device_restart_shutdown();else session->begin_shutdown();}
         else quit = true;
         SetWindowTextW(window, L"Druta - finishing current operation and closing");
         policy.note_activity(now_seconds());
@@ -396,6 +459,32 @@ struct App {
             const auto separator=app_executable.find_last_of(L"\\/");
             app_directory=separator==std::wstring::npos?std::wstring{}:app_executable.substr(0,separator);
             actions.notices=druta::ui::load_bundled_notices(app_directory);
+        }
+        if(recovery_preparation.valid()&&recovery_preparation.wait_for(std::chrono::seconds(0))==std::future_status::ready){
+            actions.recovery_preparing=false;
+            try{
+                auto request=recovery_preparation.get();const auto fresh=session?session->snapshot():view.live;std::string why;
+                if(!recovery_target||!fresh||view.select_slot||!druta::ui::app_target_matches(*recovery_target,*fresh)||!druta::ui::restart_device_target(*fresh,why,actions.administrator))throw std::runtime_error("Recovery cancelled because the selected session changed or became busy");
+                if(!druta::ui::launch_device_recovery_helper(request,why))throw std::runtime_error(why);
+                recovery_target.reset();request_close(true);return;
+            }catch(const std::exception& e){recovery_target.reset();actions.status=e.what();}
+        }
+        if(actions.restart_device){
+            const auto target=*actions.restart_device;actions.restart_device.reset();
+            try{
+                if(recovery_preparation.valid())throw std::runtime_error("Recovery target verification is already in progress");
+                const auto fresh=session?session->snapshot():view.live;std::string why;
+                if(!fresh||view.select_slot||!druta::ui::app_target_matches(target,*fresh)||!druta::ui::restart_device_target(*fresh,why,actions.administrator))throw std::runtime_error("Selected GPU changed or is busy. "+why);
+                recovery_target=target;actions.recovery_preparing=true;
+                recovery_preparation=std::async(std::launch::async,[target,exe=app_executable,core=active_core_path,hwnd=window]{
+                    struct Notify{HWND hwnd;~Notify(){PostMessageW(hwnd,session_update_message,0,0);}} notify{hwnd};
+                    druta::ui::DeviceRecoveryRequest request;request.target=druta::ui::resolve_restart_target(target.slot,druta::ui::enumerate_restart_targets());
+                    request.uuid=target.uuid;request.parent_pid=GetCurrentProcessId();request.executable=exe;request.core=core;
+                    const auto directory=druta::ui::device_recovery_directory();request.receipt=druta::ui::create_device_recovery_receipt(directory);
+                    std::string why;if(!druta::ui::valid_device_recovery_request(request,directory,why))throw std::runtime_error(why);return request;
+                });
+                actions.status="Verifying the selected PnP device for recovery...";
+            }catch(const std::exception& e){actions.recovery_preparing=false;actions.status=e.what();}
         }
         if(actions.exit_requested) {actions.exit_requested=false;request_close();return;}
         if(actions.save_report_requested) {
@@ -444,7 +533,22 @@ struct App {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         consume_profile_catalog();
-        consume_voltage_controls();
+        consume_voltage_controls();consume_saving_controls();
+        if(view.import_policy_annotations){
+            view.import_policy_annotations=false;
+            try{
+                const auto before=session->snapshot();wchar_t path[32768]{};OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=window;
+                dialog.lpstrFile=path;dialog.nMaxFile=static_cast<DWORD>(std::size(path));dialog.lpstrFilter=L"Python policy labels (*.json)\0*.json\0\0";
+                dialog.lpstrTitle=L"Import Python display labels";dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST;
+                if(GetOpenFileNameW(&dialog)){
+                    const auto document=druta::ui::read_profile(path);const auto current=session->snapshot();
+                    if(before->generation!=current->generation||!current->data.scoped_profiles)throw std::runtime_error("Refresh policies for the selected GPU before importing labels");
+                    const auto count=druta::ui::import_python_policy_names(document,*current->data.scoped_profiles,view.policy_annotations);
+                    view.save_policy_annotations=count!=0;view.policy_workspace.status=std::to_string(count)+" matching policy labels imported";
+                }else if(CommDlgExtendedError())throw std::runtime_error("Policy label file dialog failed");
+                policy.note_activity(now_seconds());
+            }catch(const std::exception& e){view.policy_workspace.status=e.what();}
+        }
         if(view.save_policy_annotations) {
             view.save_policy_annotations=false;
             try {
@@ -813,11 +917,11 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[16] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    const wchar_t* captures[18] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp"};
-    const char* names[16] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp"};
+    const char* names[18] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -849,12 +953,14 @@ struct Smoke {
         if (phase == 12 || phase == 13) ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok && app.view.profile_catalog_intents.empty();
         if (phase == 14) ok = ok && app.view.policy_workspace.open && !app.view.save_policy_annotations && !app.view.policy_workspace.preview;
         if (phase == 15) ok = ok && !app.view.timings_view.auto_capture && app.view.commands.empty();
+        if(phase==16)ok=ok&&app.view.power_saving_intents.empty()&&!app.view.open_power_saving_requested;
+        if(phase==17)ok=ok&&app.view.clock_gating_intents.empty()&&!app.view.open_clock_gating_requested;
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 15 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 17 ? "" : ",");
         report += row;
-        if (++phase == 16) {
+        if (++phase == 18) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -884,17 +990,34 @@ struct Smoke {
         if (phase == 13) app.view.presentation=druta::ui::Presentation::classic;
         if (phase == 14) {app.view.profile_catalog_view.open=false;app.view.policy_workspace.open=true;app.view.presentation=druta::ui::Presentation::focused;}
         if (phase == 15) {app.view.policy_workspace.open=false;app.view.page=druta::ui::Page::timings;app.view.presentation=druta::ui::Presentation::classic;}
+        if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=true;}
+        if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=true;}
         begin(app);
     }
 };
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
+    {int count=0;auto args=CommandLineToArgvW(GetCommandLineW(),&count);
+     if(args&&count>1&&std::wstring(args[1])==L"--device-restart-child"){
+        int result=2;if(count==4){const std::wstring slot=args[2];if(std::all_of(slot.begin(),slot.end(),[](wchar_t c){return c>0&&c<128;})){std::string ascii;for(wchar_t c:slot)ascii.push_back(static_cast<char>(c));result=druta::ui::device_restart_child(ascii,args[3]);}}
+        LocalFree(args);return result;
+     }if(args)LocalFree(args);}
+
     Options options;
     if (!parse_options(options)) {
         MessageBoxW(nullptr, L"Options: --width N --height N --scale 1..3 --classic --page daily|curve|advanced|monitor|timings\n"
             L"--preview --gpu PCI_SLOT --expect-uuid UUID --core ABSOLUTE_DLL\n--capture FILE.bmp (save and exit)\n--smoke-test DIR (fixtures) or --live-smoke-test DIR (reads only)", L"Druta", MB_ICONERROR); return 2;
     }
+    if(options.recovery_helper){
+        try{
+            std::vector<wchar_t> path(32768);const auto length=GetModuleFileNameW(nullptr,path.data(),static_cast<DWORD>(path.size()));if(!length||length>=path.size())return 2;
+            druta::ui::DeviceRecoveryRequest request;request.target={options.slot,options.restart_instance,L"selected GPU"};request.uuid=options.expected_uuid;
+            request.parent_pid=options.parent_pid;request.executable=std::wstring(path.data(),length);request.core=options.core_path;request.receipt=options.recovery_receipt;
+            return druta::ui::device_recovery_helper(request,druta::ui::device_recovery_directory());
+        }catch(...){return 2;}
+    }
+    if(options.restart_child||options.parent_pid||!options.restart_instance.empty())return 2;
     ImGui_ImplWin32_EnableDpiAwareness();
     App app; active = &app;
     app.width = UINT(options.width); app.height = UINT(options.height);
@@ -918,7 +1041,16 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_Init(app.window); ImGui_ImplDX9_Init(app.device); app.initialized = true;
     app.view.page = options.page;
     app.view.preview = options.preview;
+    {SID_IDENTIFIER_AUTHORITY authority=SECURITY_NT_AUTHORITY;PSID group=nullptr;BOOL member=FALSE;
+     if(AllocateAndInitializeSid(&authority,2,SECURITY_BUILTIN_DOMAIN_RID,DOMAIN_ALIAS_RID_ADMINS,0,0,0,0,0,0,&group)){
+        if(CheckTokenMembership(nullptr,group,&member))app.view.app_actions.administrator=member!=FALSE;FreeSid(group);}}
+
     if(!options.preview){druta::ui::set_shunt_config(app.view.shunt,druta::ui::ShuntConfig::load());app.initialize_policy_notes();}
+    if(!options.recovery_receipt.empty()){
+        try{const auto receipt=druta::ui::read_device_recovery_receipt(options.recovery_receipt,druta::ui::device_recovery_directory(),options.slot,options.expected_uuid);
+            app.view.app_actions.status=receipt.message+(receipt.reboot_required?" Windows reports that a reboot is required.":"")+" A fresh session was opened; no tuning was reapplied.";
+        }catch(const std::exception& e){app.view.app_actions.status=std::string("Recovery receipt unavailable: ")+e.what();}
+    }
     app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     app.view.hotkey_available = RegisterHotKey(app.window, restore_hotkey, MOD_CONTROL | MOD_SHIFT, VK_F11) != FALSE;
     if (!options.preview) {
@@ -987,9 +1119,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             }
         }
         if ((!options.capture.empty() || testing) && now_seconds()-started > 45) { success = false; break; }
+        if(app.view.app_actions.recovery_preparing&&!app.closing)app.consume_app_actions();
         double delay = app.policy.wait_seconds(now_seconds(), app.device_retry_at);
         if (testing) delay = std::min(delay, std::max(0.001, smoke.start+2.0-now_seconds()));
         if (!options.capture.empty()) delay = std::min(delay, 0.25);
+        if(app.view.app_actions.recovery_preparing)delay=std::min(delay,0.1);
         waiter.wait(delay);
     }
     if (testing && !smoke.finished) success = false;

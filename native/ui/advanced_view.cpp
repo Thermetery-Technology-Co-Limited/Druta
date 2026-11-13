@@ -4,6 +4,7 @@
 #include "session.h"
 #include "imgui.h"
 #include "classic_layout.h"
+#include "policy_workspace.h"
 #include <algorithm>
 #include <cmath>
 
@@ -29,7 +30,7 @@ bool table(const char* id, bool classic = false) {
 }
 void row(uint64_t key, const char* label, const ControlState& c, const char* stock_label,
     Command action, const SessionSnapshot& snapshot, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding, bool keep_slider = false, bool gate = true, bool xoc_gate = false) {
+    AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding, bool keep_slider = false, bool gate = true, bool xoc_gate = false, const PolicyCurrentDisplay* observed = nullptr) {
     auto& d = state.drafts[key];
     const auto current_binding = binding.empty() && (c.availability == Availability::transient || c.availability == Availability::unknown)
         ? d.binding : binding;
@@ -78,6 +79,12 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     else if (c.current) ImGui::Text("%.6g %s%s", *c.current, c.unit.c_str(), c.availability == Availability::transient ? " *" : "");
     else ImGui::TextDisabled("-- %s", c.unit.c_str());
     if (verbose) ImGui::PopFont();
+    if(observed) {
+        const auto band=observed->band;
+        const ImVec4 tint=band==PolicyCurrentBand::white?ImVec4(1,1,1,1):band==PolicyCurrentBand::yellow?ImVec4(1,0.9f,0,1):band==PolicyCurrentBand::red?ImVec4(1,0.2f,0.2f,1):ImVec4(0.86f,0.08f,0.24f,1);
+        ImGui::TextColored(tint,"%.3f A%s",observed->amps,observed->even_split?" / wire":" slot");
+        hint(observed->even_split?"Reported channel current divided evenly among the selected connector's 12 V wires; actual sharing is not measured.":"Reported PCIe slot current.");
+    }
     hint(c.detail);
     if (verbose) hint("Configured request, not an observed physical clock or rail measurement.");
     ImGui::TableNextColumn();
@@ -91,6 +98,14 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     ImGui::EndDisabled();
     hint(c.detail);
     ImGui::PopID();
+}
+void policy_row(const PowerPolicy& p,const SessionSnapshot& s,bool unlocked,bool classic,AdvancedViewState& state,std::vector<Command>& commands,const PolicyAnnotations* annotations) {
+    ScopedCurrent metadata;metadata.key=ScopedKey::policy_request(p.id);metadata.binding=p.binding;metadata.channel=p.channel;metadata.policy_type=p.policy_type;
+    const auto note=annotations?annotations->get({s.data.identity.uuid,s.selected_slot},metadata):std::string{};
+    const auto label=p.label+(note.empty()?"":" ("+note+")");
+    const auto observed=policy_current_display(note,p.state.unit=="A"?"mA":"",p.state.availability==Availability::available?p.observed_amps:std::nullopt);
+    Command cmd;cmd.power_policy=p.id;
+    row(2000+p.id,label.c_str(),p.state,"Default",cmd,s,unlocked,classic,state,commands,p.binding,false,true,false,observed?&*observed:nullptr);
 }
 void ensure_generation(const SessionSnapshot& s, AdvancedViewState& state) {
     if (state.generation != s.generation) { state = {}; state.generation = s.generation; }
@@ -181,7 +196,7 @@ void draw_clock_voltage_offsets(const SessionSnapshot& s, bool unlocked, bool ve
     }
 }
 void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails, bool include_offsets) {
+    AdvancedViewState& state, std::vector<Command>& commands, bool include_rails, bool include_offsets, const PolicyAnnotations* annotations) {
     ensure_generation(s,state);
     if (!state.notice.empty()) ImGui::TextWrapped("%s", state.notice.c_str());
     if (include_offsets) draw_clock_voltage_offsets(s,unlocked,verbose,state,commands);
@@ -189,8 +204,7 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
     if (!s.data.power_policies.empty() && ImGui::CollapsingHeader("Current and power policies", section_flags)) {
         if (table("power-policies", verbose)) {
             for (const auto& p : s.data.power_policies) {
-                Command cmd; cmd.power_policy = p.id;
-                row(2000 + p.id, p.label.c_str(), p.state, "Default", cmd, s, unlocked, verbose, state, commands, p.binding);
+                policy_row(p,s,unlocked,verbose,state,commands,annotations);
             }
             ImGui::EndTable();
         }
@@ -275,12 +289,11 @@ void draw_daily_rail_controls(const SessionSnapshot& s, bool unlocked, bool clas
 }
 
 void draw_power_policy_controls(const SessionSnapshot& s, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands) {
+    AdvancedViewState& state, std::vector<Command>& commands,const PolicyAnnotations* annotations) {
     ensure_generation(s, state);
     if (!table("power-policies", classic)) return;
     for (const auto& p : s.data.power_policies) {
-        Command cmd; cmd.power_policy = p.id;
-        row(2000 + p.id, p.label.c_str(), p.state, "Default", cmd, s, unlocked, classic, state, commands, p.binding);
+        policy_row(p,s,unlocked,classic,state,commands,annotations);
     }
     ImGui::EndTable();
 }

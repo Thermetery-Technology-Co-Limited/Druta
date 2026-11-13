@@ -15,9 +15,10 @@ struct AppTarget {
 struct DeviceReport { AppTarget target; std::string text; };
 struct BundledNotice { std::string title, source, text; bool available = false; };
 struct AppActionsState {
+    bool administrator=false,recovery_preparing=false;
     bool report_open = false, about_open = false, licences_open = false, shortcuts_open = false;
     bool save_report_requested = false, exit_requested = false;
-    std::optional<AppTarget> second_window;
+    std::optional<AppTarget> second_window,restart_device;
     std::optional<DeviceReport> report;
     std::vector<BundledNotice> notices;
     std::string status;
@@ -26,6 +27,8 @@ struct AppActionsState {
 void cancel_pending_app_actions(AppActionsState& state);
 AppTarget app_target(const SessionSnapshot& snapshot);
 bool app_target_matches(const AppTarget& target, const SessionSnapshot& snapshot);
+std::optional<AppTarget> restart_device_target(const SessionSnapshot&,std::string& why,bool administrator=false);
+void draw_device_restart_button(ViewState&);
 std::optional<AppTarget> second_window_target(const SessionSnapshot& snapshot, std::string& why);
 DeviceReport selected_device_report(const SessionSnapshot& snapshot);
 std::wstring quote_windows_argument(const std::wstring& argument);

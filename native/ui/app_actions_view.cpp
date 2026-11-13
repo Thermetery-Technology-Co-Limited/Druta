@@ -15,6 +15,16 @@ void readonly_text(const char* id,std::string& text) {
     ImGui::InputTextMultiline(id,text.data(),text.size()+1,{-1,-1},ImGuiInputTextFlags_ReadOnly);
 }
 }
+void draw_device_restart_button(ViewState& state){
+    std::string why;const auto target=state.live?restart_device_target(*state.live,why,state.app_actions.administrator):std::optional<AppTarget>{};
+    ImGui::BeginDisabled(!target||bool(state.select_slot)||state.app_actions.recovery_preparing);
+    ImGui::PushStyleColor(ImGuiCol_Button,ImVec4(0.55f,0.08f,0.08f,1));
+    if(ImGui::Button("Panic / restart GPU"))state.app_actions.restart_device=target;
+    ImGui::PopStyleColor();ImGui::EndDisabled();
+    if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)){ImGui::BeginTooltip();ImGui::PushTextWrapPos(420);
+        ImGui::TextWrapped("%s",why.empty()?"Closes Druta, restarts only the selected GPU through Windows PnP, then opens a fresh session. No tuning settings are reapplied.":why.c_str());
+        ImGui::PopTextWrapPos();ImGui::EndTooltip();}
+}
 void draw_app_actions_menu(ViewState& state) {
     if(!ImGui::BeginMenuBar())return;
     auto& actions=state.app_actions;
@@ -49,11 +59,15 @@ void draw_app_actions_menu(ViewState& state) {
         if(ImGui::MenuItem("Locate nvtune..."))state.timing_helper_requested=true;
         ImGui::EndDisabled();
         if(ImGui::MenuItem("Shunt mod (corrected power)..."))state.shunt.open=true;
+        const auto restart=state.live?restart_device_target(*state.live,why,state.app_actions.administrator):std::optional<AppTarget>{};
+        ImGui::BeginDisabled(!restart||bool(state.select_slot)||actions.recovery_preparing);if(ImGui::MenuItem("Restart selected GPU (PnP)"))actions.restart_device=restart;ImGui::EndDisabled();
         ImGui::EndMenu();
     }
     if(ImGui::BeginMenu("Clocks")) {
         ImGui::BeginDisabled(state.preview || !state.live);
         if(ImGui::MenuItem("Frequency locks / legacy P0..."))state.frequency_view.open=true;
+        if(ImGui::MenuItem("Power saving...")){state.page=Page::advanced;state.open_power_saving_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
+        if(ImGui::MenuItem("Clock gating / PCIe...")){state.page=Page::advanced;state.open_clock_gating_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
         ImGui::EndDisabled();
         ImGui::EndMenu();
     }
