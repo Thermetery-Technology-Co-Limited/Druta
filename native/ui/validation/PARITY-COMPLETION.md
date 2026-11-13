@@ -12,6 +12,21 @@ The current [backlog](../../../backlog.md) separates active parity work from
 deferred research and broader validation. Historical limitations below remain
 recorded; deferred work is neither complete nor an active-session blocker.
 
+## Current checkpoint and remaining parity
+
+[Increment 24](2026-11-13-parity-twenty-fourth-increment.md) completes the explicit
+relationship-weight transaction, journal, fresh verification and removal paths.
+The final integrated run passes 147/147 tests and 23 live renderer phases.
+This card's relationship INFO layout remains unqualified; no physical weight
+activation or driver restart is claimed.
+
+The [fresh source reconciliation](2026-11-13-released-parity-reconciliation.md)
+finds three concrete omissions: disk-backed prewrite/history browsing, aggregate
+Full tune capture/save, and remembered nvtune/Forget/test-signing setup. Earlier
+catalog and helper rows cover their implemented subsets, not those workflows.
+The backlog has four active entries including final acceptance, 35 completed
+and eight deferred items. Overall parity remains open.
+
 ## Required work
 
 | Requirement | Current status / evidence |
@@ -40,8 +55,8 @@ recorded; deferred work is neither complete nor an active-session blocker.
 | Voltage offset/request tables, REL bounds | Seventh: six request fields, preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Twentieth: production ROM/graph/policy/retained-request provider integrated for understood layouts. Twenty-first: bounded installed-receipt recognition. Twenty-second: signed selected offset Apply/readback/initial Restore/Undo/recovery and native/Python profiles are connected in both skins and actual CoreClient/catalog tests; [134 suites and 22 renderer phases pass](2026-11-13-parity-twenty-second-increment.md). No installed receipt on this card, so physical offset writes remain unqualified. Additional layouts are deferred; no persistent scaffold activation |
 | Voltage constants and device switch delays | Seventh: independent typed device delays, exact readback, Undo and native profiles implemented/tested. Twentieth: production factory/provider wiring and REL/ALT/OV/VMIN Apply/Undo/manual profiles tested with injected transports. Current 3070 Ti ROM selector layout remains explicitly unqualified; loaded definitions and independent delay/request paths stay available |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Thirteenth adds qualified adaptive/idle, exclusive GR/counted-request, and opposite ELCG/SLCG handovers; unknown adaptive prior, simultaneous shared GR/count ownership and BLCG ENABLE remain unqualified. 95/95 suites and 22 read-only renderer phases passed. Physical effects remain adapter-specific |
-| Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Twenty-third implements production Read/Preview, exact selected image/INFO binding and narrow registry projection in both skins. Durable receipt, Apply/refresh, fresh activation verification and removal remain open. Current 3070 Ti INFO geometry differs from the released weight decoder; no physical weight write is claimed. See [evidence](2026-11-13-parity-twenty-third-increment.md) |
-| Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
+| Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Twenty-third Read/Preview plus [twenty-fourth activation/recovery](2026-11-13-parity-twenty-fourth-increment.md): immutable durable receipts, per-name journaling, exact registry readback, parent-exit handoff, fresh-process complete image/INFO proof and three-way owned removal. 147/147 tests and 23 renderer phases pass. This 3070 Ti layout is outside the released decoder; no physical activation is claimed |
+| Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification  Remembered registration/Forget and test-signing setup remain open; see the current reconciliation. |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
 | Timing profile save/load staged only | Fourth: native typed save with staged overlay, validated load into local fields, explicit whole Preview/Apply. Ninth adds released Python timing, `nvtune-profile-1` and field-exchange imports with current-helper aliases and qualification; 87-suite and 20-phase renderer validation passed. Physical timing-write qualification remains open |
 | Bounded owned-P0 capture and qualifying-band auto-capture | Seventh: scoped helper pin, observed P0/current-adapter band, bounded temporary hold and owned-only cleanup, switch exclusion/recovery and telemetry-only auto-capture implemented/tested. Nineteenth adds optional CUDA below; no new physical timing-write qualification |
@@ -91,7 +106,11 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the twenty-first increment
+## Historical remaining scope after the twenty-first increment
+
+Superseded for active-session status by the current checkpoint and backlog above.
+This section retains earlier limitations; it does not reopen completed work or
+turn deferred qualification into an active task.
 
 - Remaining ROM selector/runtime equation mappings and independent policy/
   retained-request verification for selected signed offset writes, Undo and

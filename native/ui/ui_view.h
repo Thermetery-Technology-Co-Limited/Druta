@@ -50,6 +50,8 @@ struct ViewState {
     FrequencyLockViewState frequency_view;
     PowerIntegralViewState power_integral_view;
     PowerWeightsViewState power_weights_view;
+    std::vector<PowerWeightsIntent> power_weights_intents;
+    std::shared_ptr<const PowerWeightsData> power_weights_saved;
     VoltagePolicyViewState voltage_policy_view;
     VoltageTablesViewState voltage_tables_view;
     VoltageLimitsViewState voltage_limits_view;

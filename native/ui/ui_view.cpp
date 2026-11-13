@@ -1216,10 +1216,14 @@ void live_semantic_controls(ViewState& state, bool classic) {
     if(policy_navigation)ImGui::SetNextItemOpen(weights_navigation);
     state.open_power_weights_requested=false;
     if(ImGui::CollapsingHeader("Power relationship weights")){
-        for(auto& intent:draw_power_weights(state.power_weights_view,snapshot.data.power_weights.get(),snapshot.generation,busy,classic)){
-            Command command;command.operation=intent.operation==PowerWeightsIntent::Operation::read?Command::Operation::power_weights_read:Command::Operation::power_weights_preview;
-            command.power_weight_requests=std::make_shared<const std::vector<PowerWeightRequest>>(std::move(intent.requests));state.commands.push_back(std::move(command));
+        const auto* weights=snapshot.data.power_weights.get();PowerWeightsData with_saved_receipt;
+        if(state.power_weights_saved&&state.power_weights_saved->receipt&&state.power_weights_saved->receipt->identity.slot==snapshot.selected_slot&&
+           (!snapshot.data.identity.uuid[0]||state.power_weights_saved->receipt->uuid==snapshot.data.identity.uuid)&&(!weights||!weights->receipt)){
+            if(weights)with_saved_receipt=*weights;
+            with_saved_receipt.receipt=state.power_weights_saved->receipt;with_saved_receipt.receipt_message=state.power_weights_saved->receipt_message;weights=&with_saved_receipt;
         }
+        auto intents=draw_power_weights(state.power_weights_view,weights,snapshot.generation,snapshot.busy||snapshot.opening,classic,state.controls_unlocked,snapshot.data.connected);
+        state.power_weights_intents.insert(state.power_weights_intents.end(),std::make_move_iterator(intents.begin()),std::make_move_iterator(intents.end()));
     }
     if(policy_navigation)ImGui::SetNextItemOpen(saving_navigation);
     state.open_power_saving_requested=false;

@@ -142,7 +142,7 @@ struct Command {
         timings_capture_p0, timings_release_capture_hold,
         power_saving_read,power_saving_apply,power_saving_undo,power_saving_restore,power_saving_recover,power_saving_release,power_saving_save,
         clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save, save_fan_profile,
-        power_weights_read,power_weights_preview };
+        power_weights_read,power_weights_preview,power_weights_prepare,power_weights_inspect };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -177,6 +177,7 @@ struct Command {
     std::shared_ptr<const std::vector<ClockGatingFamily>> clock_gating_selection;
     uint32_t voltage_families = 3;
     std::shared_ptr<const std::vector<PowerWeightRequest>> power_weight_requests;
+    std::string power_weight_receipt_id;
     std::shared_ptr<const std::vector<VoltageTableRequest>> voltage_table_requests;
     std::shared_ptr<const std::vector<VoltageTableKey>> voltage_table_selection;
     std::shared_ptr<const std::vector<VoltageLimitRequest>> voltage_limit_requests;

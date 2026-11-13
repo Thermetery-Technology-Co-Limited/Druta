@@ -12,6 +12,7 @@
 #include "refresh_policy.h"
 #include "ui_view.h"
 #include "device_recovery.h"
+#include "power_weight_host.h"
 #include <future>
 #include "timing_capture.h"
 #include "classic_layout.h"
@@ -86,7 +87,7 @@ struct Options {
     float scale = 0;
     std::wstring smoke_dir, capture, core_path,recovery_receipt,restart_instance;
     bool recovery_helper=false,restart_child=false;uint32_t parent_pid=0;
-    std::string slot, expected_uuid;
+    std::string slot, expected_uuid,weight_result;
     druta::ui::Page page = druta::ui::Page::daily;
     bool classic = false, preview = false;
 };
@@ -108,6 +109,10 @@ bool parse_options(Options& o) {
             else if (key == L"--live-smoke-test") { o.smoke_dir = value; o.preview = false; }
             else if (key == L"--capture") o.capture = value;
             else if (key == L"--core") o.core_path = value;
+            else if(key==L"--weight-result"){
+                const std::wstring id(value);valid=!id.empty()&&id.size()<=128&&std::all_of(id.begin(),id.end(),[](wchar_t c){return (c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'z')||(c>=L'A'&&c<=L'Z')||c==L'-';});
+                if(valid)for(wchar_t c:id)o.weight_result.push_back(static_cast<char>(c));
+            }
             else if(key==L"--recovery-result")o.recovery_receipt=value;
             else if(key==L"--expected-instance")o.restart_instance=value;
             else if(key==L"--parent-pid"){wchar_t* end=nullptr;const auto pid=wcstoul(value,&end,10);valid=*value&&end&&!*end&&pid>0;o.parent_pid=pid;}
@@ -140,7 +145,7 @@ bool parse_options(Options& o) {
             } else valid = false;
         }
     }
-    LocalFree(args); return valid && (o.expected_uuid.empty() || (!o.slot.empty() && !o.preview));
+    LocalFree(args); return valid && (o.expected_uuid.empty() || (!o.slot.empty() && !o.preview)) && (o.weight_result.empty()||(!o.slot.empty()&&!o.expected_uuid.empty()&&!o.preview));
 }
 struct App {
     HWND window = nullptr;
@@ -167,6 +172,8 @@ struct App {
         druta::ui::ProfileJson document;
     };
     std::optional<CatalogPending> catalog_pending;
+    std::optional<std::pair<uint64_t,uint64_t>> weight_prepare_pending;
+    std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
     druta::ui::PolicyAnnotationCommits annotation_commits;
     uint64_t annotation_generation=0,annotation_action_log=0;
     std::string annotation_status;
@@ -615,11 +622,69 @@ struct App {
             }
         }
     }
+    void handoff_power_weights(const druta::ui::PowerWeightReceipt& receipt,druta::ui::PowerWeightOperation operation) {
+        using namespace druta::ui;
+        const auto current=session?session->snapshot():nullptr;
+        if(!current||current->busy||current->opening||view.select_slot||receipt.identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&receipt.uuid!=current->data.identity.uuid))
+            throw std::runtime_error("Selected adapter changed or is busy; inspect the saved override again");
+        PowerWeightHostRequest request;request.receipt_id=receipt.id;request.operation=operation;
+        request.parent_pid=GetCurrentProcessId();request.executable=app_executable;request.core=active_core_path;
+        std::string why;if(!launch_power_weight_host(request,why))throw std::runtime_error(why);
+        view.power_weights_view.status="Finishing the session; the selected override helper will continue after Druta closes";
+        request_close(true);
+    }
+    void consume_power_weights() {
+        using namespace druta::ui;
+        if(!session||closing){view.power_weights_intents.clear();return;}
+        const auto current=session->snapshot();
+        auto selected_receipt=current->data.power_weights?current->data.power_weights->receipt:std::shared_ptr<const PowerWeightReceipt>{};
+        if(!selected_receipt&&view.power_weights_saved)selected_receipt=view.power_weights_saved->receipt;
+        if(selected_receipt&&(selected_receipt->identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&selected_receipt->uuid!=current->data.identity.uuid)))selected_receipt.reset();
+        if(!weight_initial_receipt.empty()&&!current->opening){
+            sync_power_weights_view(view.power_weights_view,current->data.power_weights.get(),current->generation);
+            const auto id=std::move(weight_initial_receipt);weight_initial_receipt.clear();
+            try{auto receipt=read_weight_receipt({},id);if(receipt.identity.slot!=weight_expected_slot||receipt.uuid!=weight_expected_uuid)throw std::runtime_error("Saved override belongs to another startup target");
+                auto data=std::make_shared<PowerWeightsData>();data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));data->receipt_message=data->receipt->phase+": "+data->receipt->message;view.power_weights_saved=std::move(data);
+            }catch(const std::exception& e){view.power_weights_view.status=e.what();}
+            view.page=Page::advanced;view.open_power_weights_requested=true;
+        }
+        if(weight_prepare_pending){
+            const auto pending=*weight_prepare_pending;
+            if(current->generation!=pending.first){weight_prepare_pending.reset();view.power_weights_view.status="Adapter changed; saved override was not activated";}
+            else if(!current->busy&&current->completed_actions>pending.second){
+                weight_prepare_pending.reset();
+                try{if(current->last_action_operation!=Command::Operation::power_weights_prepare||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
+                    throw std::runtime_error("Activation preparation did not complete; inspect the saved override for details");
+                    handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply);
+                }catch(const std::exception& e){view.power_weights_view.status=e.what();}
+            }
+        }
+        auto intents=std::move(view.power_weights_intents);view.power_weights_intents.clear();
+        for(auto& intent:intents)try{
+            if(closing||weight_prepare_pending||current->busy||view.select_slot)throw std::runtime_error("Wait for the current operation");
+            view.power_weights_view.status.clear();Command command;
+            switch(intent.operation){
+            case PowerWeightsIntent::Operation::read:command.operation=Command::Operation::power_weights_read;break;
+            case PowerWeightsIntent::Operation::preview:command.operation=Command::Operation::power_weights_preview;command.power_weight_requests=std::make_shared<const std::vector<PowerWeightRequest>>(std::move(intent.requests));break;
+            case PowerWeightsIntent::Operation::inspect:
+                if(!current->data.connected&&selected_receipt){const auto found=discover_weight_receipt({},selected_receipt->identity.slot,selected_receipt->uuid);auto data=std::make_shared<PowerWeightsData>();
+                    data->receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;data->receipt_message=found?found->phase+": "+found->message:"No active override remains";view.power_weights_view.status=data->receipt_message;view.power_weights_saved=std::move(data);continue;}
+                view.power_weights_saved.reset();command.operation=Command::Operation::power_weights_inspect;break;
+            case PowerWeightsIntent::Operation::prepare:command.operation=Command::Operation::power_weights_prepare;command.enabled=view.controls_unlocked;break;
+            default:
+                if(!selected_receipt)throw std::runtime_error("Inspect the saved override first");
+                if(intent.operation!=PowerWeightsIntent::Operation::verify&&!view.controls_unlocked)throw std::runtime_error("Unlock controls before activation or removal");
+                handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply);continue;
+            }
+            if(!session->submit(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
+            if(intent.operation==PowerWeightsIntent::Operation::prepare){weight_prepare_pending={{current->generation,current->completed_actions}};view.power_weights_view.status="Saving the recovery record before activation...";}
+        }catch(const std::exception& e){view.power_weights_view.status=e.what();}
+    }
     void consume_actions() {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         consume_profile_catalog();
-        consume_voltage_controls();consume_saving_controls();consume_policy_profiles();
+        consume_voltage_controls();consume_saving_controls();consume_policy_profiles();consume_power_weights();
         if(view.import_policy_annotations){
             view.import_policy_annotations=false;
             try{
@@ -1041,7 +1106,7 @@ struct Smoke {
         if(phase==19)ok=ok&&app.view.power_integral_profile_intents.empty()&&!app.view.open_power_integral_requested;
         if(phase==20)ok=ok&&app.view.voltage_tables_intents.empty()&&!app.view.open_voltage_tables_requested;
         if(phase==21)ok=ok&&app.view.voltage_limits_intents.empty()&&!app.view.open_voltage_limits_requested;
-        if(phase==22)ok=ok&&app.view.commands.empty()&&!app.view.open_power_weights_requested;
+        if(phase==22)ok=ok&&app.view.commands.empty()&&app.view.power_weights_intents.empty()&&!app.view.open_power_weights_requested;
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
@@ -1093,6 +1158,7 @@ struct Smoke {
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     {int count=0;auto args=CommandLineToArgvW(GetCommandLineW(),&count);
+     int weight_exit=2;if(args&&druta::ui::dispatch_power_weight_host(count,args,weight_exit)){LocalFree(args);return weight_exit;}
      if(args&&count>1&&std::wstring(args[1])==L"--device-restart-child"){
         int result=2;if(count==4){const std::wstring slot=args[2];if(std::all_of(slot.begin(),slot.end(),[](wchar_t c){return c>0&&c<128;})){std::string ascii;for(wchar_t c:slot)ascii.push_back(static_cast<char>(c));result=druta::ui::device_restart_child(ascii,args[3]);}}
         LocalFree(args);return result;
@@ -1166,6 +1232,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         app.view.live = app.session->snapshot();
     }
     ShowWindow(app.window, SW_SHOW); UpdateWindow(app.window);
+    app.weight_initial_receipt=options.weight_result;app.weight_expected_slot=options.slot;app.weight_expected_uuid=options.expected_uuid;
     Smoke smoke(app); MessageWait waiter; const bool testing = !options.smoke_dir.empty();
     bool success = true, captured_output = false; unsigned settled_frames = 0;
     const double started = now_seconds();
@@ -1179,6 +1246,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         if (app.session) {
             app.view.live = app.session->snapshot();
             app.consume_annotation_completions();app.save_policy_notes();
+            if(app.weight_prepare_pending||!app.weight_initial_receipt.empty())app.consume_power_weights();
             if (app.closing && app.session->finished()) break;
             if (app.closing && app.view.live->close_refused) {
                 app.closing=false;

@@ -73,4 +73,25 @@ PowerWeightsPreview PowerWeightsService::preview(const std::vector<PowerWeightRe
  }catch(const std::exception& e){out.message=e.what();}p.data.preview=std::make_shared<const PowerWeightsPreview>(out);p.data.message=out.message;++p.data.revision;return out;}
 PowerWeightsResult PowerWeightsService::validate_preview(const PowerWeightsPreview& preview){auto& p=*impl_;const auto retained_state=preview.state;PowerWeightsResult result;try{require(retained_state&&retained_state->session==p.session&&retained_state->valid,"Preview is invalid or belongs to another service generation");const auto& saved=*retained_state;auto current=p.sample(true);p.publish(current,true);p.complete(current);require(saved.valid&&p.same_read(saved.original,current)&&same_windows(saved.original.windows,current.windows)&&same_registry(saved.original.registry,current.registry),"Preview evidence changed; create a fresh Preview");result.ok=true;result.message="Original target, complete image, INFO and registry still match Preview; no activation performed";
  }catch(const std::exception& e){if(retained_state&&retained_state->session==p.session)retained_state->valid=false;p.cancel_preview();result.message=e.what();}p.data.message=result.message;++p.data.revision;return result;}
+PowerWeightsResult PowerWeightsService::inspect_receipt(const std::string& id){auto& p=*impl_;PowerWeightsResult result;try{
+ require(bool(p.api.discover_receipt),"Weight recovery store unavailable");
+ const auto found=id.empty()?p.api.discover_receipt(text(p.opened.slot),text(p.opened.uuid)):
+  (require(bool(p.api.read_receipt),"Weight receipt history unavailable"),std::optional<PowerWeightReceipt>{p.api.read_receipt(id)});
+ if(found)require(found->identity.slot==text(p.opened.slot)&&found->uuid==text(p.opened.uuid),"Saved weight receipt belongs to another adapter");
+ p.data.receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;
+ result.ok=true;result.message=found?found->phase+": "+found->message:"No saved relationship override for this adapter";
+ }catch(const std::exception& e){p.data.receipt.reset();result.message=e.what();}
+ p.data.receipt_message=result.message;++p.data.revision;return result;}
+PowerWeightsResult PowerWeightsService::prepare_activation(){auto& p=*impl_;PowerWeightsResult result;try{
+ require(bool(p.api.create_receipt)&&bool(p.api.discover_receipt),"Durable weight recovery store unavailable");
+ require(p.data.preview&&p.data.preview->ok&&p.data.preview->state&&!p.data.preview->state->no_change,"Create a changed weight Preview first");
+ const auto preview=p.data.preview;const auto verified=validate_preview(*preview);require(verified.ok,verified.message.c_str());
+ require(!p.api.discover_receipt(text(p.opened.slot),text(p.opened.uuid)),"A saved override exists; inspect, verify or remove it first");
+ const auto& original=preview->state->original;std::vector<PowerWeightRequest> requests;
+ for(const auto& row:preview->state->plan.selected)requests.push_back({row.index,row.after_raw/4096.0,row.before_raw});
+ auto receipt=make_weight_receipt(original,requests);p.api.create_receipt(receipt);
+ p.data.receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));p.cancel_preview();
+ result.ok=true;result.message="Recovery record saved; ready for explicit activation and driver refresh";
+ }catch(const std::exception& e){result.message=e.what();}
+ p.data.receipt_message=p.data.message=result.message;++p.data.revision;return result;}
 }

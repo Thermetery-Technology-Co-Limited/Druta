@@ -47,6 +47,7 @@ add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp c
   installed_voltage_scaffold.cpp voltage_variable_capture.cpp voltage_scaffold_receipt.cpp voltage_scaffold_provider.cpp
   voltage_offsets_service.cpp voltage_offsets_capture.cpp voltage_offsets_profile.cpp
   power_relationships.cpp power_weight_registry.cpp power_weight_registry_host.cpp power_weight_capture.cpp power_weights_service.cpp
+  power_weight_receipt.cpp power_weight_registry_write.cpp power_weight_transaction.cpp power_weight_host.cpp
   power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
 add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
 add_library(druta_ui_clock_monitor STATIC clock_monitor_model.cpp clock_monitor_service.cpp)
@@ -123,7 +124,7 @@ endif()
 add_executable(druta-ui-client-test tests/core_client_test.cpp)
 target_link_libraries(druta-ui-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
-foreach(weight_test IN ITEMS power_relationships power_weight_registry power_weight_registry_host power_weight_capture power_weights_service power_weights_client)
+foreach(weight_test IN ITEMS power_relationships power_weight_registry power_weight_registry_host power_weight_capture power_weights_service power_weights_client power_weight_receipt power_weight_registry_write power_weight_transaction power_weight_host power_weights_activation_client)
   add_executable(druta-ui-${weight_test}-test tests/${weight_test}_test.cpp)
   target_link_libraries(druta-ui-${weight_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${weight_test} COMMAND druta-ui-${weight_test}-test)
@@ -131,6 +132,9 @@ endforeach()
 add_executable(druta-ui-power-weights-view-test tests/power_weights_view_test.cpp)
 target_link_libraries(druta-ui-power-weights-view-test PRIVATE druta_ui_app_actions)
 add_test(NAME druta-ui-power-weights-view COMMAND druta-ui-power-weights-view-test)
+add_executable(druta-ui-power-weights-activation-view-test tests/power_weights_activation_view_test.cpp)
+target_link_libraries(druta-ui-power-weights-activation-view-test PRIVATE druta_ui_app_actions)
+add_test(NAME druta-ui-power-weights-activation-view COMMAND druta-ui-power-weights-activation-view-test)
 foreach(voltage_evidence_test IN ITEMS vbios_voltage_graph voltage_evidence_provider installed_voltage_scaffold voltage_variable_capture voltage_scaffold_receipt voltage_scaffold_provider voltage_scaffold_service voltage_retained_evidence voltage_offsets_capture voltage_offsets_service voltage_offsets_profile voltage_offsets_tables voltage_offsets_client)
   add_executable(druta-ui-${voltage_evidence_test}-test tests/${voltage_evidence_test}_test.cpp)
   target_link_libraries(druta-ui-${voltage_evidence_test}-test PRIVATE druta_ui_session)

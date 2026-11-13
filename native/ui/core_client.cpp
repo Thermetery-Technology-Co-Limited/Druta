@@ -2172,6 +2172,12 @@ class Client final : public IBackend {
         timing_data_.message=out.message; publish(); return out;
     }
 public:
+    PowerWeightCapture capture_weight_state(bool registry){
+        if(!gpu_)throw std::runtime_error("Selected GPU is not open");
+        if(api_.power_weights.capture)return api_.power_weights.capture(gpu_,registry);
+        PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;
+        return make_power_weight_capture(std::move(capture),opened_)(gpu_,registry);
+    }
     explicit Client(CoreApi api,std::unique_ptr<TimingCudaProcess> workload={}) : api_(api),timing_cuda_(std::move(workload)) {}
     void configure_timing_capture_cancellation(std::function<bool()> cancelled) override {timing_capture_cancelled_=std::move(cancelled);}
 #ifdef _WIN32
@@ -2300,7 +2306,10 @@ public:
         arbitration_ = std::make_unique<PowerArbitrationService>(api_.arbitration, gpu_, opened_);
         last_.power_arbitration = std::make_shared<PowerArbitrationModel>(arbitration_->model());
         auto weights_api=api_.power_weights;
-        if(!weights_api.capture){PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;weights_api.capture=make_power_weight_capture(std::move(capture),opened_);}
+        if(!weights_api.capture){PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;weights_api.capture=make_power_weight_capture(std::move(capture),opened_);
+            weights_api.create_receipt=[](const PowerWeightReceipt& r){create_weight_receipt({},r);};
+            weights_api.discover_receipt=[](const std::string& slot,const std::string& uuid){return discover_weight_receipt({},slot,uuid);};
+            weights_api.read_receipt=[](const std::string& id){return read_weight_receipt({},id);};}
         power_weights_=std::make_unique<PowerWeightsService>(std::move(weights_api),gpu_,opened_);
         last_.power_weights=std::make_shared<PowerWeightsData>(power_weights_->state());
         power_integral_ = std::make_unique<PowerIntegralService>(api_.power_integral, gpu_, opened_);
@@ -2590,9 +2599,11 @@ public:
             result.message = last_.power_arbitration->message;
             return result;
         }
-        if(cmd.operation==Command::Operation::power_weights_read||cmd.operation==Command::Operation::power_weights_preview){
+        if(cmd.operation==Command::Operation::power_weights_read||cmd.operation==Command::Operation::power_weights_preview||cmd.operation==Command::Operation::power_weights_prepare||cmd.operation==Command::Operation::power_weights_inspect){
             if(!power_weights_){result.message="Power relationship service unavailable";return result;}
             if(cmd.operation==Command::Operation::power_weights_read){const auto& data=power_weights_->read();result.ok=data.info_availability==VoltagePolicyAvailability::available;result.message=data.message;}
+            else if(cmd.operation==Command::Operation::power_weights_inspect){const auto inspected=power_weights_->inspect_receipt(cmd.power_weight_receipt_id);result.ok=inspected.ok;result.message=inspected.message;}
+            else if(cmd.operation==Command::Operation::power_weights_prepare){if(!cmd.enabled)result.message="Unlock controls before activation";else{const auto prepared=power_weights_->prepare_activation();result.ok=prepared.ok;result.message=prepared.message;}}
             else if(cmd.power_weight_requests){const auto preview=power_weights_->preview(*cmd.power_weight_requests);result.ok=preview.ok;result.message=preview.message;}
             else result.message="Select relationship weights to preview";
             last_.power_weights=std::make_shared<PowerWeightsData>(power_weights_->state());return result;
@@ -2868,6 +2879,17 @@ std::unique_ptr<IBackend> create_core_backend(const std::wstring& path) {
     return std::make_unique<Client>(path);
 #else
     (void)path; return std::make_unique<Client>(CoreApi{});
+#endif
+}
+PowerWeightCapture capture_power_weights_from_core(const std::wstring& path,const std::string& slot,const std::string& uuid,bool registry){
+#ifdef _WIN32
+    if(slot.empty()||uuid.empty())throw VoltageEquationEvidenceError("Weight capture target is incomplete",VoltagePolicyAvailability::invalid);
+    Client client(path);std::string why;if(!client.open(slot,why))throw VoltageEquationEvidenceError("Cannot open weight capture target: "+why,VoltagePolicyAvailability::transient);
+    const auto capture=client.capture_weight_state(registry);
+    if(std::string(capture.adapter.slot)!=slot||std::string(capture.adapter.uuid)!=uuid)throw std::runtime_error("Weight capture adapter differs from selected target");
+    const auto closed=client.prepare_close();if(!closed.ok||closed.may_have_changed)throw std::runtime_error("Read-only weight capture did not close cleanly");client.close();return capture;
+#else
+    (void)path;(void)slot;(void)uuid;(void)registry;throw std::runtime_error("Weight host requires Windows");
 #endif
 }
 }

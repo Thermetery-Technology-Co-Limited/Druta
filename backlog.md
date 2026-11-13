@@ -1,6 +1,6 @@
 # Native frontend parity backlog
 
-Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-third increment](native/ui/validation/2026-11-13-parity-twenty-third-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
+Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-fourth increment](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
 
 Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
 
@@ -17,16 +17,17 @@ without treating them as active parity tasks or marking them complete.
 
 ## At a glance
 
-Current order: port the released power-weight workflow, then reconcile the original review against the release. Completed work is checked and struck through; work in progress stays unchecked. Broader research and validation campaigns are deferred.
+Current order: complete the released profile/history and nvtune setup workflows, then close the final review reconciliation. Completed work is checked and struck through; work in progress stays unchecked. Broader research and validation campaigns are deferred.
 
 | Workstream | Status | Remaining checklist items |
 | --- | --- | ---: |
 | Installed voltage offsets | Selected-write/Undo/profile path implemented and tested | 0 |
-| Persistent power relationship weights | Read/Preview implemented; activation remains | 5 |
-| Final released-parity reconciliation | Queued | 1 |
-| Completed implementation and release-note checkpoints | 30 checked entries | 0 |
+| Persistent power relationship weights | Explicit activation/recovery implemented and tested; physical qualification scoped separately | 0 |
+| Saved-profile/history, Full tune capture and nvtune setup | Concrete release gaps found by reconciliation | 3 |
+| Final released-parity reconciliation | Source audit done; final acceptance after the three workflows | 1 |
+| Completed implementation and release-note checkpoints | 35 checked entries | 0 |
 
-**6 active parity checklist items; 30 completed; 8 deferred outside this session.** The twenty-third increment adds explicit relationship Read and side-effect-free Preview, exact image/INFO binding and narrow registry projection in both skins. All 141 tests have passing results and 23 live renderer phases pass. This 3070 Ti returned a different INFO geometry from the released weight decoder, so live weight Preview/activation remains unqualified; no layout expansion is included.
+**4 active parity checklist items; 35 completed; 8 deferred outside this session.** The twenty-fourth increment completes the journaled weight activation/verification/removal workflow, with 147/147 tests and 23 live renderer phases passing. This 3070 Ti still reports an unsupported relationship INFO geometry; no physical activation is claimed. The [fresh reconciliation](native/ui/validation/2026-11-13-released-parity-reconciliation.md) identifies three remaining released workflows below.
 
 ## Completed: optional CUDA timing capture
 
@@ -50,24 +51,32 @@ Implementation contract: [native evidence provider map](native/ui/validation/202
 - [x] ~~Connect the recognized installed heads to the exact signed selected writer/readback/Undo/profile path, with fresh independent policy effects and retained clock/rail request verification. Preserve the original chain and unknown fields; never substitute an absolute constant or replay receipt packets.~~ [Twenty-second checkpoint](native/ui/validation/2026-11-13-parity-twenty-second-increment.md): both-skin actions, actual CoreClient routing and native/Python catalog round trips pass with injected transports. Scaffold installation/activation and physical writes on this card are not supplied by this work.
 - [x] ~~Validate understood alternate layouts/identities, partial independent families, transient retention, malformed failures, unknown-byte drift and graph/inventory changes; record production wiring, integration and renderer evidence.~~ [Twentieth checkpoint](native/ui/validation/2026-11-13-parity-twentieth-increment.md); physical voltage effects and broader semantic layouts remain open.
 
-## Next: persistent power relationship-weight exception
+## Completed: persistent power relationship-weight exception
 
 Bounded authorized scope and source: [relationship-weight map](native/ui/validation/2026-11-13-relationship-weight-port-map.md). This exception permits selected weights to persist and requires explicit refresh; ordinary tuning stays session-only.
 
 - [x] ~~Reuse the current-ROM getter; add pure power-table and relationship INFO decoders, including configured source references. Match selected relationship index/type/target, policy channel/unit/bounds and exact Q4.12 values from current evidence.~~ [Twenty-third checkpoint](native/ui/validation/2026-11-13-parity-twenty-third-increment.md).
 - [x] ~~Implement side-effect-free selected Preview with immutable target/image/INFO/registry evidence, exact patch spans and stale-preview/conflict rejection. Preserve independent read-only inspection and last-good stale values.~~ [Twenty-third checkpoint](native/ui/validation/2026-11-13-parity-twenty-third-increment.md).
 - [x] ~~Resolve the exact current PCI instance and driver key; capture registry names/types/bytes. Project minimal dense `romOverride` records without overwriting old records, changing firmware selectors or touching unrelated values.~~ [Twenty-third checkpoint](native/ui/validation/2026-11-13-parity-twenty-third-increment.md).
-- [ ] Persist a bounded durable receipt and discoverable active pointer before the first possible registry effect; journal each phase and retain accepted-but-failed/partial outcomes for explicit recovery.
-- [ ] Implement explicit Apply and selected-device refresh through an owned transaction host. Revalidate the complete preview before mutation and perform exact registry readback; no automatic startup/reconnect/reset application or session-request replay.
-- [ ] Verify activation from a fresh process: exact expected image and complete semantic INFO with only selected weight changes. Report refresh/reboot-required/timeout/identity/verification failures distinctly; registry-write success alone is insufficient.
-- [ ] Implement explicit three-way removal/recovery of transaction-owned names only, restoring exact prior type/value or absence, preserving unrelated additions and refusing third-value conflicts. Refresh and verify original image/INFO afterward.
-- [ ] Add read/preview/apply/verify/removal/recovery UI and adversarial transaction tests; integrate the production adapters and record scoped runtime validation. Keep general persistent BIOS/registry editing outside this narrow exception.
+- [x] ~~Persist a bounded durable receipt and discoverable active pointer before the first possible registry effect; journal each phase and retain accepted-but-failed/partial outcomes for explicit recovery.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
+- [x] ~~Implement explicit Apply and selected-device refresh through an owned transaction host. Revalidate the complete preview before mutation and perform exact registry readback; no automatic startup/reconnect/reset application or session-request replay.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
+- [x] ~~Verify activation from a fresh process: exact expected image and complete semantic INFO with only selected weight changes. Report refresh/reboot-required/timeout/identity/verification failures distinctly; registry-write success alone is insufficient.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
+- [x] ~~Implement explicit three-way removal/recovery of transaction-owned names only, restoring exact prior type/value or absence, preserving unrelated additions and refusing third-value conflicts. Refresh and verify original image/INFO afterward.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
+- [x] ~~Add read/preview/apply/verify/removal/recovery UI and adversarial transaction tests; integrate the production adapters and record scoped runtime validation. Keep general persistent BIOS/registry editing outside this narrow exception.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
+
+## Remaining released workflows
+
+Source trace and acceptance boundary: [released-parity reconciliation](native/ui/validation/2026-11-13-released-parity-reconciliation.md). Existing typed imports/writers are implemented; these are missing capture, storage and setup interactions.
+
+- [ ] Restore disk-backed prewrite snapshots and newest-first saved-profile/autosave browsing, including explicit history restore. Match the released per-action capture-failure behavior and 20-entry retention; use qualified semantic documents, never serialize opaque ownership receipts or autoapply at startup/reset.
+- [ ] Add the released aggregate Full tune capture/save choice, reusing current typed captures and naming unavailable/omitted contents. Existing full-tune import/composition is not missing; capture must be independently verified before declaring this done.
+- [ ] Restore remembered nvtune registration, Forget with fallback discovery, and the released test-signing setup/status/actions. Keep boot changes and reboot explicit; test through injected OS boundaries without changing this machine's boot configuration.
 
 ## Final parity reconciliation
 
 Use the released source and the original reviews to find concrete omissions. Do not convert unsupported release behavior or speculative combinations into new implementation tasks.
 
-- [ ] After the provider increments, reconcile every applicable original-review row and advertised profile scope against current behavior and evidence. The [historical profile audit](native/ui/validation/2026-11-13-profile-scope-gap-map.md) predates completed imports; do not reopen those implementations or count the remaining provider-dependent scopes as ported.
+- [ ] After the three remaining workflows, finish acceptance of every applicable original-review row and advertised profile scope against current behavior and evidence. The [source reconciliation](native/ui/validation/2026-11-13-released-parity-reconciliation.md) is complete and records those concrete omissions. The [historical profile audit](native/ui/validation/2026-11-13-profile-scope-gap-map.md) predates completed imports; do not reopen those implementations or count the remaining provider-dependent scopes as ported.
 
 ## Completed implementation checkpoints
 

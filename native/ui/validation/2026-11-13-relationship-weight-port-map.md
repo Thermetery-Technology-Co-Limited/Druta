@@ -1,5 +1,17 @@
 # Relationship-weight override port map
 
+Current status: [increment 24](2026-11-13-parity-twenty-fourth-increment.md)
+completes the bounded activation arc described here: durable receipt and active
+pointer, per-name issued journal, exact narrow registry writes/readback, explicit
+selected-device refresh, independent fresh image/INFO/Windows/registry proof,
+and three-way owned removal/recovery. The final suite passes 147/147 tests and
+23 renderer phases. The 3070 Ti INFO geometry is outside the released decoder;
+physical activation/removal is unqualified and no layout expansion is included.
+The source map and proposed contracts below are historical implementation input;
+use the checkpoint and backlog for current status. Failed writes retain an
+explicit recovery record; they do not trigger unrequested automatic compensation.
+
+
 Originally reviewed 2026-11-13 against release `fa6ee83` and native baseline `5f6fb49`. The source review performed no registry access, GPU access, build or activation. The status update below distinguishes subsequent implementation from that historical review; this map is not a completed parity claim.
 
 ## Current implementation status (increment 23)
@@ -68,4 +80,4 @@ Required tests, based on `tests/test_power_weight_runtime.py`, `test_power_weigh
 - Refresh failure, requested reboot, timeout, parent death, relaunch failure, wrong adapter, stale child result, exact image mismatch, selected INFO mismatch and unrelated INFO byte mutation remain explicit failed/recovery-required outcomes. No Windows reboot and no session tuning replay.
 - View Preview/read does not write; Apply/restore require concrete preview/receipt and explicit activation, load only stages values, generation/selection changes clear dependent drafts, and recovery remains discoverable without automatic action.
 
-Remaining ledger scope is unchanged: no native registry override transaction or relationship semantic writer has been completed. Current Read/Preview, the arbitration view and the panic restart helper do not close the activation and recovery row.
+The activation/recovery row is now implemented and tested in increment 24. Physical activation on an adapter with the released supported geometry remains a separate qualification claim; the current 3070 Ti probe does not establish it.

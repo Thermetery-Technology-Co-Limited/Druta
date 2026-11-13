@@ -1,0 +1,34 @@
+{
+  "close": {
+    "may_have_changed": false,
+    "message": "",
+    "ok": true
+  },
+  "hardware_write_requested": false,
+  "image": {
+    "availability": 1,
+    "message": "Matching current ROM reads captured",
+    "stale": false
+  },
+  "info": {
+    "availability": 3,
+    "message": "Relationship INFO command/geometry unqualified: command 0x2080A618, size 8632, base 0x58, stride 0xE4",
+    "stale": false
+  },
+  "linked_references": [],
+  "ok": false,
+  "preview": {
+    "attempted": false,
+    "message": "No current qualified relationship weight available"
+  },
+  "range_references": [],
+  "read": {
+    "may_have_changed": false,
+    "message": "Relationship read unavailable: Relationship INFO command/geometry unqualified: command 0x2080A618, size 8632, base 0x58, stride 0xE4",
+    "ok": false
+  },
+  "rows": [],
+  "slot": "0000:01:00.0",
+  "source_references": [],
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

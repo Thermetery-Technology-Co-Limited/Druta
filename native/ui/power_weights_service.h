@@ -2,8 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "power_weight_capture.h"
+#include "power_weight_receipt.h"
 namespace druta::ui {
-struct PowerWeightsApi {std::function<PowerWeightCapture(dc_gpu*,bool include_registry)> capture;};
+struct PowerWeightsApi {
+ std::function<PowerWeightCapture(dc_gpu*,bool include_registry)> capture;
+ std::function<void(const PowerWeightReceipt&)> create_receipt;
+ std::function<std::optional<PowerWeightReceipt>(const std::string&,const std::string&)> discover_receipt;
+ std::function<PowerWeightReceipt(const std::string&)> read_receipt;
+};
 struct PowerWeightRow {
  uint32_t index=0,type=0,target=0;std::optional<uint16_t> weight_raw;
  std::optional<PowerRelationshipTarget> target_metadata;
@@ -23,6 +29,8 @@ struct PowerWeightsData {
  bool image_stale=false,info_stale=false,registry_stale=false;
  std::string image_message,info_message,registry_message,message;
  std::shared_ptr<const PowerWeightsPreview> preview;
+ std::shared_ptr<const PowerWeightReceipt> receipt;
+ std::string receipt_message;
 };
 struct PowerWeightsResult {bool ok=false;std::string message;};
 class PowerWeightsService {
@@ -32,6 +40,8 @@ public:
  const PowerWeightsData& read();const PowerWeightsData& state()const;
  PowerWeightsPreview preview(const std::vector<PowerWeightRequest>&);
  PowerWeightsResult validate_preview(const PowerWeightsPreview&);
+ PowerWeightsResult inspect_receipt(const std::string& id={});
+ PowerWeightsResult prepare_activation();
 private:struct Impl;std::unique_ptr<Impl> impl_;
 };
 }
