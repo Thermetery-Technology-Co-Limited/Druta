@@ -630,3 +630,21 @@ passed; no hardware writes were issued. Low-power and clock/PCIe catalog adapter
 unscoped full-tune import, iCX and timing/memory composition, CUDA fallback,
 ROM/scaffold evidence providers and the relationship-weight exception remain
 open. See the [eleventh increment](ui/validation/2026-11-13-parity-eleventh-increment.md).
+
+
+## Continuation increment: saving and clock catalog transactions
+
+Selected native and released Python low-power and clock/PCIe profiles now
+compose through private typed ownership plans and issued-prefix receipts,
+with prior Undo preserved. Final verification includes no-op selections;
+recovery checks every candidate before any restoration. Both skins navigate
+catalog capture selectors to their corresponding panels without implicit
+actions. Application remains explicit and session-only.
+
+Adaptive unknown-prior requests, adaptive plus idle coupling and GR plus
+individual acquisition overlap are refused pending qualified handover. An
+already held gating request requires explicit Release before the opposite mode
+can be applied. Integration passed 93 CTest suites and 22 read-only live
+renderer phases; full-tune, iCX and
+timing/memory composition, CUDA fallback, ROM/scaffold providers and the
+relationship-weight exception remain open.

@@ -414,6 +414,8 @@ struct App {
                 case ProfileScope::power_integral:view.page=Page::advanced;view.open_power_integral_requested=true;workspace.open=false;break;
                 case ProfileScope::voltage_tables:view.page=Page::advanced;view.open_voltage_tables_requested=true;workspace.open=false;break;
                 case ProfileScope::voltage_limits:view.page=Page::advanced;view.open_voltage_limits_requested=true;workspace.open=false;break;
+                case ProfileScope::power_saving:view.page=Page::advanced;view.open_power_saving_requested=true;workspace.open=false;break;
+                case ProfileScope::clock_gating:view.page=Page::advanced;view.open_clock_gating_requested=true;workspace.open=false;break;
                 case ProfileScope::timing:view.timing_save_profile_requested=true;break;
                 case ProfileScope::icx:view.i2c_save_profile_requested=true;break;
                 case ProfileScope::fan:{std::wstring path;if(!selected_profile_path(true,snapshot->generation,path))break;

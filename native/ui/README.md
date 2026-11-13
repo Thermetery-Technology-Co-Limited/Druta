@@ -34,7 +34,7 @@ Python frontend parity and Vista/7 qualification remain open.
 - **Advanced → PERF diagnostics** explicitly captures limits, controller and
   policy groups. Each group reports its own status and retains stale last-good
   results after read failure. Opening the page does not poll these groups.
-  Power arbitration diagnostics are still pending.
+  Power arbitration diagnostics are available through explicit Refresh.
 - Daily provides core/memory and additional clock/voltage offsets, configured
   board-power request, fan target/Auto, voltage boost and the independently
   identified NVVDD core-current request. Qualified rail limits have a separate
@@ -572,8 +572,24 @@ units and selected metadata against current adapter evidence and stages local
 drafts. Voltage requests and device switch delays can also be selected in
 the catalog alongside native voltage request/limit profiles. Catalog capture
 selectors open the appropriate Advanced panel in either skin without reading
-or applying a control. Low-power and clock/PCIe families still use their own
-explicit Apply; their catalog integration remains open.
+or applying a control. Selected low-power and clock/PCIe profiles also compose
+in the catalog, with capture selectors navigating to their Advanced panels in
+either skin without a read or write. Catalog Apply is explicit and session-only.
+
+Saving and clock transactions retain typed issued-prefix recovery and previous
+Undo; final verification includes selected no-op fields and recovery checks all
+candidates before restoring any. Adaptive requests with unknown prior state are
+refused. Adaptive plus idle and GR plus individual acquisition combinations
+remain blocked pending a qualified handover. To change an already held gating
+request to the opposite mode, explicitly Release it before the new Apply.
+Ownership epochs prevent stale Undo after release and reacquisition; typed
+handover retains earlier catalog history and panel Undo/recover uses the matching
+receipt. Unknown allocation or FREE outcomes leave cleanup unresolved and block
+further candidate control or repeated FREE; only guaranteed non-dispatch allows
+retry. No implicit reset is issued. Independently resolved PCIe recovery is not
+revived by later Undo. Adaptive recovery remains pending if restoration reads
+fail, and an allocated GR object whose request was not dispatched is cleaned up
+once. These changes await the final integration rerun.
 
 Catalog voltage composition checks all selected fields first, projects an
 explicitly selected admission enable during preflight, and checks actual

@@ -40,6 +40,8 @@ struct ClockGatingRequest {
     std::optional<uint32_t> expected_generation;
 };
 struct ClockGatingResult {bool ok=false,may_have_changed=false;std::string message;};
+struct ClockGatingPlan {struct State;bool ok=false;std::string message;std::shared_ptr<const State> state;};
+struct ClockGatingReceipt {struct State;std::shared_ptr<State> state;};
 struct ClockGatingApi {
     VoltagePolicyApi transport;
     // Optional deterministic test seams. Host production can omit them.
@@ -53,6 +55,11 @@ public:
     const ClockGatingData& read(uint32_t families=15);
     ClockGatingResult apply(const ClockGatingRequest&);
     ClockGatingResult apply(const std::vector<ClockGatingRequest>&);
+    ClockGatingPlan preview(const std::vector<ClockGatingRequest>&);
+    ClockGatingResult apply_profile(const ClockGatingPlan&,const std::function<void(const ClockGatingReceipt&)>& before_write);
+    ClockGatingResult verify(const ClockGatingPlan&);
+    ClockGatingResult verify(const ClockGatingReceipt&,bool original=false);
+    ClockGatingResult restore(const ClockGatingReceipt&);
     ClockGatingResult release(ClockGatingFamily);
     ClockGatingResult restore_initial(ClockGatingFamily);
     ClockGatingResult recover(ClockGatingFamily);

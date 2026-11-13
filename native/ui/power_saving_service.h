@@ -30,6 +30,10 @@ struct PowerSavingRequest {
     std::string binding;std::optional<uint32_t> expected;
 };
 struct PowerSavingResult {bool ok=false,may_have_changed=false,rollback_verified=false;std::string message;};
+// Current-session semantic plans and issued-request journals, never packets
+// loaded from disk. All selected fields (including no-ops) remain in the plan.
+struct PowerSavingPlan {struct State;bool ok=false;std::string message;std::shared_ptr<const State> state;};
+struct PowerSavingReceipt {struct State;std::shared_ptr<State> state;};
 struct PowerSavingApi {
     VoltagePolicyApi transport;
     std::function<uint32_t()> profiler_handle; // optional fresh 0x60xxxxxx candidate, never borrowed
@@ -40,6 +44,11 @@ public:
     ~PowerSavingService(); // no writes, persistence, or automatic replay
     const PowerSavingData& read(uint32_t families=31);
     PowerSavingResult apply(const PowerSavingRequest&);
+    PowerSavingPlan preview(const std::vector<PowerSavingRequest>&);
+    PowerSavingResult apply_profile(const PowerSavingPlan&,const std::function<void(const PowerSavingReceipt&)>& before_write);
+    PowerSavingResult restore(const PowerSavingReceipt&);
+    PowerSavingResult verify(const PowerSavingPlan&);
+    PowerSavingResult verify(const PowerSavingReceipt&,bool original=false);
     PowerSavingResult undo();PowerSavingResult recover();
     PowerSavingResult restore_initial(const PowerSavingKey&);
     bool has_owned_requests() const;

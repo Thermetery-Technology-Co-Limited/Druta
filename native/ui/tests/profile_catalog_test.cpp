@@ -49,5 +49,18 @@ int main(){
  CHECK(inspect_profile(pyrequests).scope==ProfileScope::voltage_tables&&inspect_profile(pydelays).scope==ProfileScope::voltage_limits);
  CHECK(select_profile_targets(pyrequests,{"rail:1:3"})["voltage_requests"]["rails"]["1"]["offsets_uv"].size()==1&&select_profile_targets(pydelays,{"voltage:delay:2"})["voltage_controls"]["rows"].size()==1);
  rejects([&]{compose_profiles({{"Python",pyrequests},{"Scoped",s}});});bad=pydelays;bad["voltage_controls"]["rows"][1]["type"]=2;rejects([&]{select_profile_targets(bad,{"voltage:delay:1"});});bad=pydelays;bad["voltage_controls"]["kind"]="constants";CHECK(!inspect_profile(bad).valid);
+ auto saving=ProfileJson{{"schema",1},{"scope","power_saving_requests"},{"uuid","GPU-other"},{"slot","0000:06:00.0"},{"requests",ProfileJson::array({{{"family",0},{"index",0},{"value",1},{"binding","saved-elpg"}},{{"family",1},{"index",4},{"value",0},{"binding","saved-individual"}}})}};
+ auto clock=ProfileJson{{"format","druta-native-clock-gating"},{"version",1},{"target",target()},{"entries",ProfileJson::array({{{"family",0},{"binding","elcg"},{"mode",1}},{{"family",3},{"binding","pcie"},{"generation",3}}})}};
+ CHECK(inspect_profile(saving).scope==ProfileScope::power_saving&&inspect_profile(clock).scope==ProfileScope::clock_gating);
+ CHECK(select_profile_targets(saving,{"saving:1:4"})["requests"].size()==1&&select_profile_targets(clock,{"clock-gating:3"})["entries"].size()==1);
+ auto saveid=ProfileJson{{"slot","0000:06:00.0"},{"architecture",7},{"device_id",0x1234},{"subsystem_id",42}};
+ auto low=ProfileJson{{"schema",2},{"scope","lowpower_requests"},{"device",{{"uuid","GPU-other"},{"slot","0000:06:00.0"}}},{"lowpower_requests",{{"kind","elpg"},{"index",nullptr},{"identity",saveid},{"mode","disabled"}}}};
+ auto lowclock=low;lowclock["lowpower_requests"]["kind"]="elcg";
+ auto pcie=ProfileJson{{"schema",2},{"scope","pcie_speed"},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","alternate"},{"vbios",nullptr},{"driver",nullptr},{"uuid","GPU-other"},{"slot","0000:06:00.0"}}},{"incomplete",ProfileJson::array()},{"pcie_speed",{{"identity",saveid},{"target_generation",3}}}};
+ CHECK(inspect_profile(low).scope==ProfileScope::power_saving&&inspect_profile(lowclock).scope==ProfileScope::clock_gating&&inspect_profile(pcie).scope==ProfileScope::clock_gating);
+ rejects([&]{compose_profiles({{"Native",saving},{"Python",low}});});rejects([&]{compose_profiles({{"Native",clock},{"PCIe",pcie}});});
+ auto saveonly=select_profile_targets(saving,{"saving:1:4"});auto clockonly=select_profile_targets(clock,{"clock-gating:0"});CHECK(inspect_profile(compose_profiles({{"Native",saveonly},{"Python",pcie},{"Clock",clockonly}})).valid);
+ bad=saving;bad["requests"][1]["value"]=true;rejects([&]{select_profile_targets(bad,{"saving:0:0"});});bad=clock;bad["entries"].push_back(bad["entries"][0]);CHECK(!inspect_profile(bad).valid);
+ bad=low;bad["device"]["uuid"]="GPU-another";rejects([&]{compose_profiles({{"Native",clockonly},{"Foreign",bad}});});bad=low;bad["lowpower_requests"]["kind"]="unknown";CHECK(!inspect_profile(bad).valid);
  std::printf("Profile catalog: %u checks\n",checks);return 0;
 }

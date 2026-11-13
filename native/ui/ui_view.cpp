@@ -1207,18 +1207,22 @@ void live_semantic_controls(ViewState& state, bool classic) {
     const bool integral_navigation=state.open_power_integral_requested;
     const bool tables_navigation=state.open_voltage_tables_requested;
     const bool limits_navigation=state.open_voltage_limits_requested;
-    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation;
+    const bool saving_navigation=state.open_power_saving_requested;
+    const bool gating_navigation=state.open_clock_gating_requested;
+    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation||saving_navigation||gating_navigation;
     ImGui::PushID("advanced-semantic-controls");
     if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
-    if(state.open_power_saving_requested){ImGui::SetNextItemOpen(true);state.open_power_saving_requested=false;}
-    if(policy_navigation)ImGui::SetNextItemOpen(false);
+    if(policy_navigation)ImGui::SetNextItemOpen(saving_navigation);
+    state.open_power_saving_requested=false;
     if(ImGui::CollapsingHeader("Power saving")){
+        if(saving_navigation)ImGui::SetScrollHereY(0.0f);
         auto intents=draw_power_saving_controls(state.power_saving_view,snapshot.data.power_saving.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
         state.power_saving_intents.insert(state.power_saving_intents.end(),intents.begin(),intents.end());
     }
-    if(state.open_clock_gating_requested){ImGui::SetNextItemOpen(true);state.open_clock_gating_requested=false;}
-    if(policy_navigation)ImGui::SetNextItemOpen(false);
+    if(policy_navigation)ImGui::SetNextItemOpen(gating_navigation);
+    state.open_clock_gating_requested=false;
     if(ImGui::CollapsingHeader("Clock gating and PCIe speed")){
+        if(gating_navigation)ImGui::SetScrollHereY(0.0f);
         auto intents=draw_clock_gating_controls(state.clock_gating_view,snapshot.data.clock_gating.get(),snapshot.generation,snapshot.busy||snapshot.opening,state.controls_unlocked,classic);
         state.clock_gating_intents.insert(state.clock_gating_intents.end(),intents.begin(),intents.end());
     }

@@ -61,6 +61,15 @@ void pages(Presentation presentation){
     state.open_voltage_limits_requested=true;text=frame(state);
     check(!state.open_voltage_limits_requested&&text.find("Read voltage device delays")!=std::string::npos,"definitions navigation opens the actual panel");
     check(state.commands.empty()&&state.voltage_tables_intents.empty()&&state.voltage_limits_intents.empty()&&state.voltage_limits_view.drafts[0].dirty&&state.voltage_limits_view.drafts[0].value==321,"definitions navigation preserves drafts and issues no commands");
+    state.power_saving_view.initialized=true;state.power_saving_view.generation=1;
+    state.power_saving_view.drafts.push_back({});state.power_saving_view.drafts.back().dirty=true;std::strcpy(state.power_saving_view.drafts.back().text.data(),"4000");
+    state.clock_gating_view.initialized=true;state.clock_gating_view.generation=1;state.clock_gating_view.pcie_dirty=true;state.clock_gating_view.pcie_generation=2;
+    state.open_power_saving_requested=true;text=frame(state);
+    check(!state.open_power_saving_requested&&text.find("Read power saving")!=std::string::npos,"saving navigation opens the actual panel");
+    check(state.commands.empty()&&state.power_saving_intents.empty()&&state.clock_gating_intents.empty()&&state.power_saving_view.drafts[0].dirty&&std::strcmp(state.power_saving_view.drafts[0].text.data(),"4000")==0,"saving navigation preserves drafts and issues no commands");
+    state.open_clock_gating_requested=true;text=frame(state);
+    check(!state.open_clock_gating_requested&&text.find("Read clock gating / PCIe")!=std::string::npos,"clock navigation opens the actual panel");
+    check(state.commands.empty()&&state.power_saving_intents.empty()&&state.clock_gating_intents.empty()&&state.clock_gating_view.pcie_dirty&&state.clock_gating_view.pcie_generation==2,"clock navigation preserves drafts and issues no commands");
     state.open_voltage_policy_requested=true;text=frame(state);check(!state.open_voltage_policy_requested&&text.find("Read voltage policies")!=std::string::npos,"policy navigation remains available");
     state.open_power_integral_requested=true;text=frame(state);check(!state.open_power_integral_requested&&text.find("Read feedback requests")!=std::string::npos&&state.commands.empty(),"integral navigation remains command-free");
     open_header(w,"advanced-semantic-controls","Power feedback ratios");
