@@ -1209,9 +1209,18 @@ void live_semantic_controls(ViewState& state, bool classic) {
     const bool limits_navigation=state.open_voltage_limits_requested;
     const bool saving_navigation=state.open_power_saving_requested;
     const bool gating_navigation=state.open_clock_gating_requested;
-    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation||saving_navigation||gating_navigation;
+    const bool weights_navigation=state.open_power_weights_requested;
+    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation||saving_navigation||gating_navigation||weights_navigation;
     ImGui::PushID("advanced-semantic-controls");
     if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
+    if(policy_navigation)ImGui::SetNextItemOpen(weights_navigation);
+    state.open_power_weights_requested=false;
+    if(ImGui::CollapsingHeader("Power relationship weights")){
+        for(auto& intent:draw_power_weights(state.power_weights_view,snapshot.data.power_weights.get(),snapshot.generation,busy,classic)){
+            Command command;command.operation=intent.operation==PowerWeightsIntent::Operation::read?Command::Operation::power_weights_read:Command::Operation::power_weights_preview;
+            command.power_weight_requests=std::make_shared<const std::vector<PowerWeightRequest>>(std::move(intent.requests));state.commands.push_back(std::move(command));
+        }
+    }
     if(policy_navigation)ImGui::SetNextItemOpen(saving_navigation);
     state.open_power_saving_requested=false;
     if(ImGui::CollapsingHeader("Power saving")){

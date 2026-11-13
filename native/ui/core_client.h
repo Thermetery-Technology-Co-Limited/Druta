@@ -6,6 +6,7 @@
 #include "i2c_session.h"
 #include "perf_view_model.h"
 #include "power_arbitration_service.h"
+#include "power_weights_service.h"
 #include "power_integral_service.h"
 #include "voltage_policy_service.h"
 #include "voltage_tables_service.h"
@@ -19,6 +20,7 @@ struct CoreApi {
     FrequencyLockApi frequency{};
     PerfViewApi perf{};
     PowerArbitrationApi arbitration{};
+    PowerWeightsApi power_weights{};
     PowerIntegralApi power_integral{};
     VoltagePolicyApi voltage_policy{};
     VoltageTablesApi voltage_tables{};

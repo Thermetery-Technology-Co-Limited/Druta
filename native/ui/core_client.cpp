@@ -56,6 +56,7 @@ class Client final : public IBackend {
     LiveData last_{};
     std::unique_ptr<PerfViewService> perf_;
     std::unique_ptr<PowerArbitrationService> arbitration_;
+    std::unique_ptr<PowerWeightsService> power_weights_;
     std::unique_ptr<PowerIntegralService> power_integral_;
     std::unique_ptr<VoltagePolicyService> voltage_policy_;
     std::unique_ptr<VoltageTablesService> voltage_tables_;
@@ -2298,6 +2299,10 @@ public:
         last_.perf_diagnostics = std::make_shared<PerfViewModel>(perf_->model());
         arbitration_ = std::make_unique<PowerArbitrationService>(api_.arbitration, gpu_, opened_);
         last_.power_arbitration = std::make_shared<PowerArbitrationModel>(arbitration_->model());
+        auto weights_api=api_.power_weights;
+        if(!weights_api.capture){PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;weights_api.capture=make_power_weight_capture(std::move(capture),opened_);}
+        power_weights_=std::make_unique<PowerWeightsService>(std::move(weights_api),gpu_,opened_);
+        last_.power_weights=std::make_shared<PowerWeightsData>(power_weights_->state());
         power_integral_ = std::make_unique<PowerIntegralService>(api_.power_integral, gpu_, opened_);
         last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
         voltage_policy_ = std::make_unique<VoltagePolicyService>(api_.voltage_policy, gpu_, opened_);
@@ -2375,6 +2380,7 @@ public:
         frequency_.reset();
         perf_.reset();
         arbitration_.reset();
+        power_weights_.reset();
         power_integral_.reset();
         voltage_policy_.reset();
         power_saving_.reset();clock_gating_.reset();
@@ -2583,6 +2589,13 @@ public:
             result.ok = last_.power_arbitration->freshness == ArbitrationFreshness::current;
             result.message = last_.power_arbitration->message;
             return result;
+        }
+        if(cmd.operation==Command::Operation::power_weights_read||cmd.operation==Command::Operation::power_weights_preview){
+            if(!power_weights_){result.message="Power relationship service unavailable";return result;}
+            if(cmd.operation==Command::Operation::power_weights_read){const auto& data=power_weights_->read();result.ok=data.info_availability==VoltagePolicyAvailability::available;result.message=data.message;}
+            else if(cmd.power_weight_requests){const auto preview=power_weights_->preview(*cmd.power_weight_requests);result.ok=preview.ok;result.message=preview.message;}
+            else result.message="Select relationship weights to preview";
+            last_.power_weights=std::make_shared<PowerWeightsData>(power_weights_->state());return result;
         }
         if (cmd.operation == Command::Operation::refresh_perf_diagnostics) {
             if (!perf_) { result.message = "PERF diagnostics unavailable"; return result; }

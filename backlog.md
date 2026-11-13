@@ -1,6 +1,6 @@
 # Native frontend parity backlog
 
-Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-second increment](native/ui/validation/2026-11-13-parity-twenty-second-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
+Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-third increment](native/ui/validation/2026-11-13-parity-twenty-third-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
 
 Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
 
@@ -22,11 +22,11 @@ Current order: port the released power-weight workflow, then reconcile the origi
 | Workstream | Status | Remaining checklist items |
 | --- | --- | ---: |
 | Installed voltage offsets | Selected-write/Undo/profile path implemented and tested | 0 |
-| Persistent power relationship weights | Queued | 8 |
+| Persistent power relationship weights | Read/Preview implemented; activation remains | 5 |
 | Final released-parity reconciliation | Queued | 1 |
-| Completed implementation and release-note checkpoints | 27 checked entries | 0 |
+| Completed implementation and release-note checkpoints | 30 checked entries | 0 |
 
-**9 active parity checklist items; 27 completed; 8 deferred outside this session.** The twenty-second increment connects recognized installed offsets to signed selected Apply/readback, initial Restore, Undo/recovery and manual native/Python profiles in both skins. All 134 suites and 22 renderer phases pass. This 3070 Ti has no installed scaffold receipt, so physical offset writes are not qualified by this checkpoint. Expanding the layouts understood by the Python reference remains deferred.
+**6 active parity checklist items; 30 completed; 8 deferred outside this session.** The twenty-third increment adds explicit relationship Read and side-effect-free Preview, exact image/INFO binding and narrow registry projection in both skins. All 141 tests have passing results and 23 live renderer phases pass. This 3070 Ti returned a different INFO geometry from the released weight decoder, so live weight Preview/activation remains unqualified; no layout expansion is included.
 
 ## Completed: optional CUDA timing capture
 
@@ -54,9 +54,9 @@ Implementation contract: [native evidence provider map](native/ui/validation/202
 
 Bounded authorized scope and source: [relationship-weight map](native/ui/validation/2026-11-13-relationship-weight-port-map.md). This exception permits selected weights to persist and requires explicit refresh; ordinary tuning stays session-only.
 
-- [ ] Reuse the current-ROM getter; add pure power-table and relationship INFO decoders, including configured source references. Match selected relationship index/type/target, policy channel/unit/bounds and exact Q4.12 values from current evidence.
-- [ ] Implement side-effect-free selected Preview with immutable target/image/INFO/registry evidence, exact patch spans and stale-preview/conflict rejection. Preserve independent read-only inspection and last-good stale values.
-- [ ] Resolve the exact current PCI instance and driver key; capture registry names/types/bytes. Project minimal dense `romOverride` records without overwriting old records, changing firmware selectors or touching unrelated values.
+- [x] ~~Reuse the current-ROM getter; add pure power-table and relationship INFO decoders, including configured source references. Match selected relationship index/type/target, policy channel/unit/bounds and exact Q4.12 values from current evidence.~~ [Twenty-third checkpoint](native/ui/validation/2026-11-13-parity-twenty-third-increment.md).
+- [x] ~~Implement side-effect-free selected Preview with immutable target/image/INFO/registry evidence, exact patch spans and stale-preview/conflict rejection. Preserve independent read-only inspection and last-good stale values.~~ [Twenty-third checkpoint](native/ui/validation/2026-11-13-parity-twenty-third-increment.md).
+- [x] ~~Resolve the exact current PCI instance and driver key; capture registry names/types/bytes. Project minimal dense `romOverride` records without overwriting old records, changing firmware selectors or touching unrelated values.~~ [Twenty-third checkpoint](native/ui/validation/2026-11-13-parity-twenty-third-increment.md).
 - [ ] Persist a bounded durable receipt and discoverable active pointer before the first possible registry effect; journal each phase and retain accepted-but-failed/partial outcomes for explicit recovery.
 - [ ] Implement explicit Apply and selected-device refresh through an owned transaction host. Revalidate the complete preview before mutation and perform exact registry readback; no automatic startup/reconnect/reset application or session-request replay.
 - [ ] Verify activation from a fresh process: exact expected image and complete semantic INFO with only selected weight changes. Report refresh/reboot-required/timeout/identity/verification failures distinctly; registry-write success alone is insufficient.

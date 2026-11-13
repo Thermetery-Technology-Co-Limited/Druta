@@ -998,11 +998,12 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[22] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    static constexpr int phase_count=23;
+    const wchar_t* captures[phase_count] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp", L"19-policy-profiles.bmp", L"20-integral-profiles.bmp", L"21-voltage-requests.bmp", L"22-device-delays.bmp"};
-    const char* names[22] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls", "policy_profile_controls", "integral_profile_controls", "voltage_request_controls", "voltage_delay_controls"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp", L"17-power-saving.bmp", L"18-clock-gating.bmp", L"19-policy-profiles.bmp", L"20-integral-profiles.bmp", L"21-voltage-requests.bmp", L"22-device-delays.bmp", L"23-power-weights.bmp"};
+    const char* names[phase_count] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls", "power_saving_controls", "clock_gating_controls", "policy_profile_controls", "integral_profile_controls", "voltage_request_controls", "voltage_delay_controls", "power_weight_controls"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -1040,12 +1041,13 @@ struct Smoke {
         if(phase==19)ok=ok&&app.view.power_integral_profile_intents.empty()&&!app.view.open_power_integral_requested;
         if(phase==20)ok=ok&&app.view.voltage_tables_intents.empty()&&!app.view.open_voltage_tables_requested;
         if(phase==21)ok=ok&&app.view.voltage_limits_intents.empty()&&!app.view.open_voltage_limits_requested;
+        if(phase==22)ok=ok&&app.view.commands.empty()&&!app.view.open_power_weights_requested;
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 21 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == phase_count-1 ? "" : ",");
         report += row;
-        if (++phase == 22) {
+        if (++phase == phase_count) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -1083,6 +1085,7 @@ struct Smoke {
         if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=true;}
         if(phase==20){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_tables_requested=true;}
         if(phase==21){app.view.presentation=druta::ui::Presentation::classic;app.view.open_voltage_limits_requested=true;}
+        if(phase==22){app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_weights_requested=true;}
         begin(app);
     }
 };
@@ -1210,7 +1213,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 if (!options.capture.empty()) { captured_output = true; break; }
             }
         }
-        if ((!options.capture.empty() || testing) && now_seconds()-started > 45) { success = false; break; }
+        if ((!options.capture.empty() || testing) && now_seconds()-started > (testing?2.0*Smoke::phase_count+5.0:45.0)) { success = false; break; }
         if(app.view.app_actions.recovery_preparing&&!app.closing)app.consume_app_actions();
         double delay = app.policy.wait_seconds(now_seconds(), app.device_retry_at);
         if (testing) delay = std::min(delay, std::max(0.001, smoke.start+2.0-now_seconds()));

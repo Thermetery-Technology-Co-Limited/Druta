@@ -23,6 +23,7 @@ class PolicyAnnotations;
 struct PolicyAnnotationEffect;
 struct PerfViewModel;
 struct PowerArbitrationModel;
+struct PowerWeightsData;struct PowerWeightRequest;
 struct PowerIntegralData;
 struct PowerIntegralRequest;
 struct PowerIntegralKey;
@@ -83,6 +84,7 @@ struct LiveData {
     std::shared_ptr<const ClockGatingData> clock_gating;
     std::shared_ptr<const PerfViewModel> perf_diagnostics;
     std::shared_ptr<const PowerArbitrationModel> power_arbitration;
+    std::shared_ptr<const PowerWeightsData> power_weights;
     std::shared_ptr<const PowerIntegralData> power_integral;
     std::shared_ptr<const VoltagePolicyData> voltage_policies;
     std::shared_ptr<const VoltageTablesData> voltage_tables;
@@ -139,7 +141,8 @@ struct Command {
         voltage_limits_read, voltage_limits_apply, voltage_limits_restore, voltage_limits_rom, voltage_limits_undo, voltage_limits_recover, voltage_limits_save,
         timings_capture_p0, timings_release_capture_hold,
         power_saving_read,power_saving_apply,power_saving_undo,power_saving_restore,power_saving_recover,power_saving_release,power_saving_save,
-        clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save, save_fan_profile };
+        clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save, save_fan_profile,
+        power_weights_read,power_weights_preview };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -173,6 +176,7 @@ struct Command {
     std::shared_ptr<const std::vector<ClockGatingRequest>> clock_gating_requests;
     std::shared_ptr<const std::vector<ClockGatingFamily>> clock_gating_selection;
     uint32_t voltage_families = 3;
+    std::shared_ptr<const std::vector<PowerWeightRequest>> power_weight_requests;
     std::shared_ptr<const std::vector<VoltageTableRequest>> voltage_table_requests;
     std::shared_ptr<const std::vector<VoltageTableKey>> voltage_table_selection;
     std::shared_ptr<const std::vector<VoltageLimitRequest>> voltage_limit_requests;
