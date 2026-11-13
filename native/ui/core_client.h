@@ -8,6 +8,8 @@
 #include "power_arbitration_service.h"
 #include "power_integral_service.h"
 #include "voltage_policy_service.h"
+#include "voltage_tables_service.h"
+#include "voltage_limits_service.h"
 namespace druta::ui {
 // Injected table also permits deterministic tests without loading a driver.
 struct CoreApi {
@@ -16,6 +18,8 @@ struct CoreApi {
     PowerArbitrationApi arbitration{};
     PowerIntegralApi power_integral{};
     VoltagePolicyApi voltage_policy{};
+    VoltageTablesApi voltage_tables{};
+    VoltageLimitsApi voltage_limits{};
     TuningApi tuning{};
     decltype(&dc_gpu_reset_all) reset_all = nullptr;
     I2cApi i2c{};

@@ -29,18 +29,18 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Implemented/tested in fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
 | Voltage gate, VF monotonicity/smoothing | Implemented/tested in fifth: independent admission/VF reads, selected requests, atomic-prior-aware recovery, Undo and captured-initial requests. Current 3070 Ti read-only evidence recorded; physical effects remain unproven |
-| Voltage offset/request tables, REL bounds | Open |
-| Voltage constants and device switch delays | Open |
+| Voltage offset/request tables, REL bounds | Seventh: all six request fields, complete preservation/readback, Undo/recovery and explicit native profiles implemented/tested. Scaffold offsets and semantic REL remain open pending native current-ROM graph + installed-receipt/policy providers; no persistent scaffold activation |
+| Voltage constants and device switch delays | Seventh: independent typed device-delay controls, exact readback, Undo and native profiles implemented/tested. Loaded VFE definitions are inspectable; production semantic constants remain open pending current-ROM role/graph and retained-request provider |
 | GR/individual/engine/block/SLCG gating, idle threshold, adaptive power, DIFR, PCIe speed | Open |
 | Registry/VBIOS relationship-weight exception: preview/receipt/explicit refresh/verification/removal | Open |
 | Timing setup/helper/driver diagnostics, decoded units and comparison/divergence | Implemented/tested in fourth/sixth: bounded helper save with target/broadcast/operating-state checks, qualified cycles/ns, raw fallback, partial partition differences and labelled stale retention. Fake child-process transport exercised; no new physical timing-write qualification |
 | Timing multiple staged fields, selected-bit transaction, captured restore | Implemented in fourth checkpoint: whole-plan preflight, cumulative issued-only Undo, selected conflict refusal, unrelated-bit preservation, separate qualified captured-initial restore |
 | Timing profile save/load staged only | Implemented in fourth checkpoint: native typed save with staged overlay, validated load into local fields, explicit whole Preview/Apply; physical timing-write qualification remains open |
-| Bounded owned-P0 capture and qualifying-band auto-capture | Open |
+| Bounded owned-P0 capture and qualifying-band auto-capture | Seventh: scoped helper pin, observed P0/current-adapter band, bounded temporary hold and owned-only cleanup, switch exclusion/recovery and telemetry-only auto-capture implemented/tested. No CUDA workload fallback or new physical timing-write qualification claimed |
 | Classic I2C per-family geometry/order/help and auto-open on discovery | Implemented/tested in second checkpoint across all six controller families; physical qualification remains controller-specific |
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
 | I2C remembered read-only discovery routes, progress and bounded cancellation | Implemented/tested in sixth: UUID/recipe-contract hints require fresh probe/read, Full scan bypasses hints, immutable worker progress and atomic Cancel, transactional selection and unverified partial candidates. No cached gates, verification or tuning replay; current 3070 Ti selection/read passed without owned requests |
-| Policy user annotations and reviewed Max-all with meaningful Undo | Open |
+| Policy user annotations and reviewed Max-all with meaningful Undo | Seventh: binding-scoped free-text labels and reviewed selected policy maxima reuse whole preflight/readback/grouped Undo. Connector presets, channel-shared labels and per-wire current coloring remain open |
 
 ## Invariants and completion gate
 
@@ -49,6 +49,7 @@ Third checkpoint: [menus, selected profiles and validation evidence](2026-11-12-
 Fourth checkpoint: [clock ownership, timing batches and PERF diagnostics](2026-11-12-parity-fourth-increment.md).
 Fifth checkpoint: [feedback, voltage policies and arbitration](2026-11-13-parity-fifth-increment.md).
 Sixth checkpoint: [catalog composition, discovery and timing diagnostics](2026-11-13-parity-sixth-increment.md).
+Seventh checkpoint: [voltage requests, device delays and temporary P0 capture](2026-11-13-parity-seventh-increment.md).
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated

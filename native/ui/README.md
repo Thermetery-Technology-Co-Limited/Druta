@@ -469,3 +469,33 @@ operating state. Optional failures retain a matching last capture as stale.
 Cycle and nanosecond displays require understood field metadata, a stable clock
 and the current adapter's memory divisor; split fields and RFC/WL do not acquire
 misleading nanosecond values. Missing evidence remains raw or unavailable.
+
+## Voltage tables and temporary timing capture
+
+Advanced contains independent voltage request tables and device switch delays.
+Read is explicit. The request table shows stored signed requests, including the
+two VCRIT fields; these are not measured voltages or verified physical thresholds.
+Apply rechecks the current target, complete request inventory and admission gate,
+preserves unrelated fields, and verifies the full result. Undo, captured-initial
+Restore and recovery remain explicit. Selected native profiles save typed values;
+Load stages a draft and never enables a gate or applies settings automatically.
+
+Scaffold offsets and semantic REL/constants remain unavailable until the native
+ROM graph and installed-definition receipt paths are implemented. Reading loaded
+VFE ordinals does not qualify them as a particular voltage role. Device delays
+have an independent capability path and remain usable when those roles are absent.
+
+**Capture at P0 (temporary hold)** validates the timing helper first, uses an
+existing qualifying operating point or requests a temporary legacy/V/F hold,
+then waits up to six seconds for observed P0 and the current adapter's top memory
+band. It releases only its own temporary request afterward. A failed release
+keeps recovery visible and prevents switching adapters. This command does not
+change the fan, board power, curve shape or rail headroom. There is currently no
+CUDA load fallback. **Auto-capture on stable P0 entry** uses two fresh ordinary
+telemetry samples and acquires no hold; Pause and minimized refresh policy apply.
+
+**Policy workspace...** offers labels tied to the adapter and policy binding,
+plus selected maximum previews. It lists skipped policies and uses fresh selected
+requests and grouped Undo on explicit Apply. Labels persist as display metadata
+only. Connector presets, shared-channel labels and per-wire current coloring
+from Python remain to be ported; generic policy notes do not imply those features.

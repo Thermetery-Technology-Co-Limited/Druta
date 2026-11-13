@@ -118,6 +118,18 @@ TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* dat
     ImGui::SameLine(); ImGui::BeginDisabled(!data||data->helper_path.empty());
     if(ImGui::Button("Read timings")){Command c{};c.operation=Command::Operation::timings_read;out.commands.push_back(c);} ImGui::EndDisabled(); ImGui::EndDisabled();
     if(!data){ImGui::TextDisabled("No helper configured");return out;}
+    ImGui::BeginDisabled(busy||!unlocked||data->helper_path.empty()||data->capture_hold_pending);
+    ImGui::SetNextItemWidth(110);ImGui::InputDouble("P0 capture V/F cap (mV)",&state.capture_cap_mv,0,0,"%.2f");
+    if(ImGui::Button("Capture at P0 (temporary hold)")){Command c;c.operation=Command::Operation::timings_capture_p0;c.timing_generation=generation;c.curve_cap_mv=state.capture_cap_mv;out.commands.push_back(c);}
+    ImGui::EndDisabled();
+    ImGui::TextDisabled("Releases only this capture's temporary hold when finished.");
+    if(data->capture_hold_pending){
+        ImGui::BeginDisabled(busy);
+        if(ImGui::Button("Release temporary timing hold")){Command c;c.operation=Command::Operation::timings_release_capture_hold;out.commands.push_back(c);}
+        ImGui::EndDisabled();
+    }
+    ImGui::Checkbox("Auto-capture on stable P0 entry",&state.auto_capture);
+    if(ImGui::IsItemHovered())ImGui::SetTooltip("Uses ordinary telemetry only; Pause and minimized refresh settings still apply. Does not acquire a hold.");
     if(!data->helper_path.empty()) {const auto path=utf8(data->helper_path); ImGui::TextWrapped("Helper: %s",path.c_str());}
     if(!data->message.empty()) ImGui::TextWrapped("%s",data->message.c_str());
     ImGui::BeginDisabled(busy||!unlocked||!data->undo_available);

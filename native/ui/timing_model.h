@@ -18,6 +18,7 @@ struct TimingViewData {
     dc_gpu_identity identity{};
     std::string helper_token;
     bool undo_available = false;
+    bool capture_hold_pending = false;
     std::string message;
 };
 }

@@ -29,7 +29,7 @@ struct TimingDiagnosticEvidence {
 };
 struct TimingSnapshot {
     bool ok = false, memory_clock_stable = false, top_band = false;
-    std::string slot, codename, message;
+    std::string slot, codename, message, helper_token;
     std::optional<uint32_t> memory_before_mhz, memory_after_mhz, pstate_before, pstate_after;
     std::optional<int32_t> offset_before, offset_after; // raw driver units
     std::vector<TimingWord> broadcast;
@@ -62,6 +62,8 @@ public:
     TimingsService(TimingsApi api, dc_gpu* gpu, const dc_gpu_identity& target, TimingTransport& transport);
     bool pending() const { return transport_.pending(); }
     TimingSnapshot capture();
+    // Caller owns an already pinned transport throughout this call.
+    TimingSnapshot capture_pinned();
     TimingPlan preview(const std::string& field, uint32_t value);
     TimingResult apply(const TimingPlan& plan, const std::function<void(const TimingPlan&)>& before_write = {});
     TimingResult restore(const TimingPlan& undo, const std::function<void(const TimingPlan&)>& before_write = {});
@@ -79,6 +81,7 @@ private:
     std::optional<TimingSnapshot> last_diagnostic_;
     std::string last_diagnostic_token_;
     std::string initial_token_;
+    TimingSnapshot capture_pinned_locked();
     void remember_initial(const TimingSnapshot& snapshot,const std::string& token);
     TimingBatchResult apply_batch(const TimingBatchPlan& plan,const std::function<void(const TimingBatchPlan&)>& before_write);
 };

@@ -560,3 +560,19 @@ cancellation. Timing capture adds qualified units and partition comparison.
 [Scope and validation](ui/validation/2026-11-13-parity-sixth-increment.md) record
 the remaining composition restrictions and physical qualification boundaries.
 Ordinary tuning remains session-only; the full review ledger remains open.
+
+## Continuation checkpoint: voltage requests and timing capture
+
+Both skins expose explicit voltage request-table and independent device-delay
+controls, selected native profiles, request readback and Undo/recovery. A narrow
+V2 rail setter preserves the complete request packet and guards the actual driver
+buffer. Native-only runtime identities may lack a UUID; saved profiles still
+require one, and UUID appearance/change invalidates a bound runtime operation.
+Scaffold and ROM-role provider dependencies remain explicit in the completion
+ledger rather than being replaced with guessed equation ordinals.
+
+P0 timing capture keeps one helper pin across qualification, temporary ownership,
+capture and cleanup. Adapter changes are excluded while this action is running.
+Auto-capture consumes already-published telemetry and never creates a background
+polling loop. Policy labels and selected maximum previews use the existing typed
+scoped-profile writer; connector-specific annotation parity remains open.

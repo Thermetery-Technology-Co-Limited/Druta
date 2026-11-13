@@ -11,6 +11,7 @@
 #include "imgui_impl_dx9.h"
 #include "refresh_policy.h"
 #include "ui_view.h"
+#include "timing_capture.h"
 #include "classic_layout.h"
 #include "session.h"
 #include "curve_profile.h"
@@ -155,11 +156,122 @@ struct App {
         druta::ui::ProfileJson document;
     };
     std::optional<CatalogPending> catalog_pending;
+    druta::ui::TimingAutoCapture timing_auto;
+    uint64_t timing_auto_read=0,timing_auto_generation=0;
+    void consume_timing_auto() {
+        using namespace druta::ui;
+        if(!session||closing)return;
+        const auto snapshot=session->snapshot();
+        const bool enabled=view.timings_view.auto_capture && view.timings_view.generation==snapshot->generation;
+        const bool paused=!policy.telemetry_enabled()||snapshot->paused;
+        if(!enabled||paused){timing_auto.observe(enabled,paused,{});return;}
+        if(snapshot->busy||snapshot->opening||!snapshot->data.connected)return;
+        if(timing_auto_generation==snapshot->generation && timing_auto_read==snapshot->completed_reads)return;
+        timing_auto_generation=snapshot->generation;timing_auto_read=snapshot->completed_reads;
+        std::optional<TimingBandObservation> observation;
+        const auto& data=snapshot->data;const auto& timings=data.timings;
+        constexpr auto required=DC_T_MEM|DC_T_PSTATE|DC_T_MEM_OFF;
+        if(timings&&!timings->helper_token.empty()&&data.telemetry_valid&&
+           (data.telemetry.present&required)==required&&!(snapshot->telemetry_stale_mask&required)) {
+            TimingBandObservation sample;sample.target={snapshot->generation,data.identity.uuid,data.identity.slot,timings->helper_token};
+            sample.pstate=data.telemetry.pstate;sample.memory_mhz=data.telemetry.mem;
+            sample.memory_offset_raw=data.telemetry.mem_off;sample.top_memory_mhz=data.timing_top_memory_mhz;observation=sample;
+        }
+        if(timing_auto.observe(enabled,false,observation)) {
+            Command command;command.operation=Command::Operation::timings_read;
+            if(!session->submit(command,snapshot->generation))timing_auto.reset();
+        }
+    }
     static std::string path_utf8(const std::wstring& path) {
         const int length=WideCharToMultiByte(CP_UTF8,0,path.data(),static_cast<int>(path.size()),nullptr,0,nullptr,nullptr);
         std::string text(static_cast<size_t>(std::max(0,length)),'\0');
         if(length) WideCharToMultiByte(CP_UTF8,0,path.data(),static_cast<int>(path.size()),text.data(),length,nullptr,nullptr);
         return text;
+    }
+    std::wstring policy_notes_path;
+    bool policy_notes_writable=true;
+    void initialize_policy_notes() {
+        const auto& config=view.shunt.config.path;
+        if(config.empty()) {policy_notes_writable=false;return;}
+        policy_notes_path=config.substr(0,config.find_last_of(L"\\/"))+L"\\policy-annotations-native.json";
+        if(GetFileAttributesW(policy_notes_path.c_str())==INVALID_FILE_ATTRIBUTES) {
+            if(GetLastError()!=ERROR_FILE_NOT_FOUND && GetLastError()!=ERROR_PATH_NOT_FOUND) policy_notes_writable=false;
+            return;
+        }
+        try {view.policy_annotations=druta::ui::PolicyAnnotations(druta::ui::read_profile(policy_notes_path));}
+        catch(const std::exception& e){policy_notes_writable=false;view.policy_workspace.status=std::string("Existing annotations preserved; could not load: ")+e.what();}
+    }
+    void voltage_profile_or_command(druta::ui::Command command,bool tables,bool save,bool load) {
+        using namespace druta::ui;
+        auto& status=tables ? view.voltage_tables_view.status : view.voltage_limits_view.status;
+        const auto before=session->snapshot();
+        try {
+            if(save||load) {
+                wchar_t path[32768]{};OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=window;
+                dialog.lpstrFile=path;dialog.nMaxFile=static_cast<DWORD>(std::size(path));
+                dialog.lpstrFilter=L"Druta voltage profile (*.json)\0*.json\0\0";dialog.lpstrDefExt=L"json";
+                dialog.lpstrTitle=save ? L"Save selected voltage requests" : L"Load voltage requests into draft";
+                dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
+                const BOOL chosen=save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog);
+                policy.note_activity(now_seconds());
+                if(!chosen){if(CommDlgExtendedError())throw std::runtime_error("Voltage profile file dialog failed");return;}
+                auto current=session->snapshot();
+                if(current->generation!=before->generation)throw std::runtime_error("Adapter changed while selecting the voltage profile");
+                if(load) {
+                    const auto document=read_profile(path);current=session->snapshot();
+                    if(current->generation!=before->generation)throw std::runtime_error("Adapter changed while reading the voltage profile");
+                    if(tables) {
+                        if(!current->data.voltage_tables)throw std::runtime_error("Read voltage request tables first");
+                        stage_voltage_tables_document(view.voltage_tables_view,document,*current->data.voltage_tables);
+                    }else{
+                        if(!current->data.voltage_limits)throw std::runtime_error("Read voltage definitions first");
+                        stage_voltage_limits_document(view.voltage_limits_view,document,*current->data.voltage_limits);
+                    }
+                    return;
+                }
+                command.profile_path=path;
+            }
+            if(!session->submit(command,before->generation))throw std::runtime_error("Session is busy or changed; retry the voltage operation");
+            status=save?"Capturing selected requests; save result appears in the operation log.":"Operation queued; see the operation log.";
+        }catch(const std::exception& e){status=e.what();}
+    }
+    void consume_voltage_controls() {
+        using namespace druta::ui;
+        const auto tables=std::move(view.voltage_tables_intents);view.voltage_tables_intents.clear();
+        for(const auto& intent:tables) {
+            Command command;command.voltage_families=intent.families;
+            command.voltage_table_requests=std::make_shared<const std::vector<VoltageTableRequest>>(intent.requests);
+            command.voltage_table_selection=std::make_shared<const std::vector<VoltageTableKey>>(intent.selection);
+            bool save=false,load=false;
+            switch(intent.operation) {
+            case VoltageTablesIntent::Operation::read:command.operation=Command::Operation::voltage_tables_read;break;
+            case VoltageTablesIntent::Operation::apply:command.operation=Command::Operation::voltage_tables_apply;break;
+            case VoltageTablesIntent::Operation::restore_initial:command.operation=Command::Operation::voltage_tables_restore;break;
+            case VoltageTablesIntent::Operation::undo:command.operation=Command::Operation::voltage_tables_undo;break;
+            case VoltageTablesIntent::Operation::recover:command.operation=Command::Operation::voltage_tables_recover;break;
+            case VoltageTablesIntent::Operation::save_profile:save=true;command.operation=Command::Operation::voltage_tables_save;break;
+            case VoltageTablesIntent::Operation::load_profile:load=true;break;
+            }
+            voltage_profile_or_command(std::move(command),true,save,load);
+        }
+        const auto limits=std::move(view.voltage_limits_intents);view.voltage_limits_intents.clear();
+        for(const auto& intent:limits) {
+            Command command;command.voltage_families=intent.families;
+            command.voltage_limit_requests=std::make_shared<const std::vector<VoltageLimitRequest>>(intent.requests);
+            command.voltage_limit_selection=std::make_shared<const std::vector<VoltageLimitKey>>(intent.selection);
+            bool save=false,load=false;
+            switch(intent.operation) {
+            case VoltageLimitsIntent::Operation::read:command.operation=Command::Operation::voltage_limits_read;break;
+            case VoltageLimitsIntent::Operation::apply:command.operation=Command::Operation::voltage_limits_apply;break;
+            case VoltageLimitsIntent::Operation::restore_initial:command.operation=Command::Operation::voltage_limits_restore;break;
+            case VoltageLimitsIntent::Operation::undo:command.operation=Command::Operation::voltage_limits_undo;break;
+            case VoltageLimitsIntent::Operation::recover:command.operation=Command::Operation::voltage_limits_recover;break;
+            case VoltageLimitsIntent::Operation::restore_rom:command.operation=Command::Operation::voltage_limits_rom;break;
+            case VoltageLimitsIntent::Operation::save_profile:save=true;command.operation=Command::Operation::voltage_limits_save;break;
+            case VoltageLimitsIntent::Operation::load_profile:load=true;break;
+            }
+            voltage_profile_or_command(std::move(command),false,save,load);
+        }
     }
     void consume_profile_catalog() {
         using namespace druta::ui;
@@ -332,6 +444,17 @@ struct App {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         consume_profile_catalog();
+        consume_voltage_controls();
+        if(view.save_policy_annotations) {
+            view.save_policy_annotations=false;
+            try {
+                if(!policy_notes_writable||policy_notes_path.empty())throw std::runtime_error("Existing annotations could not be loaded; the file is preserved");
+                const auto parent=policy_notes_path.substr(0,policy_notes_path.find_last_of(L"\\/"));
+                if(!CreateDirectoryW(parent.c_str(),nullptr)&&GetLastError()!=ERROR_ALREADY_EXISTS)throw std::runtime_error("Could not create the annotation directory");
+                druta::ui::write_profile(policy_notes_path,view.policy_annotations.document());
+                view.policy_workspace.status="Policy labels saved; tuning requests are unchanged.";
+            }catch(const std::exception& e){view.policy_workspace.status=e.what();}
+        }
         if(druta::ui::take_shunt_save_request(view.shunt)) {
             try {
                 view.shunt.config.save();view.shunt.dirty=false;
@@ -690,11 +813,11 @@ void load_font() {
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
 // no GPU handle. The report keeps real completed reads and fixture ticks separate.
 struct Smoke {
-    const wchar_t* captures[14] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
+    const wchar_t* captures[16] = {L"01-focused.bmp", L"02-always.bmp", L"03-minimized.bmp", nullptr,
         L"05-restored.bmp", nullptr, L"07-default.bmp", L"08-classic.bmp", L"09-advanced.bmp",
-        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp"};
-    const char* names[14] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
-        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic"};
+        L"10-monitor.bmp", L"11-small.bmp", L"12-shunt.bmp", L"13-catalog-focused.bmp", L"14-catalog-classic.bmp", L"15-policy-workspace.bmp", L"16-timing-capture.bmp"};
+    const char* names[16] = {"visible_default", "always_visible", "always_minimized", "explicit_pause",
+        "hotkey_restore", "default_minimized", "default_restored", "classic", "advanced", "monitor", "resize_1024x768", "shunt_editor", "catalog_focused", "catalog_classic", "policy_workspace", "timing_capture_controls"};
     int phase = 0; bool captured = false, passed = true, finished = false, live = false;
     double start = 0, cpu = 0;
     unsigned long long frames = 0, presents = 0, samples = 0;
@@ -723,13 +846,15 @@ struct Smoke {
         }
         if (phase == 10) ok = ok && app.width == 1024 && app.height == 768 && app.resets > 0;
         if (phase == 11) ok = ok && app.view.shunt.open && !app.view.shunt.dirty && !app.view.shunt.save_requested;
-        if (phase >= 12) ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok && app.view.profile_catalog_intents.empty();
+        if (phase == 12 || phase == 13) ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok && app.view.profile_catalog_intents.empty();
+        if (phase == 14) ok = ok && app.view.policy_workspace.open && !app.view.save_policy_annotations && !app.view.policy_workspace.preview;
+        if (phase == 15) ok = ok && !app.view.timings_view.auto_capture && app.view.commands.empty();
         passed = passed && ok;
         char row[400];
         snprintf(row, sizeof(row), "    {\"phase\": \"%s\", \"frames\": %llu, \"presents\": %llu, \"%s\": %llu, \"cpu_seconds\": %.6f, \"passed\": %s}%s\n",
-            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 13 ? "" : ",");
+            names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == 15 ? "" : ",");
         report += row;
-        if (++phase == 14) {
+        if (++phase == 16) {
             report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -757,6 +882,8 @@ struct Smoke {
             app.view.shunt.open=false;app.client_size(1800,1200);app.view.profile_catalog_view.open=true;
         }
         if (phase == 13) app.view.presentation=druta::ui::Presentation::classic;
+        if (phase == 14) {app.view.profile_catalog_view.open=false;app.view.policy_workspace.open=true;app.view.presentation=druta::ui::Presentation::focused;}
+        if (phase == 15) {app.view.policy_workspace.open=false;app.view.page=druta::ui::Page::timings;app.view.presentation=druta::ui::Presentation::classic;}
         begin(app);
     }
 };
@@ -791,7 +918,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_Init(app.window); ImGui_ImplDX9_Init(app.device); app.initialized = true;
     app.view.page = options.page;
     app.view.preview = options.preview;
-    if(!options.preview)druta::ui::set_shunt_config(app.view.shunt,druta::ui::ShuntConfig::load());
+    if(!options.preview){druta::ui::set_shunt_config(app.view.shunt,druta::ui::ShuntConfig::load());app.initialize_policy_notes();}
     app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     app.view.hotkey_available = RegisterHotKey(app.window, restore_hotkey, MOD_CONTROL | MOD_SHIFT, VK_F11) != FALSE;
     if (!options.preview) {
@@ -836,6 +963,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             if (smoke.finished) { success = smoke.passed; break; }
         }
         const double now = now_seconds();
+        app.consume_timing_auto();
         if(app.view.advanced_view.rail_gate_flash_until>ImGui::GetTime() || app.view.advanced_view.xoc_gate_flash_until>ImGui::GetTime() || app.view.i2c_gate_flash_until>ImGui::GetTime())
             app.policy.note_activity(now);
         if (app.policy.telemetry_due(now)) {

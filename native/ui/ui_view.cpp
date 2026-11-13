@@ -1203,6 +1203,15 @@ void live_semantic_controls(ViewState& state, bool classic) {
     const auto& snapshot = *state.live;
     const bool busy = snapshot.busy || snapshot.opening || !snapshot.data.connected;
     ImGui::PushID("advanced-semantic-controls");
+    if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
+    if (ImGui::CollapsingHeader("Voltage request and offset tables")) {
+        auto intents=draw_voltage_tables_controls(state.voltage_tables_view,snapshot.data.voltage_tables.get(),snapshot.generation,busy,state.controls_unlocked,classic);
+        state.voltage_tables_intents.insert(state.voltage_tables_intents.end(),intents.begin(),intents.end());
+    }
+    if (ImGui::CollapsingHeader("Voltage definitions and device delays")) {
+        auto intents=draw_voltage_limits_controls(state.voltage_limits_view,snapshot.data.voltage_limits.get(),snapshot.generation,busy,state.controls_unlocked,classic);
+        state.voltage_limits_intents.insert(state.voltage_limits_intents.end(),intents.begin(),intents.end());
+    }
     if (ImGui::CollapsingHeader("Power feedback ratios")) {
         PowerIntegralViewContext context;
         context.generation = snapshot.generation; context.slot = snapshot.selected_slot;
@@ -1912,7 +1921,14 @@ void draw(ViewState& state) {
             state.commands.push_back(command);
         }
     }
-    if (state.live) draw_scoped_profile_workspace(state.scoped_profile_view, *state.live, state.controls_unlocked, state.commands);
+    if (state.live) {
+        const auto& s=*state.live;
+        draw_scoped_profile_workspace(state.scoped_profile_view, s, state.controls_unlocked, state.commands);
+        const auto output=draw_policy_workspace(state.policy_workspace,state.policy_annotations,s.data.scoped_profiles.get(),s.generation,s.busy||s.opening,s.data.connected,state.controls_unlocked);
+        state.save_policy_annotations|=output.save_annotations;
+        if(output.refresh) {Command c;c.operation=Command::Operation::prepare_scoped_profile;state.commands.push_back(c);}
+        if(output.apply) {Command c;c.operation=Command::Operation::apply_scoped_profile;auto request=std::make_shared<ScopedProfileRequest>();request->document=*output.apply;c.scoped_profile=std::move(request);state.commands.push_back(c);}
+    }
     {
         auto output=draw_profile_catalog_workspace(state.profile_catalog_view,state.live ? state.live->generation : 0,
             !state.live || state.live->busy || state.live->opening || !state.live->data.connected,state.controls_unlocked);

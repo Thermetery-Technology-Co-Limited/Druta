@@ -53,6 +53,10 @@ int main(){
  fresh();{VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);s.read();block_after_write=true;auto r=s.apply({2,0,2});CHECK(!r.ok&&!r.rollback_verified&&s.state().recovery_pending&&header[10]==0);CHECK(s.state().rows[1].availability==VoltagePolicyAvailability::transient);blocked_get=0;CHECK(s.recover().ok&&header[10]==1&&!s.state().recovery_pending);}
  fresh();{VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);s.read();CHECK(s.apply({4,0,4}).ok);block_after_write=true;CHECK(!s.apply({2,0,2}).ok&&s.state().recovery_pending);blocked_get=0;CHECK(s.recover().ok&&s.state().undo_available&&s.state().undo_selection==4);CHECK(s.undo().ok&&header[10]==1&&header[11]==1);}
  fresh();{auto alternate=dev;VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),alternate);s.read();foreign=true;CHECK(!s.apply({1,1,0}).ok&&writes==0);}
+ fresh();{dev.uuid[0]=0;dev.nvml_ok=dev.nvml_selected=0;VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);
+ CHECK(s.read().rows[0].availability==VoltagePolicyAvailability::available);CHECK(s.apply({1,1,0}).ok&&gate);
+ CHECK(s.undo().ok&&!gate);const auto previous_writes=writes;std::strcpy(dev.uuid,"GPU-appeared");CHECK(!s.apply({1,1,0}).ok&&writes==previous_writes);}
+ fresh();{VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);s.read();std::strcpy(dev.uuid,"GPU-uuid-mismatch");CHECK(!s.apply({1,1,0}).ok&&writes==0);}
  fresh();{std::strcpy(dev.uuid,"GPU-second-device");dev.nvapi_handle=99;dev.nvapi_devid=0x4567;VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);CHECK(s.read().rows[2].writable);CHECK(s.apply({1,1,0}).ok&&gate);}
  const auto final_writes=writes;CHECK(final_writes==1); // destruction never restores a session request
  std::printf("voltage policy service: %u checks\n",checks);return 0;

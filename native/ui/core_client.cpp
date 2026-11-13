@@ -9,6 +9,8 @@
 #include "clock_monitor_service.h"
 #include "timing_model.h"
 #include "timing_profile.h"
+#include "timing_capture.h"
+#include <thread>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -48,6 +50,61 @@ class Client final : public IBackend {
     std::unique_ptr<PowerArbitrationService> arbitration_;
     std::unique_ptr<PowerIntegralService> power_integral_;
     std::unique_ptr<VoltagePolicyService> voltage_policy_;
+    std::unique_ptr<VoltageTablesService> voltage_tables_;
+    std::unique_ptr<VoltageLimitsService> voltage_limits_;
+    ActionResult voltage_tables_action(const Command& cmd) {
+        ActionResult out;
+        if (!voltage_tables_) { out.message="Voltage request tables unavailable"; return out; }
+        try {
+            if (cmd.operation==Command::Operation::voltage_tables_read) {
+                const auto& data=voltage_tables_->read(cmd.voltage_families);
+                out.ok=(cmd.voltage_families&1) && data.requests_complete;
+                out.message=data.message;
+            } else if (cmd.operation==Command::Operation::voltage_tables_save) {
+                if (!cmd.voltage_table_selection || cmd.profile_path.empty()) throw std::runtime_error("Choose voltage fields and a profile path");
+                const auto& fresh=voltage_tables_->read();
+                write_profile(cmd.profile_path,capture_voltage_tables_profile(fresh,*cmd.voltage_table_selection));
+                out.ok=true; out.message="Selected voltage requests saved; no settings applied";
+            } else {
+                VoltageTablesResult result;
+                if (cmd.operation==Command::Operation::voltage_tables_apply && cmd.voltage_table_requests) result=voltage_tables_->apply(*cmd.voltage_table_requests);
+                else if (cmd.operation==Command::Operation::voltage_tables_restore && cmd.voltage_table_selection && cmd.voltage_table_selection->size()==1) result=voltage_tables_->restore_initial(cmd.voltage_table_selection->front());
+                else if (cmd.operation==Command::Operation::voltage_tables_undo) result=voltage_tables_->undo();
+                else if (cmd.operation==Command::Operation::voltage_tables_recover) result=voltage_tables_->recover();
+                else throw std::runtime_error("Missing or invalid voltage request table operation");
+                out.ok=result.ok; out.may_have_changed=result.may_have_changed; out.message=result.message;
+            }
+        } catch (const std::exception& error) { out.message=error.what(); }
+        last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());
+        return out;
+    }
+    ActionResult voltage_limits_action(const Command& cmd) {
+        ActionResult out;
+        if (!voltage_limits_) { out.message="Voltage definitions unavailable"; return out; }
+        try {
+            if (cmd.operation==Command::Operation::voltage_limits_read) {
+                const auto& data=voltage_limits_->read(cmd.voltage_families);
+                out.ok=std::any_of(data.rows.begin(),data.rows.end(),[](const auto& row){return row.availability==VoltagePolicyAvailability::available && !row.stale;});
+                out.message=data.message;
+            } else if (cmd.operation==Command::Operation::voltage_limits_save) {
+                if (!cmd.voltage_limit_selection || cmd.profile_path.empty()) throw std::runtime_error("Choose voltage definitions and a profile path");
+                const auto& fresh=voltage_limits_->read();
+                write_profile(cmd.profile_path,capture_voltage_limits_profile(fresh,*cmd.voltage_limit_selection));
+                out.ok=true; out.message="Selected voltage definitions saved; no settings applied";
+            } else {
+                VoltageLimitsResult result;
+                if (cmd.operation==Command::Operation::voltage_limits_apply && cmd.voltage_limit_requests) result=voltage_limits_->apply(*cmd.voltage_limit_requests);
+                else if ((cmd.operation==Command::Operation::voltage_limits_restore || cmd.operation==Command::Operation::voltage_limits_rom) && cmd.voltage_limit_selection && cmd.voltage_limit_selection->size()==1)
+                    result=cmd.operation==Command::Operation::voltage_limits_restore ? voltage_limits_->restore_initial(cmd.voltage_limit_selection->front()) : voltage_limits_->restore_rom(cmd.voltage_limit_selection->front());
+                else if (cmd.operation==Command::Operation::voltage_limits_undo) result=voltage_limits_->undo();
+                else if (cmd.operation==Command::Operation::voltage_limits_recover) result=voltage_limits_->recover();
+                else throw std::runtime_error("Missing or invalid voltage definition operation");
+                out.ok=result.ok; out.may_have_changed=result.may_have_changed; out.message=result.message;
+            }
+        } catch (const std::exception& error) { out.message=error.what(); }
+        last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
+        return out;
+    }
     ActionResult voltage_policy_action(const Command& cmd) {
         ActionResult result;
         if (!voltage_policy_) { result.message = "Voltage policy controls unavailable"; return result; }
@@ -129,6 +186,90 @@ class Client final : public IBackend {
     TimingViewData timing_data_;
     std::optional<TimingPlan> timing_undo_;
     std::optional<TimingBatchPlan> timing_batch_undo_;
+    enum class TimingOwner { none, vf, legacy };
+    TimingOwner timing_owner_=TimingOwner::none;
+    ActionResult release_timing_hold() {
+        ActionResult out; out.ok=true;
+        if(timing_owner_==TimingOwner::vf) out=release_hold();
+        if(timing_owner_==TimingOwner::legacy) out=release_frequency();
+        if(out.ok) timing_owner_=TimingOwner::none;
+        timing_data_.capture_hold_pending=timing_owner_!=TimingOwner::none;
+        return out;
+    }
+    ActionResult capture_p0(const Command& cmd) {
+        ActionResult out;
+        if(!timings_ || !timing_transport_){out.message="Choose the timing helper first";return out;}
+        if(timing_owner_!=TimingOwner::none){out.message="Release the previous temporary timing hold first";return out;}
+        std::string helper_error;
+        if(!timing_transport_->pin(helper_error)){out.message=helper_error;return out;}
+        struct Unpin {TimingTransport& transport;~Unpin(){transport.unpin();}} pin{*timing_transport_};
+        // Establish helper/target/layout readiness before requesting any hold.
+        auto initial=timings_->capture_pinned();
+        if(!initial.ok){out.message=initial.message;return out;}
+        const TimingCaptureTarget target{cmd.timing_generation,opened_.uuid,opened_.slot,timing_transport_->token()};
+        bool hold_attempted=false;
+        TimingCaptureCallbacks callbacks;
+        callbacks.observe=[&]() -> std::optional<TimingBandObservation> {
+            dc_gpu_identity id{};std::string why;
+            if(!identity(id) || !timing_transport_->unchanged(why)) throw std::runtime_error("GPU identity or timing helper changed");
+            dc_telemetry t{};t.size=sizeof(t);dc_capabilities caps{};caps.size=sizeof(caps);
+            if(retry(api_.telemetry,gpu_,&t)!=DC_OK || retry(api_.capabilities,gpu_,&caps)!=DC_OK) return {};
+            TimingBandObservation observation;observation.target=target;
+            if(t.present&DC_T_PSTATE)observation.pstate=t.pstate;
+            if(t.present&DC_T_MEM)observation.memory_mhz=t.mem;
+            if(t.present&DC_T_MEM_OFF)observation.memory_offset_raw=t.mem_off;
+            if(caps.mem_clock_count && caps.mem_clock_count<=512) observation.top_memory_mhz=*std::max_element(caps.mem_clocks,caps.mem_clocks+caps.mem_clock_count);
+            return observation;
+        };
+        callbacks.hold_state=[&] {
+            if(i2c_session_&&i2c_session_->owned())return TimingHoldState::foreign;
+            const auto t=tuning_?tuning_->state():TuningState{};
+            if(t.recovery || t.headroom || (t.owned&&!t.confirmed))return TimingHoldState::uncertain;
+            if(t.owned)return TimingHoldState::owned;
+            const auto f=frequency_?frequency_->read():FrequencyLockData{};
+            if(f.ownership.recovery || (f.ownership.needs_cleanup()&&!f.ownership.confirmed))return TimingHoldState::uncertain;
+            if(f.ownership.confirmed)return TimingHoldState::owned;
+            if(f.current)return TimingHoldState::foreign;
+            dc_vf_lock_status vf{};dc_clk_lock_status clock{};
+            if(retry(api_.tuning.vf_status,gpu_,0,0u,&vf)!=DC_OK || vf.error[0] || retry(api_.tuning.clock_status,gpu_,&clock)!=DC_OK || clock.error[0])return TimingHoldState::uncertain;
+            return vf.locked||clock.locked ? TimingHoldState::foreign : TimingHoldState::none;
+        };
+        callbacks.acquire=[&] {
+            TimingHoldAcquire result;
+            if(frequency_&&frequency_->data().legacy_known&&frequency_->data().legacy_available){
+                hold_attempted=true;
+                timing_owner_=TimingOwner::legacy;
+                const auto held=frequency_->hold_legacy_p0();
+                result.confirmed=held.ok;result.cleanup_required=frequency_->needs_cleanup();result.message=held.message;
+                if(!result.cleanup_required)timing_owner_=TimingOwner::none;
+                return result;
+            }
+            dc_vf_delta_snapshot snapshot{};std::vector<dc_vf_point> points;std::string why;
+            if(!tuning_ || !std::isfinite(cmd.curve_cap_mv) || cmd.curve_cap_mv<=0 || !curve_table(snapshot,points,why)) {result.message="Current V/F curve unavailable: "+why;return result;}
+            const dc_vf_point* selected=nullptr;
+            for(const auto& point:points)if(std::isfinite(point.volt_mv)&&point.volt_mv>0&&point.volt_mv<=cmd.curve_cap_mv&&(!selected||point.volt_mv>selected->volt_mv))selected=&point;
+            bool xoc=false;
+            if(!selected||selected->volt_mv*1000>UINT32_MAX||!effective_xoc(xoc)){result.message="No qualified V/F point at or below the selected cap";return result;}
+            timing_owner_=TimingOwner::vf;
+            hold_attempted=true;
+            const auto held=tuning_->hold(6,static_cast<uint32_t>(std::llround(selected->volt_mv*1000)),false,0,xoc);
+            result.confirmed=held.ok;result.cleanup_required=tuning_->state().maintenance_needed();result.message=held.message;
+            if(!result.cleanup_required)timing_owner_=TimingOwner::none;
+            return result;
+        };
+        callbacks.release=[&]{const auto released=release_timing_hold();return TimingCaptureAction{released.ok,released.message};};
+        callbacks.capture=[&]{auto fresh=timings_->capture_pinned();const bool qualified=fresh.ok&&fresh.top_band&&fresh.pstate_before==uint32_t{0}&&fresh.pstate_after==uint32_t{0};
+            if(qualified)timing_data_.snapshot=std::move(fresh);
+            return TimingCaptureAction{qualified,qualified?"Timings captured in stable P0":fresh.message};};
+        callbacks.sleep_ms=[](unsigned ms){std::this_thread::sleep_for(std::chrono::milliseconds(ms));};
+        const auto result=capture_qualified_timings(target,callbacks);
+        out.ok=result.ok;out.may_have_changed=hold_attempted;out.message=result.message;
+        if(hold_attempted&&!result.cleanup_pending)out.message+="; temporary hold released";
+        timing_data_.capture_hold_pending=result.cleanup_pending;
+        timing_data_.preview.reset();timing_data_.batch_preview.reset();++timing_data_.capture_revision;
+        if(!result.ok)timing_data_.snapshot.ok=false;
+        return out;
+    }
     void remember(const Undo& u) { if (suppress_undo_) return; if (!catalog_grouping_ && undo_.size() == 32) undo_.erase(undo_.begin()); undo_.push_back(u); }
     const char* label(ControlId c) const { switch (c) { case ControlId::core: return "core offset"; case ControlId::memory: return "memory offset"; case ControlId::fan: return "fan"; case ControlId::boost: return "voltage boost"; case ControlId::power: return "board power"; default: return "profile"; } }
     bool capture_fan(dc_fan_snapshot& snap) {
@@ -1336,7 +1477,7 @@ class Client final : public IBackend {
             timing_data_.undo_available = timing_undo_.has_value() || timing_batch_undo_.has_value();
             timing_data_.initial_available = timings_ && timings_->initial_snapshot().has_value();
             timing_data_.identity=opened_;
-            timing_data_.helper_token=timing_transport_ ? timing_transport_->token() : "";
+            if(timing_data_.snapshot.ok && !timing_data_.snapshot.helper_token.empty()) timing_data_.helper_token=timing_data_.snapshot.helper_token;
             last_.timings = std::make_shared<TimingViewData>(timing_data_);
         };
         if (cmd.operation == Command::Operation::timings_select_helper) {
@@ -1345,13 +1486,16 @@ class Client final : public IBackend {
             auto transport = make_timing_transport(cmd.timing_helper_path);
             std::string why;
             if (!transport || !transport->pin(why)) { out.message = why.empty() ? "Helper could not be opened" : why; return out; }
-            transport->unpin();
+            const auto helper_token=transport->token(); transport->unpin();
             timings_.reset(); timing_transport_ = std::move(transport); timing_data_ = {};
             timing_data_.helper_path = cmd.timing_helper_path;
+            timing_data_.helper_token=helper_token;
             TimingsApi a; a.identity=api_.identity; a.telemetry=api_.telemetry; a.capabilities=api_.capabilities; a.lock=api_.lock; a.unlock=api_.unlock;
             timings_ = std::make_unique<TimingsService>(a,gpu_,opened_,*timing_transport_);
             out.ok=true; out.message="Timing helper selected; Read fields captures this adapter";
+        } else if (cmd.operation==Command::Operation::timings_release_capture_hold) { out=release_timing_hold();
         } else if (!timings_) { out.message="Choose the nvtune helper first";
+        } else if (cmd.operation==Command::Operation::timings_capture_p0) { out=capture_p0(cmd);
         } else if (cmd.operation == Command::Operation::timings_read) {
             timing_data_.preview.reset();
             timing_data_.batch_preview.reset(); ++timing_data_.capture_revision;
@@ -1461,6 +1605,16 @@ public:
         LOAD(voltage_policy.architecture_supported, dc_perf_probe_architecture); LOAD(voltage_policy.transport, dc_perf_transport);
         LOAD(voltage_policy.escape, dc_rm_escape_raw); LOAD(voltage_policy.reset_transport, dc_rm_transport_reset);
         LOAD(voltage_policy.lock, dc_gpu_lock); LOAD(voltage_policy.unlock, dc_gpu_unlock);
+        api_.voltage_tables.transport=api_.voltage_policy;
+        api_.voltage_limits.transport=api_.voltage_policy;
+        LOAD(voltage_tables.rails_blocks, dc_rails_blocks); LOAD(voltage_tables.rails_state, dc_rails_state);
+        LOAD(voltage_tables.rails_deltas, dc_rails_deltas); LOAD(voltage_tables.rails_refresh, dc_rails_refresh);
+        LOAD(voltage_tables.boost, dc_gpu_voltage_boost_get); LOAD(voltage_tables.interface_present, dc_nvapi_interface_present);
+        LOAD(voltage_limits.interface_present, dc_nvapi_interface_present);
+        const auto request_set=reinterpret_cast<decltype(&dc_rails_request_packet_set)>(GetProcAddress(module_,"dc_rails_request_packet_set"));
+        if (request_set) api_.voltage_tables.public_set=[request_set](dc_gpu* gpu,uint8_t* bytes,size_t length,int32_t& status,dc_error& error) {
+            return request_set(gpu,bytes,length,&status,&error);
+        };
         LOAD(planner.hard_deflatten, dc_vfp_compute_hard_deflatten);
         LOAD(reset_all, dc_gpu_reset_all);
         LOAD(tuning.lock, dc_gpu_lock); LOAD(tuning.unlock, dc_gpu_unlock); LOAD(tuning.identity, dc_gpu_identity_get);
@@ -1539,10 +1693,15 @@ public:
         last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
         voltage_policy_ = std::make_unique<VoltagePolicyService>(api_.voltage_policy, gpu_, opened_);
         last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
+        voltage_tables_=std::make_unique<VoltageTablesService>(api_.voltage_tables,gpu_,opened_);
+        voltage_limits_=std::make_unique<VoltageLimitsService>(api_.voltage_limits,gpu_,opened_);
+        last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());
+        last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
         error.clear(); return true;
     }
     ActionResult prepare_close() override {
         if (timings_ && timings_->pending()) { ActionResult r; r.message="Timing helper is still running; keeping the session open until its exit is confirmed"; return r; }
+        if(timing_owner_!=TimingOwner::none){const auto result=release_timing_hold();if(!result.ok)return result;}
         if (i2c_session_ && i2c_session_->owned()) { auto result=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!result.ok) return result; }
         if (tuning_ && tuning_->state().maintenance_needed()) { const auto result=release_hold(); if (!result.ok) return result; }
         if (frequency_ && frequency_->needs_cleanup()) return release_frequency();
@@ -1572,15 +1731,19 @@ public:
         clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false;
         clock_step_measured_ = false; clock_step_khz_ = 0; clock_sample_ = 0;
         timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_batch_undo_.reset(); timing_data_={};
+        timing_owner_=TimingOwner::none;
         tuning_.reset();
         frequency_.reset();
         perf_.reset();
         arbitration_.reset();
         power_integral_.reset();
         voltage_policy_.reset();
+        voltage_tables_.reset(); voltage_limits_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
     }
     LiveData read(bool details) override {
+        if (voltage_tables_) last_.voltage_tables=std::make_shared<VoltageTablesData>(voltage_tables_->state());
+        if (voltage_limits_) last_.voltage_limits=std::make_shared<VoltageLimitsData>(voltage_limits_->state());
         if (voltage_policy_) last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->state());
         if (power_integral_) last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->data());
         if (tuning_) last_.tuning=tuning_->state();
@@ -1626,7 +1789,9 @@ public:
         if (retry(api_.boost, gpu_, &v) == DC_OK) { boost.availability = Availability::available; boost.current = v; boost.low = 0; boost.high = 100; boost.unit = "%"; boost.writable = api_.boost_set != nullptr; boost.stock_writable = boost.writable; boost.detail.clear(); }
         else failure(boost, !api_.boost, "Voltage boost unavailable");
         dc_capabilities caps{}; caps.size = sizeof(caps); dc_cl_statics st{}; st.size = sizeof(st);
+        last_.timing_top_memory_mhz.reset();
         if (retry(api_.capabilities, gpu_, &caps) == DC_OK) {
+            if(caps.mem_clock_count && caps.mem_clock_count<=512) last_.timing_top_memory_mhz=*std::max_element(caps.mem_clocks,caps.mem_clocks+caps.mem_clock_count);
             if (caps.present & DC_C_PL_MIN) { st.pl_min_state = DC_CL_STATIC_VALUE; st.pl_min_mw = caps.pl_min_mw; }
             if (caps.present & DC_C_PL_MAX) { st.pl_max_state = DC_CL_STATIC_VALUE; st.pl_max_mw = caps.pl_max_mw; }
             if (caps.present & DC_C_PL_DEF) { st.pl_def_state = DC_CL_STATIC_VALUE; st.pl_def_mw = caps.pl_def_mw; }
@@ -1704,6 +1869,9 @@ public:
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
         if (timings_ && timings_->pending()) { result.message="Timing helper exit is unconfirmed; further operations are blocked"; return result; }
+        if(timing_owner_!=TimingOwner::none && cmd.operation!=Command::Operation::timings_release_capture_hold) {
+            result.message="Release the retained temporary timing hold before another operation";return result;
+        }
         if(cmd.operation==Command::Operation::preflight_catalog_profile)return catalog_action(cmd);
         // Standalone iCX catalog Undo must be able to release its own request
         // before the ordinary cross-control owned-I2C refusal below.
@@ -1720,6 +1888,10 @@ public:
             return power_integral_action(cmd);
         if (cmd.operation >= Command::Operation::voltage_policy_read && cmd.operation <= Command::Operation::voltage_policy_recover)
             return voltage_policy_action(cmd);
+        if (cmd.operation==Command::Operation::voltage_tables_read || cmd.operation==Command::Operation::voltage_tables_save)
+            return voltage_tables_action(cmd);
+        if (cmd.operation==Command::Operation::voltage_limits_read || cmd.operation==Command::Operation::voltage_limits_save)
+            return voltage_limits_action(cmd);
         if (cmd.operation == Command::Operation::refresh_power_arbitration) {
             if (!arbitration_) { result.message = "Power arbitration unavailable"; return result; }
             last_.power_arbitration = std::make_shared<PowerArbitrationModel>(arbitration_->refresh());
@@ -1776,6 +1948,10 @@ public:
             result.message="Release the owned V/F hold before changing tuning requests"; return result;
         }
         if (is_timing_operation(cmd.operation)) return timing_action(cmd);
+        if (cmd.operation>=Command::Operation::voltage_tables_read && cmd.operation<=Command::Operation::voltage_tables_save)
+            return voltage_tables_action(cmd);
+        if (cmd.operation>=Command::Operation::voltage_limits_read && cmd.operation<=Command::Operation::voltage_limits_save)
+            return voltage_limits_action(cmd);
         if(cmd.operation==Command::Operation::apply_catalog_profile)return catalog_action(cmd);
         if (cmd.operation == Command::Operation::save_profile || cmd.operation == Command::Operation::load_profile) return profile_action(cmd);
         if (cmd.operation == Command::Operation::apply_scoped_profile) return scoped_action(cmd);

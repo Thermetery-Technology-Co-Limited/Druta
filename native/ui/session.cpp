@@ -427,7 +427,8 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       const bool tuning_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::max_it || impl_->command.operation==Command::Operation::reset_controls || impl_->command.operation==Command::Operation::hold_curve_point || impl_->command.operation==Command::Operation::release_hold);
       const bool i2c_busy=impl_->state.busy && is_i2c_operation(impl_->command.operation);
       const bool frequency_busy=impl_->state.busy && is_frequency_operation(impl_->command.operation);
-      if (frequency_busy || impl_->state.frequency_ownership_uncertain || impl_->state.data.frequency.ownership.needs_cleanup() || i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
+      const bool timing_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::timings_capture_p0 || impl_->command.operation==Command::Operation::timings_release_capture_hold);
+      if (timing_busy || frequency_busy || impl_->state.frequency_ownership_uncertain || impl_->state.data.frequency.ownership.needs_cleanup() || i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
           impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
       }
       impl_->backend_opened = false; impl_->read_retries = 0;

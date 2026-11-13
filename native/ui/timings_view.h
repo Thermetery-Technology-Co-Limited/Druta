@@ -14,6 +14,8 @@ TimingsHelperSuggestion suggest_timing_helper();
 struct TimingsViewState {
     std::uint64_t generation = 0;
     bool initialized = false;
+    bool auto_capture = false;
+    double capture_cap_mv = 1100;
     std::string field;
     std::uint32_t value = 0;
     std::vector<TimingRequest> staged;

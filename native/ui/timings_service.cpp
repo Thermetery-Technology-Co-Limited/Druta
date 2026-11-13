@@ -194,14 +194,30 @@ bool preview_matches(const std::string& text,const TimingPlan& plan) {
 }
 }
 TimingsService::TimingsService(TimingsApi a,dc_gpu* gpu,const dc_gpu_identity& id,TimingTransport& t):api_(a),gpu_(gpu),target_(id),transport_(t){}
-TimingSnapshot TimingsService::capture(){Guard g(api_,gpu_);TimingSnapshot s;if(!g.held){s.message="GPU lock unavailable";return s;} Pin p(transport_);std::string error;if(!(p.held=transport_.pin(error))){s.message="Helper unavailable: "+error;return s;}s=capture_locked(api_,gpu_,target_,transport_);if(s.ok) {
-    if(!diagnostic_capture(api_,gpu_,target_,transport_,s)){s.ok=false;s.message="GPU identity unavailable after timing diagnostics";s.diagnostic_evidence={};return s;}
-    if(!s.diagnostic_evidence.partitions.empty()){last_diagnostic_=s;last_diagnostic_token_=transport_.token();}
-    else if(last_diagnostic_ && last_diagnostic_token_==transport_.token() && same_slot(last_diagnostic_->slot,s.slot) && last_diagnostic_->codename==s.codename && last_diagnostic_->broadcast.size()==s.broadcast.size()) {
-        bool same=true;for(size_t i=0;i<s.broadcast.size();++i)if(s.broadcast[i].name!=last_diagnostic_->broadcast[i].name || s.broadcast[i].offset!=last_diagnostic_->broadcast[i].offset || s.broadcast[i].value!=last_diagnostic_->broadcast[i].value)same=false;
-        if(same){s.diagnostic_evidence.partitions=last_diagnostic_->diagnostic_evidence.partitions;s.diagnostic_evidence.partitions_stale=true;}
+TimingSnapshot TimingsService::capture(){
+    Guard guard(api_,gpu_);TimingSnapshot s;if(!guard.held){s.message="GPU lock unavailable";return s;}
+    Pin pin(transport_);std::string error;if(!(pin.held=transport_.pin(error))){s.message="Helper unavailable: "+error;return s;}
+    return capture_pinned_locked();
+}
+TimingSnapshot TimingsService::capture_pinned(){
+    Guard guard(api_,gpu_);TimingSnapshot s;if(!guard.held){s.message="GPU lock unavailable";return s;}
+    return capture_pinned_locked();
+}
+TimingSnapshot TimingsService::capture_pinned_locked(){
+    TimingSnapshot s;std::string error;const auto token=transport_.token();
+    if(token.empty() || !transport_.unchanged(error)){s.message="Pinned helper unavailable or changed: "+error;return s;}
+    s=capture_locked(api_,gpu_,target_,transport_);
+    if(s.ok && !diagnostic_capture(api_,gpu_,target_,transport_,s)){s.ok=false;s.message="GPU identity unavailable after timing diagnostics";s.diagnostic_evidence={};}
+    if(!transport_.unchanged(error) || transport_.token()!=token){s.ok=false;s.message="Pinned helper changed during timing capture";s.diagnostic_evidence={};return s;}
+    if(s.ok){s.helper_token=token;
+        if(!s.diagnostic_evidence.partitions.empty()){last_diagnostic_=s;last_diagnostic_token_=token;}
+        else if(last_diagnostic_ && last_diagnostic_token_==token && same_slot(last_diagnostic_->slot,s.slot) && last_diagnostic_->codename==s.codename && last_diagnostic_->broadcast.size()==s.broadcast.size()) {
+            bool same=true;for(size_t i=0;i<s.broadcast.size();++i)if(s.broadcast[i].name!=last_diagnostic_->broadcast[i].name || s.broadcast[i].offset!=last_diagnostic_->broadcast[i].offset || s.broadcast[i].value!=last_diagnostic_->broadcast[i].value)same=false;
+            if(same){s.diagnostic_evidence.partitions=last_diagnostic_->diagnostic_evidence.partitions;s.diagnostic_evidence.partitions_stale=true;}
+        }
     }
-}remember_initial(s,transport_.token());return s;}
+    remember_initial(s,token);return s;
+}
 TimingPlan TimingsService::preview(const std::string& field,uint32_t value) {
     Guard g(api_,gpu_);TimingPlan p;if(!g.held){p.message="GPU lock unavailable";return p;}Pin pin(transport_);std::string error;
     if(!(pin.held=transport_.pin(error))){p.message=error;return p;}

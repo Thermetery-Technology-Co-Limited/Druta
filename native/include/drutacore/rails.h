@@ -327,6 +327,15 @@ typedef struct dc_rails_write_outcome {
  * write runs again and its result is returned. DC_E_ARGUMENT for a NULL argument, a size mismatch,
  * count > 2, a rail other than 0 or 1, a repeated rail, or a value kind or key kind outside its
  * defines. */
+/* Narrow V2 request-table setter. The caller supplies the complete 0xAC8-byte
+ * packet including version 0x00020AC8; no bytes are reconstructed. DC_OK
+ * means the call was dispatched and nvapi_status is the raw driver status.
+ * DC_E_UNAVAILABLE guarantees no dispatch. Other errors must be treated as
+ * potentially dispatched; callers own selected-field preflight/readback. */
+#define DC_RAILS_REQUEST_PACKET_BYTES 0xAC8u
+DC_API dc_status DC_CALL dc_rails_request_packet_set(dc_gpu* handle, const uint8_t* packet, size_t size,
+                                                    int32_t* nvapi_status, dc_error* error);
+
 DC_API dc_status DC_CALL dc_rails_write_records(dc_gpu* handle, const dc_rails_records* records,
                                                 dc_rails_write_outcome* out);
 

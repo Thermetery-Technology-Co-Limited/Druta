@@ -12,6 +12,9 @@
 #include "frequency_lock_view.h"
 #include "power_integral_view.h"
 #include "voltage_policy_view.h"
+#include "voltage_tables_view.h"
+#include "voltage_limits_view.h"
+#include "policy_workspace_view.h"
 #include <cstdint>
 
 namespace druta::ui {
@@ -44,6 +47,13 @@ struct ViewState {
     FrequencyLockViewState frequency_view;
     PowerIntegralViewState power_integral_view;
     VoltagePolicyViewState voltage_policy_view;
+    VoltageTablesViewState voltage_tables_view;
+    VoltageLimitsViewState voltage_limits_view;
+    std::vector<VoltageTablesIntent> voltage_tables_intents;
+    std::vector<VoltageLimitsIntent> voltage_limits_intents;
+    PolicyWorkspaceViewState policy_workspace;
+    PolicyAnnotations policy_annotations;
+    bool save_policy_annotations=false;
     float core_offset_mhz = 0.0f;
     float memory_offset_mhz = 0.0f;
     float power_limit_w = 310.0f;

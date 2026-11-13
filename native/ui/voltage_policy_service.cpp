@@ -23,7 +23,7 @@ void api_failure(const dc_error& e,const char* fallback){
 bool terminated(const char* p,size_t n){return std::memchr(p,0,n)!=nullptr;}
 bool same_id(const dc_gpu_identity& a,const dc_gpu_identity& b){
     return a.size==sizeof(a)&&b.size==sizeof(b)&&terminated(a.slot,sizeof(a.slot))&&terminated(b.slot,sizeof(b.slot))&&terminated(a.uuid,sizeof(a.uuid))&&terminated(b.uuid,sizeof(b.uuid))&&
-        terminated(a.pairing_error,sizeof(a.pairing_error))&&terminated(b.pairing_error,sizeof(b.pairing_error))&&a.uuid[0]&&b.uuid[0]&&
+        terminated(a.pairing_error,sizeof(a.pairing_error))&&terminated(b.pairing_error,sizeof(b.pairing_error))&&
         a.slot[0]&&a.nvapi_ok&&a.nvapi_selected&&!a.pairing_error[0]&&b.nvapi_ok&&b.nvapi_selected&&!b.pairing_error[0]&&std::strcmp(a.slot,b.slot)==0&&std::strcmp(a.uuid,b.uuid)==0&&
         a.nvapi_handle==b.nvapi_handle&&a.nvapi_devid==b.nvapi_devid&&a.nvapi_subsys==b.nvapi_subsys&&
         a.nvml_selected==b.nvml_selected&&a.nvml_has_devid==b.nvml_has_devid&&a.nvml_devid==b.nvml_devid&&a.nvml_subsys==b.nvml_subsys;
