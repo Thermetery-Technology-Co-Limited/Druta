@@ -29,7 +29,7 @@ target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/back
 target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
 
 add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
-  profile_catalog.cpp fan_profile.cpp python_scoped_profile.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp
+  profile_catalog.cpp semantic_policy_profile.cpp saving_profile.cpp fan_profile.cpp python_scoped_profile.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
   i2c_icx.cpp i2c_mp2888_offset.cpp i2c_mp29816.cpp icx_preset.cpp i2c_verify_hold.cpp i2c_warmup.cpp
   tuning_actions.cpp timings_service.cpp timing_transport.cpp perf_view_model.cpp frequency_lock.cpp
@@ -105,9 +105,17 @@ add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
 add_executable(druta-ui-policy-profile-client-test tests/policy_profile_client_test.cpp)
 target_link_libraries(druta-ui-policy-profile-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-policy-profile-client COMMAND druta-ui-policy-profile-client-test)
+add_executable(druta-ui-voltage-policy-catalog-service-test tests/voltage_policy_catalog_service_test.cpp)
+target_link_libraries(druta-ui-voltage-policy-catalog-service-test PRIVATE druta_ui_session)
+add_test(NAME druta-ui-voltage-policy-catalog-service COMMAND druta-ui-voltage-policy-catalog-service-test)
 add_executable(druta-ui-integral-profile-client-test tests/integral_profile_client_test.cpp)
 target_link_libraries(druta-ui-integral-profile-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-integral-profile-client COMMAND druta-ui-integral-profile-client-test)
+foreach(catalog_client IN ITEMS policy integral)
+  add_executable(druta-ui-${catalog_client}-catalog-client-test tests/${catalog_client}_catalog_client_test.cpp)
+  target_link_libraries(druta-ui-${catalog_client}-catalog-client-test PRIVATE druta_ui_session)
+  add_test(NAME druta-ui-${catalog_client}-catalog-client COMMAND druta-ui-${catalog_client}-catalog-client-test)
+endforeach()
 add_executable(druta-ui-profile-catalog-client-test tests/profile_catalog_client_test.cpp)
 target_link_libraries(druta-ui-profile-catalog-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-profile-catalog-client COMMAND druta-ui-profile-catalog-client-test)
@@ -153,7 +161,7 @@ add_test(NAME druta-ui-advanced-view COMMAND druta-ui-advanced-view-test)
 add_executable(druta-ui-profile-test tests/profile_io_test.cpp)
 target_link_libraries(druta-ui-profile-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-profile COMMAND druta-ui-profile-test ${CMAKE_CURRENT_BINARY_DIR})
-foreach(profile_model IN ITEMS profile_catalog fan_profile python_scoped_profile i2c_route_cache i2c_discovery timing_diagnostics discovery_session icx_profile_plan)
+foreach(profile_model IN ITEMS profile_catalog semantic_policy_profile fan_profile python_scoped_profile i2c_route_cache i2c_discovery timing_diagnostics discovery_session icx_profile_plan)
   add_executable(druta-ui-${profile_model}-test tests/${profile_model}_test.cpp)
   target_link_libraries(druta-ui-${profile_model}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${profile_model} COMMAND druta-ui-${profile_model}-test)

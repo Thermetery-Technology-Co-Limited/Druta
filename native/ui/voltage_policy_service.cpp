@@ -37,7 +37,7 @@ struct Guard {
     ~Guard(){if(held)api.unlock(gpu);}
 };
 struct Sample {uint32_t values=0;Header header{};dc_rm_transport transport{};};
-struct Write {bool dispatched=false;std::optional<bool> previous;};
+struct Write {bool dispatched=false;std::optional<bool> previous;std::function<void()> on_launch;};
 struct Record {uint32_t selection=0,before=0,attempted=0;dc_rm_transport transport{};bool prior_known=true;};
 bool valid_selection(uint32_t mask){return mask&&!(mask&~voltage_all_policies)&&(!(mask&voltage_admission)||mask==voltage_admission);}
 void header_valid(const Header& h){
@@ -48,9 +48,16 @@ void header_valid(const Header& h){
 }
 Header changed(Header h,uint32_t selection,uint32_t values){if(selection&voltage_monotonicity)h[0xA]=(values&voltage_monotonicity)?1:0;if(selection&voltage_smoothing)h[0xB]=(values&voltage_smoothing)?1:0;return h;}
 }
+struct VoltagePolicyReceipt::State {
+    std::shared_ptr<int> session;
+    dc_gpu_identity identity{};dc_target target{};
+    Record record;std::optional<Record> previous_undo;bool issued=false;uint32_t selected=0,desired=0;
+};
+int VoltagePolicyReceipt::restoration_order()const{return state&&state->record.selection==voltage_admission?(state->record.before&voltage_admission?-1:2):0;}
 struct VoltagePolicyService::Impl {
     VoltagePolicyApi api;dc_gpu* gpu;dc_gpu_identity target;std::optional<dc_target> binding;
     VoltagePolicyData data;std::optional<Record> undo_record,recovery_record,undo_before_recovery;
+    std::shared_ptr<int> session=std::make_shared<int>(0);
     Impl(VoltagePolicyApi a,dc_gpu* g,const dc_gpu_identity& id):api(a),gpu(g),target(id){data.identity=id;}
     void bind(){
         if(!api.identity||!api.bind||!api.architecture_supported||!api.transport||!api.escape)fail("Voltage-policy interfaces unavailable",VoltagePolicyAvailability::unsupported);
@@ -80,7 +87,7 @@ struct VoltagePolicyService::Impl {
         else if(setting){if(!raw)fail("Missing fresh Clock VF header");header_valid(*raw);std::memcpy(packet+17,raw->data(),raw->size());}
         else packet[18]=0; // Explicit empty per-domain subset.
         std::array<uint32_t,16> expected{};std::copy(packet,packet+16,expected.begin());bind();
-        int32_t ntstatus=0;dc_error error{};error.size=sizeof(error);if(write)write->dispatched=true;
+        int32_t ntstatus=0;dc_error error{};error.size=sizeof(error);if(write){if(write->on_launch)write->on_launch();write->dispatched=true;}
         const auto status=api.escape(gpu,reinterpret_cast<uint8_t*>(packet),68+payload,&t.fields,&ntstatus,&error);
         if(status==DC_E_UNAVAILABLE&&write)write->dispatched=false; // ABI guarantees it was not issued.
         if(!std::all_of(storage.begin(),storage.begin()+guard_words,[](uint32_t v){return v==0xA5A5A5A5;})||
@@ -151,11 +158,18 @@ struct VoltagePolicyService::Impl {
             publish(after,record.selection==1?1:6);return true;
         }catch(const std::exception& error){message=error.what();return false;}
     }
-    VoltagePolicyResult set(const VoltagePolicyRequest& request){
+    VoltagePolicyResult set(const VoltagePolicyRequest& request,const std::function<void(const VoltagePolicyReceipt&)>& journal={}){
         VoltagePolicyResult result;Guard guard(api,gpu);if(!guard.held){result.message="GPU lock unavailable";return result;}
         if(!valid_selection(request.selection)||(request.values&~7u)||(request.expected&&(*request.expected&~7u))){result.message="Select only understood Boolean voltage policies";return result;}
         if(recovery_record){result.message="Recover the pending selected voltage-policy request first";return result;}
-        Write write;std::optional<Record> record;
+        Write write;std::optional<Record> record;VoltagePolicyReceipt receipt;
+        const auto previous_undo=undo_record;
+        if(journal)write.on_launch=[&]{
+            receipt.state=std::make_shared<VoltagePolicyReceipt::State>();auto& entry=*receipt.state;
+            entry.session=session;entry.identity=target;entry.target=*binding;entry.record=*record;
+            entry.record.prior_known=request.selection!=voltage_admission;entry.previous_undo=previous_undo;entry.selected=request.selection;entry.desired=request.values;
+            journal(receipt);
+        };
         try{
             const auto before=fresh(request.selection);publish(before,request.selection==1?1:6);
             if(request.expected&&((before.values^*request.expected)&request.selection)){
@@ -186,7 +200,13 @@ struct VoltagePolicyService::Impl {
                     unavailable(request.selection,VoltagePolicyAvailability::transient,result.message);}
             }else if(const auto* typed=dynamic_cast<const Failure*>(&error))unavailable(request.selection,typed->availability,error.what());
         }
+        if(receipt.state&&record){receipt.state->record=*record;receipt.state->issued=write.dispatched;}
         data.message=result.message;flags();return result;
+    }
+    Record& qualified_receipt(const VoltagePolicyReceipt& receipt){
+        if(!receipt.state||receipt.state->session!=session||!receipt.state->issued||!same_id(receipt.state->identity,target))fail("Voltage-policy receipt belongs to another session or was not issued");
+        bind();if(!same_target(receipt.state->target,*binding))fail("Voltage-policy receipt target changed");
+        auto& r=receipt.state->record;if(!valid_selection(r.selection)||((r.before|r.attempted)&~7u))fail("Invalid selected policy receipt");return r;
     }
 };
 VoltagePolicyService::VoltagePolicyService(VoltagePolicyApi api,dc_gpu* gpu,const dc_gpu_identity& target):impl_(std::make_unique<Impl>(api,gpu,target)){}
@@ -202,6 +222,46 @@ const VoltagePolicyData& VoltagePolicyService::read(uint32_t selection){auto& p=
     p.flags();return p.data;
 }
 VoltagePolicyResult VoltagePolicyService::apply(const VoltagePolicyRequest& request){return impl_->set(request);}
+VoltagePolicyResult VoltagePolicyService::apply_profile(const VoltagePolicyRequest& request,const std::function<void(const VoltagePolicyReceipt&)>& journal){return impl_->set(request,journal);}
+VoltagePolicyResult VoltagePolicyService::preview(const VoltagePolicyRequest& request){
+    auto& p=*impl_;VoltagePolicyResult result;Guard guard(p.api,p.gpu);
+    try{if(!guard.held)fail("GPU lock unavailable");if(!valid_selection(request.selection)||(request.values&~7u)||(request.expected&&(*request.expected&~7u)))fail("Invalid selected Boolean policy request");
+        if(p.recovery_record)fail("Recover pending voltage policies before profile preflight");
+        const auto mask=request.selection==1?1u:6u;
+        const auto current=[&]{try{return p.fresh(request.selection);}
+            catch(const Failure& e){p.unavailable(mask,e.availability,e.what());throw;}
+            catch(const std::exception& e){p.unavailable(mask,VoltagePolicyAvailability::transient,e.what());throw;}}();
+        p.publish(current,mask);
+        if(request.expected&&((current.values^*request.expected)&request.selection))fail("Selected voltage policy baseline changed");
+        result.ok=true;result.message="Selected voltage policies freshly preflighted; no writes";
+    }catch(const std::exception& e){result.message=e.what();}p.data.message=result.message;p.flags();return result;
+}
+VoltagePolicyResult VoltagePolicyService::verify(const VoltagePolicyReceipt& receipt,bool original){
+    auto& p=*impl_;VoltagePolicyResult result;Guard guard(p.api,p.gpu);
+    try{if(!guard.held)fail("GPU lock unavailable");const auto& r=p.qualified_receipt(receipt);if(original&&!r.prior_known)fail("Atomic prior is unknown; no original-state claim can be made");
+        const auto selection=original?r.selection:receipt.state->selected,mask=selection==1?1u:6u;
+        const auto current=[&]{try{return p.fresh(selection);}
+            catch(const Failure& e){p.unavailable(mask,e.availability,e.what());throw;}
+            catch(const std::exception& e){p.unavailable(mask,VoltagePolicyAvailability::transient,e.what());throw;}}();
+        p.publish(current,mask);
+        if(((current.values^(original?r.before:receipt.state->desired))&selection)!=0)fail("Selected voltage-policy receipt readback differs");
+        result.ok=true;result.message="Selected voltage-policy receipt verified";
+    }catch(const std::exception& e){result.message=e.what();}p.data.message=result.message;p.flags();return result;
+}
+VoltagePolicyResult VoltagePolicyService::restore(const VoltagePolicyReceipt& receipt){
+    auto& p=*impl_;VoltagePolicyResult result;Guard guard(p.api,p.gpu);
+    try{if(!guard.held)fail("GPU lock unavailable");auto& r=p.qualified_receipt(receipt);
+        const auto matches=[&](const std::optional<Record>& record){return record&&record->selection==r.selection&&record->before==r.before&&record->attempted==r.attempted&&record->prior_known==r.prior_known;};
+        if(p.recovery_record&&!matches(p.recovery_record))fail("A different voltage-policy recovery is pending");
+        const bool replace_undo=matches(p.undo_record),replace_recovery=matches(p.recovery_record);
+        std::string reason;result.may_have_changed=true;if(!p.repair(r,reason)){
+            if(replace_undo||replace_recovery){p.undo_before_recovery=receipt.state->previous_undo;p.recovery_record=r;p.undo_record=r;}fail(reason);}
+        if(replace_undo)p.undo_record=receipt.state->previous_undo;
+        if(replace_recovery){p.recovery_record.reset();p.undo_before_recovery.reset();}
+        result.ok=result.rollback_verified=true;result.message="Catalog voltage-policy requests restored and verified";
+    }catch(const std::exception& e){result.message=std::string(e.what())+"; catalog receipt retained";}
+    p.data.message=result.message;p.flags();return result;
+}
 VoltagePolicyResult VoltagePolicyService::restore_initial(uint32_t selection){uint32_t values=0;for(size_t i=0;i<3;++i)if(selection&(1u<<i)){
     if(!impl_->data.rows[i].initial)return {false,false,false,"Read qualified initial policies first"};if(*impl_->data.rows[i].initial)values|=1u<<i;}
     if(impl_->recovery_record&&!impl_->recovery_record->prior_known&&selection==impl_->recovery_record->selection){

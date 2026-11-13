@@ -3,6 +3,7 @@
 #pragma once
 #include "voltage_policy_service.h"
 #include "profile_io.h"
+#include "saving_profile.h"
 #include <functional>
 #include <vector>
 namespace druta::ui {
@@ -28,6 +29,7 @@ struct ClockGatingState {
 };
 struct ClockGatingData {
     uint64_t revision=0;dc_gpu_identity identity{};
+    std::optional<dc_target> target;
     std::array<ClockGatingState,4> families;
     bool needs_cleanup=false,undo_available=false;
     std::string message;
@@ -62,4 +64,6 @@ private:struct Impl;std::unique_ptr<Impl> impl_;
 };
 ProfileJson capture_clock_gating_profile(const ClockGatingData&,const std::vector<ClockGatingFamily>&);
 std::vector<ClockGatingRequest> stage_clock_gating_profile(const ProfileJson&,const ClockGatingData&);
+ProfileSelection describe_clock_gating_profile(const ProfileJson&);
+ProfileJson select_clock_gating_profile(const ProfileJson&,const std::vector<std::string>&);
 }

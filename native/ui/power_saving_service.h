@@ -3,6 +3,7 @@
 #pragma once
 #include "voltage_policy_service.h"
 #include "profile_io.h"
+#include "saving_profile.h"
 #include <functional>
 #include <vector>
 namespace druta::ui {
@@ -20,6 +21,7 @@ struct PowerSavingRow {
 };
 struct PowerSavingData {
     uint64_t revision=0;dc_gpu_identity identity{};std::vector<PowerSavingRow> rows;
+    std::optional<dc_target> target;
     bool undo_available=false,recovery_pending=false,owned_requests=false;
     std::string message;
 };
@@ -47,4 +49,6 @@ private:struct Impl;std::unique_ptr<Impl> impl_;
 };
 ProfileJson capture_power_saving_profile(const PowerSavingData&,const std::vector<PowerSavingKey>&);
 std::vector<PowerSavingRequest> stage_power_saving_profile(const ProfileJson&,const PowerSavingData&);
+ProfileSelection describe_power_saving_profile(const ProfileJson&);
+ProfileJson select_power_saving_profile(const ProfileJson&,const std::vector<std::string>&);
 }

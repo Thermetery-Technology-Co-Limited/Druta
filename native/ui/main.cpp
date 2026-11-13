@@ -410,6 +410,8 @@ struct App {
                     if(!session->submit(command,snapshot->generation)) throw std::runtime_error("Session is busy; retry capture.");
                     workspace.status="Choose fields in Rail/power profiles, then Save selected requests.";break;
                 }
+                case ProfileScope::voltage_policy:view.page=Page::advanced;view.open_voltage_policy_requested=true;workspace.open=false;break;
+                case ProfileScope::power_integral:view.page=Page::advanced;view.open_power_integral_requested=true;workspace.open=false;break;
                 case ProfileScope::timing:view.timing_save_profile_requested=true;break;
                 case ProfileScope::icx:view.i2c_save_profile_requested=true;break;
                 case ProfileScope::fan:{std::wstring path;if(!selected_profile_path(true,snapshot->generation,path))break;

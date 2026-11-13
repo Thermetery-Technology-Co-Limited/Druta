@@ -558,3 +558,16 @@ band. Aliases are resolved only by that helper; raw register/partition snapshots
 and mixed unrelated tuning scopes are refused. Timing and memory-offset changes
 still apply separately. Other outstanding profile adapters and composition
 restrictions remain listed in [the completion ledger](validation/PARITY-COMPLETION.md).
+
+The catalog also composes voltage admission/V/F flags and power-feedback
+profiles. Select the fields from each file, then Preflight and Apply. Disjoint
+feedback bounds are checked together and ordered to preserve a valid range;
+V/F flags share one selected write. Admission is enabled first or disabled
+last. Final readback covers every selected field, and grouped Undo retains
+only requests that were issued, including uncertain partial writes.
+
+The standalone voltage-request, device switch-delay, low-power and PCIe-speed
+editors now accept their released Python profiles. Load checks saved identity,
+units and selected metadata against current adapter evidence and stages local
+drafts. These families still use their own explicit Apply; their integration
+into combined catalog transactions remains open.

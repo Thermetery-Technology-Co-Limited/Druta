@@ -79,6 +79,7 @@ public:
     PowerIntegralResult restore(uint32_t policy,PowerIntegralField field);
     PowerIntegralResult undo(uint32_t policy,PowerIntegralField field);
     PowerIntegralPlan preview(const std::vector<PowerIntegralRequest>&);
+    PowerIntegralResult verify(const PowerIntegralPlan&, bool original = false);
     PowerIntegralResult apply(const std::vector<PowerIntegralRequest>&,
         const std::function<void(const PowerIntegralPlan&)>& before_write={});
     PowerIntegralResult restore(const PowerIntegralPlan&);

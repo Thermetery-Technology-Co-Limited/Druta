@@ -4,6 +4,7 @@
 #include <drutacore/drutacore.h>
 #include "profile_io.h"
 #include <array>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,12 +45,20 @@ struct VoltagePolicyResult {
     bool ok=false,may_have_changed=false,rollback_verified=false;
     std::string message;
 };
+// Process-local typed journal. Its private state contains selected Boolean
+// requests and prior Undo, never an opaque firmware snapshot for replay.
+struct VoltagePolicyReceipt {struct State;std::shared_ptr<State> state;int restoration_order() const;};
 class VoltagePolicyService {
 public:
     VoltagePolicyService(VoltagePolicyApi api,dc_gpu* gpu,const dc_gpu_identity& target);
     ~VoltagePolicyService(); // no destructor writes or persistent requests
     const VoltagePolicyData& read(uint32_t selection=voltage_all_policies);
     VoltagePolicyResult apply(const VoltagePolicyRequest& request);
+    VoltagePolicyResult preview(const VoltagePolicyRequest& request);
+    VoltagePolicyResult apply_profile(const VoltagePolicyRequest&,
+        const std::function<void(const VoltagePolicyReceipt&)>& before_write);
+    VoltagePolicyResult restore(const VoltagePolicyReceipt&);
+    VoltagePolicyResult verify(const VoltagePolicyReceipt&,bool original=false);
     VoltagePolicyResult restore_initial(uint32_t selection);
     VoltagePolicyResult undo();
     VoltagePolicyResult recover();

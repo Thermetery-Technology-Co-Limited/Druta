@@ -602,3 +602,12 @@ final readback and grouped recovery. Legacy timing exchanges normalize against
 fresh helper aliases, layout and operating-band evidence. Profiles never replay
 at startup or after driver reset; standalone-family catalog adapters and full
 tune composition remain open in the [completion ledger](ui/validation/PARITY-COMPLETION.md).
+
+The tenth increment extends catalog transactions to selected voltage admission,
+V/F flags and power-feedback bounds. All components pass fresh preflight before
+the first write. Disjoint bounds and flags coalesce before validation; typed
+issued-request receipts support final verification and grouped recovery while
+retaining earlier meaningful Undo. New standalone Python import adapters cover
+voltage requests, device switch delays, low-power requests and PCIe speed.
+Their catalog integration still requires equivalent external transaction
+contracts; accepting a standalone file does not imply combined execution.

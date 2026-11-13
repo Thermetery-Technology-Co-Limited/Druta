@@ -3,6 +3,7 @@
 #pragma once
 #include "voltage_policy_service.h"
 #include "profile_io.h"
+#include "profile_selection.h"
 #include <functional>
 #include <vector>
 namespace druta::ui {
@@ -49,10 +50,11 @@ struct VoltageLimitRow {
     VoltagePolicyAvailability availability=VoltagePolicyAvailability::unknown;
     bool writable=false,stale=false;
     std::optional<int64_t> lower,value,initial_lower,initial_value,stored_lower,stored_value,reported;
-    uint32_t voltage_domain=0,operation_type=0;
+    uint32_t voltage_domain=0,operation_type=0,i2c_device_index=0;
 };
 struct VoltageLimitsData {
     uint64_t revision=0;dc_gpu_identity identity{};std::vector<VoltageLimitRow> rows;
+    std::optional<dc_target> target;
     uint32_t equation_count=0,device_count=0;bool definitions_stale=false;
     bool undo_available=false,recovery_pending=false;
     std::string message,equations_message,devices_message;
@@ -80,4 +82,6 @@ private:struct Impl;std::unique_ptr<Impl> impl_;
 };
 ProfileJson capture_voltage_limits_profile(const VoltageLimitsData&,const std::vector<VoltageLimitKey>&);
 std::vector<VoltageLimitRequest> stage_voltage_limits_profile(const ProfileJson&,const VoltageLimitsData&);
+ProfileSelection describe_voltage_limits_profile(const ProfileJson&);
+ProfileJson select_voltage_limits_profile(const ProfileJson&,const std::vector<std::string>& targets);
 }

@@ -281,7 +281,30 @@ std::vector<size_t> safe_order(const PowerIntegralPlan& plan,const PowerIntegral
 }
 PowerIntegralPlan PowerIntegralService::plan(const Snapshot& state,const std::vector<PowerIntegralRequest>& requests){publish(state);return make_plan(data_,requests);}
 PowerIntegralPlan PowerIntegralService::preview(const std::vector<PowerIntegralRequest>& requests){
-    try{Guard guard(api_,gpu_);require(guard.held,"GPU lock unavailable");Snapshot fresh;if(!capture(fresh))throw std::runtime_error(data_.message);return plan(fresh,requests);}catch(const std::exception& e){PowerIntegralPlan out;out.message=e.what();data_.message=out.message;return out;}
+    try{require(!data_.profile_recovery_pending,"Recover the uncertain integral profile before a new profile");Guard guard(api_,gpu_);require(guard.held,"GPU lock unavailable");Snapshot fresh;if(!capture(fresh))throw std::runtime_error(data_.message);auto prepared=plan(fresh,requests);for(const auto& row:owned_)for(const auto& owner:row)require(!owner.value.recovery,"Resolve uncertain integral fields first");return prepared;}catch(const std::exception& e){PowerIntegralPlan out;out.message=e.what();data_.message=out.message;return out;}
+}
+PowerIntegralResult PowerIntegralService::verify(const PowerIntegralPlan& receipt,bool original){
+    PowerIntegralResult result;
+    try {
+        const auto n=receipt.requests.size();
+        require(receipt.ok&&n>0&&n<=64&&receipt.before.size()==n&&receipt.bindings.size()==n&&receipt.previous_owners.size()==n,"Invalid selected integral receipt");
+        require(receipt.identity.size==sizeof(dc_gpu_identity)&&receipt.target.size==sizeof(dc_target)&&same_identity(receipt.identity,identity_)&&target_&&same_target(receipt.target,*target_),"Integral receipt adapter changed");
+        std::set<std::pair<uint32_t,size_t>> seen;
+        for(size_t i=0;i<n;++i){const auto& r=receipt.requests[i];
+            require(r.policy<32&&(r.field==PowerIntegralField::lower||r.field==PowerIntegralField::upper)&&r.raw<=65535&&seen.insert({r.policy,field_index(r.field)}).second&&!receipt.bindings[i].empty()&&(r.binding.empty()||r.binding==receipt.bindings[i]),"Invalid duplicate or malformed integral receipt field");
+        }
+        Guard guard(api_,gpu_);require(guard.held,"GPU lock unavailable");
+        Snapshot fresh;if(!capture(fresh))throw std::runtime_error(data_.message);
+        require(target_&&same_target(receipt.target,*target_),"Integral receipt target changed");
+        for(size_t i=0;i<n;++i){const auto& r=receipt.requests[i];
+            require((fresh.info[1]&(1u<<r.policy))!=0,"Selected integral policy absent");
+            const auto row=decode(fresh.info,fresh.control,r.policy);
+            require(row.available&&row.binding==receipt.bindings[i]&&row.type==r.type&&row.channel==r.channel&&row.unit==r.unit,"Selected integral policy binding changed");
+            require(current_value(row,r.field)==(original?receipt.before[i]:r.raw),"Selected integral field differs");
+        }
+        result.ok=true;result.message=original?"Original selected integral requests verified":"Selected integral requests verified";
+    }catch(const std::exception& e){result.message=e.what();}
+    return result;
 }
 PowerIntegralResult PowerIntegralService::apply(const std::vector<PowerIntegralRequest>& requests,const std::function<void(const PowerIntegralPlan&)>& before_write){
     PowerIntegralResult result;PowerIntegralPlan issued;

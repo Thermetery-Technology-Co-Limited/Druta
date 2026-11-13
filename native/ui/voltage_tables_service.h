@@ -3,6 +3,7 @@
 #pragma once
 #include "voltage_policy_service.h"
 #include "profile_io.h"
+#include "profile_selection.h"
 #include <functional>
 #include <vector>
 namespace druta::ui {
@@ -20,6 +21,7 @@ struct VoltageTableRow {
 struct VoltageTablesData {
     uint64_t revision=0;
     dc_gpu_identity identity{};
+    std::optional<dc_target> target;
     std::vector<VoltageTableRow> rows;
     bool requests_complete=false,undo_available=false,recovery_pending=false;
     std::optional<bool> gate_enabled;
@@ -63,4 +65,6 @@ private:struct Impl;std::unique_ptr<Impl> impl_;
 // Typed values/identity only. These documents never contain packets to replay.
 ProfileJson capture_voltage_tables_profile(const VoltageTablesData&,const std::vector<VoltageTableKey>&);
 std::vector<VoltageTableRequest> stage_voltage_tables_profile(const ProfileJson&,const VoltageTablesData&);
+ProfileSelection describe_voltage_tables_profile(const ProfileJson&);
+ProfileJson select_voltage_tables_profile(const ProfileJson&,const std::vector<std::string>& targets);
 }

@@ -38,12 +38,12 @@ ProfileCatalogViewOutput draw_profile_catalog_workspace(ProfileCatalogViewState&
  if(ImGui::Button("Choose profile files..."))out.intents.push_back({ProfileCatalogIntent::Operation::choose_files,{},{}});
  ImGui::SameLine();if(ImGui::Button("Clear list")){state.items.clear();invalidate(state);}
  ImGui::TextWrapped("Choose files and controls, then compose, review and apply. Loading and saving do not change GPU settings.");
- constexpr ProfileScope scopes[]={ProfileScope::daily,ProfileScope::curve,ProfileScope::scoped,ProfileScope::timing,ProfileScope::icx,ProfileScope::fan};
+ constexpr ProfileScope scopes[]={ProfileScope::daily,ProfileScope::curve,ProfileScope::scoped,ProfileScope::timing,ProfileScope::icx,ProfileScope::fan,ProfileScope::voltage_policy,ProfileScope::power_integral};
  ImGui::SetNextItemWidth(230);
  if(ImGui::BeginCombo("Capture scope",profile_scope_name(state.capture_scope))){for(auto scope:scopes)if(ImGui::Selectable(profile_scope_name(scope),scope==state.capture_scope))state.capture_scope=scope;ImGui::EndCombo();}
  ImGui::SameLine();ImGui::BeginDisabled(busy);if(ImGui::Button("Save configured scope..."))out.intents.push_back({ProfileCatalogIntent::Operation::save_capture,state.capture_scope,{}});ImGui::EndDisabled();
  ImGui::PushStyleColor(ImGuiCol_Text,ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
- ImGui::TextWrapped("Read-only capture. Select rail/power and timing fields in their editors.");
+ ImGui::TextWrapped("Read-only capture. Select rail/power, policy, feedback and timing fields in their editors.");
  ImGui::PopStyleColor();
  ImGui::Separator();
  for(size_t i=0;i<state.items.size();++i){auto& item=state.items[i];ImGui::PushID(static_cast<int>(i));

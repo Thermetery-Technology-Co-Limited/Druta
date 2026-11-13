@@ -158,6 +158,37 @@ void profiles(){
     Fake partial;put8(partial.info,0xCC+0x104+6,9);PowerIntegralService partial_s(api(),partial.gpu(),partial.id);const auto partial_data=partial_s.read();check(stage_power_integral_profile(capture_power_integral_profile(partial_data,{{0,PowerIntegralField::upper}}),partial_data).size()==1,"unrelated unsupported policy does not remove a selected supported profile field");
     Fake anonymous;anonymous.id.uuid[0]=0;PowerIntegralService anonymous_s(api(),anonymous.gpu(),anonymous.id);const auto anonymous_data=anonymous_s.read();check(anonymous_data.current&&anonymous_s.apply(0,PowerIntegralField::upper,5000).ok,"matching absent UUID retains complete paired runtime read/write support");rejects([&]{capture_power_integral_profile(anonymous_s.data(),{{0,PowerIntegralField::upper}});},"persistent native profile still requires UUID");std::strcpy(anonymous.id.uuid,"GPU-newly-visible");const auto anonymous_sets=anonymous.sets;check(!anonymous_s.apply(0,PowerIntegralField::upper,6000).ok&&anonymous.sets==anonymous_sets,"UUID appearance after opening invalidates runtime identity before SET");
 }
+void verification(){
+    Fake f;PowerIntegralService s(api(),f.gpu(),f.id);auto data=s.read();
+    auto plan=s.preview({staged(data,0,PowerIntegralField::upper,6000)});
+    check(plan.ok&&s.verify(plan,true).ok&&!s.verify(plan).ok,"fresh verification distinguishes original and desired values");
+    auto invalid=plan;invalid.requests.push_back(invalid.requests[0]);invalid.before.push_back(invalid.before[0]);invalid.bindings.push_back(invalid.bindings[0]);invalid.previous_owners.push_back(invalid.previous_owners[0]);
+    auto calls=f.bind_calls;auto reads=f.reads;check(!s.verify(invalid).ok&&f.bind_calls==calls&&f.reads==reads,"duplicate receipt rejected before access");
+    invalid=plan;invalid.bindings.clear();check(!s.verify(invalid).ok&&f.bind_calls==calls,"malformed receipt rejected before access");
+    invalid=plan;std::strcpy(invalid.identity.uuid,"GPU-other");check(!s.verify(invalid).ok&&f.bind_calls==calls,"foreign receipt identity rejected before access");
+    invalid=plan;invalid.target.architecture++;check(!s.verify(invalid,true).ok,"foreign receipt target rejected");
+    invalid=plan;invalid.bindings[0]+="changed";invalid.requests[0].binding.clear();check(!s.verify(invalid,true).ok,"changed selected binding rejected");
+    put16(f.control,0x14+0xC4+14,4500);check(s.verify(plan,true).ok,"unselected policy drift does not invalidate selected verification");
+    put16(f.control,upper0,4500);check(!s.verify(plan,true).ok,"selected value drift rejected");
+    put16(f.control,upper0,4096);f.fail_set_at=1;PowerIntegralPlan issued;
+    check(!s.apply(std::vector<PowerIntegralRequest>{staged(s.read(),0,PowerIntegralField::upper,6000)},[&](const auto& p){issued=p;}).ok&&s.data().profile_recovery_pending,"uncertain receipt fixture");
+    const auto writes=f.sets;check(s.verify(issued).ok&&!s.verify(issued,true).ok&&s.data().profile_recovery_pending&&s.data().profile_undo_available&&f.sets==writes,"verification never writes or discards uncertain grouped recovery");
+    std::strcpy(f.id.uuid,"GPU-replaced");check(!s.verify(issued).ok&&s.data().profile_recovery_pending&&f.sets==writes,"fresh identity mismatch preserves recovery");
+    std::strcpy(f.id.uuid,"GPU-alternate-policy");f.fail_set_at=0;check(s.recover_profile().ok,"verification retained usable recovery receipt");
+}
+void preview_recovery_gates(){
+    Fake f;PowerIntegralService s(api(),f.gpu(),f.id);auto data=s.read();
+    auto selected=staged(data,1,PowerIntegralField::upper,6000);f.fail_set_at=1;
+    auto failed=s.apply(std::vector<PowerIntegralRequest>{staged(data,0,PowerIntegralField::upper,5000)});
+    check(!failed.ok&&s.data().profile_recovery_pending&&s.data().profile_undo_available,"uncertain group fixture retains receipt");
+    const auto writes=f.sets,reads=f.reads;check(!s.preview({selected}).ok&&f.sets==writes&&f.reads==reads&&s.data().profile_recovery_pending&&s.data().profile_undo_available,"group recovery blocks preview before access and retains receipt");
+    f.fail_set_at=0;check(s.recover_profile().ok,"group receipt remains recoverable after refused preview");
+    Fake conflict;PowerIntegralService cs(api(),conflict.gpu(),conflict.id);data=cs.read();
+    check(cs.apply(0,PowerIntegralField::upper,5000).ok,"owned field fixture");
+    selected=staged(cs.data(),1,PowerIntegralField::upper,6000);put16(conflict.control,upper0,5500);const auto prior=conflict.sets;
+    check(!cs.preview({selected}).ok&&conflict.sets==prior&&cs.has_undo()&&cs.data().rows[0].undo[1].recovery,"freshly discovered owned-field conflict blocks disjoint preview without losing Undo");
+    put16(conflict.control,upper0,5000);check(cs.restore(0,PowerIntegralField::upper).ok,"owned receipt remains recoverable after refused preview");
+}
 void batch_failure(){
     Fake f;PowerIntegralService s(api(),f.gpu(),f.id);auto data=s.read();std::vector<PowerIntegralRequest> requests={staged(data,0,PowerIntegralField::upper,6000),staged(data,1,PowerIntegralField::upper,7000)};f.fail_set_at=1;PowerIntegralPlan receipt;auto result=s.apply(requests,[&](const auto& issued){receipt=issued;});check(!result.ok&&result.may_have_changed&&f.sets==1&&receipt.requests.size()==1&&s.data().profile_recovery_pending,"accepted failed first SET retains only launched field");check(get16(f.control,0x14+0xC4+14)==4096,"never-launched sibling unchanged");f.fail_set_at=0;const auto unknown=f.control[(0x14+40)/4]=0x99887766;check(s.recover_profile().ok&&get16(f.control,upper0)==4096&&f.control[(0x14+40)/4]==unknown,"recovery rebases typed selected field while preserving unrelated unknown bytes");
     Fake thrown;PowerIntegralService ts(api(),thrown.gpu(),thrown.id);data=ts.read();thrown.throw_set_at=2;requests={staged(data,0,PowerIntegralField::upper,6000),staged(data,1,PowerIntegralField::upper,7000)};result=ts.apply(requests,[&](const auto& issued){receipt=issued;});check(!result.ok&&receipt.requests.size()==2&&ts.data().profile_recovery_pending,"throwing second transport keeps both possibly launched requests");thrown.throw_set_at=0;check(ts.undo_profile().ok,"explicit grouped recovery after transport exception");
@@ -170,4 +201,4 @@ void batch_failure(){
     Fake pending;PowerIntegralService pending_s(api(),pending.gpu(),pending.id);data=pending_s.read();pending.fail_set_at=1;check(!pending_s.apply(std::vector<PowerIntegralRequest>{staged(data,0,PowerIntegralField::upper,5000)}).ok,"pending new profile fixture");data=pending_s.read();const auto pending_writes=pending.sets;check(!pending_s.apply(std::vector<PowerIntegralRequest>{staged(data,1,PowerIntegralField::upper,6000)}).ok&&!pending_s.apply(1,PowerIntegralField::upper,6000).ok&&pending.sets==pending_writes,"uncertain profile blocks both next batch and individual edit");
 }
 }
-int main(){normal();qualification();bounds();failures_and_recovery();profiles();batch_failure();std::printf("Power integral service: %d failures\n",failures);return failures?1:0;}
+int main(){normal();qualification();bounds();failures_and_recovery();profiles();verification();preview_recovery_gates();batch_failure();std::printf("Power integral service: %d failures\n",failures);return failures?1:0;}

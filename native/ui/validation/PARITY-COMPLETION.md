@@ -25,7 +25,7 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
 | Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX is standalone, timing and memory-offset changes apply separately, and unqualified board-only Python power snapshots are refused before writes |
-| Remaining manual profiles, Python imports and catalog composition | Ninth checkpoint implements/tests standalone admission/VF-flag and feedback-ratio profiles, per-fan native/Python catalog handling, and released timing exchange imports; 87-suite and 20-phase renderer validation passed. Catalog adapters for policy flags and feedback, other standalone families, and full-tune composition remain open. The [scope audit](2026-11-13-profile-scope-gap-map.md) records the earlier baseline and must be read with the ninth increment |
+| Remaining manual profiles, Python imports and catalog composition | Tenth increment adds standalone released Python voltage-request, switch-delay, low-power and PCIe staging and catalog policy-flag/feedback composition with typed receipts; 91-suite and 20-phase live renderer validation passed. Voltage-request/limit, low-power and clock/PCIe catalog adapters and full-tune composition remain open. The [scope audit](2026-11-13-profile-scope-gap-map.md) records an earlier baseline; see the [tenth increment](2026-11-13-parity-tenth-increment.md) |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
@@ -54,6 +54,7 @@ Sixth checkpoint: [catalog composition, discovery and timing diagnostics](2026-1
 Seventh checkpoint: [voltage requests, device delays and temporary P0 capture](2026-11-13-parity-seventh-increment.md).
 Eighth checkpoint: [power saving, recovery and annotations](2026-11-13-parity-eighth-increment.md).
 Ninth checkpoint: [selected profiles and timing exchange](2026-11-13-parity-ninth-increment.md); 87 suites and 20 live renderer phases passed.
+Tenth increment: [selected catalog composition and Python adapters](2026-11-13-parity-tenth-increment.md); 91 suites and 20 live renderer phases passed.
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -74,7 +75,7 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the ninth checkpoint
+## Remaining scope after the tenth increment
 
 - Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
   providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
@@ -82,17 +83,16 @@ active until every applicable review requirement has authoritative evidence.
 - Persistent relationship-weight exception: selected preview, journal, exact registry
   projection, explicit refresh, image/INFO verification and three-way removal. The
   [port map](2026-11-13-relationship-weight-port-map.md) retains all stages and failures.
-- Port the optional CUDA capture fallback and remaining Python profile scopes.
-  The [CUDA map](2026-11-13-cuda-capture-port-map.md) traces workload lifetime,
-  cancellation and P2 diagnostic/qualification boundaries without implementing them.
-  The [profile scope audit](2026-11-13-profile-scope-gap-map.md) predates the ninth
-  checkpoint: gate/flag, power-integral, per-fan and timing-exchange
-  standalone/import work is implemented and validated as described in the ninth
-  note. Catalog integration for gate/flag and power-integral,
-  and for standalone voltage-request/limit, low-power and clock/PCIe families,
-  remains open. Python lowpower, PCIe, voltage-request and switch-delay adapters,
-  unscoped full-tune import and bounded composition restrictions remain open;
-  naming them unsupported does not port them.
+- Port the optional CUDA capture fallback and remaining profile scopes. The
+  [CUDA map](2026-11-13-cuda-capture-port-map.md) traces workload lifetime,
+  cancellation and P2 qualification. The [profile scope audit](2026-11-13-profile-scope-gap-map.md)
+  predates subsequent increments. The tenth increment adds standalone Python
+  voltage-request, switch-delay, low-power and PCIe staging and catalog handling
+  for selected voltage-policy and feedback profiles, validated by 91 suites and 20 live renderer phases.
+  Catalog adapters for voltage-request/limit, low-power and clock/PCIe families
+  still need external typed preflight and receipt contracts. Unscoped full-tune
+  import remains open; iCX remains standalone and timing plus memory-offset
+  changes require separate transactions.
 - Physical effects, controller coverage and Vista/7 execution retain their original
   qualification boundaries. Mock transport tests and current read-only evidence do
   not establish those results.
