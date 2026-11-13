@@ -71,6 +71,8 @@ struct CoreApi {
     decltype(&dc_gpu_rail_offset_read) rail_read = nullptr;
     decltype(&dc_gpu_rail_offset_set) rail_set = nullptr;
     decltype(&dc_gpu_msvdd_offset_reset) msvdd_reset = nullptr;
+    decltype(&dc_gpu_msvdd_domains_get) msvdd_domains = nullptr;
+    decltype(&dc_cl_error_get) current_limit_error = nullptr;
     decltype(&dc_gpu_clkdom_flags_set) clkdom_flags_set = nullptr;
     decltype(&dc_gpu_clkdom_flags_get) clkdom_flags = nullptr;
     decltype(&dc_gpu_vf_curve_read) curve = nullptr;

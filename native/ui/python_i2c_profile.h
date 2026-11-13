@@ -5,6 +5,9 @@
 #include "i2c_driver.h"
 #include <array>
 namespace druta::ui {
+// Identity of the understood released canonical/discovered recipe only.
+// No device compatibility claim; caller must freshly qualify its controller.
+ProfileJson python_i2c_profile_identity(I2cFamily,I2cRoute,int page=-1,int scale=-1);
 struct PythonNct3933Profile {
  I2cRoute route{};std::string profile,rail,recipe_sha256;
  std::array<uint8_t,3> outputs{};uint8_t configuration=0,selection=7;

@@ -5,15 +5,17 @@
 #include <imgui_internal.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 using namespace druta::ui;
 static unsigned checks=0;
 #define CHECK(x) do{++checks;if(!(x)){std::fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,#x);std::abort();}}while(false)
-static ProfileCatalogViewOutput frame(ProfileCatalogViewState& state,bool unlocked,bool busy=false,const char* activate=nullptr){
- ImGui::NewFrame();if(activate){auto* window=ImGui::FindWindowByName("Profile catalog###druta_profile_catalog");CHECK(window);const auto seed=window->GetID("profile-catalog");const auto id=ImHashStr(activate,0,seed);auto& ctx=*ImGui::GetCurrentContext();ctx.NavActivateId=ctx.NavActivateDownId=ctx.NavActivatePressedId=id;}
+static ProfileCatalogViewOutput frame(ProfileCatalogViewState& state,bool unlocked,bool busy=false,const char* activate=nullptr,const char* library_entry=nullptr){
+ ImGui::NewFrame();if(auto* existing=ImGui::FindWindowByName("Profile catalog###druta_profile_catalog"))ImGui::SetWindowSize(existing,{1100,1500},ImGuiCond_Always);if(activate){auto* window=ImGui::FindWindowByName("Profile catalog###druta_profile_catalog");CHECK(window);const auto seed=window->GetID("profile-catalog");const auto id=ImHashStr(activate,0,seed);auto& ctx=*ImGui::GetCurrentContext();ctx.NavActivateId=ctx.NavActivateDownId=ctx.NavActivatePressedId=id;}
+ if(library_entry){auto* window=ImGui::FindWindowByName("Profile catalog###druta_profile_catalog");ImGuiWindow* child=nullptr;auto& ctx=*ImGui::GetCurrentContext();for(auto* candidate:ctx.Windows)if(candidate->ParentWindow==window&&std::strstr(candidate->Name,"saved-profile-library")){child=candidate;break;}CHECK(child);const auto scope=ImHashStr(library_entry,0,child->ID);ctx.NavActivateId=ctx.NavActivateDownId=ctx.NavActivatePressedId=ImHashStr("Stage profile",0,scope);}
  auto out=draw_profile_catalog_workspace(state,1,busy,unlocked);ImGui::Render();return out;
 }
 int main(){ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.f/60;io.DisplaySize={1600,1600};unsigned char* pixels;int w,h;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
- ProfileCatalogViewState state;state.open=true;CHECK(frame(state,false).intents.empty());
+ ProfileCatalogViewState state;state.open=true;auto first=frame(state,false);CHECK(first.intents.size()==1&&first.intents[0].operation==ProfileCatalogIntent::Operation::refresh_library&&state.library_loading);CHECK(frame(state,false).intents.empty());
  auto out=frame(state,false,false,"Choose profile files...");CHECK(out.intents.size()==1&&out.intents[0].operation==ProfileCatalogIntent::Operation::choose_files);
  state.capture_scope=ProfileScope::timing;out=frame(state,false,false,"Save configured scope...");CHECK(out.intents.size()==1&&out.intents[0].scope==ProfileScope::timing);CHECK(frame(state,false,true,"Save configured scope...").intents.empty());
  ProfileJson daily={{"format","druta-native-daily"},{"version",1},{"target",{{"uuid","GPU-alternate"},{"slot","0000:04:00.0"}}},{"controls",{{"memory",{{"value",400},{"unit","MHz"},{"scale",2}}}}}};
@@ -34,5 +36,19 @@ int main(){ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr
  add_profile_catalog_item(state,"full.json","Python full tune",full);CHECK(state.items[0].description.valid&&state.items[0].selected_targets.size()==3);CHECK(frame(state,true).intents.empty());
  state.items[0].included=true;state.items[0].selected_targets={"clock:memory"};CHECK(stage_profile_catalog_selection(state)&&state.staged);CHECK((*state.staged)["components"][0]["state"]["source"]==full);
  CHECK(frame(state,true,false,"Apply staged profile").intents.empty());
+ // Host supplies completed filesystem reads; the view performs no file I/O.
+ record_profile_library(state,{},"Scanned native and Python profile directories");CHECK(!state.library_loading&&state.library_status.find("Scanned")!=std::string::npos);
+ out=frame(state,false,false,"Refresh saved profiles");CHECK(out.intents.size()==1&&out.intents[0].operation==ProfileCatalogIntent::Operation::refresh_library&&state.library_loading);CHECK(frame(state,false,false,"Refresh saved profiles").intents.empty());
+ ProfileLibraryEntry named;named.id="named.json";named.name="Named memory";named.source="Python profiles";named.saved_at="2026-11-13 12:00";named.document=daily;
+ ProfileLibraryEntry automatic=named;automatic.id="autosave-memory.json";automatic.name="autosave-memory-20261113-120000.001";automatic.source="Native history";automatic.autosave=true;
+ ProfileLibraryEntry unreadable;unreadable.id="bad-library.json";unreadable.name="Broken profile";unreadable.source="Python profiles";unreadable.error="Invalid JSON";
+ record_profile_library(state,{named,automatic,unreadable});CHECK(state.library.size()==3&&!state.library_loading);
+ out=frame(state,false,false,"Named");CHECK(out.intents.empty()&&state.library_filter==ProfileLibraryFilter::named);out=frame(state,false,false,"Autosaves");CHECK(out.intents.empty()&&state.library_filter==ProfileLibraryFilter::autosaves);frame(state,false,false,"All");CHECK(state.library_filter==ProfileLibraryFilter::all);
+ frame(state,false);out=frame(state,false,false,nullptr,named.id.c_str());CHECK(out.intents.empty()&&state.staged&&!state.preflight_ok);auto staged_before_bad=state.staged;const auto count_before_bad=state.items.size();record_profile_library(state,{unreadable});frame(state,false);out=frame(state,false,false,nullptr,unreadable.id.c_str());CHECK(out.intents.empty()&&state.staged==staged_before_bad&&state.items.size()==count_before_bad);record_profile_library(state,{named,automatic,unreadable});
+ const auto prior=state.staged;CHECK(!stage_profile_library_item(state,unreadable.id)&&state.staged==prior);CHECK(stage_profile_library_item(state,automatic.id)&&state.staged&&!state.preflight_ok);CHECK(state.items.back().id==automatic.id&&state.items.back().included);
+ CHECK(frame(state,true,false,"Apply staged profile").intents.empty()); // Loading history never bypasses whole preflight.
+ record_profile_catalog_preflight(state,1,*state.staged,true,"Reviewed");CHECK(state.preflight_ok);CHECK(stage_profile_library_item(state,named.id)&&!state.preflight_ok);CHECK(frame(state,true,false,"Apply staged profile").intents.empty());
+ state.capture_scope=ProfileScope::full_tune;std::snprintf(state.save_name.data(),state.save_name.size(),"Selected full tune");out=frame(state,false,false,"Save named profile");CHECK(out.intents.size()==1&&out.intents[0].operation==ProfileCatalogIntent::Operation::save_named&&out.intents[0].scope==ProfileScope::full_tune&&out.intents[0].name=="Selected full tune"&&out.intents[0].document.is_null());CHECK(frame(state,false,true,"Save named profile").intents.empty());state.save_name[0]=0;CHECK(frame(state,false,false,"Save named profile").intents.empty());
+ state.open=false;CHECK(frame(state,false).intents.empty());state.open=true;out=frame(state,false);CHECK(out.intents.size()==1&&out.intents[0].operation==ProfileCatalogIntent::Operation::refresh_library);CHECK(frame(state,false).intents.empty());
  ImGui::DestroyContext();std::printf("Profile catalog view: %u checks\n",checks);return 0;
 }

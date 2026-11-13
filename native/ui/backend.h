@@ -142,7 +142,8 @@ struct Command {
         timings_capture_p0, timings_release_capture_hold,
         power_saving_read,power_saving_apply,power_saving_undo,power_saving_restore,power_saving_recover,power_saving_release,power_saving_save,
         clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save, save_fan_profile,
-        power_weights_read,power_weights_preview,power_weights_prepare,power_weights_inspect };
+        power_weights_read,power_weights_preview,power_weights_prepare,power_weights_inspect,
+        save_full_profile,timings_forget_helper };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -226,7 +227,8 @@ inline bool is_frequency_operation(Command::Operation operation) {
 inline bool is_timing_operation(Command::Operation operation) {
     return (operation >= Command::Operation::timings_select_helper && operation <= Command::Operation::timings_undo) ||
         (operation >= Command::Operation::timings_preview_batch && operation <= Command::Operation::timings_save_profile) ||
-        operation==Command::Operation::timings_capture_p0 || operation==Command::Operation::timings_release_capture_hold;
+        operation==Command::Operation::timings_capture_p0 || operation==Command::Operation::timings_release_capture_hold ||
+        operation==Command::Operation::timings_forget_helper;
 }
 class IBackend {
 public:

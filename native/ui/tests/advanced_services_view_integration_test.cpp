@@ -46,7 +46,10 @@ void pages(Presentation presentation){
         const auto catalog_id=root->GetID(presentation==Presentation::classic?"Profiles...":"Profile catalog...");
         ImGui::ActivateItemByID(catalog_id);text=frame(state);
         check(state.profile_catalog_view.open && text.find("Choose profile files...")!=std::string::npos,"header opens actual catalog in both skins");
-        check(state.commands.empty() && state.profile_catalog_intents.empty(),"opening catalog neither reads hardware nor applies settings");
+        check(state.commands.empty() && state.profile_catalog_intents.size()==1 &&
+            state.profile_catalog_intents.front().operation==ProfileCatalogIntent::Operation::refresh_library,
+            "opening catalog requests only filesystem discovery, no hardware action");
+        state.profile_catalog_intents.clear();
         state.profile_catalog_view.open=false;text=frame(state);
     }
     check(w!=nullptr,"Advanced content window exists");if(!w)return;

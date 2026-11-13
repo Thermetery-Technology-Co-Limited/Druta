@@ -90,7 +90,7 @@ struct ViewState {
     bool load_profile_requested = false;
     bool save_curve_profile_requested = false, load_curve_profile_requested = false;
     std::string curve_profile_status;
-    bool timing_helper_requested = false;
+    bool timing_helper_requested = false, timing_forget_requested = false, test_signing_requested = false;
     bool timing_save_profile_requested = false, timing_load_profile_requested = false;
     TimingsViewState timings_view;
     ShuntViewState shunt;

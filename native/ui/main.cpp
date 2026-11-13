@@ -19,6 +19,8 @@
 #include "session.h"
 #include "curve_profile.h"
 #include "policy_annotation_profile.h"
+#include "profile_capture_request.h"
+#include "timing_setup_host.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -172,6 +174,10 @@ struct App {
         druta::ui::ProfileJson document;
     };
     std::optional<CatalogPending> catalog_pending;
+    std::optional<CatalogPending> capture_pending;
+    std::optional<druta::ui::Command> capture_after_prepare;
+    std::future<std::vector<druta::ui::ProfileLibraryEntry>> library_read;
+    druta::ui::TimingSetupHost timing_setup;
     std::optional<std::pair<uint64_t,uint64_t>> weight_prepare_pending;
     std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
     druta::ui::PolicyAnnotationCommits annotation_commits;
@@ -419,6 +425,43 @@ struct App {
             voltage_profile_or_command(std::move(command),false,save,load);
         }
     }
+    void refresh_profile_library() {
+        if(library_read.valid())return;
+        view.profile_catalog_view.library_loading=true;
+        const HWND notify=window;
+        library_read=std::async(std::launch::async,[notify]{
+            try {auto entries=druta::ui::list_profile_library(druta::ui::discover_profile_directories());PostMessageW(notify,WM_NULL,0,0);return entries;}
+            catch(...){PostMessageW(notify,WM_NULL,0,0);throw;}
+        });
+    }
+    void poll_profile_library() {
+        using namespace druta::ui;
+        if(library_read.valid()&&library_read.wait_for(std::chrono::seconds(0))==std::future_status::ready){
+            try{auto entries=library_read.get();const auto count=entries.size();record_profile_library(view.profile_catalog_view,std::move(entries),std::to_string(count)+" saved entries");}
+            catch(const std::exception& e){view.profile_catalog_view.library_loading=false;view.profile_catalog_view.library_status=e.what();}
+            policy.note_activity(now_seconds());
+        }
+        if(!capture_pending||!session)return;
+        const auto snapshot=session->snapshot();
+        if(snapshot->generation!=capture_pending->generation){capture_pending.reset();capture_after_prepare.reset();view.profile_catalog_view.status="Adapter changed during capture; inspect the operation log before using the saved file";return;}
+        if(snapshot->busy||snapshot->completed_actions<=capture_pending->actions)return;
+        const auto op=capture_pending->operation;capture_pending.reset();
+        if(capture_after_prepare){
+            auto command=std::move(*capture_after_prepare);capture_after_prepare.reset();
+            if(snapshot->last_action_operation==Command::Operation::i2c_prepare_profile&&snapshot->last_action_ok&&
+               command.i2c_selection_revision==snapshot->data.i2c.selection_revision){
+                command.i2c_preset_revision=snapshot->data.i2c.prepared_preset_revision;
+                if(session->submit(command,snapshot->generation)){capture_pending=CatalogPending{snapshot->generation,snapshot->completed_actions,command.operation,{}};return;}
+            }
+            view.profile_catalog_view.status="iCX capture did not complete; no named file saved. See operation log.";return;
+        }
+        view.profile_catalog_view.status="Capture completed; see the operation log";
+        if(snapshot->last_action_operation==op){
+            const auto entry=std::find_if(snapshot->log.begin(),snapshot->log.end(),[&](const auto& x){return x.id==snapshot->last_action_log_id;});
+            if(entry!=snapshot->log.end())view.profile_catalog_view.status=entry->message;
+        }
+        refresh_profile_library();
+    }
     void consume_profile_catalog() {
         using namespace druta::ui;
         auto& workspace=view.profile_catalog_view;
@@ -442,6 +485,23 @@ struct App {
         }
         const auto intents=std::move(view.profile_catalog_intents); view.profile_catalog_intents.clear();
         for(const auto& intent:intents) try {
+            if(intent.operation==ProfileCatalogIntent::Operation::refresh_library){refresh_profile_library();continue;}
+            if(intent.operation==ProfileCatalogIntent::Operation::save_named||
+               (intent.operation==ProfileCatalogIntent::Operation::save_capture&&intent.scope==ProfileScope::full_tune)){
+                if(capture_pending)throw std::runtime_error("A profile capture is still running");
+                auto command=profile_capture_request(intent.scope,view,*snapshot);
+                if(intent.operation==ProfileCatalogIntent::Operation::save_named){
+                    const auto directories=discover_profile_directories();const auto destination=std::find_if(directories.begin(),directories.end(),[](const auto& d){return d.writable;});
+                    if(destination==directories.end())throw std::runtime_error("Native profile storage unavailable");
+                    command.profile_path=profile_library_named_path(*destination,intent.name);
+                }else if(!selected_profile_path(true,snapshot->generation,command.profile_path))continue;
+                auto queued=command;
+                if(command.operation==Command::Operation::i2c_save_profile)queued.operation=Command::Operation::i2c_prepare_profile;
+                if(!session->submit(queued,snapshot->generation))throw std::runtime_error("Session changed or busy; capture was not queued");
+                if(command.operation==Command::Operation::i2c_save_profile)capture_after_prepare=command;
+                capture_pending=CatalogPending{snapshot->generation,snapshot->completed_actions,queued.operation,{}};
+                workspace.status="Capturing configured requests; no tuning applied";continue;
+            }
             if(intent.operation==ProfileCatalogIntent::Operation::save_capture) {
                 switch(intent.scope) {
                 case ProfileScope::daily:view.save_profile_requested=true;break;
@@ -738,15 +798,7 @@ struct App {
                 } else i2c_profile_dialog(false,*view.live);
             }
         }
-        if (view.timing_helper_requested) {
-            view.timing_helper_requested=false;
-            wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog);
-            dialog.hwndOwner=window; dialog.lpstrFile=path; dialog.nMaxFile=static_cast<DWORD>(std::size(path));
-            dialog.lpstrFilter=L"nvtune helper (*.exe)\0*.exe\0\0"; dialog.lpstrTitle=L"Select nvtune helper";
-            dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|OFN_FILEMUSTEXIST;
-            if (GetOpenFileNameW(&dialog) && view.live) { druta::ui::Command c; c.operation=druta::ui::Command::Operation::timings_select_helper; c.timing_helper_path=path; session->submit(c,view.live->generation); }
-            policy.note_activity(now_seconds());
-        }
+        timing_setup.consume(*session,view,window);
         if (view.timing_save_profile_requested || view.timing_load_profile_requested) {
             const bool save=view.timing_save_profile_requested;
             view.timing_save_profile_requested=view.timing_load_profile_requested=false;
@@ -963,7 +1015,7 @@ struct App {
         // The Win32 backend reports zero client size when minimized. Always refresh
         // deliberately renders the last full viewport, preserving its draft/layout.
         ImGui::GetIO().DisplaySize = ImVec2(float(width), float(height));
-        ImGui::NewFrame(); druta::ui::draw(view); ImGui::Render();
+        ImGui::NewFrame(); druta::ui::draw(view); timing_setup.draw(); ImGui::Render();
         policy.set_always_refresh(view.always_refresh, now_seconds());
         if (session) session->set_paused(!policy.telemetry_enabled());
         consume_actions();
@@ -1089,7 +1141,14 @@ struct Smoke {
         const auto f = app.frames-frames, p = app.presents-presents, t = sample_count(app)-samples;
         // Pause may finish one read which was already in flight.
         bool ok = (phase == 3 || phase == 5) ? (f == 0 && t <= (live ? 1u : 0u)) : (f > 0 && p > 0 && captured);
-        if (live) ok = ok && app.session->snapshot()->data.connected && app.session->snapshot()->completed_actions == 0;
+        if (live) {
+            const auto snapshot = app.session->snapshot();
+            // Entering Timings discovers and selects a helper path without running
+            // it. Permit that single setup action; any capture/write still fails.
+            const bool read_only_setup = phase >= 15 && snapshot->completed_actions == 1 &&
+                snapshot->last_action_operation == druta::ui::Command::Operation::timings_select_helper && snapshot->last_action_ok;
+            ok = ok && snapshot->data.connected && (snapshot->completed_actions == 0 || read_only_setup);
+        }
         if (live && phase == 2) ok = ok && t > 0;
         if (phase >= 7) {
             const auto& draft = app.view.drafts[static_cast<size_t>(druta::ui::ControlId::memory)];
@@ -1113,7 +1172,8 @@ struct Smoke {
             names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == phase_count-1 ? "" : ",");
         report += row;
         if (++phase == phase_count) {
-            report += "  ],\n  \"device_resets\": " + std::to_string(app.resets)
+            report += "  ],\n  \"completed_worker_actions\": " + std::to_string(live ? app.session->snapshot()->completed_actions : 0)
+                + ",\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
             passed = write_bytes(directory + L"\\smoke.json", report.data(), DWORD(report.size())) && passed;
@@ -1246,6 +1306,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         if (app.session) {
             app.view.live = app.session->snapshot();
             app.consume_annotation_completions();app.save_policy_notes();
+            app.poll_profile_library();app.timing_setup.consume(*app.session,app.view,app.window);
             if(app.weight_prepare_pending||!app.weight_initial_receipt.empty())app.consume_power_weights();
             if (app.closing && app.session->finished()) break;
             if (app.closing && app.view.live->close_refused) {
@@ -1286,7 +1347,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         double delay = app.policy.wait_seconds(now_seconds(), app.device_retry_at);
         if (testing) delay = std::min(delay, std::max(0.001, smoke.start+2.0-now_seconds()));
         if (!options.capture.empty()) delay = std::min(delay, 0.25);
-        if(app.view.app_actions.recovery_preparing)delay=std::min(delay,0.1);
+        if(app.view.app_actions.recovery_preparing||app.library_read.valid()||app.timing_setup.pending())delay=std::min(delay,0.1);
         waiter.wait(delay);
     }
     if (testing && !smoke.finished) success = false;

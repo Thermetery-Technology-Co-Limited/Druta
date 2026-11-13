@@ -5,6 +5,9 @@
 #include <imgui_internal.h>
 #include <cstdio>
 #include <cstdlib>
+#include <windows.h>
+#include <filesystem>
+#include "profile_io.h"
 using namespace druta::ui;
 static unsigned checks=0;
 #define CHECK(x) do{++checks;if(!(x)){std::fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,#x);std::abort();}}while(false)
@@ -84,6 +87,10 @@ int main(){
  CHECK(press_disconnected("Apply timing",false,true).commands.empty());
  data.capture_running=true;auto cancel=press_disconnected("Cancel timing capture",true,false);
  CHECK(cancel.cancel_capture&&cancel.commands.empty());
+ state.helper_registration_present=true;state.helper_registration_message="Registered helper missing";
+ const auto press_setup=[&](const char* label,bool busy){auto* window=ImGui::FindWindowByName("test");ImGui::ActivateItemByID(ImHashStr(label,0,window->ID));ImGui::NewFrame();ImGui::SetNextWindowSize(ImVec2(1000,740));ImGui::Begin("test");auto out=draw_timings(state,nullptr,18,busy,false,false);ImGui::End();ImGui::Render();return out;};
+ CHECK(press_setup("Forget nvtune location",false).forget_helper);CHECK(!press_setup("Forget nvtune location",true).forget_helper);CHECK(press_setup("Test signing setup...",false).test_signing_setup);state.helper_registration_present=false;CHECK(!press_setup("Forget nvtune location",false).forget_helper);
+ wchar_t tmp[MAX_PATH]{},temp[MAX_PATH]{};CHECK(GetTempPathW(MAX_PATH,tmp)&&GetTempFileNameW(tmp,L"nth",0,temp));CHECK(DeleteFileW(temp)&&CreateDirectoryW(temp,nullptr));const std::filesystem::path base(temp);const auto exe=(base/L"nvtune.exe").wstring();HANDLE fh=CreateFileW(exe.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(fh!=INVALID_HANDLE_VALUE);CloseHandle(fh);TimingHelperConfigPaths paths{(base/L"config.json").wstring(),(base/L"legacy.json").wstring()};set_timing_helper_config(paths,exe);SetEnvironmentVariableW(L"DRUTA_NVTUNE",nullptr);SetEnvironmentVariableW(L"TITANTUNE_NVTUNE",nullptr);auto suggestion=suggest_timing_helper(&paths);CHECK(suggestion.path==exe&&suggestion.registration_present);SetEnvironmentVariableW(L"DRUTA_NVTUNE",L"C:\\missing-helper.exe");suggestion=suggest_timing_helper(&paths);CHECK(suggestion.path.empty()&&suggestion.registration_present);SetEnvironmentVariableW(L"DRUTA_NVTUNE",nullptr);DeleteFileW(exe.c_str());suggestion=suggest_timing_helper(&paths);CHECK(suggestion.registration_present&&suggestion.registration_message.find("unavailable")!=std::string::npos);std::filesystem::remove_all(base);
  ImGui::DestroyContext();
  std::printf("timings_view_test: %u checks passed\n",checks);
 }

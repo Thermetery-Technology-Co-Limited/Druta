@@ -1,0 +1,13 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "timing_helper_config.h"
+#include "profile_io.h"
+#include <windows.h>
+#include <filesystem>
+#include <cstdio>
+#include <cstdlib>
+using namespace druta::ui;
+#define CHECK(x) do{if(!(x)){std::fprintf(stderr,"%d: %s\n",__LINE__,#x);std::abort();}}while(false)
+void file(const std::wstring& path,const std::string& bytes){HANDLE h=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(h!=INVALID_HANDLE_VALUE);DWORD n=0;CHECK(WriteFile(h,bytes.data(),static_cast<DWORD>(bytes.size()),&n,nullptr)&&n==bytes.size());CloseHandle(h);}
+int main(){wchar_t root[MAX_PATH]{},name[MAX_PATH]{};CHECK(GetTempPathW(MAX_PATH,root)&&GetTempFileNameW(root,L"ntc",0,name));CHECK(DeleteFileW(name));CHECK(CreateDirectoryW(name,nullptr));const std::filesystem::path dir(name);TimingHelperConfigPaths paths{(dir/L"new"/L"nvtune.json").wstring(),(dir/L"old"/L"nvtune.json").wstring()};const auto helper=(dir/L"nvtune.exe").wstring();file(helper,"test");CHECK(!read_timing_helper_config(paths).registered_path&&!std::filesystem::exists(dir/L"new"));std::filesystem::create_directories(dir/L"old");write_profile(paths.legacy,{{"nvtune_exe",std::string(helper.begin(),helper.end())},{"opaque",7}});auto legacy=read_timing_helper_config(paths);CHECK(legacy.registered_path&&legacy.legacy&&*legacy.registered_path==helper&&!std::filesystem::exists(dir/L"new"));set_timing_helper_config(paths,helper);CHECK(read_profile(paths.current)["opaque"]==7&&read_timing_helper_config(paths).registered_path==helper);forget_timing_helper_config(paths);CHECK(!read_timing_helper_config(paths).registered_path&&read_profile(paths.current)["opaque"]==7);
+ file(paths.current,"\xef\xbb\xbf{\"nvtune_exe\":\"\",\"unknown\":8}");CHECK(!read_timing_helper_config(paths).registered_path);set_timing_helper_config(paths,helper);CHECK(read_profile(paths.current)["unknown"]==8);bool failed=false;try{set_timing_helper_config(paths,(dir/L"missing.exe").wstring());}catch(const std::exception&){failed=true;}CHECK(failed&&read_profile(paths.current)["unknown"]==8);file(paths.current,"{broken");failed=false;try{forget_timing_helper_config(paths);}catch(const std::exception&){failed=true;}CHECK(failed);HANDLE h=CreateFileW(paths.current.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);CHECK(h!=INVALID_HANDLE_VALUE);char bytes[8]{};DWORD got=0;CHECK(ReadFile(h,bytes,7,&got,nullptr)&&std::string(bytes,got)=="{broken");CloseHandle(h);std::filesystem::remove_all(dir);std::puts("Timing helper configuration passed");}

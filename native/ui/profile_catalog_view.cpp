@@ -26,25 +26,49 @@ bool stage_profile_catalog_selection(ProfileCatalogViewState& state){
   state.status=inspect_profile(*state.staged).summary+". No requests applied.";return true;
  }catch(const std::exception& e){state.staged.reset();state.preflight_ok=false;state.status=e.what();return false;}
 }
+void record_profile_library(ProfileCatalogViewState& state,std::vector<ProfileLibraryEntry> entries,const std::string& status){state.library=std::move(entries);state.library_loading=false;state.library_status=status;}
+bool stage_profile_library_item(ProfileCatalogViewState& state,const std::string& id){
+ const auto found=std::find_if(state.library.begin(),state.library.end(),[&](const auto& entry){return entry.id==id;});
+ if(found==state.library.end()||!found->document||!found->error.empty()){state.status="Saved profile is unreadable; nothing staged";return false;}
+ const auto description=inspect_profile(*found->document);if(!description.valid){state.status=description.error;return false;}
+ add_profile_catalog_item(state,found->id,found->name,*found->document);for(auto& item:state.items)item.included=item.id==id;
+ return stage_profile_catalog_selection(state);
+}
 void record_profile_catalog_preflight(ProfileCatalogViewState& state,uint64_t generation,const ProfileJson& document,bool ok,const std::string& message){
  if(state.generation!=generation||!state.staged||*state.staged!=document)return;
  state.preflight_ok=ok;state.status=message;
 }
 ProfileCatalogViewOutput draw_profile_catalog_workspace(ProfileCatalogViewState& state,uint64_t generation,bool busy,bool unlocked){
- sync_profile_catalog_generation(state,generation);ProfileCatalogViewOutput out;if(!state.open)return out;
+ sync_profile_catalog_generation(state,generation);ProfileCatalogViewOutput out;if(!state.open){state.was_open=false;return out;}
+ if(!state.was_open){state.was_open=true;if(!state.library_loading){state.library_loading=true;out.intents.push_back({ProfileCatalogIntent::Operation::refresh_library,{},{},{}});}}
  ImGui::SetNextWindowSize({780,680},ImGuiCond_FirstUseEver);
  if(!ImGui::Begin("Profile catalog###druta_profile_catalog",&state.open)){ImGui::End();return out;}
  ImGui::PushID("profile-catalog");
  if(ImGui::Button("Choose profile files..."))out.intents.push_back({ProfileCatalogIntent::Operation::choose_files,{},{}});
  ImGui::SameLine();if(ImGui::Button("Clear list")){state.items.clear();invalidate(state);}
  ImGui::TextWrapped("Choose files and controls, then compose, review and apply. Loading and saving do not change GPU settings.");
- constexpr ProfileScope scopes[]={ProfileScope::daily,ProfileScope::curve,ProfileScope::scoped,ProfileScope::timing,ProfileScope::icx,ProfileScope::fan,ProfileScope::voltage_policy,ProfileScope::power_integral,ProfileScope::voltage_tables,ProfileScope::voltage_limits,ProfileScope::power_saving,ProfileScope::clock_gating};
+ constexpr ProfileScope scopes[]={ProfileScope::full_tune,ProfileScope::daily,ProfileScope::curve,ProfileScope::scoped,ProfileScope::timing,ProfileScope::icx,ProfileScope::fan,ProfileScope::voltage_policy,ProfileScope::power_integral,ProfileScope::voltage_tables,ProfileScope::voltage_limits,ProfileScope::power_saving,ProfileScope::clock_gating};
  ImGui::SetNextItemWidth(230);
  if(ImGui::BeginCombo("Capture scope",profile_scope_name(state.capture_scope))){for(auto scope:scopes)if(ImGui::Selectable(profile_scope_name(scope),scope==state.capture_scope))state.capture_scope=scope;ImGui::EndCombo();}
  ImGui::SameLine();ImGui::BeginDisabled(busy);if(ImGui::Button("Save configured scope..."))out.intents.push_back({ProfileCatalogIntent::Operation::save_capture,state.capture_scope,{}});ImGui::EndDisabled();
+ ImGui::SetNextItemWidth(230);ImGui::InputText("Profile name",state.save_name.data(),state.save_name.size());ImGui::SameLine();
+ const std::string name(state.save_name.data());const bool named=name.find_first_not_of(" \t\r\n")!=std::string::npos;
+ ImGui::BeginDisabled(busy||!named);if(ImGui::Button("Save named profile"))out.intents.push_back({ProfileCatalogIntent::Operation::save_named,state.capture_scope,{},state.save_name.data()});ImGui::EndDisabled();
  ImGui::PushStyleColor(ImGuiCol_Text,ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
  ImGui::TextWrapped("Read-only capture. Select rail/power, policy, feedback and timing fields in their editors.");
  ImGui::PopStyleColor();
+ ImGui::Separator();
+ ImGui::TextUnformatted("Saved profiles / Undo snapshots");ImGui::SameLine();ImGui::BeginDisabled(state.library_loading);if(ImGui::Button("Refresh saved profiles")){state.library_loading=true;out.intents.push_back({ProfileCatalogIntent::Operation::refresh_library,{},{},{}});}ImGui::EndDisabled();
+ if(ImGui::RadioButton("All",state.library_filter==ProfileLibraryFilter::all))state.library_filter=ProfileLibraryFilter::all;ImGui::SameLine();if(ImGui::RadioButton("Named",state.library_filter==ProfileLibraryFilter::named))state.library_filter=ProfileLibraryFilter::named;ImGui::SameLine();if(ImGui::RadioButton("Autosaves",state.library_filter==ProfileLibraryFilter::autosaves))state.library_filter=ProfileLibraryFilter::autosaves;
+ if(state.library_loading)ImGui::TextDisabled("Reading saved profiles...");if(!state.library_status.empty())ImGui::TextWrapped("%s",state.library_status.c_str());
+ if(ImGui::BeginChild("saved-profile-library",ImVec2(0,180),ImGuiChildFlags_Borders)){
+  bool visible=false;for(const auto& entry:state.library){if((state.library_filter==ProfileLibraryFilter::named&&entry.autosave)||(state.library_filter==ProfileLibraryFilter::autosaves&&!entry.autosave))continue;visible=true;ImGui::PushID(entry.id.c_str());
+   const auto description=entry.document?inspect_profile(*entry.document):ProfileDescription{};const bool valid=entry.document&&entry.error.empty()&&description.valid;
+   ImGui::TextWrapped("%s%s",entry.name.c_str(),entry.autosave?" (Undo snapshot)":"");ImGui::TextDisabled("%s | %s",entry.saved_at.empty()?"unknown time":entry.saved_at.c_str(),entry.source.c_str());
+   ImGui::TextWrapped("%s",!entry.error.empty()?entry.error.c_str():!entry.document?"Unreadable profile":description.valid?description.summary.c_str():description.error.c_str());
+   ImGui::BeginDisabled(!valid);if(ImGui::Button("Stage profile"))stage_profile_library_item(state,entry.id);ImGui::EndDisabled();ImGui::Separator();ImGui::PopID();
+  }if(!visible)ImGui::TextDisabled(state.library.empty()?"No saved profiles found.":"No profiles match this filter.");
+ }ImGui::EndChild();
  ImGui::Separator();
  for(size_t i=0;i<state.items.size();++i){auto& item=state.items[i];ImGui::PushID(static_cast<int>(i));
   ImGui::BeginDisabled(!item.description.valid);if(ImGui::Checkbox("Include",&item.included))invalidate(state);ImGui::EndDisabled();ImGui::SameLine();ImGui::TextWrapped("%s",item.name.c_str());

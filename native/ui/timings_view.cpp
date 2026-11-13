@@ -47,23 +47,29 @@ bool editable(const TimingViewData& data,const TimingField& f) {
         (w->confidence.empty() || w->confidence=="DOCUMENTED");
 }
 }
-TimingsHelperSuggestion suggest_timing_helper() {
+TimingsHelperSuggestion suggest_timing_helper(const TimingHelperConfigPaths* paths) {
+    TimingHelperConfigRead registration;try{registration=read_timing_helper_config(paths?*paths:timing_helper_config_paths());}catch(const std::exception& e){registration.message=e.what();}
+    const bool registered=registration.registered_path.has_value()||registration.message=="Registered nvtune helper is unavailable";
+    const auto result=[&](std::wstring path,std::string message){return TimingsHelperSuggestion{std::move(path),std::move(message),registered,registration.message};};
     const auto current=env(L"DRUTA_NVTUNE"), legacy=env(L"TITANTUNE_NVTUNE");
     if (!current.empty() || !legacy.empty()) {
         auto path=executable(!current.empty()?current:legacy);
-        return {path,path.empty()?"The explicit nvtune environment path is unavailable":"nvtune found from the environment"};
+        return result(path,path.empty()?"The explicit nvtune environment path is unavailable":"nvtune found from the environment");
     }
+    if(registration.registered_path)return result(*registration.registered_path,registration.legacy?"nvtune found in legacy registration":"nvtune found in registration");
     std::vector<wchar_t> self(32768); const DWORD n=GetModuleFileNameW(nullptr,self.data(),static_cast<DWORD>(self.size()));
     if (n && n<self.size()) {
         std::wstring candidate(self.data(),n); const auto slash=candidate.find_last_of(L"\\/");
-        if (slash!=std::wstring::npos) { auto path=executable(candidate.substr(0,slash+1)+L"nvtune.exe"); if (!path.empty()) return {path,"nvtune found beside the application"}; }
+        if (slash!=std::wstring::npos) { auto path=executable(candidate.substr(0,slash+1)+L"nvtune.exe"); if (!path.empty()) return result(path,"nvtune found beside the application"); }
     }
+    const auto home=env(L"USERPROFILE");
+    for(const auto& base:{env(L"LOCALAPPDATA"),env(L"PROGRAMFILES"),env(L"PROGRAMFILES(X86)"),home.empty()?std::wstring():home+L"\\Desktop",home.empty()?std::wstring():home+L"\\Downloads",home})if(!base.empty()){auto path=executable(base+L"\\nvtune\\nvtune.exe");if(!path.empty())return result(path,"nvtune found in an install location");}
     std::vector<wchar_t> found(32768); const DWORD count=SearchPathW(nullptr,L"nvtune.exe",nullptr,static_cast<DWORD>(found.size()),found.data(),nullptr);
-    if (count && count<found.size()) { auto path=executable(std::wstring(found.data(),count)); if (!path.empty()) return {path,"nvtune found on PATH"}; }
-    return {{},"Choose an installed nvtune.exe to read memory timings"};
+    if (count && count<found.size()) { auto path=executable(std::wstring(found.data(),count)); if (!path.empty()) return result(path,"nvtune found on PATH"); }
+    return result({},"Choose an installed nvtune.exe to read memory timings");
 }
 void sync_timings_view(TimingsViewState& state,const TimingViewData* data,std::uint64_t generation) {
-    if (!state.initialized || state.generation!=generation) { state={};state.initialized=true;state.generation=generation; }
+    if (!state.initialized || state.generation!=generation) { const auto registered=state.helper_registration_present;auto note=std::move(state.helper_registration_message);state={};state.helper_registration_present=registered;state.helper_registration_message=std::move(note);state.initialized=true;state.generation=generation; }
     if(data){
         if((!state.observed_helper.empty()&&state.observed_helper!=data->helper_path)||
             (!state.observed_token.empty()&&!data->helper_token.empty()&&state.observed_token!=data->helper_token)){
@@ -119,6 +125,9 @@ TimingsViewOutput draw_timings(TimingsViewState& state,const TimingViewData* dat
     ImGui::BeginDisabled(busy); if(ImGui::Button("Locate nvtune..."))out.choose_helper=true;
     ImGui::SameLine(); ImGui::BeginDisabled(!data||data->helper_path.empty());
     if(ImGui::Button("Read timings")){Command c{};c.operation=Command::Operation::timings_read;out.commands.push_back(c);} ImGui::EndDisabled(); ImGui::EndDisabled();
+    ImGui::BeginDisabled(worker_busy||!state.helper_registration_present);if(ImGui::Button("Forget nvtune location"))out.forget_helper=true;ImGui::EndDisabled();
+    ImGui::SameLine();ImGui::BeginDisabled(worker_busy);if(ImGui::Button("Test signing setup..."))out.test_signing_setup=true;ImGui::EndDisabled();
+    if(!state.helper_registration_message.empty())ImGui::TextWrapped("%s",state.helper_registration_message.c_str());
     if(!data){ImGui::TextDisabled("No helper configured");return out;}
     ImGui::BeginDisabled(!can_capture_timing(data,busy));
     ImGui::BeginDisabled(!unlocked);

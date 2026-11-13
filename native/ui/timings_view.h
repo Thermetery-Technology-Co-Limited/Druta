@@ -4,17 +4,20 @@
 #include "backend.h"
 #include "timing_model.h"
 #include "timing_profile.h"
+#include "timing_helper_config.h"
 #include <cstdint>
 #include <string>
 #include <vector>
 namespace druta::ui {
-struct TimingsHelperSuggestion { std::wstring path; std::string message; };
+struct TimingsHelperSuggestion { std::wstring path; std::string message; bool registration_present=false; std::string registration_message; };
 // Read-only discovery; an explicit environment override is exclusive.
-TimingsHelperSuggestion suggest_timing_helper();
+TimingsHelperSuggestion suggest_timing_helper(const TimingHelperConfigPaths* paths=nullptr);
 struct TimingsViewState {
     std::uint64_t generation = 0;
     bool initialized = false;
     bool auto_capture = false;
+    bool helper_registration_present = false;
+    std::string helper_registration_message;
     double capture_cap_mv = 1100;
     std::string field;
     std::uint32_t value = 0;
@@ -23,7 +26,7 @@ struct TimingsViewState {
     std::wstring observed_helper;
     std::string observed_token;
 };
-struct TimingsViewOutput { std::vector<Command> commands; bool choose_helper = false,save_profile=false,load_profile=false,cancel_capture=false; };
+struct TimingsViewOutput { std::vector<Command> commands; bool choose_helper = false,forget_helper=false,test_signing_setup=false,save_profile=false,load_profile=false,cancel_capture=false; };
 void sync_timings_view(TimingsViewState& state, const TimingViewData* data, std::uint64_t generation);
 bool select_timing_field(TimingsViewState& state, const TimingViewData& data, const std::string& field);
 bool can_preview_timing(const TimingsViewState& state, const TimingViewData* data, bool busy, bool unlocked);

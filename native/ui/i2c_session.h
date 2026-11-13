@@ -42,6 +42,11 @@ struct I2cProfilePlanState;
 struct I2cProfileReceiptState;
 struct I2cProfilePlan { std::shared_ptr<const I2cProfilePlanState> state; };
 struct I2cProfileReceipt { std::shared_ptr<I2cProfileReceiptState> state; };
+struct I2cFullProfileCapture {
+    ProfileJson i2c=nullptr;
+    bool requires_xoc=false; // source-backed carryover metadata only
+    std::vector<std::string> incomplete;
+};
 // Worker-owned: no bus polling from telemetry or rendering. Controller release
 // precedes clock release, including close and failure recovery.
 class I2cSession final : private I2cTransport, private ControllerIo {
@@ -50,6 +55,9 @@ public:
     const I2cViewData& data() const { return data_; }
     ActionResult execute(const Command& command);
     ActionResult release();
+    // Read-only released full-tune state. Session-owned manual PMBus voltage
+    // and iCX presets are never serialized as a generic voltage request.
+    I2cFullProfileCapture capture_full_profile();
     // In-memory iCX transaction. The host qualifies composition dependencies;
     // session/driver receipts own only issued controller and clamp lifecycles.
     ActionResult preflight_icx_profile(const ProfileJson& document,IcxProfilePlan& out);

@@ -62,3 +62,17 @@ PythonOffsetProfile parse_python_offset_profile(const ProfileJson& j){
 }
 
 }
+
+namespace druta::ui {
+ProfileJson python_i2c_profile_identity(I2cFamily family,I2cRoute route,int page,int scale){
+ require(route.port<=7&&route.addr7>=8&&route.addr7<=0x77,"Invalid released I2C recipe route");
+ ProfileJson recipe;std::string label,rail;
+ if(family==I2cFamily::nct3933){require(route.addr7>=0x10&&route.addr7<=0x15,"Invalid NCT recipe address");label="NCT3933U - three current offsets";rail="OUT1/OUT2/OUT3";recipe={{"addr7",route.addr7},{"contract",1},{"controller","NCT3933U"},{"port",route.port},{"units","nominal_microamps"}};}
+ else if(family==I2cFamily::up9512r||family==I2cFamily::ncp4206){const bool up=family==I2cFamily::up9512r;char name[120]{};std::snprintf(name,sizeof(name),up?"uP9512R offsets (port %u, 0x%02X; physical rail unassigned)":"NCP4206 output (port %u, 0x%02X; physical rail unassigned)",unsigned(route.port),unsigned(route.addr7));label=name;rail="Controller output";
+  recipe=up?ProfileJson{{"addr7",route.addr7},{"identity",ProfileJson::array({0,43})},{"kind","up9512r-offset-v1"},{"port",route.port}}:ProfileJson{{"addr7",route.addr7},{"identity",nullptr},{"kind","ncp4206-absolute-v1"},{"min_mv",600},{"normal_max",1281},{"port",route.port},{"vid_max",1600},{"xoc_max",2000}};
+ }else if(family==I2cFamily::mp2888){require(page==-1&&scale==-1,"MP2888 coarse recipe has no PAGE/scale identity");recipe=ProfileJson::parse(released_mp2888);label="RTX 2080 Ti - NVVDD (MP2888A)";rail="NVVDD";if(route.port!=1||route.addr7!=0x20){recipe["bus"]={{"port",route.port},{"addr7",route.addr7}};recipe["match"]=ProfileJson::object();recipe["identity"]=ProfileJson::array({{{"reg",0xbe},{"bytes",1},{"mask",0x7f},{"value",route.addr7},{"fingerprint",true}}});recipe["discovery"]={{"controller","MP2888A candidate"},{"fingerprint_version",1}};}
+ }else if(family==I2cFamily::mp29816){require(page>=0&&page<=1&&scale>=0&&scale<8,"MP29816 PAGE/scale recipe unavailable");const bool original=route.port==2&&route.addr7==0x30&&page==0&&scale==1;label=original?"ASUS RTX 5080 Astral - MP29816 (write path unverified)":"MP29816 PAGE "+std::to_string(page)+" output";rail=original?"NVVDD":"PAGE "+std::to_string(page)+" output";recipe=ProfileJson::parse(released_mp29816);if(!original){recipe["bus"]={{"port",route.port},{"addr7",route.addr7}};recipe["match"]=ProfileJson::object();recipe["identity"]=ProfileJson::array({{{"reg",0xad},{"bytes",5},{"equals",uint64_t(0x0002a81604ULL)}},{{"reg",0},{"bytes",1},{"equals",page}},{{"reg",0x29},{"bytes",2},{"mask",0x1c00},{"value",scale<<10}}});recipe["discovery"]={{"controller","MP29816"},{"version",1},{"page",page},{"vout_scale_selector",scale}};recipe["profile"]["rail"]=rail;const double scales[]={6.25,5.0,2.5,2.0,1.0,1.0/256,1.0/512,1.0/1024};for(auto& item:recipe["telemetry"])if(item.value("key",std::string{})=="vout_mv")item["scale"]=scales[scale];if(scale!=1)recipe.erase("write");}
+ }else throw std::runtime_error("No released generic profile recipe for selected controller");
+ return {{"profile",label},{"sha256",digest(recipe)},{"port",route.port},{"addr7",route.addr7},{"rail",rail},{"display_name",label}};
+}
+}

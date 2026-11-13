@@ -5,7 +5,7 @@
 #include <optional>
 #include <vector>
 namespace druta::ui {
-enum class ProfileScope {daily,curve,scoped,timing,icx,python_tuning,python_rails,python_power,fan,legacy_timing,voltage_policy,power_integral,voltage_tables,voltage_limits,power_saving,clock_gating,python_full_tune,combined,unsupported};
+enum class ProfileScope {daily,curve,scoped,timing,icx,python_tuning,python_rails,python_power,fan,legacy_timing,voltage_policy,power_integral,voltage_tables,voltage_limits,power_saving,clock_gating,python_full_tune,combined,full_tune,unsupported};
 struct ProfileDescription {
     ProfileScope scope=ProfileScope::unsupported;bool valid=false;
     std::string summary,error;

@@ -710,6 +710,46 @@ ActionResult I2cSession::release() {
     profile_receipt_.reset();refresh(); data_.message=controller_message.empty()?"Captured controller state restored; owned clock clamp released":controller_message+"; owned clock clamp released";
     auto r=failure(data_.message); r.ok=true; r.may_have_changed=changed; return r;
 }
+I2cFullProfileCapture I2cSession::capture_full_profile() {
+    I2cFullProfileCapture out;
+    if(!data_.selected || data_.family==I2cFamily::icx)return out;
+    try {
+        if(!api_.lock||!api_.unlock||api_.lock(gpu_)!=DC_OK)throw std::runtime_error("Could not lock selected GPU for I2C profile capture");
+        struct Unlock {I2cApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}} unlock{api_,gpu_};
+        ReadOnlyScope readonly(discovery_readonly_);
+        if(!bound())throw std::runtime_error("Selected GPU identity changed before I2C capture");
+        const auto route=*data_.selected;const auto revision=data_.selection_revision;
+        const auto check=[&]{if(!bound()||!data_.selected||data_.selection_revision!=revision||data_.selected->port!=route.port||data_.selected->addr7!=route.addr7)throw std::runtime_error("I2C profile target/selection changed during capture");};
+        const auto word=[&](uint8_t reg,size_t n){std::vector<uint8_t> bytes;for(unsigned attempt=0;attempt<2;++attempt){check();if(read_bytes(route,reg,n,bytes)){uint32_t result=0;for(size_t i=0;i<n;++i)result|=uint32_t(bytes[i])<<(8*i);return result;}}throw std::runtime_error("Selected controller configuration read failed");};
+        const auto require_result=[](const I2cResult& r){if(!r.ok)throw std::runtime_error(r.message);};
+        ProfileJson document;bool requires_xoc=false;
+        if(data_.family==I2cFamily::nct3933){
+            if(!controller_)throw std::runtime_error("Selected NCT driver unavailable");Nct3933State current;require_result(controller_->capture_nct3933(current));
+            document=python_i2c_profile_identity(data_.family,route);document["format"]="i2c.current_dac_control";document["current_dac_control"]={{"outputs",current.outputs},{"configuration",current.configuration}};(void)parse_python_nct3933_profile(document);
+        }else if(data_.family==I2cFamily::up9512r){
+            if(!controller_)throw std::runtime_error("Selected uP driver unavailable");Up9512rControl current;require_result(controller_->capture_up9512r(current));
+            const auto lock=word(0x39,1);if(lock!=word(0x39,1))throw std::runtime_error("uP9512R lock changed during capture");if(lock!=0x94){check();return out;}
+            document=python_i2c_profile_identity(data_.family,route);document["format"]="i2c.multi_state_offset";document["control"]={{"kind","up9512r-offset-v1"},{"offsets_mv",current.offsets_mv},{"enabled",current.enabled}};(void)parse_python_up9512r_profile(document);requires_xoc=current.enabled&&std::any_of(current.offsets_mv.begin(),current.offsets_mv.end(),[](auto v){return v>50;});
+        }else if(data_.family==I2cFamily::ncp4206){
+            if(!controller_)throw std::runtime_error("Selected NCP driver unavailable");Ncp4206State current;require_result(controller_->capture_ncp4206(current));
+            document=python_i2c_profile_identity(data_.family,route);document["control"]={{"kind","absolute_vid"},{"command",current.command},{"enabled",current.enabled}};(void)parse_python_ncp4206_profile(document);requires_xoc=current.enabled&&(1600.0-(int(current.command)-2)*6.25>1281);
+        }else if(data_.family==I2cFamily::mp2888||data_.family==I2cFamily::mp29816){
+            ControllerDriver* reader=controller_.get();std::unique_ptr<ControllerDriver> canonical;
+            if(data_.family==I2cFamily::mp2888&&data_.control_profile=="mp2888a-pmbus"){
+                if(service_->has_owned_control())throw std::runtime_error("MP2888 manual voltage is session-only; not saved");const auto status=service_->status();
+                if(!status.readable||status.stale)throw std::runtime_error("MP2888 manual voltage state unreadable");if(status.enabled)throw std::runtime_error("MP2888 manual voltage is session-only; not saved");
+                canonical=driver(I2cFamily::mp2888,route);if(!canonical||!canonical->probe())throw std::runtime_error("Canonical MP2888 coarse-offset read failed");reader=canonical.get();
+            }else if(data_.control_profile!=(data_.family==I2cFamily::mp2888?"mp2888a-offset":"controller"))throw std::runtime_error("Selected custom recipe has no released profile identity");
+            if(!reader)throw std::runtime_error("Selected coarse-offset driver unavailable");int page=-1,scale=-1;
+            if(data_.family==I2cFamily::mp29816){const auto first_page=word(0,1),selector=word(0x29,2);if(first_page!=word(0,1)||selector!=word(0x29,2))throw std::runtime_error("MP29816 PAGE/scale changed during capture");page=static_cast<int>(first_page);scale=static_cast<int>((selector>>10)&7);}
+            const auto current=reader->read(xoc());if(!current.readable||current.stale)throw std::runtime_error("Selected coarse-offset state unavailable");if(data_.family==I2cFamily::mp29816&&scale!=1){check();return out;}const auto field=std::find_if(current.fields.begin(),current.fields.end(),[](const auto& f){return f.key=="offset"||f.key=="offset_mv";});
+            if(field==current.fields.end()||!field->value||field->stale||!std::isfinite(*field->value))throw std::runtime_error("Selected coarse offset not captured");
+            document=python_i2c_profile_identity(data_.family,route,page,scale);document["offset_mv"]=*field->value;(void)parse_python_offset_profile(document);requires_xoc=*field->value<(data_.family==I2cFamily::mp2888?-200:-50)||*field->value>(data_.family==I2cFamily::mp2888?100:50);
+        }else throw std::runtime_error("Selected controller has no qualified full-profile capture");
+        check();out.i2c=std::move(document);out.requires_xoc=requires_xoc;
+    }catch(const std::exception& error){out.i2c=nullptr;out.incomplete.push_back(std::string("I2C configured state NOT captured: ")+error.what());}
+    return out;
+}
 ActionResult I2cSession::execute(const Command& cmd) {
     if(cmd.i2c_selection_revision && cmd.i2c_selection_revision!=data_.selection_revision)return failure("Controller selection or recipe changed; no operation issued");
     if((icx_receipt_ || profile_receipt_) && owned() && (cmd.operation==Command::Operation::i2c_apply || cmd.operation==Command::Operation::i2c_reset

@@ -9,6 +9,12 @@ Python line references below are pinned to `fa6ee83`; native references describe
 this integration working tree. No build, GPU operation or OS configuration change
 was performed for this reconciliation.
 
+Subsequent status: [increment 25](2026-11-13-parity-twenty-fifth-increment.md)
+implements aggregate Full tune capture, profile browsing/storage and remembered
+nvtune/Forget/test-signing setup. Automatic prewrite producers and newest-history
+Undo remain open. The source findings below preserve the pre-increment-25 audit;
+the [backlog](../../../backlog.md) is the current open-item list.
+
 ## Original review mapping
 
 | Original requirement | Integrated implementation / recorded checkpoint |

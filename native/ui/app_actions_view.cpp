@@ -57,7 +57,9 @@ void draw_app_actions_menu(ViewState& state) {
         }
         ImGui::BeginDisabled(!state.live || state.live->busy || state.live->opening);
         if(ImGui::MenuItem("Locate nvtune..."))state.timing_helper_requested=true;
+        if(ImGui::MenuItem("Forget nvtune location"))state.timing_forget_requested=true;
         ImGui::EndDisabled();
+        if(ImGui::MenuItem("Test-signing setup..."))state.test_signing_requested=true;
         if(ImGui::MenuItem("Shunt mod (corrected power)..."))state.shunt.open=true;
         const auto restart=state.live?restart_device_target(*state.live,why,state.app_actions.administrator):std::optional<AppTarget>{};
         ImGui::BeginDisabled(!restart||bool(state.select_slot)||actions.recovery_preparing);if(ImGui::MenuItem("Restart selected GPU (PnP)"))actions.restart_device=restart;ImGui::EndDisabled();
