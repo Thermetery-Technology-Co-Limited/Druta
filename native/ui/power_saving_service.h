@@ -42,6 +42,7 @@ class PowerSavingService {
 public:
     PowerSavingService(PowerSavingApi,dc_gpu*,const dc_gpu_identity&);
     ~PowerSavingService(); // no writes, persistence, or automatic replay
+    void set_history_callback(std::function<void()>); // standalone explicit effects only
     const PowerSavingData& read(uint32_t families=31);
     PowerSavingResult apply(const PowerSavingRequest&);
     // Coupled profiles retain selected idle originals before adaptive effects.

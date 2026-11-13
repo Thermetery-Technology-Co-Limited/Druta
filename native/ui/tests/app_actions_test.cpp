@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <cstdio>
+#include <algorithm>
 #include <string>
 #include <vector>
 using namespace druta::ui;
@@ -110,6 +111,22 @@ void rendering() {
     if(report){ImGui::ActivateItemByID(report->GetID("Save report..."));frame(v);}
     check(!v.app_actions.save_report_requested,"save action remains disabled after adapter/session changes");
 }
+void history_menu() {
+    for(const auto skin:{Presentation::focused,Presentation::classic}) {
+        ViewState v;v.preview=false;v.live=std::make_shared<SessionSnapshot>(fixture());v.presentation=skin;
+        frame(v);auto* workspace=ImGui::FindWindowByName("Druta workspace");
+        ImGui::ActivateItemByID(ImHashStr("File",0,workspace->GetID("##MenuBar")));frame(v);
+        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        check(!stack.empty()&&stack.back().Window,"File menu exposes history in both skins");
+        if(!stack.empty()&&stack.back().Window) {
+            ImGui::ActivateItemByID(stack.back().Window->GetID("Undo from history..."));frame(v);
+            const auto history=std::count_if(v.profile_catalog_intents.begin(),v.profile_catalog_intents.end(),[](const auto& intent){return intent.operation==ProfileCatalogIntent::Operation::stage_newest_history;});
+            const auto apply=std::any_of(v.profile_catalog_intents.begin(),v.profile_catalog_intents.end(),[](const auto& intent){return intent.operation==ProfileCatalogIntent::Operation::apply||intent.operation==ProfileCatalogIntent::Operation::preflight;});
+            check(history==1&&v.profile_catalog_view.open&&!apply&&v.commands.empty(),"History menu requests a fresh staged snapshot without preflight or hardware Apply");
+        }
+        v.profile_catalog_view.open=false;frame(v);
+    }
+}
 }
 int main(int argc,char** argv) {
     targets_and_reports();quoting();
@@ -124,6 +141,6 @@ int main(int argc,char** argv) {
     ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.0f/60;
     ImFontConfig config;config.SizePixels=18;io.Fonts->AddFontDefault(&config);
     unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
-    rendering();ImPlot::DestroyContext();ImGui::DestroyContext();
+    rendering();history_menu();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("App actions: %d failures\n",failures);return failures?1:0;
 }

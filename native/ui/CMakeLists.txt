@@ -38,7 +38,7 @@ if(MSVC)
   target_link_options(druta-ui-timing-cuda PRIVATE /SUBSYSTEM:CONSOLE,6.00)
 endif()
 
-add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp profile_library.cpp timing_helper_config.cpp test_signing.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
+add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp profile_library.cpp profile_history.cpp timing_helper_config.cpp test_signing.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
   profile_catalog.cpp controller_profile_order.cpp semantic_policy_profile.cpp saving_profile.cpp fan_profile.cpp python_scoped_profile.cpp python_full_profile.cpp python_i2c_profile.cpp ../src/core/sha256.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp policy_annotation_profile.cpp
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
   i2c_icx.cpp i2c_mp2888_offset.cpp i2c_mp29816.cpp icx_preset.cpp i2c_verify_hold.cpp i2c_warmup.cpp
@@ -124,7 +124,7 @@ endif()
 add_executable(druta-ui-client-test tests/core_client_test.cpp)
 target_link_libraries(druta-ui-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
-foreach(profile_setup_test IN ITEMS profile_library timing_helper_config test_signing full_tune_capture i2c_full_capture)
+foreach(profile_setup_test IN ITEMS profile_library timing_helper_config test_signing full_tune_capture i2c_full_capture core_history i2c_history)
   add_executable(druta-ui-${profile_setup_test}-test tests/${profile_setup_test}_test.cpp)
   target_link_libraries(druta-ui-${profile_setup_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${profile_setup_test} COMMAND druta-ui-${profile_setup_test}-test)

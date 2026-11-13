@@ -180,6 +180,7 @@ bool PowerIntegralService::dispatch(const Snapshot& state,uint32_t policy,PowerI
     data_.message=status!=DC_OK && text_ok(error.message) && error.message[0]?error.message:"Policy INFO or CONTROL did not read back exactly";
     return false;
 }
+void PowerIntegralService::set_history_callback(std::function<void()> callback){history_callback_=std::move(callback);}
 PowerIntegralResult PowerIntegralService::apply(uint32_t policy,PowerIntegralField field,uint32_t raw,std::optional<uint16_t> expected) {
     PowerIntegralResult result;
     if(data_.profile_recovery_pending){result.message="Recover the uncertain selected profile before a new edit";return result;}
@@ -196,6 +197,7 @@ PowerIntegralResult PowerIntegralService::apply(uint32_t policy,PowerIntegralFie
     if(expected && current!=*expected){result.message="Selected feedback field changed since this draft was read; read and review before applying";return result;}
     if(owner.value.owned && (!owner.value.confirmed || owner.info_row!=signature(before.info,policy))){result.message="Owned feedback field was replaced; leave foreign request untouched";return result;}
     if(current==raw){result.ok=true;result.message="Requested ratio already active; no write";return result;}
+    try{if(history_callback_)history_callback_();}catch(const std::exception& error){result.message=error.what();data_.message=result.message;return result;}
     const auto old=owner;const auto old_profile=profile_undo_;
     if(!owner.value.owned){owner.value.initial=current;owner.info_row=signature(before.info,policy);}
     owner.value.owned=true;owner.value.previous=current;owner.value.requested=static_cast<uint16_t>(raw);
@@ -239,6 +241,7 @@ PowerIntegralResult PowerIntegralService::restore_locked(uint32_t policy,PowerIn
     if(actual!=desired) {
         const auto row=decode(before.info,before.control,policy);
         if(!row.available || !valid_value(row,field,desired)){result.message="Captured field conflicts with current policy or opposite bound";return result;}
+        if(!previous)try{if(history_callback_)history_callback_();}catch(const std::exception& error){result.message=error.what();data_.message=result.message;return result;}
         result.may_have_changed=true;
         // Track both outcomes of a failed restore by keeping desired in previous.
         owner.value.previous=desired;owner.value.can_undo=true;owner.value.confirmed=false;owner.value.recovery=true;owner.pending=true;
@@ -307,7 +310,7 @@ PowerIntegralResult PowerIntegralService::verify(const PowerIntegralPlan& receip
     return result;
 }
 PowerIntegralResult PowerIntegralService::apply(const std::vector<PowerIntegralRequest>& requests,const std::function<void(const PowerIntegralPlan&)>& before_write){
-    PowerIntegralResult result;PowerIntegralPlan issued;
+    PowerIntegralResult result;PowerIntegralPlan issued;bool history_saved=false;
     try{require(!data_.profile_recovery_pending,"Recover the uncertain integral profile before a new profile");Guard guard(api_,gpu_);require(guard.held,"GPU lock unavailable");Snapshot fresh;if(!capture(fresh))throw std::runtime_error(data_.message);const auto prepared=plan(fresh,requests);
         for(const auto& row:owned_)for(const auto& owner:row)require(!owner.value.recovery,"Resolve uncertain integral fields first");
         issued=prepared;issued.requests.clear();issued.before.clear();issued.previous_owners.clear();issued.bindings.clear();
@@ -316,7 +319,9 @@ PowerIntegralResult PowerIntegralService::apply(const std::vector<PowerIntegralR
             // Every selected field must still equal its original or our verified
             // target. No later component can silently rebase the selected plan.
             for(size_t j=0;j<prepared.requests.size();++j){const auto& r=prepared.requests[j];const auto& row=selected_row(data_,r.policy);const bool launched=std::any_of(issued.requests.begin(),issued.requests.end(),[&](const auto& q){return q.policy==r.policy&&q.field==r.field;});require(row.binding==prepared.bindings[j]&&current_value(row,r.field)==(launched?r.raw:prepared.before[j]),"Selected integral field changed during profile");}
-            const auto& r=prepared.requests[i];if(prepared.before[i]==r.raw)continue;const auto& row=selected_row(data_,r.policy);require(valid_value(row,r.field,r.raw),"Integral transition conflicts with current opposite bound");auto& owner=owned_[r.policy][field_index(r.field)];const auto old=owner;
+            const auto& r=prepared.requests[i];if(prepared.before[i]==r.raw)continue;const auto& row=selected_row(data_,r.policy);require(valid_value(row,r.field,r.raw),"Integral transition conflicts with current opposite bound");
+            if(!before_write&&!history_saved){if(history_callback_)history_callback_();history_saved=true;}
+            auto& owner=owned_[r.policy][field_index(r.field)];const auto old=owner;
             if(!owner.value.owned){owner.value.initial=prepared.before[i];owner.info_row=signature(current.info,r.policy);}owner.value.owned=true;owner.value.previous=prepared.before[i];owner.value.requested=static_cast<uint16_t>(r.raw);owner.value.can_undo=true;owner.value.confirmed=false;owner.value.recovery=true;owner.pending=true;
             bool launched=false;Snapshot after;bool verified=false;
             try{verified=dispatch(current,r.policy,r.field,static_cast<uint16_t>(r.raw),after,[&]{auto next=issued;next.requests.push_back(r);next.before.push_back(prepared.before[i]);next.previous_owners.push_back(prepared.previous_owners[i]);next.bindings.push_back(prepared.bindings[i]);if(before_write)before_write(next);issued=std::move(next);profile_undo_=issued;data_.profile_undo_available=true;data_.profile_recovery_pending=true;launched=true;});}catch(...){if(!launched)owner=old;throw;}

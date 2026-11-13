@@ -52,6 +52,7 @@ class VoltagePolicyService {
 public:
     VoltagePolicyService(VoltagePolicyApi api,dc_gpu* gpu,const dc_gpu_identity& target);
     ~VoltagePolicyService(); // no destructor writes or persistent requests
+    void set_history_callback(std::function<void()> callback);
     const VoltagePolicyData& read(uint32_t selection=voltage_all_policies);
     VoltagePolicyResult apply(const VoltagePolicyRequest& request);
     VoltagePolicyResult preview(const VoltagePolicyRequest& request);

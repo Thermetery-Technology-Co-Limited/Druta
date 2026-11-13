@@ -1,8 +1,8 @@
 # Native frontend parity backlog
 
-Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-fifth increment](native/ui/validation/2026-11-13-parity-twenty-fifth-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
+Updated 2026-11-13. Reference: Python 1.9.1 `fa6ee83`; latest verified native checkpoint: [twenty-sixth increment](native/ui/validation/2026-11-13-parity-twenty-sixth-increment.md). Scope comes from the [Classic review](native/ui/validation/2026-11-12-verbose-parity-review.md), [Focused inventory](native/ui/validation/2026-11-12-focused-port-inventory.md) and [completion ledger](native/ui/validation/PARITY-COMPLETION.md). Those historical inventories are not current open-item lists.
 
-Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. Overall parity remains open.
+Update this file after each shipping increment. Strike an item only after its implementation is integrated and appropriate behavior/failure verification is recorded; link the evidence. Tests, UI implementation, semantic qualification and physical/OS validation are separate claims. Naming a scope unsupported or writing a plan does not complete it. The bounded released-parity session is complete; deferred qualification remains open.
 
 ## Session scope
 
@@ -17,18 +17,18 @@ without treating them as active parity tasks or marking them complete.
 
 ## At a glance
 
-Current order: finish automatic prewrite snapshots and explicit history Undo, then close the final review reconciliation. Completed work is checked and struck through; work in progress stays unchecked. Broader research and validation campaigns are deferred.
+The released-parity implementation and final review reconciliation are complete. Completed work is checked and struck through. Broader research and validation campaigns remain deferred.
 
 | Workstream | Status | Remaining checklist items |
 | --- | --- | ---: |
 | Installed voltage offsets | Selected-write/Undo/profile path implemented and tested | 0 |
 | Persistent power relationship weights | Explicit activation/recovery implemented and tested; physical qualification scoped separately | 0 |
-| Saved-profile/history | Browser and storage implemented; prewrite producers and history Undo remain | 1 |
+| Saved-profile/history | Prewrite producers, required timing backups and explicit history Undo verified | 0 |
 | Full tune capture and nvtune setup | Implemented and verified in increment 25 | 0 |
-| Final released-parity reconciliation | Source audit done; final acceptance after history | 1 |
-| Completed implementation and release-note checkpoints | 37 checked entries | 0 |
+| Final released-parity reconciliation | Source audit and final acceptance complete | 0 |
+| Completed implementation and release-note checkpoints | 39 checked entries | 0 |
 
-**2 active parity checklist items; 37 completed; 8 deferred outside this session.** The twenty-fifth increment adds the saved-profile browser/storage, aggregate Full tune capture and remembered nvtune/setup workflow. All 155 tests and 23 live renderer phases pass. Read-only Full tune capture on this 3070 Ti produces 16 semantic targets with no incomplete fields. Automatic history production and newest-history Undo still need integration; browsing/storage alone do not complete that item.
+**0 active parity checklist items; 39 completed; 8 deferred outside this session.** The twenty-sixth increment completes disk-backed prewrite history, explicit newest-history Undo and required captured timing backups. All 157 tests and 23 live renderer phases pass. Read-only Full tune capture on this 3070 Ti produces 16 semantic targets with no incomplete fields. This closes the concrete released-parity backlog; it does not claim the deferred physical/OS campaigns are complete.
 
 ## Completed: optional CUDA timing capture
 
@@ -65,11 +65,11 @@ Bounded authorized scope and source: [relationship-weight map](native/ui/validat
 - [x] ~~Implement explicit three-way removal/recovery of transaction-owned names only, restoring exact prior type/value or absence, preserving unrelated additions and refusing third-value conflicts. Refresh and verify original image/INFO afterward.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
 - [x] ~~Add read/preview/apply/verify/removal/recovery UI and adversarial transaction tests; integrate the production adapters and record scoped runtime validation. Keep general persistent BIOS/registry editing outside this narrow exception.~~ [Twenty-fourth checkpoint](native/ui/validation/2026-11-13-parity-twenty-fourth-increment.md).
 
-## Remaining released workflows
+## Completed released workflows
 
-Source trace and acceptance boundary: [released-parity reconciliation](native/ui/validation/2026-11-13-released-parity-reconciliation.md). Existing typed imports/writers are implemented; these are missing capture, storage and setup interactions.
+Source trace and acceptance boundary: [released-parity reconciliation](native/ui/validation/2026-11-13-released-parity-reconciliation.md). The previously missing capture, storage and setup interactions are now integrated with the typed imports/writers.
 
-- [ ] Finish disk-backed prewrite snapshots and newest-history Undo. Newest-first browsing, explicit staging, atomic storage and native-owned 20-entry retention are implemented in [increment 25](native/ui/validation/2026-11-13-parity-twenty-fifth-increment.md). Connect producers using the [released per-action behavior](native/ui/validation/2026-11-13-history-parity-map.md); preserve required capture failures, recovery exceptions and one snapshot per grouped write. Use qualified semantic documents, never opaque ownership receipts or startup/reset replay.
+- [x] ~~Finish disk-backed prewrite snapshots and newest-history Undo, preserving required capture failures, recovery exceptions and one snapshot per grouped write. Use qualified semantic documents, never opaque ownership receipts or startup/reset replay.~~ [Increment 26](native/ui/validation/2026-11-13-parity-twenty-sixth-increment.md): actual-command failure/reverse-load tests, unique storage/retention, required timing backups, both-skin staging and 23 live renderer phases pass. [The source map](native/ui/validation/2026-11-13-history-parity-map.md) retains the released per-action behavior.
 - [x] ~~Add the released aggregate Full tune capture/save choice, reusing current typed captures and naming unavailable/omitted contents.~~ [Increment 25](native/ui/validation/2026-11-13-parity-twenty-fifth-increment.md): current-request capture, independent partial-family tests and exact-target read-only 3070 Ti capture pass; controller physical response remains separately scoped.
 - [x] ~~Restore remembered nvtune registration, Forget with fallback discovery, and the released test-signing setup/status/actions. Keep boot changes and reboot explicit.~~ [Increment 25](native/ui/validation/2026-11-13-parity-twenty-fifth-increment.md): config/discovery, worker attribution, partial failures and explicit action UI pass through injected OS boundaries. This machine's boot configuration was not changed.
 
@@ -77,7 +77,7 @@ Source trace and acceptance boundary: [released-parity reconciliation](native/ui
 
 Use the released source and the original reviews to find concrete omissions. Do not convert unsupported release behavior or speculative combinations into new implementation tasks.
 
-- [ ] After disk-history integration, finish acceptance of every applicable original-review row and advertised profile scope against current behavior and evidence. The [source reconciliation](native/ui/validation/2026-11-13-released-parity-reconciliation.md) records the concrete omissions found before increment 25. The [historical profile audit](native/ui/validation/2026-11-13-profile-scope-gap-map.md) predates completed imports; do not reopen those implementations or count the remaining provider-dependent scopes as ported.
+- [x] ~~After disk-history integration, finish acceptance of every applicable original-review row and advertised profile scope against current behavior and evidence.~~ [Increment 26](native/ui/validation/2026-11-13-parity-twenty-sixth-increment.md) and the [completion ledger](native/ui/validation/PARITY-COMPLETION.md) record final acceptance. The [historical profile audit](native/ui/validation/2026-11-13-profile-scope-gap-map.md) predates completed imports; deferred provider-dependent scopes remain unqualified, rather than counted as ported.
 
 ## Completed implementation checkpoints
 

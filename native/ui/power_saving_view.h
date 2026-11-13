@@ -8,6 +8,7 @@ struct PowerSavingIntent {
     enum class Operation {read,apply,restore_initial,undo,recover,save_profile,load_profile,release_owned};
     Operation operation=Operation::read;uint32_t families=31;
     std::vector<PowerSavingRequest> requests;std::vector<PowerSavingKey> selection;
+    bool lifecycle_release=false;
 };
 struct PowerSavingDraft {PowerSavingKey key;std::array<char,32> text{};bool dirty=false,include=false;std::string binding;std::optional<uint32_t> expected;};
 struct PowerSavingViewState {bool initialized=false;uint64_t generation=0;std::vector<PowerSavingDraft> drafts;std::vector<PowerSavingRequest> staged;std::string status;};

@@ -172,6 +172,7 @@ struct Command {
     std::shared_ptr<const std::vector<PowerIntegralKey>> integral_selection;
     std::shared_ptr<const VoltagePolicyRequest> voltage_policy;
     uint32_t saving_families=31,clock_families=15;
+    bool saving_lifecycle_release=false;
     std::shared_ptr<const std::vector<PowerSavingRequest>> power_saving_requests;
     std::shared_ptr<const std::vector<PowerSavingKey>> power_saving_selection;
     std::shared_ptr<const std::vector<ClockGatingRequest>> clock_gating_requests;

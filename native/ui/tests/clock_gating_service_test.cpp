@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <stdexcept>
 using namespace druta::ui;
 static unsigned checks=0;
 #define CHECK(x) do{++checks;if(!(x)){std::fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,#x);std::abort();}}while(false)
@@ -84,7 +85,25 @@ static void opposing_modes(){
  fresh();{ClockGatingService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read();CHECK(service.apply(request(service,Family::engine,Mode::disabled)).ok);const auto plan=service.preview({request(service,Family::engine,Mode::enabled)});ClockGatingReceipt receipt;const auto allocated=allocations;free_after_delete_error=true;const auto result=service.apply_profile(plan,[&](const auto& r){receipt=r;});CHECK(!result.ok&&result.may_have_changed&&objects.empty()&&allocations==allocated&&service.needs_cleanup());const auto freed=frees,issued=requests;CHECK(!service.restore(receipt).ok&&!service.close().ok&&frees==freed&&requests==issued);}
  fresh();{ClockGatingService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read();ClockGatingReceipt initial,flip;CHECK(service.apply_profile(service.preview({request(service,Family::engine,Mode::disabled)}),[&](const auto& r){initial=r;}).ok);reject_arb=false;const auto result=service.apply_profile(service.preview({request(service,Family::engine,Mode::enabled)}),[&](const auto& r){flip=r;});CHECK(!result.ok&&result.may_have_changed&&service.state().families[0].uncertain&&objects.size()==1);reject_arb=true;CHECK(service.restore(flip).ok&&service.verify(initial).ok&&service.state().families[0].mode==Mode::disabled);CHECK(service.restore(initial).ok&&objects.empty());}
 }
+static void standalone_history(){
+ fresh();{ClockGatingService s(api(),reinterpret_cast<dc_gpu*>(1),device);unsigned captures=0;s.set_history_callback([&]{++captures;CHECK(pcie_sets==0&&allocations==0);});s.read();
+  CHECK(s.apply(request(s,Family::pcie,Mode::released,1)).ok&&captures==0);CHECK(!s.apply(request(s,Family::pcie,Mode::released,5)).ok&&captures==0);
+  CHECK(s.apply(request(s,Family::pcie,Mode::released,2)).ok&&captures==1&&pcie_sets==1);CHECK(s.apply(request(s,Family::pcie,Mode::released,2)).ok&&captures==1);
+  s.set_history_callback([&]{++captures;throw std::runtime_error("History storage failed");});const auto writes=pcie_sets;
+  CHECK(!s.apply(request(s,Family::pcie,Mode::released,3)).ok&&captures==2&&pcie_sets==writes);CHECK(s.undo().ok&&pcie_target==1&&captures==2);
+  s.set_history_callback([&]{++captures;});CHECK(s.apply(request(s,Family::pcie,Mode::released,2)).ok&&captures==3);
+  CHECK(s.restore_initial(Family::pcie).ok&&captures==4&&pcie_target==1);CHECK(s.undo().ok&&captures==4&&pcie_target==2);CHECK(s.close().ok&&captures==4);
+ }
+ fresh();{ClockGatingService s(api(),reinterpret_cast<dc_gpu*>(1),device);s.read();unsigned captures=0;s.set_history_callback([&]{++captures;CHECK(allocations==0&&objects.empty()&&!s.needs_cleanup());throw std::runtime_error("Required snapshot failed");});
+  CHECK(!s.apply(request(s,Family::engine,Mode::disabled)).ok&&captures==1&&allocations==0&&requests==0&&!s.needs_cleanup());
+  s.set_history_callback([&]{++captures;CHECK(allocations==0&&objects.empty());});
+  CHECK(s.apply(std::vector<ClockGatingRequest>{request(s,Family::engine,Mode::disabled),request(s,Family::pcie,Mode::released,2)}).ok&&captures==2);
+  CHECK(s.apply(request(s,Family::engine,Mode::disabled)).ok&&captures==2);s.set_history_callback([&]{++captures;CHECK(!objects.empty());});
+  CHECK(s.restore_initial(Family::engine).ok&&captures==3&&objects.empty());CHECK(s.close().ok&&captures==3);
+ }
+}
 int main(){
+ standalone_history();
  opposing_modes();
  catalog_contract();
  fresh();{ClockGatingService service(api(),reinterpret_cast<dc_gpu*>(1),device);service.read();auto python=python_clock_profile("lowpower_requests");CHECK(describe_clock_gating_profile(python).targets==std::vector<std::string>{"clock-gating:0"});auto staged=stage_clock_gating_profile(python,service.state());CHECK(staged.size()==1&&staged[0].mode==Mode::disabled&&staged[0].binding==service.state().families[0].binding&&allocations==0);auto wrong=python;wrong["lowpower_requests"]["identity"]["subsystem_id"]=3;rejects([&]{stage_clock_gating_profile(wrong,service.state());});wrong=python;wrong["lowpower_requests"]["kind"]="blcg";wrong["lowpower_requests"]["mode"]="enabled";rejects([&]{describe_clock_gating_profile(wrong);});wrong=python;wrong["lowpower_requests"]["kind"]="individual";wrong["lowpower_requests"]["index"]=4;rejects([&]{stage_clock_gating_profile(wrong,service.state());});

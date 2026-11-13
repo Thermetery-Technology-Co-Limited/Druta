@@ -177,12 +177,19 @@ struct App {
     std::optional<CatalogPending> capture_pending;
     std::optional<druta::ui::Command> capture_after_prepare;
     std::future<std::vector<druta::ui::ProfileLibraryEntry>> library_read;
+    std::optional<uint64_t> history_stage_generation;
+    bool library_read_for_history=false;
     druta::ui::TimingSetupHost timing_setup;
     std::optional<std::pair<uint64_t,uint64_t>> weight_prepare_pending;
     std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
     druta::ui::PolicyAnnotationCommits annotation_commits;
     uint64_t annotation_generation=0,annotation_action_log=0;
     std::string annotation_status;
+    bool submit_command(druta::ui::Command command,uint64_t generation) {
+        if(!command.annotation_snapshot)
+            command.annotation_snapshot=std::make_shared<const druta::ui::PolicyAnnotations>(view.policy_annotations);
+        return session&&session->submit(std::move(command),generation);
+    }
     void consume_annotation_completions() {
         using namespace druta::ui;
         if(!session)return;const auto current=session->snapshot();
@@ -224,7 +231,7 @@ struct App {
         }
         if(timing_auto.observe(enabled,false,observation)) {
             Command command;command.operation=Command::Operation::timings_read;
-            if(!session->submit(command,snapshot->generation))timing_auto.reset();
+            if(!submit_command(command,snapshot->generation))timing_auto.reset();
         }
     }
     static std::string path_utf8(const std::wstring& path) {
@@ -288,7 +295,7 @@ struct App {
                 }
                 command.profile_path=path;
             }
-            if(!session->submit(command,before->generation))throw std::runtime_error("Session is busy or changed; retry the voltage operation");
+            if(!submit_command(command,before->generation))throw std::runtime_error("Session is busy or changed; retry the voltage operation");
             status=save?"Capturing selected requests; save result appears in the operation log.":"Operation queued; see the operation log.";
         }catch(const std::exception& e){status=e.what();}
     }
@@ -309,7 +316,7 @@ struct App {
                     return;
                 }command.profile_path=path;
             }
-            if(!session->submit(command,before->generation))throw std::runtime_error("Session busy or changed; retry the operation");
+            if(!submit_command(command,before->generation))throw std::runtime_error("Session busy or changed; retry the operation");
             status="Operation queued; see operation log.";
         }catch(const std::exception& e){status=e.what();}
     }
@@ -330,7 +337,7 @@ struct App {
             const bool save=intent.operation==VoltagePolicyIntent::Operation::save_profile;std::wstring path;
             if(!selected_profile_path(save,before->generation,path))continue;
             if(save){Command c;c.operation=Command::Operation::voltage_policy_save;c.profile_path=path;c.voltage_policy=std::make_shared<const VoltagePolicyRequest>(intent.request);
-                if(!session->submit(c,before->generation))throw std::runtime_error("Session changed or busy");status="Capturing selected requests; see operation log.";
+                if(!submit_command(c,before->generation))throw std::runtime_error("Session changed or busy");status="Capturing selected requests; see operation log.";
             }else{const auto document=read_profile(path);const auto current=session->snapshot();
                 if(current->generation!=before->generation||!current->data.voltage_policies)throw std::runtime_error("Session changed or policy readings unavailable");
                 stage_voltage_policy_document(view.voltage_policy_view,document,*current->data.voltage_policies);
@@ -352,14 +359,14 @@ struct App {
             case PowerIntegralAction::recover_profile:c.operation=Command::Operation::power_integral_recover_profile;break;
             default:throw std::runtime_error("Unknown feedback profile action");
             }
-            if(!session->submit(c,before->generation))throw std::runtime_error("Session changed or busy");status="Operation queued; see operation log.";
+            if(!submit_command(c,before->generation))throw std::runtime_error("Session changed or busy");status="Operation queued; see operation log.";
         }catch(const std::exception& e){status=e.what();}}
     }
     void consume_saving_controls(){
         using namespace druta::ui;
         const auto saving=std::move(view.power_saving_intents);view.power_saving_intents.clear();
         for(const auto& intent:saving){
-            Command command;command.saving_families=intent.families;command.power_saving_requests=std::make_shared<const std::vector<PowerSavingRequest>>(intent.requests);command.power_saving_selection=std::make_shared<const std::vector<PowerSavingKey>>(intent.selection);bool save=false,load=false;
+            Command command;command.saving_families=intent.families;command.saving_lifecycle_release=intent.lifecycle_release;command.power_saving_requests=std::make_shared<const std::vector<PowerSavingRequest>>(intent.requests);command.power_saving_selection=std::make_shared<const std::vector<PowerSavingKey>>(intent.selection);bool save=false,load=false;
             switch(intent.operation){
             case PowerSavingIntent::Operation::read:command.operation=Command::Operation::power_saving_read;break;
             case PowerSavingIntent::Operation::apply:command.operation=Command::Operation::power_saving_apply;break;
@@ -428,6 +435,7 @@ struct App {
     void refresh_profile_library() {
         if(library_read.valid())return;
         view.profile_catalog_view.library_loading=true;
+        library_read_for_history=history_stage_generation.has_value();
         const HWND notify=window;
         library_read=std::async(std::launch::async,[notify]{
             try {auto entries=druta::ui::list_profile_library(druta::ui::discover_profile_directories());PostMessageW(notify,WM_NULL,0,0);return entries;}
@@ -437,8 +445,23 @@ struct App {
     void poll_profile_library() {
         using namespace druta::ui;
         if(library_read.valid()&&library_read.wait_for(std::chrono::seconds(0))==std::future_status::ready){
-            try{auto entries=library_read.get();const auto count=entries.size();record_profile_library(view.profile_catalog_view,std::move(entries),std::to_string(count)+" saved entries");}
-            catch(const std::exception& e){view.profile_catalog_view.library_loading=false;view.profile_catalog_view.library_status=e.what();}
+            try{
+                auto entries=library_read.get();const auto count=entries.size();record_profile_library(view.profile_catalog_view,std::move(entries),std::to_string(count)+" saved entries");
+                if(library_read_for_history&&history_stage_generation){
+                    const auto expected=*history_stage_generation;history_stage_generation.reset();
+                    if(session&&session->snapshot()->generation==expected)
+                        stage_newest_profile_history(view.profile_catalog_view);
+                    else view.profile_catalog_view.status="Adapter changed while reading history; choose Undo from history again.";
+                }
+            }
+            catch(const std::exception& e){
+                view.profile_catalog_view.library_loading=false;view.profile_catalog_view.library_status=e.what();
+                if(library_read_for_history){history_stage_generation.reset();view.profile_catalog_view.status=std::string("History could not be read: ")+e.what();}
+            }
+            library_read_for_history=false;
+            // A history click during an older library refresh needs its own fresh
+            // listing, so a snapshot created since that read is not missed.
+            if(history_stage_generation)refresh_profile_library();
             policy.note_activity(now_seconds());
         }
         if(!capture_pending||!session)return;
@@ -451,7 +474,7 @@ struct App {
             if(snapshot->last_action_operation==Command::Operation::i2c_prepare_profile&&snapshot->last_action_ok&&
                command.i2c_selection_revision==snapshot->data.i2c.selection_revision){
                 command.i2c_preset_revision=snapshot->data.i2c.prepared_preset_revision;
-                if(session->submit(command,snapshot->generation)){capture_pending=CatalogPending{snapshot->generation,snapshot->completed_actions,command.operation,{}};return;}
+                if(submit_command(command,snapshot->generation)){capture_pending=CatalogPending{snapshot->generation,snapshot->completed_actions,command.operation,{}};return;}
             }
             view.profile_catalog_view.status="iCX capture did not complete; no named file saved. See operation log.";return;
         }
@@ -481,10 +504,20 @@ struct App {
                 }
                 record_profile_catalog_preflight(workspace,pending.generation,pending.document,
                     pending.operation==Command::Operation::preflight_catalog_profile && ok,message);
+                if(pending.operation==Command::Operation::apply_catalog_profile)refresh_profile_library();
             }
         }
         const auto intents=std::move(view.profile_catalog_intents); view.profile_catalog_intents.clear();
         for(const auto& intent:intents) try {
+            if(intent.operation==ProfileCatalogIntent::Operation::stage_newest_history){
+                workspace.open=true;workspace.staged.reset();workspace.preflight_ok=false;
+                history_stage_generation=snapshot->generation;
+                // Each click asks for a listing started after that click, including
+                // when an earlier history request is already being read.
+                if(library_read.valid())library_read_for_history=false;
+                workspace.status="Reading newest Undo snapshot; no settings applied";
+                refresh_profile_library();continue;
+            }
             if(intent.operation==ProfileCatalogIntent::Operation::refresh_library){refresh_profile_library();continue;}
             if(intent.operation==ProfileCatalogIntent::Operation::save_named||
                (intent.operation==ProfileCatalogIntent::Operation::save_capture&&intent.scope==ProfileScope::full_tune)){
@@ -497,7 +530,7 @@ struct App {
                 }else if(!selected_profile_path(true,snapshot->generation,command.profile_path))continue;
                 auto queued=command;
                 if(command.operation==Command::Operation::i2c_save_profile)queued.operation=Command::Operation::i2c_prepare_profile;
-                if(!session->submit(queued,snapshot->generation))throw std::runtime_error("Session changed or busy; capture was not queued");
+                if(!submit_command(queued,snapshot->generation))throw std::runtime_error("Session changed or busy; capture was not queued");
                 if(command.operation==Command::Operation::i2c_save_profile)capture_after_prepare=command;
                 capture_pending=CatalogPending{snapshot->generation,snapshot->completed_actions,queued.operation,{}};
                 workspace.status="Capturing configured requests; no tuning applied";continue;
@@ -509,7 +542,7 @@ struct App {
                 case ProfileScope::scoped:{
                     view.scoped_profile_view.open=true;
                     Command command;command.operation=Command::Operation::prepare_scoped_profile;
-                    if(!session->submit(command,snapshot->generation)) throw std::runtime_error("Session is busy; retry capture.");
+                    if(!submit_command(command,snapshot->generation)) throw std::runtime_error("Session is busy; retry capture.");
                     workspace.status="Choose fields in Rail/power profiles, then Save selected requests.";break;
                 }
                 case ProfileScope::voltage_policy:view.page=Page::advanced;view.open_voltage_policy_requested=true;workspace.open=false;break;
@@ -521,7 +554,7 @@ struct App {
                 case ProfileScope::timing:view.timing_save_profile_requested=true;break;
                 case ProfileScope::icx:view.i2c_save_profile_requested=true;break;
                 case ProfileScope::fan:{std::wstring path;if(!selected_profile_path(true,snapshot->generation,path))break;
-                    Command c;c.operation=Command::Operation::save_fan_profile;c.profile_path=path;if(!session->submit(c,snapshot->generation))throw std::runtime_error("Session changed or busy");workspace.status="Capturing individual fan requests; see operation log.";break;}
+                    Command c;c.operation=Command::Operation::save_fan_profile;c.profile_path=path;if(!submit_command(c,snapshot->generation))throw std::runtime_error("Session changed or busy");workspace.status="Capturing individual fan requests; see operation log.";break;}
                 default:throw std::runtime_error("Choose a supported capture scope.");
                 }
                 continue;
@@ -532,7 +565,7 @@ struct App {
                 command.catalog_profile=std::make_shared<const ProfileJson>(intent.document);
                 command.annotation_snapshot=std::make_shared<const PolicyAnnotations>(view.policy_annotations);
                 const auto before=session->snapshot();
-                if(before->generation!=workspace.generation || !session->submit(command,before->generation)) throw std::runtime_error("GPU session changed or is busy; run preflight again.");
+                if(before->generation!=workspace.generation || !submit_command(command,before->generation)) throw std::runtime_error("GPU session changed or is busy; run preflight again.");
                 catalog_pending=CatalogPending{before->generation,before->completed_actions,command.operation,intent.document};
                 workspace.preflight_ok=false;
                 workspace.status=intent.operation==ProfileCatalogIntent::Operation::preflight ? "Checking all selected scopes; no writes." : "Applying selected scopes; see operation log.";
@@ -574,7 +607,7 @@ struct App {
             druta::ui::Command c;c.operation=save?druta::ui::Command::Operation::i2c_save_profile:druta::ui::Command::Operation::i2c_load_profile;
             c.profile_path=path;c.i2c_route=data.selected;c.i2c_family=data.family;
             c.i2c_selection_revision=data.selection_revision;c.i2c_preset_revision=data.prepared_preset_revision;
-            session->submit(c,snapshot.generation);
+            submit_command(c,snapshot.generation);
         } else if(const auto error=CommDlgExtendedError()) {
             const auto message=L"The iCX preset dialog could not open (Windows error "+std::to_wstring(error)+L").";
             MessageBoxW(window,message.c_str(),L"Druta",MB_OK|MB_ICONERROR);
@@ -736,7 +769,7 @@ struct App {
                 if(intent.operation!=PowerWeightsIntent::Operation::verify&&!view.controls_unlocked)throw std::runtime_error("Unlock controls before activation or removal");
                 handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply);continue;
             }
-            if(!session->submit(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
+            if(!submit_command(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
             if(intent.operation==PowerWeightsIntent::Operation::prepare){weight_prepare_pending={{current->generation,current->completed_actions}};view.power_weights_view.status="Saving the recovery record before activation...";}
         }catch(const std::exception& e){view.power_weights_view.status=e.what();}
     }
@@ -794,7 +827,7 @@ struct App {
                     const auto& snap=*view.live;druta::ui::Command c;c.operation=druta::ui::Command::Operation::i2c_prepare_profile;
                     c.i2c_route=snap.data.i2c.selected;c.i2c_family=snap.data.i2c.family;c.i2c_selection_revision=snap.data.i2c.selection_revision;
                     i2c_save_generation=snap.generation;i2c_save_selection=c.i2c_selection_revision;i2c_save_action=snap.completed_actions;
-                    i2c_save_waiting=session->submit(c,snap.generation);
+                    i2c_save_waiting=submit_command(c,snap.generation);
                 } else i2c_profile_dialog(false,*view.live);
             }
         }
@@ -820,7 +853,7 @@ struct App {
                         auto request=std::make_shared<druta::ui::TimingEditorRequest>(); request->fields=staged;
                         druta::ui::Command command; command.operation=druta::ui::Command::Operation::timings_save_profile;
                         command.profile_path=path; command.timing_editor=std::move(request);
-                        if (!session->submit(command,before->generation)) throw std::runtime_error("Session is busy; timings were not saved");
+                        if (!submit_command(command,before->generation)) throw std::runtime_error("Session is busy; timings were not saved");
                         view.timings_view.message="Capturing timings; save result appears in the operation log.";
                     } else {
                         const auto document=druta::ui::read_profile(path);
@@ -851,7 +884,7 @@ struct App {
                 command.operation = save ? druta::ui::Command::Operation::save_profile
                                          : druta::ui::Command::Operation::load_profile;
                 command.profile_path = path;
-                session->submit(command, view.live->generation);
+                submit_command(command, view.live->generation);
             } else if (const auto error = CommDlgExtendedError()) {
                 const std::wstring message = L"The profile dialog could not open (Windows error " + std::to_wstring(error) + L").";
                 MessageBoxW(window, message.c_str(), L"Druta", MB_OK | MB_ICONERROR);
@@ -878,7 +911,7 @@ struct App {
                         druta::ui::Command command; command.operation = druta::ui::Command::Operation::save_scoped_profile;
                         command.profile_path = path; command.scoped_profile = std::move(request);
                         const auto action_baseline = session->snapshot();
-                        if (!session->submit(command, before->generation)) throw std::runtime_error("Session is busy; profile was not saved");
+                        if (!submit_command(command, before->generation)) throw std::runtime_error("Session is busy; profile was not saved");
                         druta::ui::mark_scoped_profile_pending(workspace, *action_baseline, command.operation, true);
                         workspace.status = "Capturing selected requests; save result appears in the operation log.";
                     } else {
@@ -910,7 +943,7 @@ struct App {
                     if (save) {
                         druta::ui::Command command; command.operation = druta::ui::Command::Operation::save_curve_profile;
                         command.profile_path = path;
-                        if (!session->submit(command, generation)) throw std::runtime_error("Session is busy; curve profile was not saved");
+                        if (!submit_command(command, generation)) throw std::runtime_error("Session is busy; curve profile was not saved");
                         view.curve_profile_status = "Capturing configured curve; outcome appears in the operation log.";
                     } else {
                         if (view.curve_entry_dirty) throw std::runtime_error("Finish or revert the current numeric curve edit before loading");
@@ -939,7 +972,7 @@ struct App {
         }
         if (view.live) for (const auto& command : view.commands) {
             const auto baseline = session->snapshot();
-            if (session->submit(command, view.live->generation) &&
+            if (submit_command(command, view.live->generation) &&
                 (command.operation == druta::ui::Command::Operation::prepare_scoped_profile || command.operation == druta::ui::Command::Operation::apply_scoped_profile))
                 druta::ui::mark_scoped_profile_pending(view.scoped_profile_view, *baseline, command.operation, true);
         }
@@ -1201,7 +1234,10 @@ struct Smoke {
             const druta::ui::ProfileJson example={{"schema",2},{"saved_at","2026-11-13"},{"saved_ts",1},{"device",{{"name","Read-only import example"},{"uuid","GPU-example"},{"slot","0000:06:00.0"}}},{"incomplete",druta::ui::ProfileJson::array()},{"mem_off_units",160},{"mem_off_true_mhz",10},{"mem_off_scale",16},{"vf_deltas",{{"0",15000},{"2",30000}}}};
             druta::ui::add_profile_catalog_item(app.view.profile_catalog_view,"smoke-only-full-tune","Python full tune (read-only example)",example);
         }
-        if (phase == 13) app.view.presentation=druta::ui::Presentation::classic;
+        if (phase == 13) {
+            app.view.presentation=druta::ui::Presentation::classic;
+            if(live)app.view.profile_catalog_intents.push_back({druta::ui::ProfileCatalogIntent::Operation::stage_newest_history,{},{},{}});
+        }
         if (phase == 14) {app.view.profile_catalog_view.open=false;app.view.policy_workspace.open=true;app.view.presentation=druta::ui::Presentation::focused;}
         if (phase == 15) {app.view.policy_workspace.open=false;app.view.page=druta::ui::Page::timings;app.view.presentation=druta::ui::Presentation::classic;}
         if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=true;}

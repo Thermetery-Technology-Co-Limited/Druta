@@ -74,6 +74,7 @@ double power_integral_raw_to_percent(uint16_t raw);
 class PowerIntegralService {
 public:
     PowerIntegralService(PowerIntegralApi api,dc_gpu* gpu,const dc_gpu_identity& identity);
+    void set_history_callback(std::function<void()> callback);
     PowerIntegralData read();
     PowerIntegralResult apply(uint32_t policy,PowerIntegralField field,uint32_t raw,std::optional<uint16_t> expected={});
     PowerIntegralResult restore(uint32_t policy,PowerIntegralField field);
@@ -94,6 +95,7 @@ private:
         std::optional<uint16_t> pending_before,pending_after;
     };
     PowerIntegralApi api_;dc_gpu* gpu_;std::optional<dc_target> target_;
+    std::function<void()> history_callback_;
     dc_gpu_identity identity_{};
     PowerIntegralData data_;
     std::array<std::array<Owned,2>,32> owned_{};

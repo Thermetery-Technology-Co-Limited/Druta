@@ -52,6 +52,7 @@ class ClockGatingService {
 public:
     ClockGatingService(ClockGatingApi,dc_gpu*,const dc_gpu_identity&);
     ~ClockGatingService(); // host calls close before freeing GPU; no destructor replay
+    void set_history_callback(std::function<void()>); // standalone explicit effects only
     const ClockGatingData& read(uint32_t families=15);
     // Qualified opposing ELCG/SLCG modes release the witnessed own request,
     // verify its release, then freshly qualify and acquire the new mode.

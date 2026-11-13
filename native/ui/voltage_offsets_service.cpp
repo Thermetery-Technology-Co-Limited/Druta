@@ -33,7 +33,7 @@ struct Record {VoltageOffsetRequest request;uint32_t index=0;int64_t before=0;};
 struct VoltageOffsetsPlan::State {std::shared_ptr<int> session;std::shared_ptr<const VoltageOffsetSnapshot> original;std::vector<VoltageOffsetRequest> requests;};
 struct VoltageOffsetsReceipt::State {std::shared_ptr<int> session;std::shared_ptr<const VoltageOffsetSnapshot> original;std::vector<VoltageOffsetRequest> selected;std::vector<Record> records;std::shared_ptr<State> previous;bool complete=false,pending=false;};
 struct VoltageOffsetsService::Impl {
- VoltageOffsetsApi api;dc_gpu* gpu;dc_gpu_identity identity;VoltageOffsetsData data;std::shared_ptr<int> session=std::make_shared<int>(0);std::shared_ptr<VoltageOffsetsReceipt::State> undo;
+ VoltageOffsetsApi api;dc_gpu* gpu;dc_gpu_identity identity;VoltageOffsetsData data;std::function<void()> history;std::shared_ptr<int> session=std::make_shared<int>(0);std::shared_ptr<VoltageOffsetsReceipt::State> undo;
  Impl(VoltageOffsetsApi value,dc_gpu* handle,const dc_gpu_identity& id):api(std::move(value)),gpu(handle),identity(id){data.identity=id;}
  VoltagePolicyApi& transport_api(){return api.transport.transport;}
  dc_target bind(){auto& a=transport_api();if(!a.identity||!a.bind||!a.architecture_supported)fail("Offset target interfaces unavailable",A::unsupported);dc_gpu_identity current{};current.size=sizeof(current);const auto status=a.identity(gpu,&current);if(status!=DC_OK)fail("Offset identity read unavailable",status==DC_E_ARGUMENT?A::invalid:A::transient);
@@ -96,7 +96,8 @@ VoltageOffsetsPlan VoltageOffsetsService::preview(const std::vector<VoltageOffse
   auto state=std::make_shared<VoltageOffsetsPlan::State>();state->session=p.session;state->original=current;state->requests=requests;result.state=std::move(state);result.ok=true;result.message="All selected signed offset requests preflighted; Apply remains explicit";p.publish(*current);
  }catch(const std::exception& error){result.message=error.what();}p.flags();return result;
 }
-VoltageOffsetsResult VoltageOffsetsService::apply(const std::vector<VoltageOffsetRequest>& requests){const auto plan=preview(requests);if(!plan.ok)return {false,false,false,plan.message};return apply_profile(plan);}
+VoltageOffsetsResult VoltageOffsetsService::apply(const std::vector<VoltageOffsetRequest>& requests){const auto plan=preview(requests);if(!plan.ok)return {false,false,false,plan.message};bool captured=false;return apply_profile(plan,[&](const VoltageOffsetsReceipt&){if(!captured&&impl_->history){impl_->history();captured=true;}});}
+void VoltageOffsetsService::set_history_callback(std::function<void()> callback){impl_->history=std::move(callback);}
 VoltageOffsetsResult VoltageOffsetsService::apply_profile(const VoltageOffsetsPlan& plan,const std::function<void(const VoltageOffsetsReceipt&)>& journal){auto& p=*impl_;VoltageOffsetsResult result;Guard guard(p.transport_api(),p.gpu);if(!guard.held){result.message="Offset Apply lock unavailable";return result;}
  std::shared_ptr<VoltageOffsetsReceipt::State> receipt;bool dispatched=false,appended=false;
  try{require(plan.ok&&plan.state&&plan.state->session==p.session&&plan.state->original,"Offset plan belongs to another session");require(!(p.undo&&p.undo->pending),"Resolve uncertain offset requests first");const auto current=p.fresh();p.compare_selected(*current,*plan.state,false);for(const auto& request:plan.state->requests)p.selected(*current,request);

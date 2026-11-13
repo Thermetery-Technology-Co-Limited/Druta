@@ -25,7 +25,7 @@ struct ProfileCatalogViewState {
     std::string status;
 };
 struct ProfileCatalogIntent {
-    enum class Operation {choose_files,save_capture,save_composed,preflight,apply,refresh_library,save_named};
+    enum class Operation {choose_files,save_capture,save_composed,preflight,apply,refresh_library,save_named,stage_newest_history};
     Operation operation=Operation::choose_files;
     ProfileScope scope=ProfileScope::daily;
     ProfileJson document;
@@ -39,6 +39,8 @@ void add_profile_catalog_item(ProfileCatalogViewState& state,const std::string& 
 bool stage_profile_catalog_selection(ProfileCatalogViewState& state);
 void record_profile_library(ProfileCatalogViewState&,std::vector<ProfileLibraryEntry>,const std::string& status={});
 bool stage_profile_library_item(ProfileCatalogViewState&,const std::string& id);
+// Clear any previous staged profile and stage only the newest autosave.
+bool stage_newest_profile_history(ProfileCatalogViewState&);
 void record_profile_catalog_preflight(ProfileCatalogViewState& state,uint64_t generation,const ProfileJson& document,bool ok,const std::string& message);
 ProfileCatalogViewOutput draw_profile_catalog_workspace(ProfileCatalogViewState& state,uint64_t generation,bool busy,bool unlocked);
 }

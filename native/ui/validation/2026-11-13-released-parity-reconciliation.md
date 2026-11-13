@@ -9,11 +9,14 @@ Python line references below are pinned to `fa6ee83`; native references describe
 this integration working tree. No build, GPU operation or OS configuration change
 was performed for this reconciliation.
 
-Subsequent status: [increment 25](2026-11-13-parity-twenty-fifth-increment.md)
+Final status: [increment 25](2026-11-13-parity-twenty-fifth-increment.md)
 implements aggregate Full tune capture, profile browsing/storage and remembered
-nvtune/Forget/test-signing setup. Automatic prewrite producers and newest-history
-Undo remain open. The source findings below preserve the pre-increment-25 audit;
-the [backlog](../../../backlog.md) is the current open-item list.
+nvtune/Forget/test-signing setup. [Increment 26](2026-11-13-parity-twenty-sixth-increment.md)
+integrates automatic prewrite producers, required timing backups and explicit
+newest-history Undo, with 157 passing tests and 23 live renderer phases. All three
+concrete omissions below are now implemented and verified within the documented
+scope. The source findings below preserve the pre-increment-25 audit; the
+[backlog](../../../backlog.md) records 0 active parity items and 8 deferred items.
 
 ## Original review mapping
 
@@ -122,5 +125,7 @@ narrow authorized persistent relationship-weight exception.
 No physical voltage, controller, timing, weight activation/removal or restart
 qualification is established by this reconciliation. The original inventories
 and profile audit are historical source maps, not current lists of absent
-services. Overall parity remains open for the three workflows above and
-their final integrated acceptance.
+services. At the time of this pre-increment-25 audit, parity remained open for
+the three workflows above and their final integrated acceptance. Their completion
+is recorded in the final status at the top and increment 26; the deferred
+qualification limits are unchanged.

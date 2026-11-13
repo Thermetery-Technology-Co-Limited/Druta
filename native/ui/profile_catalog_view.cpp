@@ -34,6 +34,14 @@ bool stage_profile_library_item(ProfileCatalogViewState& state,const std::string
  add_profile_catalog_item(state,found->id,found->name,*found->document);for(auto& item:state.items)item.included=item.id==id;
  return stage_profile_catalog_selection(state);
 }
+bool stage_newest_profile_history(ProfileCatalogViewState& state){
+ state.staged.reset();state.preflight_ok=false;for(auto& item:state.items)item.included=false;
+ const auto* newest=newest_profile_autosave(state.library);if(!newest){state.status="No Undo snapshots found.";return false;}
+ const auto name=newest->name;if(!newest->error.empty()||!newest->document){state.status="Newest Undo snapshot '"+name+"' is unreadable: "+(newest->error.empty()?std::string("no profile document"):newest->error);return false;}
+ const auto description=inspect_profile(*newest->document);if(!description.valid){state.status="Newest Undo snapshot '"+name+"' cannot be staged: "+description.error;return false;}
+ if(!stage_profile_library_item(state,newest->id)){state.status="Newest Undo snapshot '"+name+"' cannot be staged: "+state.status;return false;}
+ state.status="Newest Undo snapshot '"+name+"' staged. Preflight and Apply remain explicit.";return true;
+}
 void record_profile_catalog_preflight(ProfileCatalogViewState& state,uint64_t generation,const ProfileJson& document,bool ok,const std::string& message){
  if(state.generation!=generation||!state.staged||*state.staged!=document)return;
  state.preflight_ok=ok;state.status=message;
@@ -58,6 +66,7 @@ ProfileCatalogViewOutput draw_profile_catalog_workspace(ProfileCatalogViewState&
  ImGui::TextWrapped("Read-only capture. Select rail/power, policy, feedback and timing fields in their editors.");
  ImGui::PopStyleColor();
  ImGui::Separator();
+ ImGui::BeginDisabled(busy||state.library_loading);if(ImGui::Button("Undo from history...")){state.staged.reset();state.preflight_ok=false;for(auto& item:state.items)item.included=false;state.status="Refreshing history; no settings applied.";out.intents.push_back({ProfileCatalogIntent::Operation::stage_newest_history,{},{},{}});}ImGui::EndDisabled();
  ImGui::TextUnformatted("Saved profiles / Undo snapshots");ImGui::SameLine();ImGui::BeginDisabled(state.library_loading);if(ImGui::Button("Refresh saved profiles")){state.library_loading=true;out.intents.push_back({ProfileCatalogIntent::Operation::refresh_library,{},{},{}});}ImGui::EndDisabled();
  if(ImGui::RadioButton("All",state.library_filter==ProfileLibraryFilter::all))state.library_filter=ProfileLibraryFilter::all;ImGui::SameLine();if(ImGui::RadioButton("Named",state.library_filter==ProfileLibraryFilter::named))state.library_filter=ProfileLibraryFilter::named;ImGui::SameLine();if(ImGui::RadioButton("Autosaves",state.library_filter==ProfileLibraryFilter::autosaves))state.library_filter=ProfileLibraryFilter::autosaves;
  if(state.library_loading)ImGui::TextDisabled("Reading saved profiles...");if(!state.library_status.empty())ImGui::TextWrapped("%s",state.library_status.c_str());

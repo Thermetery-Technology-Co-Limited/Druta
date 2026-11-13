@@ -14,17 +14,19 @@ recorded; deferred work is neither complete nor an active-session blocker.
 
 ## Current checkpoint and remaining parity
 
-[Increment 25](2026-11-13-parity-twenty-fifth-increment.md) adds the saved-profile
-browser and storage, aggregate Full tune capture and remembered nvtune/Forget/
-test-signing setup. All 155 tests and 23 live renderer phases pass. The exact-target
-read-only 3070 Ti capture parses with 16 semantic targets and no incomplete fields.
-No tuning or boot configuration was changed during this checkpoint.
+[Increment 26](2026-11-13-parity-twenty-sixth-increment.md) completes automatic
+prewrite snapshots, required captured timing backups and explicit newest-history
+Undo. Increment 25 supplied the profile browser/storage, aggregate Full tune
+capture and remembered nvtune/Forget/test-signing setup. All **157 tests and 23
+live renderer phases pass**. The exact-target read-only 3070 Ti capture parses
+with 16 semantic targets and no incomplete fields. No tuning or boot configuration
+was changed during this checkpoint.
 
-Of the three workflows found by the [source reconciliation](2026-11-13-released-parity-reconciliation.md),
-automatic disk snapshots and newest-history Undo still need integration. Browser
-and storage coverage does not complete those producers. The backlog has two
-active entries including final acceptance, 37 completed and eight deferred items.
-Overall parity remains open; broader hardware/layout qualification is deferred.
+All three concrete workflows found by the
+[source reconciliation](2026-11-13-released-parity-reconciliation.md) are integrated.
+Final review acceptance is complete within the user's released-parity scope:
+**0 active parity entries, 39 completed and 8 deferred items**. Broader physical,
+layout and legacy-Windows qualification remains deferred, not claimed complete.
 
 ## Required work
 
@@ -64,6 +66,8 @@ Overall parity remains open; broader hardware/layout qualification is deferred.
 | NCT3933 Zero all outputs, selected-field batch with stop-on-failure result | Implemented/tested in second checkpoint: ordered selected-field writes, stop/uncertain outcome and restoration tests; no live NCT write |
 | I2C remembered read-only discovery routes, progress and bounded cancellation | Implemented/tested in sixth: UUID/recipe-contract hints require fresh probe/read, Full scan bypasses hints, immutable worker progress and atomic Cancel, transactional selection and unverified partial candidates. No cached gates, verification or tuning replay; current 3070 Ti selection/read passed without owned requests |
 | Policy user annotations and reviewed Max-all with meaningful Undo | Seventh: binding-scoped free-text labels and reviewed selected policy maxima reuse whole preflight/readback/grouped Undo. Eighth adds source connector presets, guarded channel-shared labels, explicit Python name-store import and observed-current/per-wire coloring with an explicit even-split assumption |
+| Profile library, Full tune capture and helper/setup registration | Twenty-fifth: newest-first native/Python library, named saves, aggregate semantic capture, remembered nvtune/Forget and explicit test-signing UI. Read-only current-adapter capture passed; OS setup actions tested through injected boundaries |
+| Disk prewrite snapshots, required timing backup and newest-history Undo | Twenty-sixth: qualified semantic producers, released failure exceptions, one snapshot per group, reverse loads, separate durable timing backups and both-skin explicit newest staging. All 157 suites and 23 read-only renderer phases pass; [final evidence](2026-11-13-parity-twenty-sixth-increment.md) |
 
 ## Invariants and completion gate
 

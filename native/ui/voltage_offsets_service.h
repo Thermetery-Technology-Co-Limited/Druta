@@ -24,6 +24,7 @@ class VoltageOffsetsService {
 public:
  VoltageOffsetsService(VoltageOffsetsApi,dc_gpu*,const dc_gpu_identity&);
  ~VoltageOffsetsService(); // Never restores or writes from destruction.
+ void set_history_callback(std::function<void()> callback); // Standalone first SET only.
  const VoltageOffsetsData& read();const VoltageOffsetsData& state()const;
  VoltageOffsetsResult apply(const std::vector<VoltageOffsetRequest>&);
  VoltageOffsetsResult apply(const VoltageOffsetRequest& r){return apply(std::vector<VoltageOffsetRequest>{r});}

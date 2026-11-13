@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include "backend.h"
+#include "profile_history.h"
 #include "rail_controls.h"
 #include "i2c_session.h"
 #include "perf_view_model.h"
@@ -17,6 +18,7 @@
 namespace druta::ui {
 // Injected table also permits deterministic tests without loading a driver.
 struct CoreApi {
+    std::shared_ptr<ProfileHistorySink> history;
     FrequencyLockApi frequency{};
     PerfViewApi perf{};
     PowerArbitrationApi arbitration{};

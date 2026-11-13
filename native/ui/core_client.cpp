@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core_client.h"
 #include "fan_profile.h"
+#include "icx_preset.h"
 #include "profile_io.h"
 #include "voltage_offsets_profile.h"
 #include "voltage_offsets_capture.h"
@@ -27,6 +28,7 @@
 #include <set>
 #include <chrono>
 #include <ctime>
+#include <stdexcept>
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -55,6 +57,38 @@ class Client final : public IBackend {
     dc_gpu* gpu_ = nullptr;
     dc_gpu_identity opened_{};
     LiveData last_{};
+    struct HistoryFailure : std::runtime_error {using std::runtime_error::runtime_error;};
+    struct HistoryGroup {std::string action;std::function<ProfileJson()> capture;bool required=true,attempted=false;};
+    std::shared_ptr<HistoryGroup> history_group_;
+    unsigned history_depth_=0;bool history_suppressed_=false,history_attempted_=false,history_timing_pinned_=false;Command::Operation history_operation_=Command::Operation::apply;std::string history_warning_,history_backup_notice_,timing_backup_token_,timing_backup_path_;std::shared_ptr<const PolicyAnnotations> history_annotations_;
+    struct HistoryScope {
+        Client& client;std::shared_ptr<HistoryGroup> previous;
+        HistoryScope(Client& c,std::string action,std::function<ProfileJson()> capture,bool required):client(c),previous(c.history_group_){if(!previous)c.history_group_=std::make_shared<HistoryGroup>(HistoryGroup{std::move(action),std::move(capture),required,false});}
+        ~HistoryScope(){client.history_group_=previous;}
+    };
+    void before_history(const std::string& action,const std::function<ProfileJson()>& capture,bool required=true){
+        if(history_suppressed_||!api_.history||!api_.history->save)return;
+        std::string selected_action=action;auto selected_capture=capture;
+        if(!history_group_){if(history_attempted_)return;history_attempted_=true;}
+        if(history_group_){if(history_group_->attempted)return;history_group_->attempted=true;selected_action=history_group_->action;selected_capture=history_group_->capture;required=history_group_->required;}
+        try{const auto document=selected_capture();const bool incomplete=document.contains("incomplete")&&!document["incomplete"].empty();if(required&&incomplete)throw std::runtime_error("Selected reverse capture is incomplete");api_.history->save(selected_action,document);if(incomplete)history_warning_="Disk Undo snapshot is incomplete; this write is unprotected for the missing fields";}
+        catch(const std::exception& e){if(required)throw HistoryFailure(std::string("Could not save disk Undo; nothing written: ")+e.what());history_warning_=std::string("Could not save complete disk Undo; write continuing unprotected: ")+e.what();}
+    }
+    struct TimingHistoryScope {Client& client;bool prior;explicit TimingHistoryScope(Client& c):client(c),prior(c.history_timing_pinned_){c.history_timing_pinned_=true;}~TimingHistoryScope(){client.history_timing_pinned_=prior;}};
+    void ensure_timing_backup(bool pinned){
+        if(history_suppressed_||!api_.history)return;
+        try{
+            if(!timings_||!timing_transport_)throw std::runtime_error("Timing helper unavailable");
+            if(!pinned){std::string why;if(!timing_transport_->pin(why))throw std::runtime_error(why);struct Unpin{TimingTransport& transport;~Unpin(){transport.unpin();}}unpin{*timing_transport_};ensure_timing_backup(true);return;}
+            const auto token=timing_transport_->token();if(!timing_backup_token_.empty()&&timing_backup_token_==token)return;
+            if(!api_.history->backup)throw std::runtime_error("Required captured timing backup storage unavailable");
+            const auto current=pinned?timings_->capture_pinned():timings_->capture();if(!current.ok)throw std::runtime_error(current.message);
+            const auto id=history_identity();const auto document=capture_timing_editor_profile(id,current,{});const auto path=api_.history->backup(document);
+            if(path.empty()||path.size()>32768||path.find('\0')!=std::string::npos)throw std::runtime_error("Captured timing backup returned no usable path");
+            timing_backup_token_=current.helper_token;timing_backup_path_=path;history_backup_notice_="Captured timing backup: "+path;
+        }catch(const std::exception& e){throw HistoryFailure(std::string("Required captured timing backup failed; no timing write issued: ")+e.what());}
+    }
+    void before_full_history(const std::string& action){before_history(action,[this]{Command request;request.annotation_snapshot=history_annotations_;return capture_full_document(request);},false);}
     std::unique_ptr<PerfViewService> perf_;
     std::unique_ptr<PowerArbitrationService> arbitration_;
     std::unique_ptr<PowerWeightsService> power_weights_;
@@ -64,8 +98,11 @@ class Client final : public IBackend {
     std::unique_ptr<VoltageLimitsService> voltage_limits_;
     std::unique_ptr<PowerSavingService> power_saving_;
     std::unique_ptr<ClockGatingService> clock_gating_;
+    struct HistoryCallbackScope {std::function<void()> clear;~HistoryCallbackScope(){clear();}};
+    ProfileJson history_voltage_tables(const std::vector<VoltageTableKey>& keys){const auto& current=voltage_tables_->read();std::vector<VoltageTableKey> requests,offsets;for(auto key:keys)(key.family==VoltageTableFamily::offsets?offsets:requests).push_back(key);std::vector<ProfileComponent> documents;if(!requests.empty())documents.push_back({"Voltage requests",capture_voltage_tables_profile(current,requests)});if(!offsets.empty())documents.push_back({"Installed offsets",capture_voltage_offsets_profile(current,offsets)});if(documents.empty())throw std::runtime_error("Choose voltage fields for disk Undo");return documents.size()==1?documents.front().document:compose_profiles(documents);}
     ActionResult power_saving_action(const Command& cmd) {
         ActionResult out;if(!power_saving_){out.message="Power saving controls unavailable";return out;}
+        HistoryCallbackScope history{[this]{power_saving_->set_history_callback({});}};power_saving_->set_history_callback([this,&cmd]{before_history("power-saving",[this,&cmd]{std::vector<PowerSavingKey> keys;if(cmd.power_saving_requests)for(const auto& r:*cmd.power_saving_requests)keys.push_back(r.key);else if(cmd.power_saving_selection)keys=*cmd.power_saving_selection;return capture_power_saving_profile(power_saving_->read(),keys);},!(cmd.saving_lifecycle_release&&cmd.operation==Command::Operation::power_saving_apply&&cmd.power_saving_requests&&cmd.power_saving_requests->size()==1&&cmd.power_saving_requests->front().value==0&&(cmd.power_saving_requests->front().key.family==PowerSavingFamily::gr_elpg||cmd.power_saving_requests->front().key.family==PowerSavingFamily::individual||cmd.power_saving_requests->front().key.family==PowerSavingFamily::difr)));});
         try {
             if(cmd.operation==Command::Operation::power_saving_read){
                 const auto& data=power_saving_->read(cmd.saving_families);out.message=data.message;
@@ -88,6 +125,7 @@ class Client final : public IBackend {
     }
     ActionResult clock_gating_action(const Command& cmd) {
         ActionResult out;if(!clock_gating_){out.message="Clock gating controls unavailable";return out;}
+        HistoryCallbackScope history{[this]{clock_gating_->set_history_callback({});}};clock_gating_->set_history_callback([this,&cmd]{before_history("clock-gating",[this,&cmd]{std::vector<ClockGatingFamily> keys;if(cmd.clock_gating_requests)for(const auto& r:*cmd.clock_gating_requests)keys.push_back(r.family);else if(cmd.clock_gating_selection)keys=*cmd.clock_gating_selection;return capture_clock_gating_profile(clock_gating_->read(),keys);});});
         try {
             if(cmd.operation==Command::Operation::clock_gating_read){
                 const auto& data=clock_gating_->read(cmd.clock_families);out.message=data.message;
@@ -114,6 +152,7 @@ class Client final : public IBackend {
     ActionResult voltage_tables_action(const Command& cmd) {
         ActionResult out;
         if (!voltage_tables_) { out.message="Voltage request tables unavailable"; return out; }
+        HistoryCallbackScope history{[this]{voltage_tables_->set_history_callback({});}};voltage_tables_->set_history_callback([this,&cmd]{before_history("voltage-requests",[this,&cmd]{std::vector<VoltageTableKey> keys;if(cmd.voltage_table_requests)for(const auto& r:*cmd.voltage_table_requests)keys.push_back(r.key);else if(cmd.voltage_table_selection)keys=*cmd.voltage_table_selection;return history_voltage_tables(keys);});});
         try {
             if (cmd.operation==Command::Operation::voltage_tables_read) {
                 const auto& data=voltage_tables_->read(cmd.voltage_families);
@@ -144,6 +183,7 @@ class Client final : public IBackend {
     ActionResult voltage_limits_action(const Command& cmd) {
         ActionResult out;
         if (!voltage_limits_) { out.message="Voltage definitions unavailable"; return out; }
+        HistoryCallbackScope history{[this]{voltage_limits_->set_history_callback({});}};voltage_limits_->set_history_callback([this,&cmd]{before_history("voltage-limits",[this,&cmd]{std::vector<VoltageLimitKey> keys;if(cmd.voltage_limit_requests)for(const auto& r:*cmd.voltage_limit_requests)keys.push_back(r.key);else if(cmd.voltage_limit_selection)keys=*cmd.voltage_limit_selection;return capture_voltage_limits_profile(voltage_limits_->read(),keys);});});
         try {
             if (cmd.operation==Command::Operation::voltage_limits_read) {
                 const auto& data=voltage_limits_->read(cmd.voltage_families);
@@ -171,6 +211,7 @@ class Client final : public IBackend {
     ActionResult voltage_policy_action(const Command& cmd) {
         ActionResult result;
         if (!voltage_policy_) { result.message = "Voltage policy controls unavailable"; return result; }
+        HistoryCallbackScope history{[this]{voltage_policy_->set_history_callback({});}};voltage_policy_->set_history_callback([this,&cmd]{before_history("voltage-policy",[this,&cmd]{if(!cmd.voltage_policy)throw std::runtime_error("Choose voltage policy fields");return capture_voltage_policy_profile(voltage_policy_->read(cmd.voltage_policy->selection),cmd.voltage_policy->selection);});});
         if (cmd.operation == Command::Operation::voltage_policy_read) {
             const auto selection = cmd.voltage_policy ? cmd.voltage_policy->selection : voltage_all_policies;
             last_.voltage_policies = std::make_shared<VoltagePolicyData>(voltage_policy_->read(selection));
@@ -200,6 +241,7 @@ class Client final : public IBackend {
     ActionResult power_integral_action(const Command& cmd) {
         ActionResult result;
         if (!power_integral_) { result.message = "Power feedback controls unavailable"; return result; }
+        HistoryCallbackScope history{[this]{power_integral_->set_history_callback({});}};power_integral_->set_history_callback([this,&cmd]{before_history("power-feedback",[this,&cmd]{std::vector<PowerIntegralKey> keys;if(cmd.integral_requests)for(const auto& r:*cmd.integral_requests)keys.push_back({r.policy,r.field});else if(cmd.integral_selection)keys=*cmd.integral_selection;else keys.push_back({cmd.integral_policy,cmd.integral_upper?PowerIntegralField::upper:PowerIntegralField::lower});return capture_power_integral_profile(power_integral_->read(),keys);});});
         if (cmd.operation == Command::Operation::power_integral_read) {
             last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->read());
             result.ok = last_.power_integral->current; result.message = last_.power_integral->message;
@@ -637,6 +679,7 @@ class Client final : public IBackend {
         const auto old_pin = std::find(before.pin_ids.begin(), before.pin_ids.end(), *cmd.power_policy);
         const bool stock = cmd.operation == Command::Operation::stock;
         if (it->requested == target && ((stock && old_pin == before.pin_ids.end()) || (!stock && old_pin != before.pin_ids.end() && before.pin_values[static_cast<size_t>(old_pin - before.pin_ids.begin())] == target))) { result.ok = true; result.readback = target / 1000.0; result.message = "Policy request and pin already match"; return result; }
+        before_history("power-policy",[this]{return history_power();},!stock);
         Undo saved{}; saved.control = ControlId::power; saved.power = before; saved.power.selected_policy = *cmd.power_policy; remember(saved);
         if (stock && old_pin != before.pin_ids.end()) {
             const size_t pos = static_cast<size_t>(old_pin - before.pin_ids.begin());
@@ -711,6 +754,7 @@ class Client final : public IBackend {
         result.requested = mw / 1000.0;
         if (captured && current.board == static_cast<uint32_t>(mw)) { result.ok = true; result.readback = mw / 1000.0; result.message = "Board request already matches"; return result; }
         dc_gpu_identity before_write{}; if (!identity(before_write)) { result.message = "GPU identity changed or unreadable; no write issued"; return result; }
+        before_history("power",[this]{return history_power();},!stock);
         if (captured) { Undo prior{}; prior.control = ControlId::power; prior.power = current; remember(prior); }
         std::string note; const bool set_ok = set_board(static_cast<uint32_t>(mw), note); result.may_have_changed = true;
         dc_gpu_identity id{}; st = power_statics(); int32_t has = 0; uint32_t got = 0; error = {}; error.size = sizeof(error);
@@ -850,6 +894,7 @@ class Client final : public IBackend {
         if (!layout_equal(before.advanced_layout, preflight.advanced_layout) || before.value != preflight.value) { result.message = "Offset changed during preflight; no write issued"; return result; }
         result.requested = value;
         if (before.value == std::nearbyint(raw)) { result.ok = true; result.readback = value; result.message = "Offset already matches"; if (undoing) undo_.pop_back(); return result; }
+        if(!undoing)before_history("advanced-offset",[this,id]{return history_advanced(id);});
         const bool undo_allowed = !stock || strict;
         if(!undoing&&catalog_memory_guard_&&id.kind==AdvancedKind::clock_domain&&id.domain==2)before.attempted_memory=static_cast<int32_t>(std::nearbyint(raw));
         if (!undoing && undo_allowed) remember(before);
@@ -916,6 +961,7 @@ class Client final : public IBackend {
         struct BindingChanged {};
         RailResult action; bool recorded = false;
         auto capture = [&](const RailUndo& before) {
+            if(!undoing)before_history("rail-limit",[this,&before]{return capture_scoped_profile(scoped_capture(),{ScopedKey::rail_field(static_cast<uint32_t>(before.rail),before.field)});});
             if (bound) { auto current = binding_now(); if (!current || !binding_matches(cmd, *current)) throw BindingChanged{}; }
             if (cmd.expected_request_raw && before.requested_uv != *cmd.expected_request_raw) throw BindingChanged{};
             Undo saved{}; saved.control = ControlId::count; saved.rail_entry = true; saved.rail = before; remember(saved); recorded = !suppress_undo_;
@@ -996,6 +1042,7 @@ class Client final : public IBackend {
         }
         if(preflight){result.ok=true;result.message="Fresh V/F target, complete baseline, geometry and request preflight passed";return result;}
         if (same_curve(before, desired)) { result.ok = true; result.message = "V/F curve already matches"; if (undoing) undo_.pop_back(); return result; }
+        if(!undoing)before_full_history("vf-curve");
         if (!undoing) { Undo saved{}; saved.control = ControlId::count; saved.curve_entry = true; saved.curve = before; saved.curve_layout = before_layout; saved.curve_points = points; remember(saved); }
         const auto before_points = points; dc_outcome out{}; dc_status status;
         if (undoing) status = api_.apply_deltas(gpu_, desired.deltas, desired.count, &out);
@@ -1111,6 +1158,36 @@ class Client final : public IBackend {
         ProfileJson translated = {{"format", "druta-native-daily"}, {"version", 1}, {"target", {{"uuid", id.uuid}, {"slot", id.slot}}}, {"controls", controls}};
         if (!advanced.empty()) { translated["version"] = 2; translated["advanced"] = advanced; } return translated;
     }
+    dc_gpu_identity history_identity(){dc_gpu_identity id{};if(!identity(id)||!id.uuid[0])throw std::runtime_error("Fresh paired UUID required for disk Undo");return id;}
+    ProfileJson history_daily(const std::vector<ControlId>& controls){const auto id=history_identity();ProfileJson doc={{"format","druta-native-daily"},{"version",1},{"target",{{"uuid",id.uuid},{"slot",id.slot}}},{"controls",ProfileJson::object()}};for(auto control:controls){ProfileItem item;std::string why;if(!profile_item(control,nullptr,item,why))throw std::runtime_error(why);const char* key=control==ControlId::memory?"memory":control==ControlId::boost?"boost":control==ControlId::fan?"fan":control==ControlId::power?"power":"core";doc["controls"][key]=item.data;}return doc;}
+    ProfileJson history_advanced(AdvancedId which){const auto id=history_identity();Undo captured;std::string why;if(!advanced_capture(which,captured,why))throw std::runtime_error(why);const char* kind=which.kind==AdvancedKind::clock_domain?"clock_domain":which.kind==AdvancedKind::nvvdd?"nvvdd":"msvdd";return {{"format","druta-native-daily"},{"version",2},{"target",{{"uuid",id.uuid},{"slot",id.slot}}},{"controls",ProfileJson::object()},{"advanced",ProfileJson::array({{{"kind",kind},{"domain",which.domain},{"value",captured.value},{"unit",which.kind==AdvancedKind::clock_domain?"kHz":"uV"}}})}};}
+    ProfileJson history_fan(){const auto id=history_identity();dc_fan_state current{};current.size=sizeof(current);if(retry(api_.fan_state,gpu_,&current)!=DC_OK)throw std::runtime_error("Requested fan policies unavailable for disk Undo");return capture_fan_profile(id,current);}
+    ProfileJson history_curve(){const auto id=history_identity();auto data=std::make_unique<LiveData>();data->identity=id;data->connected=true;dc_vf_delta_snapshot snapshot{};std::string why;if(!curve_table(snapshot,data->curve,why,&data->curve_layout))throw std::runtime_error(why);dc_request_envelopes bounds{};bounds.size=sizeof(bounds);if(retry(api_.envelopes,&bounds)!=DC_OK||bounds.max_abs_delta_khz<=0)throw std::runtime_error("Curve envelope unavailable for disk Undo");data->curve_freq_div=snapshot.freq_div;data->curve_max_abs_delta_khz=bounds.max_abs_delta_khz;return capture_curve_profile(*data);}
+    ProfileJson history_power(){const auto id=history_identity();auto snapshot=std::make_unique<PowerSnapshot>();std::string why;if(!power_capture(*snapshot,why))throw std::runtime_error(why);ProfileJson rows=ProfileJson::array(),pins=ProfileJson::object();for(const auto& row:python_power_rows(*snapshot)){ProfileJson unit=row.unit?ProfileJson(*row.unit):ProfileJson();rows.push_back({{"policy",row.policy},{"type",row.type},{"channel",row.channel},{"unit",unit},{"minimum",row.minimum},{"maximum",row.maximum},{"requested",row.requested},{"board",row.board},{"named_current",row.named_current},{"writable",row.writable},{"consistent",row.consistent}});}for(size_t i=0;i<snapshot->pin_ids.size();++i)pins[std::to_string(snapshot->pin_ids[i])]=snapshot->pin_values[i];ProfileJson doc={{"schema",2},{"scope","power_action"},{"saved_at","prewrite"},{"saved_ts",std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count()},{"device",{{"name",id.name},{"vbios",id.vbios},{"driver",id.driver},{"uuid",id.uuid},{"slot",id.slot}}},{"incomplete",ProfileJson::array()},{"power_action",{{"board_mw",snapshot->board},{"rows",rows},{"pins",pins}}}};(void)parse_python_power_profile(doc);return doc;}
+    ProfileJson history_timing(const ProfileJson& document){if(!timings_)throw std::runtime_error("Timing service unavailable");const auto id=history_identity();const auto current=history_timing_pinned_?timings_->capture_pinned():timings_->capture();const auto normalized=normalize_timing_profile(document,id,current);auto fields=validate_timing_profile(normalized,id,current);for(auto& request:fields){const auto field=std::find_if(current.fields.begin(),current.fields.end(),[&](const auto& f){return f.name==request.field;});if(field==current.fields.end())throw std::runtime_error("Selected timing field unavailable");const auto word=std::find_if(current.broadcast.begin(),current.broadcast.end(),[&](const auto& w){return w.name==field->reg;});if(word==current.broadcast.end())throw std::runtime_error("Selected timing word unavailable");request.value=(word->value>>field->lo)&field->maximum;}return capture_timing_profile(id,current,fields);}
+    ProfileJson history_components(const std::vector<ProfileComponent>& components){
+        std::vector<ProfileComponent> saved;bool power=false;
+        const auto add_power=[&]{if(!power){saved.push_back({"Coupled power before write",history_power()});power=true;}};
+        for(const auto& component:components){const auto description=inspect_profile(component.document);if(!description.valid)throw std::runtime_error(description.error);const auto scope=description.scope;
+            if(std::any_of(description.targets.begin(),description.targets.end(),[](const auto& t){return t=="power:*"||t=="power:board"||t.rfind("power:policy:",0)==0;}))add_power();
+            if(scope==ProfileScope::python_power)continue;
+            if(scope==ProfileScope::daily||scope==ProfileScope::python_tuning){const auto id=history_identity();const auto document=scope==ProfileScope::python_tuning?import_python_tuning(component.document,id):component.document;std::vector<ControlId> selected;for(const auto& pair:{std::pair<const char*,ControlId>{"memory",ControlId::memory},{"boost",ControlId::boost}})if(document["controls"].contains(pair.first))selected.push_back(pair.second);if(!selected.empty())saved.push_back({component.name,history_daily(selected)});if(document["controls"].contains("fan"))saved.push_back({"Fan policies before write",history_fan()});if(document["controls"].contains("core"))saved.push_back({"Curve before core edit",history_curve()});if(document.contains("advanced"))for(const auto& entry:document["advanced"]){AdvancedId key;const auto kind=entry.at("kind").get<std::string>();key.kind=kind=="clock_domain"?AdvancedKind::clock_domain:kind=="nvvdd"?AdvancedKind::nvvdd:AdvancedKind::msvdd;key.domain=entry.at("domain").get<uint32_t>();saved.push_back({component.name,history_advanced(key)});}continue;}
+            if(scope==ProfileScope::scoped||scope==ProfileScope::python_rails){auto snapshot=scoped_capture();const auto document=scope==ProfileScope::python_rails?import_python_rail_profile(component.document,snapshot):component.document;const auto plan=plan_scoped_profile(document,snapshot);std::vector<ScopedKey> keys;for(const auto& step:plan.steps)if(step.key.kind==ScopedKey::Kind::rail)keys.push_back(step.key);if(!keys.empty())saved.push_back({component.name,capture_scoped_profile(snapshot,keys)});continue;}
+            if(scope==ProfileScope::curve){saved.push_back({component.name,history_curve()});continue;}
+            if(scope==ProfileScope::fan){saved.push_back({component.name,history_fan()});continue;}
+            if(scope==ProfileScope::timing||scope==ProfileScope::legacy_timing){saved.push_back({component.name,history_timing(component.document)});continue;}
+            if(scope==ProfileScope::voltage_policy){const auto parsed=validate_voltage_policy_profile(component.document);saved.push_back({component.name,capture_voltage_policy_profile(voltage_policy_->read(parsed.request.selection),parsed.request.selection)});continue;}
+            if(scope==ProfileScope::power_integral){const auto current=power_integral_->read();const auto requests=stage_power_integral_profile(component.document,current,false);std::vector<PowerIntegralKey> keys;for(const auto& r:requests)keys.push_back({r.policy,r.field});saved.push_back({component.name,capture_power_integral_profile(current,keys)});continue;}
+            if(scope==ProfileScope::voltage_tables){const auto& current=voltage_tables_->read();const auto requests=stage_voltage_tables_profile(component.document,current);std::vector<VoltageTableKey> keys;for(const auto& r:requests)keys.push_back(r.key);if(!keys.empty()&&keys.front().family==VoltageTableFamily::offsets)saved.push_back({component.name,capture_voltage_offsets_profile(current,keys)});else saved.push_back({component.name,capture_voltage_tables_profile(current,keys)});continue;}
+            if(scope==ProfileScope::voltage_limits){const auto& current=voltage_limits_->read();const auto requests=stage_voltage_limits_profile(component.document,current);std::vector<VoltageLimitKey> keys;for(const auto& r:requests)keys.push_back(r.key);saved.push_back({component.name,capture_voltage_limits_profile(current,keys)});continue;}
+            if(scope==ProfileScope::power_saving){const auto& current=power_saving_->read();const auto requests=stage_power_saving_profile(component.document,current);std::vector<PowerSavingKey> keys;for(const auto& r:requests)keys.push_back(r.key);saved.push_back({component.name,capture_power_saving_profile(current,keys)});continue;}
+            if(scope==ProfileScope::clock_gating){const auto& current=clock_gating_->read();const auto requests=stage_clock_gating_profile(component.document,current);std::vector<ClockGatingFamily> keys;for(const auto& r:requests)keys.push_back(r.family);saved.push_back({component.name,capture_clock_gating_profile(current,keys)});continue;}
+            if(scope==ProfileScope::icx){Command read;read.operation=Command::Operation::i2c_read;const auto result=i2c_session_->execute(read);if(!result.ok)throw std::runtime_error(result.message);saved.push_back({component.name,capture_icx_preset(i2c_session_->data().controller)});continue;}
+            if(description.targets==std::vector<std::string>{"annotation:power"})continue;
+            throw std::runtime_error("Selected profile has no semantic reverse-capture adapter");
+        }
+        if(saved.empty())throw std::runtime_error("No selected requests captured for disk Undo");return saved.size()==1?saved.front().document:compose_profiles(saved);
+    }
     ScopedSnapshot scoped_capture(PowerSnapshot* power_before = nullptr,
                                   std::array<RailRow, DC_RAILS_COUNT>* rails_before = nullptr) {
         dc_gpu_identity id{};
@@ -1186,6 +1263,8 @@ class Client final : public IBackend {
             if (std::none_of(plan.steps.begin(), plan.steps.end(), [](const auto& step) { return step.execute_required; })) {
                 result.ok = true; result.message = "Selected requests already match"; return result;
             }
+            HistoryScope history(*this,"load-scoped",[this,&document]{return history_components({{"selected scope",document}});},true);
+            before_history("load-scoped",[]{return ProfileJson();});
             Undo power_undo{}; power_undo.control = ControlId::power; power_undo.power = power;
             power_undo.power.guard_unselected_pins = true;
             for (const auto& step : plan.steps) if (step.key.kind == ScopedKey::Kind::policy) power_undo.power.selected_policies.push_back(step.key.policy);
@@ -1233,11 +1312,9 @@ class Client final : public IBackend {
         return result;
     }
 
-    ActionResult save_full_profile(const Command& cmd) {
-        ActionResult out;if(cmd.profile_path.empty()){out.message="Choose a full-profile path";return out;}
-        if(!api_.lock||!api_.unlock||api_.lock(gpu_)!=DC_OK){out.message="Could not lock GPU for full capture";return out;}
+    ProfileJson capture_full_document(const Command& cmd) {
+        if(!api_.lock||!api_.unlock||api_.lock(gpu_)!=DC_OK)throw std::runtime_error("Could not lock GPU for full capture");
         struct Unlock{CoreApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}}unlock{api_,gpu_};
-        try{
             auto id=std::make_unique<dc_gpu_identity>();if(!identity(*id))throw std::runtime_error("Fresh full-profile adapter identity unavailable");
             const auto bounded=[](const auto& value)->std::string{const auto* end=static_cast<const char*>(std::memchr(value,0,sizeof(value)));if(!end)throw std::runtime_error("Malformed full-profile identity string");return {value,end};};
             const auto now=std::chrono::system_clock::now();const auto seconds=std::chrono::system_clock::to_time_t(now);std::tm local{};localtime_s(&local,&seconds);char stamp[32]{};std::strftime(stamp,sizeof(stamp),"%Y-%m-%d %H:%M:%S",&local);
@@ -1287,8 +1364,10 @@ class Client final : public IBackend {
             if(!doc["power_limit_mw"].is_null()){const auto value=doc["power_limit_mw"].get<uint32_t>();const auto low=has_caps&&(caps->present&DC_C_PL_MIN)?caps->pl_min_mw:50000u;const auto high=has_caps&&(caps->present&DC_C_PL_MAX)?caps->pl_max_mw:400000u;required_xoc=required_xoc||value<low||value>high;}
             if(i2c_session_){try{const auto captured=i2c_session_->capture_full_profile();doc["i2c"]=captured.i2c;required_xoc=required_xoc||captured.requires_xoc;for(const auto& message:captured.incomplete)missing(message);}catch(const std::exception& e){missing(std::string("I2C state NOT captured (")+e.what()+")");}}
             bool full_xoc=false;const bool xoc_known=current_xoc(full_xoc);if(xoc_known||required_xoc)doc["xoc"]=full_xoc||required_xoc;
-            if(!identity(*id))throw std::runtime_error("Adapter changed during full-profile capture");write_profile(cmd.profile_path,doc);out.ok=true;out.message="Full tune saved; no settings applied";if(!doc["incomplete"].empty())out.message+="; incomplete: "+doc["incomplete"].dump();
-        }catch(const std::exception& e){out.message=std::string("Full capture failed: ")+e.what();}return out;
+            if(!identity(*id))throw std::runtime_error("Adapter changed during full-profile capture");return doc;
+    }
+    ActionResult save_full_profile(const Command& cmd) {
+        ActionResult out;try{if(cmd.profile_path.empty())throw std::runtime_error("Choose a full-profile path");const auto doc=capture_full_document(cmd);write_profile(cmd.profile_path,doc);out.ok=true;out.message="Full tune saved; no settings applied";if(!doc["incomplete"].empty())out.message+="; incomplete: "+doc["incomplete"].dump();}catch(const std::exception& e){out.message=std::string("Full capture failed: ")+e.what();}return out;
     }
 
     ActionResult profile_action(const Command& cmd,const ProfileJson* in_memory=nullptr,bool preflight=false,bool verify=false,const std::vector<Undo>* memory_originals=nullptr) {
@@ -1360,6 +1439,8 @@ class Client final : public IBackend {
             if(verify){result.ok=items.empty();result.message=result.ok?"Final selected Daily / Advanced requests verified":"A selected Daily / Advanced request changed after another component";return result;}
             if(preflight){result.ok=true;result.message="Daily / Advanced profile fresh preflight passed";return result;}
             if (items.empty()) { result.ok = true; result.message = python_profile ? "Python tuning action already matches current request" : "Profile already matches current requests; core curve is not saved"; return result; }
+            HistoryScope history(*this,"load-daily",[this,&doc]{return history_components({{"selected Daily",doc}});},true);
+            before_history("load-daily",[]{return ProfileJson();});
             Undo aggregate{}; aggregate.control = ControlId::count; remember(aggregate); aggregate_stored = true;
             suppress_undo_ = true;
             struct Reset { bool& flag; ~Reset() { flag = false; } } reset{suppress_undo_};
@@ -1542,6 +1623,7 @@ class Client final : public IBackend {
             if(verify){out.ok=same;out.message=same?"Final coupled power requests and pins verified":"A selected coupled power request or pin changed after another component";return out;}
             if(preflight){out.ok=true;out.message="Python coupled power requests and separate pins fresh preflight passed";return out;}
             if(same){out.ok=true;out.message="Coupled power requests and pins already match";return out;}
+            before_history("power-profile",[this]{return history_power();});
             auto prior=std::make_unique<Undo>();prior->control=ControlId::power;prior->power=current;
             for(const auto& row:current.rows)if(!row.board&&(row.writable||row.named_current))prior->power.selected_policies.push_back(row.policy);remember(*prior);out.may_have_changed=true;
             if(saved.current_layout_bound&&!saved.derived_candidates.empty()){
@@ -1588,6 +1670,7 @@ class Client final : public IBackend {
             const bool same=fan_profile_matches(desired,live);
             if(verify){result.ok=same;result.message=same?"Individual fan requests verified":"Selected fan requests changed after another component";return result;}
             if(preflight||same){result.ok=true;result.message=preflight?"Individual fan profile fresh preflight passed":"Individual fan requests already match";return result;}
+            before_history("fan-profile",[this]{return history_fan();});
             Undo saved{};saved.control=ControlId::fan;saved.fan=prior;saved.fan_after=desired;remember(saved);
             dc_outcome outcome{};dispatched=true;const auto status=api_.fan_restore(gpu_,&desired,&outcome);
             if(status!=DC_OK||!outcome.ok)throw std::runtime_error(outcome.message[0]?outcome.message:"Fan restoration failed; Undo retained");
@@ -1792,6 +1875,10 @@ class Client final : public IBackend {
                 if(timing_memory)for(const auto& t:info.targets)if(t=="clock:memory"||t=="clock:domain:2")return 25;
                 for(const auto& t:info.targets)if(t=="power:board")return 0;
                 for(const auto& t:info.targets)if(t.compare(0,13,"power:policy:")==0)return 20;return 10;};return rank(a)<rank(b);});
+            const bool full_origin=std::any_of(loaded.begin(),loaded.end(),[](const auto& c){return is_python_full_profile(c.document);});
+            HistoryScope history(*this,"load-profile",[this,&loaded,&cmd,full_origin]{return full_origin?capture_full_document(cmd):history_components(loaded);},!full_origin);
+            // Capture selected timing history before entering the helper commit pin.
+            if(std::any_of(plans.begin(),plans.end(),[](const auto& p){return p.timing&&!p.timing->no_change;})){ensure_timing_backup(false);before_history("load-profile",[]{return ProfileJson();});}
             auto aggregate=std::make_unique<Undo>();aggregate->control=ControlId::count;aggregate->timing_memory_group=timing_memory;remember(*aggregate);aggregate_index=undo_.size()-1;grouped=true;catalog_grouping_=true;catalog_memory_guard_=freeze_memory;
             for(auto& plan:plans){ActionResult action;
                 if(catalog_i2c_plan_){const auto verified=i2c_session_->verify_i2c_profile(*catalog_i2c_plan_);last_.i2c=i2c_session_->data();
@@ -1803,46 +1890,46 @@ class Client final : public IBackend {
                 else if(plan.scope==ProfileScope::python_power)action=catalog_power_action(*plan.power,false);
                 else if(plan.scope==ProfileScope::fan)action=fan_profile_action(&plan.document,{});
                 else if(plan.scope==ProfileScope::power_saving){
-                    std::optional<size_t> entry;const auto journal=[&](const PowerSavingReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_power_saving=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_power_saving=receipt;};
+                    std::optional<size_t> entry;const auto journal=[&](const PowerSavingReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_power_saving=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_power_saving=receipt;};
                     const auto applied=power_saving_->apply_profile(*plan.power_saving,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);
                 }
                 else if(plan.scope==ProfileScope::clock_gating){
-                    std::optional<size_t> entry;const auto journal=[&](const ClockGatingReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_clock_gating=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_clock_gating=receipt;};
+                    std::optional<size_t> entry;const auto journal=[&](const ClockGatingReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_clock_gating=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_clock_gating=receipt;};
                     const auto applied=clock_gating_->apply_profile(*plan.clock_gating,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);
                 }
                 else if(plan.scope==ProfileScope::voltage_tables){
-                    std::optional<size_t> entry;const auto journal=[&](const VoltageTablesReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_tables=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_voltage_tables=receipt;};
+                    std::optional<size_t> entry;const auto journal=[&](const VoltageTablesReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_tables=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_voltage_tables=receipt;};
                     const auto applied=voltage_tables_->apply_profile(*plan.voltage_tables,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);
                 }
                 else if(plan.scope==ProfileScope::voltage_limits){
-                    std::optional<size_t> entry;const auto journal=[&](const VoltageLimitsReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_limits=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_voltage_limits=receipt;};
+                    std::optional<size_t> entry;const auto journal=[&](const VoltageLimitsReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_limits=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_voltage_limits=receipt;};
                     const auto applied=voltage_limits_->apply_profile(*plan.voltage_limits,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);
                 }
                 else if(plan.scope==ProfileScope::power_integral){
-                    std::optional<size_t> entry;const auto journal=[&](const PowerIntegralPlan& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_integral=std::make_shared<const PowerIntegralPlan>(receipt);remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_integral=std::make_shared<const PowerIntegralPlan>(receipt);};
+                    std::optional<size_t> entry;const auto journal=[&](const PowerIntegralPlan& receipt){before_history("load-profile",[]{return ProfileJson();});if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_integral=std::make_shared<const PowerIntegralPlan>(receipt);remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_integral=std::make_shared<const PowerIntegralPlan>(receipt);};
                     const auto applied=power_integral_->apply(plan.integral->requests,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);last_.power_integral=std::make_shared<PowerIntegralData>(power_integral_->data());
                 }
                 else if(plan.scope==ProfileScope::voltage_policy){
-                    std::optional<size_t> entry;const auto journal=[&](const VoltagePolicyReceipt& receipt){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_policy=receipt;remember(*saved);entry=undo_.size()-1;};
+                    std::optional<size_t> entry;const auto journal=[&](const VoltagePolicyReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_voltage_policy=receipt;remember(*saved);entry=undo_.size()-1;};
                     const auto applied=voltage_policy_->apply_profile(*plan.voltage_policy,journal);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry&&!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);last_.voltage_policies=std::make_shared<VoltagePolicyData>(voltage_policy_->state());
                 }
                 else if(plan.i2c){
-                    std::optional<size_t> entry;const auto journal=[&](const I2cProfileReceipt& receipt){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_i2c=receipt;remember(*saved);entry=undo_.size()-1;};
+                    std::optional<size_t> entry;const auto journal=[&](const I2cProfileReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_i2c=receipt;remember(*saved);entry=undo_.size()-1;};
                     action=i2c_session_->apply_i2c_profile(*plan.i2c,journal);last_.i2c=i2c_session_->data();if(entry&&!action.may_have_changed)undo_.erase(undo_.begin()+*entry);
                     if(action.ok)catalog_i2c_plan_=plan.i2c;
                 }
                 else if(plan.scope==ProfileScope::icx){
-                    std::optional<size_t> entry;const auto journal=[&](const IcxProfileReceipt& receipt){if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_icx=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_icx=receipt;};
+                    std::optional<size_t> entry;const auto journal=[&](const IcxProfileReceipt& receipt){before_history("load-profile",[]{return ProfileJson();});if(!entry){auto saved=std::make_unique<Undo>();saved->control=ControlId::count;saved->catalog_icx=receipt;remember(*saved);entry=undo_.size()-1;}else undo_[*entry].catalog_icx=receipt;};
                     action=i2c_session_->apply_icx_profile(*plan.icx,journal);last_.i2c=i2c_session_->data();if(entry&&!action.may_have_changed)undo_.erase(undo_.begin()+*entry);
                 }
                 else if(plan.scope==ProfileScope::timing){
-                    std::optional<size_t> entry;const auto before=[&](const TimingBatchPlan& saved){if(!entry){auto u=std::make_unique<Undo>();u->control=ControlId::count;u->catalog_timing=saved;remember(*u);entry=undo_.size()-1;}else undo_[*entry].catalog_timing=saved;};
+                    std::optional<size_t> entry;const auto before=[&](const TimingBatchPlan& saved){TimingHistoryScope pinned(*this);ensure_timing_backup(true);before_history("load-profile",[]{return ProfileJson();});if(!entry){auto u=std::make_unique<Undo>();u->control=ControlId::count;u->catalog_timing=saved;remember(*u);entry=undo_.size()-1;}else undo_[*entry].catalog_timing=saved;};
                     const auto applied=timings_->apply(*plan.timing,before);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry){if(applied.undo)undo_[*entry].catalog_timing=applied.undo;else if(!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);}
                     timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=action.message;last_.timings=std::make_shared<TimingViewData>(timing_data_);
@@ -1971,6 +2058,7 @@ class Client final : public IBackend {
                 out.message="Fresh manual fan capability and captured requests are required for P0 + maximum fan"; return out;
             }
         }
+        if(legacy)before_history("p0-max-fan",[this]{return history_fan();});
         if (i2c_session_ && i2c_session_->owned()) {
             out=i2c_session_->release(); last_.i2c=i2c_session_->data(); if (!out.ok) return out;
         }
@@ -2042,6 +2130,7 @@ class Client final : public IBackend {
         if (!curve_table(curve_before.curve,curve_before.curve_points,why,&curve_before.curve_layout)) { result.message="Max it curve capture failed: "+why; return result; }
         if (maintenance_needed()) { result=release_hold(); if (!result.ok) return result; }
         if (!locks_clear(why)) { result.message=why; return result; }
+        HistoryScope history(*this,"max-it",[this]{Command request;request.annotation_snapshot=history_annotations_;return capture_full_document(request);},false);
         Undo group{}; group.control=ControlId::count; remember(group); suppress_undo_=true;
         struct Unsuppress { bool& flag; ~Unsuppress(){flag=false;} } unsuppress{suppress_undo_};
         auto step=[&](const Command& action,const Undo& before) {
@@ -2098,6 +2187,7 @@ class Client final : public IBackend {
         uint32_t count=0; dc_rails_setter_writes writes{}; writes.size=sizeof(writes); dc_error error{}; error.size=sizeof(error);
         PolicyInputs inputs{this,power_statics()}; out.may_have_changed=true;
         dc_status status=DC_E_FAILED;
+        before_full_history("reset-all");
         try { status=api_.reset_all(gpu_,confirm_clamp,this,policy_inputs,&inputs,reset_statics,this,xoc?1:0,steps.data(),static_cast<uint32_t>(steps.size()),&count,&writes,&error); }
         catch (...) { count=0; }
         out.ok=status==DC_OK && count<=steps.size(); out.message.clear();
@@ -2139,13 +2229,13 @@ class Client final : public IBackend {
         if (cmd.operation == Command::Operation::timings_select_helper || cmd.operation==Command::Operation::timings_forget_helper) {
             if (timing_undo_ || timing_batch_undo_) { out.message = "Undo the selected timing edit before changing helpers"; return out; }
             if(timing_owner_!=TimingOwner::none||timing_data_.capture_hold_pending||timing_data_.capture_workload_pending||timing_data_.capture_running||(timing_cuda_&&timing_cuda_->pending())){out.message="Release owned timing capture resources before changing helpers";return out;}
-            if(cmd.operation==Command::Operation::timings_forget_helper){timings_.reset();timing_transport_.reset();timing_data_={};out.ok=true;out.message="Timing helper cleared; saved registration may now be forgotten";publish();return out;}
+            if(cmd.operation==Command::Operation::timings_forget_helper){timing_backup_token_.clear();timing_backup_path_.clear();timings_.reset();timing_transport_.reset();timing_data_={};out.ok=true;out.message="Timing helper cleared; saved registration may now be forgotten";publish();return out;}
             if (cmd.timing_helper_path.empty()) { out.message = "Select an absolute nvtune helper path"; return out; }
             auto transport = make_timing_transport(cmd.timing_helper_path);
             std::string why;
             if (!transport || !transport->pin(why)) { out.message = why.empty() ? "Helper could not be opened" : why; return out; }
             const auto helper_token=transport->token(); transport->unpin();
-            timings_.reset(); timing_transport_ = std::move(transport); timing_data_ = {};
+            timing_backup_token_.clear();timing_backup_path_.clear();timings_.reset(); timing_transport_ = std::move(transport); timing_data_ = {};
             timing_data_.helper_path = cmd.timing_helper_path;
             timing_data_.helper_token=helper_token;
             TimingsApi a; a.identity=api_.identity; a.telemetry=api_.telemetry; a.capabilities=api_.capabilities; a.lock=api_.lock; a.unlock=api_.unlock;
@@ -2169,7 +2259,7 @@ class Client final : public IBackend {
                 out.message="Preview the selected field and value before Apply";
             } else if (timing_undo_ || timing_batch_undo_) { out.message="Undo the previous timing edit before applying another";
             } else {
-                const auto r=timings_->apply(*timing_data_.preview,[&](const TimingPlan& p) { timing_undo_=p; publish(); });
+                const auto r=timings_->apply(*timing_data_.preview,[&](const TimingPlan& p) { TimingHistoryScope pinned(*this);ensure_timing_backup(true);before_full_history("timing-write");timing_undo_=p; publish(); });
                 out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
                 if (!r.may_have_changed) timing_undo_.reset();
                 timing_data_.preview.reset();
@@ -2212,7 +2302,7 @@ class Client final : public IBackend {
             if (!matched) { out.message="Preview every staged timing field before Apply"; }
             else if (timing_undo_ || timing_batch_undo_) { out.message="Undo the previous timing edit before applying another"; }
             else {
-                const auto before=[&](const TimingBatchPlan& saved) { timing_batch_undo_=saved; publish(); };
+                const auto before=[&](const TimingBatchPlan& saved) { TimingHistoryScope pinned(*this);ensure_timing_backup(true);before_full_history("timing-write");timing_batch_undo_=saved; publish(); };
                 const auto r=initial ? timings_->restore_initial(before) : timings_->apply(*timing_data_.batch_preview,before);
                 out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message;
                 if (r.undo) timing_batch_undo_=r.undo;
@@ -2243,6 +2333,7 @@ public:
     void configure_timing_capture_cancellation(std::function<bool()> cancelled) override {timing_capture_cancelled_=std::move(cancelled);}
 #ifdef _WIN32
     explicit Client(const std::wstring& path) {
+        api_.history=make_profile_history_sink();
         // A fully qualified path is mandatory; never search for a same-named DLL.
         if (path.size() < 3 || !((path[1] == L':' && (path[2] == L'\\' || path[2] == L'/')) || (path[0] == L'\\' && path[1] == L'\\'))) return;
         module_ = LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
@@ -2357,9 +2448,11 @@ public:
         i2c_api.route_cache_path=route_cache_path_;
         i2c_api.before_clock_acquire=[this](std::string& why) {
             if (!frequency_ || !frequency_->needs_cleanup()) return true;
+            if(history_operation_==Command::Operation::i2c_apply||history_operation_==Command::Operation::i2c_reset||history_operation_==Command::Operation::i2c_zero_nct_outputs||history_operation_==Command::Operation::i2c_apply_profile||history_operation_==Command::Operation::apply_catalog_profile)before_full_history("i2c-handover");
             const auto result=release_frequency(); why=result.message; return result.ok;
         };
         i2c_session_ = std::make_unique<I2cSession>(std::move(i2c_api), gpu_, opened_);
+        i2c_session_->set_history_callback([this]{before_full_history("i2c");});
         tuning_ = std::make_unique<TuningActions>(api_.tuning, gpu_, opened_);
         frequency_ = std::make_unique<FrequencyLock>(api_.frequency, gpu_, opened_);
         perf_ = std::make_unique<PerfViewService>(api_.perf, gpu_, opened_);
@@ -2444,7 +2537,7 @@ public:
         if (!prepare_close().ok) return;
         clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false;
         clock_step_measured_ = false; clock_step_khz_ = 0; clock_sample_ = 0;
-        timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_batch_undo_.reset(); timing_data_={};
+        timing_backup_token_.clear();timing_backup_path_.clear();timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_batch_undo_.reset(); timing_data_={};
         timing_owner_=TimingOwner::none;
         tuning_.reset();
         frequency_.reset();
@@ -2586,6 +2679,14 @@ public:
         last_.undo_available = !undo_.empty(); last_.undo_metadata_only=!undo_.empty()&&undo_.back().annotation&&undo_.back().group.empty()&&undo_.back().completed.empty(); last_.undo_label = last_.undo_metadata_only ? "Undo power labels" : undo_.empty() ? "" : std::string("Undo ") + (undo_.back().curve_entry ? "V/F curve" : undo_.back().advanced_entry ? "advanced offset" : undo_.back().rail_entry ? "rail limit" : label(undo_.back().control)); return last_;
     }
     ActionResult execute(const Command& cmd) override {
+        const bool outer=history_depth_++==0;
+        if(outer){history_warning_.clear();history_backup_notice_.clear();history_attempted_=false;history_operation_=cmd.operation;history_annotations_=cmd.annotation_snapshot;history_suppressed_=cmd.operation==Command::Operation::undo;history_group_.reset();}
+        struct End{Client& c;bool outer;~End(){--c.history_depth_;if(outer){c.history_group_.reset();c.history_suppressed_=false;}}}end{*this,outer};
+        ActionResult out;try{out=execute_body(cmd);}catch(const HistoryFailure& failure){out.message=failure.what();}
+        if(outer&&!history_backup_notice_.empty()){if(!out.message.empty())out.message+="; ";out.message+=history_backup_notice_;}
+        if(outer&&!history_warning_.empty()){if(!out.message.empty())out.message+="; ";out.message+=history_warning_;}return out;
+    }
+    ActionResult execute_body(const Command& cmd) {
         if(cmd.operation!=Command::Operation::undo||undo_.empty()||!undo_.back().annotation)
             return execute_request(cmd);
         const auto position=undo_.size()-1;
@@ -2836,6 +2937,8 @@ public:
             const bool auto_request = !undoing && cmd.operation == Command::Operation::stock;
             if (!captured && !auto_request && !undoing) { result.message = "Fan requests could not be captured; no write issued"; return result; }
             if (!undoing && !auto_request && (!std::isfinite(cmd.value) || std::trunc(cmd.value) != cmd.value || cmd.value < 0 || cmd.value > 100)) { result.message = "Fan request must be a whole percentage from 0 to 100"; return result; }
+            if(!undoing&&captured){bool same=prior.fan.count>0;for(uint32_t i=0;i<prior.fan.count;++i){const auto& f=prior.fan.fans[i];same=same&&(auto_request?!f.manual:(f.manual&&f.level_valid&&f.level==static_cast<int32_t>(cmd.value)));}if(same){result.ok=true;result.message="Requested fan policies already match";return result;}}
+            if(!undoing)before_history("fan",[this]{return history_fan();},!auto_request);
             if (!undoing && captured && api_.fan_restore) remember(prior);
             dc_outcome out{}; dc_status status;
             std::optional<dc_fan_snapshot> rebased_fan_undo;bool fan_undo_noop=false;
@@ -2878,6 +2981,7 @@ public:
             double target = undoing ? undo_.back().value : (cmd.operation == Command::Operation::stock ? 0 : cmd.value);
             if (!std::isfinite(target) || std::trunc(target) != target || target < 0 || target > 100) { result.message = "Voltage boost must be a whole percentage from 0 to 100"; return result; }
             result.requested = target; if (target == before) { result.ok = true; result.readback = before; result.message = "Voltage boost already matches"; if (undoing) undo_.pop_back(); return result; }
+            if(!undoing)before_history("boost",[this]{return history_daily({ControlId::boost});});
             if (!undoing) { auto prior_storage=std::make_unique<Undo>();auto& prior=*prior_storage; prior.control = control; prior.value = before; remember(prior); }
             dc_outcome out{}; const dc_status status = api_.boost_set(gpu_, static_cast<int64_t>(target), &out); result.may_have_changed = true;
             int32_t after = 0; dc_gpu_identity check{};
@@ -2913,6 +3017,7 @@ public:
         const int32_t units = static_cast<int32_t>(scaled); result.requested = target;
         if(memory&&catalog_memory_guard_)prior.attempted_memory=units;
         if (units == before.current && (!undoing || memory)) { result.ok = true; result.readback = target; result.message = "Offset already matches"; if (undoing) undo_.pop_back(); return result; }
+        if(!undoing){if(memory)before_history("memory",[this]{return history_daily({ControlId::memory});});else before_full_history("core-offset");}
         if (!undoing) remember(prior);
         dc_outcome out{}; dc_status status = DC_OK;
         if (units != before.current) { status = api_.set_offset(gpu_, type, target, 1, &out); result.may_have_changed = true; }

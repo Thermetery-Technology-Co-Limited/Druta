@@ -55,6 +55,9 @@ public:
     const I2cViewData& data() const { return data_; }
     ActionResult execute(const Command& command);
     ActionResult release();
+    // Semantic history capture; explicit tuning effects only. Scalar transport
+    // hooks are warning-only; typed profile journals may reject before dispatch.
+    void set_history_callback(std::function<void()> callback) { history_callback_=std::move(callback); }
     // Read-only released full-tune state. Session-owned manual PMBus voltage
     // and iCX presets are never serialized as a generic voltage request.
     I2cFullProfileCapture capture_full_profile();
@@ -74,6 +77,9 @@ public:
     ActionResult restore_i2c_profile(const I2cProfileReceipt&);
     bool owned() const { return bool(icx_receipt_) || service_->has_owned_control() || (controller_ && controller_->owned()) || data_.clock_owned || (verify_hold_ && verify_hold_->owned()); }
 private:
+    std::function<void()> history_callback_;
+    bool history_armed_=false;
+    void before_history_effect();
     I2cApi api_;
     dc_gpu* gpu_;
     dc_gpu_identity identity_;

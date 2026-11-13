@@ -97,9 +97,16 @@ bool I2cSession::read(uint8_t port,uint8_t addr,uint8_t reg,uint8_t width,uint32
     const bool ok=bound() && api_.read && api_.read(gpu_,port,addr,reg,width,&value,&error)==DC_OK && bound();
     cancellation_boundary();return ok;
 }
+void I2cSession::before_history_effect() {
+    if(!history_armed_)return;
+    history_armed_=false; // Capture may itself perform read-only I2C operations.
+    if(history_callback_)try{history_callback_();}catch(...){ /* History failure cannot authorize or block tuning. */ }
+}
 bool I2cSession::write(uint8_t port,uint8_t addr,uint8_t reg,uint8_t width,uint32_t value) {
     dc_error error{}; error.size=sizeof(error);
-    return !discovery_readonly_ && clock_request() && api_.write && api_.write(gpu_,port,addr,reg,width,value,&error)==DC_OK && bound();
+    if(discovery_readonly_ || !clock_request() || !api_.write)return false;
+    before_history_effect();
+    return bound() && api_.write(gpu_,port,addr,reg,width,value,&error)==DC_OK && bound();
 }
 bool I2cSession::read_bytes(I2cRoute route, uint8_t reg, size_t count, std::vector<uint8_t>& out) {
     cancellation_boundary();
@@ -118,6 +125,8 @@ bool I2cSession::write_bytes(I2cFamily family,I2cRoute route,uint8_t reg,const s
     if (discovery_readonly_ || !bound() || !api_.controller_write || bytes.empty() || bytes.size()>32 ||
         (controller_ && controller_->needs_clock_clamp() && !clock_request())) return false;
     dc_error error{}; error.size=sizeof(error);
+    before_history_effect();
+    if(!bound())return false;
     selection_write_attempted_=true;
     return api_.controller_write(gpu_,static_cast<uint32_t>(family),route.port,route.addr7,reg,
         bytes.data(),static_cast<uint32_t>(bytes.size()),&error)==DC_OK && bound();
@@ -306,6 +315,7 @@ bool I2cSession::clamp(std::string& reason,const std::function<void(uint32_t)>& 
     const uint32_t floor=*std::min_element(top->graphics,top->graphics+top->count);
     if (!floor) { reason="Driver clock floor is invalid"; return false; }
     if(before_request)before_request(floor);
+    before_history_effect();
     // Save ownership before SET; an error can follow a dispatch.
     ++clock_epoch_;data_.clock_owned=true; data_.clock_mhz=floor;
     dc_outcome out{};
@@ -383,6 +393,10 @@ ActionResult I2cSession::preset(const Command& command) {
             const auto requests=icx_preset_requests(document,xoc());
             const auto before=capture_icx_preset(controller_->read(xoc())); // Complete fresh capture required.
             const auto previous=icx_preset_requests(before,true);
+            if(before.at("settings")==document.at("settings")&&!controller_->owned()&&!data_.clock_owned){
+                IcxControllerPlan matching;const auto checked=controller_->preview_icx(requests,{data_.gate,xoc()},matching);
+                if(!checked.ok)return result(checked);action=result(controller_->verify_icx(matching));if(action.ok)pending_preset_.reset();return action;
+            }
             std::string reason;if(!clamp(reason))return failure(reason);
             for(const auto& request:requests) {
                 const auto old=std::find_if(previous.begin(),previous.end(),[&](const auto& r){return r.key==request.key;});
@@ -460,7 +474,7 @@ ActionResult I2cSession::apply_icx_profile(const IcxProfilePlan& plan,const std:
             if(!icx_plan_bound(*plan.state) || floor!=plan.state->floor || clock_epoch_!=plan.state->clock_epoch)
                 throw std::runtime_error("iCX planned floor or target changed before clamp dispatch");
             receipt.state->clamp_issued=true;receipt.state->clock_epoch=clock_epoch_+1;
-            try{if(journal)journal(receipt);}catch(...){receipt.state->clamp_issued=false;receipt.state->clock_epoch=clock_epoch_;throw;}
+            try{if(history_callback_)history_callback_();if(journal)journal(receipt);}catch(...){receipt.state->clamp_issued=false;receipt.state->clock_epoch=clock_epoch_;throw;}
             icx_receipt_=receipt.state;
         });
         if(!held){action.message=reason;action.may_have_changed=receipt.state->clamp_issued;try{refresh();}catch(...){}return action;}
@@ -621,6 +635,7 @@ ActionResult I2cSession::apply_i2c_profile(const I2cProfilePlan& plan,const std:
             return failure("Controller profile gate or response verification changed");
         const auto save=[&](const auto& receipt){
             auto stored=std::make_shared<I2cProfileReceiptState>();stored->plan=plan.state;stored->driver=receipt;
+            if(history_callback_)history_callback_();
             if(journal)journal({stored});profile_receipt_=stored;issued=true;
         };
         const ControllerContext context{data_.gate && bool(api_.controller_write),xoc()};
@@ -768,6 +783,10 @@ ActionResult I2cSession::execute(const Command& cmd) {
         return failure("Selected controller route changed; no write issued");
     if (api_.lock(gpu_)!=DC_OK) return failure("Could not lock selected GPU");
     struct Unlock { I2cApi& api; dc_gpu* gpu; ~Unlock(){ api.unlock(gpu); } } unlock{api_,gpu_};
+    const bool history_explicit=cmd.operation==Command::Operation::i2c_apply || cmd.operation==Command::Operation::i2c_reset ||
+        cmd.operation==Command::Operation::i2c_zero_nct_outputs || cmd.operation==Command::Operation::i2c_apply_profile;
+    history_armed_=history_explicit;
+    struct HistoryScope {bool& armed;~HistoryScope(){armed=false;}} history_scope{history_armed_};
     ActionResult action;
     struct FinishDiscovery {
         std::function<void()> finish;
@@ -830,6 +849,21 @@ ActionResult I2cSession::execute(const Command& cmd) {
         if (controller_) {
             if(!api_.controller_write && !readonly_verify)return failure("Controller write interface unavailable; Read remains available");
             std::string reason;
+            if(controller_->needs_clock_clamp() && cmd.operation!=Command::Operation::i2c_verify) {
+                const auto view=controller_->read(xoc());
+                const auto field=std::find_if(view.fields.begin(),view.fields.end(),[&](const auto& f){return f.key==cmd.i2c_field;});
+                const bool reset=cmd.operation==Command::Operation::i2c_reset;
+                if(!view.readable || view.stale || view.recovery || field==view.fields.end() || (!reset&&!field->writable) ||
+                    (reset&&!field->resettable) || (!reset&&(!std::isfinite(cmd.value)||(field->minimum&&cmd.value<*field->minimum)||
+                    (field->maximum&&cmd.value>*field->maximum)||(field->step&&(*field->step<=0||std::trunc(cmd.value / *field->step)!=cmd.value / *field->step)))))
+                    return failure("Controller request is not qualified by current field metadata");
+                if(!controller_->owned()&&!data_.clock_owned&&((reset&&!field->value)||(!reset&&field->value&&*field->value==cmd.value))) {
+                    IcxControllerPlan matching;
+                    const auto checked=controller_->preview_icx(icx_preset_requests(capture_icx_preset(view),true),{data_.gate,xoc()},matching);
+                    if(!checked.ok)return result(checked);
+                    action=result(controller_->verify_icx(matching));break;
+                }
+            }
             if(controller_->needs_clock_clamp() && cmd.operation!=Command::Operation::i2c_verify && !clamp(reason)){refresh();data_.message=reason;return failure(reason);}
             const ControllerContext context{data_.gate,xoc()};
             if(cmd.operation==Command::Operation::i2c_verify && !readonly_verify) {
@@ -871,6 +905,13 @@ ActionResult I2cSession::execute(const Command& cmd) {
         if(cmd.operation==Command::Operation::i2c_reset)return release();
         if (!api_.write) return failure("I2C writes unavailable; read-only inspection remains available");
         if (cmd.operation==Command::Operation::i2c_apply && !data_.verified) return failure("Verify controller response before Apply");
+        if(cmd.operation==Command::Operation::i2c_apply) {
+            const auto current=service_->status();
+            if(!current.writable || current.stale || current.recovery_pending || !current.min_mv || !current.max_mv ||
+                !std::isfinite(cmd.value) || cmd.value<*current.min_mv || cmd.value>*current.max_mv ||
+                std::trunc(cmd.value/I2cControls::nominal_step_mv)!=cmd.value/I2cControls::nominal_step_mv)
+                return failure("Controller request is not qualified by current bounds and response verification");
+        }
         std::string reason; if (!clamp(reason)) { refresh(); data_.message=reason; return failure(reason); }
         if (cmd.operation==Command::Operation::i2c_verify) {
             I2cVerifyCallbacks callbacks; callbacks.core_clock_mhz=[this] {return observed_clock();}; callbacks.sleep_ms=api_.sleep;

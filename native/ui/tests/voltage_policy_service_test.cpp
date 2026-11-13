@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 using namespace druta::ui;
 static unsigned checks=0;
 #define CHECK(x) do{++checks;if(!(x)){std::fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,#x);std::abort();}}while(false)
@@ -83,5 +84,20 @@ int main(){
  for(const auto kind:{DC_ERR_INVALID,DC_ERR_MALFORMED,DC_ERR_IDENTITY,DC_ERR_READBACK,DC_ERR_UNSUPPORTED}){fresh();VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);transport_kind=kind;const auto data=s.read(1);CHECK(transport_calls==1&&resets==0&&writes==0);CHECK(data.rows[0].availability==(kind==DC_ERR_UNSUPPORTED?VoltagePolicyAvailability::unsupported:VoltagePolicyAvailability::invalid));}
  for(const auto kind:{DC_ERR_TRANSIENT,DC_ERR_UNSTABLE}){fresh();VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);transport_kind=kind;s.read(1);CHECK(transport_calls==2&&resets==1&&writes==0);}
  fresh();{std::strcpy(dev.slot,"0001:ab:03.0");VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);const auto data=s.read();const auto profile=capture_voltage_policy_profile(data,2);CHECK(stage_voltage_policy_profile(profile,data).selection==2);auto normalized=profile;normalized["identity"]["slot"]="00000001:AB:03.0";CHECK(stage_voltage_policy_profile(normalized,data).selection==2);for(const auto slot:{"-1:ab:03.0","10000:ab:03.0","0001:100:03.0","0001:ab:20.0","0001:ab:03.8","0001:ab:03.0x"}){auto bad=profile;bad["identity"]["slot"]=slot;bool rejected=false;try{stage_voltage_policy_profile(bad,data);}catch(...){rejected=true;}CHECK(rejected);}}
+ fresh();{
+   VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);s.read();unsigned histories=0;int before_write=0;
+   s.set_history_callback([&]{CHECK(writes==before_write);++histories;(void)capture_voltage_policy_profile(s.read(2),2);});
+   CHECK(s.apply({2,2,2}).ok&&histories==0&&writes==0);
+   CHECK(!s.apply({2,0,0}).ok&&histories==0&&writes==0);
+   CHECK(s.apply({2,0,2}).ok&&histories==1&&writes==1);
+   CHECK(s.undo().ok&&histories==1&&writes==2);before_write=writes;
+   CHECK(s.apply({2,0,2}).ok&&histories==2&&writes==3);
+   s.set_history_callback([]{throw std::runtime_error("history storage failed");});
+   const auto refused=s.restore_initial(2);CHECK(!refused.ok&&!refused.may_have_changed&&writes==3&&s.state().undo_available&&header[10]==0);
+   s.set_history_callback([&]{++histories;});CHECK(s.restore_initial(2).ok&&histories==3&&writes==4&&header[10]==1);
+   s.set_history_callback([]{throw std::runtime_error("standalone callback must not run for profile journal");});
+   VoltagePolicyReceipt receipt;CHECK(s.apply_profile({4,0,4},[&](const auto& r){receipt=r;}).ok&&writes==5);
+   CHECK(s.restore(receipt).ok&&writes==6&&histories==3);
+ }
  std::printf("voltage policy service: %u checks\n",checks);return 0;
 }

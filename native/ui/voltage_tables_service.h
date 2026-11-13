@@ -64,6 +64,7 @@ class VoltageTablesService {
 public:
     VoltageTablesService(VoltageTablesApi,dc_gpu*,const dc_gpu_identity&);
     ~VoltageTablesService(); // no destructor writes, persistence or replay
+ void set_history_callback(std::function<void()> callback); // Standalone first SET only.
     const VoltageTablesData& read(uint32_t families=3); // bit1 requests, bit2 scaffold offsets
     VoltageTablesResult apply(const VoltageTableRequest&);
     VoltageTablesResult apply(const std::vector<VoltageTableRequest>&);

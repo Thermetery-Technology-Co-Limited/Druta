@@ -194,7 +194,23 @@ static void catalog_transactions(){
         CHECK(s.restore(receipt).ok&&f.sets==3&&!f.adaptive[0]&&s.verify(receipt,true).ok); // Cached prior intent cannot prove an uncertain SET undone.
     }
 }
+static void standalone_history(){
+ {Fake f;PowerSavingService s(api(),f.gpu(),f.identity);unsigned captures=0;s.set_history_callback([&]{++captures;CHECK(f.sets==0&&!s.state().recovery_pending);});s.read(4);
+  CHECK(s.apply(request(s,PowerSavingFamily::idle_threshold,0,2000)).ok&&captures==0);CHECK(!s.apply(request(s,PowerSavingFamily::idle_threshold,0,0)).ok&&captures==0);
+  CHECK(s.apply(request(s,PowerSavingFamily::idle_threshold,0,6000)).ok&&captures==1&&f.raw[0]==6000);
+  s.set_history_callback([&]{++captures;CHECK(f.sets==1&&f.raw[0]==6000);});CHECK(s.restore_initial({PowerSavingFamily::idle_threshold,0}).ok&&captures==2&&f.raw[0]==2000);
+  const auto writes=f.sets;
+  s.set_history_callback([&]{++captures;throw std::runtime_error("History storage failed");});CHECK(!s.apply(request(s,PowerSavingFamily::idle_threshold,0,7000)).ok&&captures==3&&f.sets==writes&&!s.state().recovery_pending);
+  CHECK(s.undo().ok&&captures==3&&f.raw[0]==6000);
+ }
+ {Fake f;PowerSavingService s(api(),f.gpu(),f.identity);s.read(1);unsigned captures=0;s.set_history_callback([&]{++captures;CHECK(f.allocations==0&&f.handle==0&&!s.has_owned_requests());throw std::runtime_error("Required snapshot failed");});
+  CHECK(!s.apply(request(s,PowerSavingFamily::gr_elpg,0,1)).ok&&captures==1&&f.allocations==0&&f.sets==0&&!s.has_owned_requests()&&!s.state().recovery_pending);
+  s.set_history_callback([&]{++captures;CHECK(f.allocations==0&&f.sets==0&&!s.has_owned_requests());});CHECK(s.apply(request(s,PowerSavingFamily::gr_elpg,0,1)).ok&&captures==2&&f.allocations==1);
+  CHECK(s.apply(request(s,PowerSavingFamily::gr_elpg,0,1)).ok&&captures==2);CHECK(s.release_owned().ok&&captures==2&&!s.has_owned_requests());
+ }
+}
 int main(){
+    standalone_history();
     coupled_transactions();
     catalog_transactions();
     {Fake f;f.supported[12]=false;PowerSavingService s(api(),f.gpu(),f.identity);s.read();auto python=python_lowpower(f,"individual","disabled",4);const auto description=describe_power_saving_profile(python);CHECK(description.targets==std::vector<std::string>{"saving:1:4"});auto requests=stage_power_saving_profile(python,s.state());CHECK(requests.size()==1&&requests[0].key.index==4&&requests[0].value==1&&requests[0].expected==0&&f.sets==0&&f.allocations==0);CHECK(select_power_saving_profile(python,{"saving:1:4"})==python);

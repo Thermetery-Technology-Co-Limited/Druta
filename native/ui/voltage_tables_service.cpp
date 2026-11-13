@@ -71,6 +71,7 @@ struct VoltageTablesService::Impl {
     using Record=TableRecord;
     VoltageTablesApi api;dc_gpu* gpu;dc_gpu_identity target;std::optional<dc_target> bound_target;
     VoltagePolicyService gate;
+    std::function<void()> history;
     std::unique_ptr<VoltageOffsetsService> offsets;
     VoltageTablesData data;
     std::map<std::string,int32_t> initial;
@@ -286,6 +287,7 @@ struct VoltageTablesService::Impl {
 };
 VoltageTablesService::VoltageTablesService(VoltageTablesApi api,dc_gpu* gpu,const dc_gpu_identity& target):impl_(std::make_unique<Impl>(std::move(api),gpu,target)){}
 VoltageTablesService::~VoltageTablesService()=default;
+void VoltageTablesService::set_history_callback(std::function<void()> callback){impl_->history=std::move(callback);if(impl_->offsets)impl_->offsets->set_history_callback(impl_->history);}
 const VoltageTablesData& VoltageTablesService::state()const{return impl_->data;}
 const VoltageTablesData& VoltageTablesService::read(uint32_t families){auto& p=*impl_;Guard guard(p.api.transport,p.gpu);
     if(!families||(families&~3u)){p.data.message="Select understood voltage families";p.flags();return p.data;}
@@ -374,7 +376,7 @@ VoltageTablesResult VoltageTablesService::apply(const std::vector<VoltageTableRe
     }
     if(!guard.held){result.message="GPU lock unavailable";return result;}if(!p.recovery.empty()){result.message="Recover pending selected requests before another Apply";return result;}
     if(requests.empty()||requests.size()>12){result.message="Select one or more understood request fields";return result;}
-    std::vector<Impl::Record> changed;bool started=false;
+    std::vector<Impl::Record> changed;bool started=false,history_captured=false;
     try{const auto before=p.capture();p.publish(before);if(!before.complete())fail("Complete active rail preservation required for SET");
         std::vector<VoltageTableKey> seen;
         for(const auto& request:requests){if(!valid_key(request.key)||request.value<INT32_MIN||request.value>INT32_MAX||std::find(seen.begin(),seen.end(),request.key)!=seen.end())fail("Invalid or duplicate signed microvolt request field");seen.push_back(request.key);
@@ -386,7 +388,7 @@ VoltageTablesResult VoltageTablesService::apply(const std::vector<VoltageTableRe
         p.previous_external=p.external;p.previous_undo=p.undo;p.recovery.clear();started=true;
         for(const auto& record:changed){const auto fresh=p.capture();if(p.binding(fresh,record.key.rail)!=record.binding||signed_word(fresh.public_rows[record.key.rail],public_at(record.key.rail,record.key.field))!=record.before)fail("Selected request changed after whole-table preflight");
             p.recovery.push_back(record);Impl::Snapshot after;bool issued=false;std::string message;
-            if(!p.write(fresh,record.key,record.after,after,issued,message,[&]{p.external.reset();})){if(!issued)p.recovery.pop_back();result.may_have_changed|=issued;fail(message,VoltagePolicyAvailability::transient);}result.may_have_changed=true;
+            if(!p.write(fresh,record.key,record.after,after,issued,message,[&]{if(!history_captured&&p.history){p.history();history_captured=true;}p.external.reset();})){if(!issued)p.recovery.pop_back();result.may_have_changed|=issued;fail(message,VoltagePolicyAvailability::transient);}result.may_have_changed=true;
         }
         const auto final=p.capture();for(const auto& record:changed)if(p.binding(final,record.key.rail)!=record.binding||signed_word(final.public_rows[record.key.rail],public_at(record.key.rail,record.key.field))!=record.after)fail("Final selected requests differ after another field changed");
         p.undo=changed;p.recovery.clear();p.previous_undo.clear();p.previous_external.reset();p.publish(final);result.ok=true;result.message="Selected signed request fields read back exactly; Undo available";

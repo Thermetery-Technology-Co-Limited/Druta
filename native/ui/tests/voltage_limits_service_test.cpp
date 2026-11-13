@@ -135,5 +135,6 @@ int main(){
  volts(ec,0x408+6*0x80+4,1000);CHECK(s.undo().ok&&voltage(ec,0x408+6*0x80+4)==1000&&voltage(ec,0x408+6*0x80+8)==1100000);
  auto vmin=request(s,VoltageLimitKind::vmin,5,1150000);const auto count=sets;CHECK(!s.apply(vmin).ok&&sets==count);
  auto fixed=request(s,VoltageLimitKind::rel,6,1120000);fixed.lower=1120000;CHECK(s.apply(fixed).ok);CHECK(s.restore_rom(fixed.key).ok&&voltage(ec,0x408+6*0x80+4)==0);}
+ fresh();{VoltageLimitsService s(api(),reinterpret_cast<dc_gpu*>(1),device);s.read(2);int history=0;bool reject=false;s.set_history_callback([&]{++history;if(reject)throw std::runtime_error("history refused");});auto same=request(s,VoltageLimitKind::switch_delay,1,20);CHECK(s.apply(same).ok&&history==0&&sets==0);auto first=request(s,VoltageLimitKind::switch_delay,1,30);CHECK(s.apply(first).ok&&history==1&&sets==1);auto next=request(s,VoltageLimitKind::switch_delay,1,35);reject=true;CHECK(!s.apply(next).ok&&history==2&&sets==1&&s.state().undo_available);CHECK(s.undo().ok&&get(dc,24)==20&&history==2);}
  std::printf("Voltage limits service: %u checks\n",checks);return 0;
 }

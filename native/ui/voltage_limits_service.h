@@ -82,6 +82,7 @@ class VoltageLimitsService {
 public:
     VoltageLimitsService(VoltageLimitsApi,dc_gpu*,const dc_gpu_identity&);
     ~VoltageLimitsService(); // no destructor writes
+ void set_history_callback(std::function<void()> callback); // Standalone first SET only.
     // bit1: equations/roles; bit2: switch-delay devices. No automatic polling.
     const VoltageLimitsData& read(uint32_t families=3);
     // Read-only shared evidence capture. No semantic provider calls or state

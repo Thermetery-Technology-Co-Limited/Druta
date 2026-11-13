@@ -201,4 +201,25 @@ void batch_failure(){
     Fake pending;PowerIntegralService pending_s(api(),pending.gpu(),pending.id);data=pending_s.read();pending.fail_set_at=1;check(!pending_s.apply(std::vector<PowerIntegralRequest>{staged(data,0,PowerIntegralField::upper,5000)}).ok,"pending new profile fixture");data=pending_s.read();const auto pending_writes=pending.sets;check(!pending_s.apply(std::vector<PowerIntegralRequest>{staged(data,1,PowerIntegralField::upper,6000)}).ok&&!pending_s.apply(1,PowerIntegralField::upper,6000).ok&&pending.sets==pending_writes,"uncertain profile blocks both next batch and individual edit");
 }
 }
-int main(){normal();qualification();bounds();failures_and_recovery();profiles();verification();preview_recovery_gates();batch_failure();std::printf("Power integral service: %d failures\n",failures);return failures?1:0;}
+void history_boundary(){
+    Fake f;PowerIntegralService service(api(),f.gpu(),f.id);auto data=service.read();int histories=0,expected_sets=0;
+    service.set_history_callback([&]{check(f.sets==expected_sets,"history precedes first feedback SET");++histories;(void)capture_power_integral_profile(service.read(),{{0,PowerIntegralField::upper}});});
+    check(service.apply(0,PowerIntegralField::upper,4096).ok&&histories==0&&f.sets==0,"feedback no-op has no history");
+    check(!service.apply(0,PowerIntegralField::upper,5000,4500).ok&&histories==0&&f.sets==0,"stale feedback draft creates no history");
+    check(service.apply(0,PowerIntegralField::upper,5000).ok&&histories==1&&f.sets==1,"changed feedback saves once before write");
+    service.set_history_callback([]{throw std::runtime_error("history storage failed");});
+    auto refused=service.apply(0,PowerIntegralField::upper,6000);check(!refused.ok&&!refused.may_have_changed&&f.sets==1&&service.has_undo(),"history failure preserves existing feedback request and Undo");
+    refused=service.restore(0,PowerIntegralField::upper);check(!refused.ok&&!refused.may_have_changed&&f.sets==1&&service.has_undo(),"explicit feedback Restore refuses before effects if history fails");
+    expected_sets=1;service.set_history_callback([&]{check(f.sets==expected_sets,"restore history precedes SET");++histories;});
+    check(service.restore(0,PowerIntegralField::upper).ok&&histories==2&&f.sets==2,"captured initial Restore saves reverse snapshot");
+    expected_sets=2;check(service.apply(0,PowerIntegralField::upper,6000).ok&&histories==3&&f.sets==3,"new individual feedback edit saves snapshot");
+    check(service.undo(0,PowerIntegralField::upper).ok&&histories==3&&f.sets==4,"process-local Undo does not produce history");
+    data=service.read();const std::vector<PowerIntegralRequest> requests{staged(data,0,PowerIntegralField::upper,7000),staged(data,1,PowerIntegralField::upper,8000)};
+    expected_sets=4;check(service.apply(requests).ok&&histories==4&&f.sets==6,"multi-field standalone edit captures once");
+    check(service.undo_profile().ok&&histories==4&&f.sets==8,"grouped feedback Undo does not create snapshots");
+    service.set_history_callback([]{throw std::runtime_error("required history unavailable");});
+    data=service.read();const auto one=std::vector<PowerIntegralRequest>{staged(data,0,PowerIntegralField::upper,7000)};
+    refused=service.apply(one);check(!refused.ok&&!refused.may_have_changed&&f.sets==8&&!service.has_undo(),"batch history failure precedes ownership and SET");
+    int journals=0;check(service.apply(one,[&](const auto&){++journals;}).ok&&journals==1&&f.sets==9,"external profile journal retains its own capture boundary");
+}
+int main(){normal();qualification();bounds();failures_and_recovery();profiles();verification();preview_recovery_gates();batch_failure();history_boundary();std::printf("Power integral service: %d failures\n",failures);return failures?1:0;}

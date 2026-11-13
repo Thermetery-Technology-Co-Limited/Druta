@@ -57,6 +57,7 @@ int VoltagePolicyReceipt::restoration_order()const{return state&&state->record.s
 struct VoltagePolicyService::Impl {
     VoltagePolicyApi api;dc_gpu* gpu;dc_gpu_identity target;std::optional<dc_target> binding;
     VoltagePolicyData data;std::optional<Record> undo_record,recovery_record,undo_before_recovery;
+    std::function<void()> history_callback;
     std::shared_ptr<int> session=std::make_shared<int>(0);
     Impl(VoltagePolicyApi a,dc_gpu* g,const dc_gpu_identity& id):api(a),gpu(g),target(id){data.identity=id;}
     void bind(){
@@ -158,7 +159,7 @@ struct VoltagePolicyService::Impl {
             publish(after,record.selection==1?1:6);return true;
         }catch(const std::exception& error){message=error.what();return false;}
     }
-    VoltagePolicyResult set(const VoltagePolicyRequest& request,const std::function<void(const VoltagePolicyReceipt&)>& journal={}){
+    VoltagePolicyResult set(const VoltagePolicyRequest& request,const std::function<void(const VoltagePolicyReceipt&)>& journal={},bool capture_history=false){
         VoltagePolicyResult result;Guard guard(api,gpu);if(!guard.held){result.message="GPU lock unavailable";return result;}
         if(!valid_selection(request.selection)||(request.values&~7u)||(request.expected&&(*request.expected&~7u))){result.message="Select only understood Boolean voltage policies";return result;}
         if(recovery_record){result.message="Recover the pending selected voltage-policy request first";return result;}
@@ -179,6 +180,7 @@ struct VoltagePolicyService::Impl {
             const auto wanted=(before.values&~request.selection)|(request.values&request.selection);
             record=Record{request.selection,before.values,wanted,before.transport};
             if(wanted==before.values){result.ok=true;result.message="Selected policy already matches; no write";data.message=result.message;flags();return result;}
+            if(capture_history&&history_callback)history_callback();
             const auto header=changed(before.header,request.selection,wanted);
             call(request.selection==1?gate_set:vf_set,before.transport,request.selection==1?nullptr:&header,wanted,&write);
             if(write.previous){record->before=*write.previous?1u:0u;if(record->before!=(before.values&1))fail("Gate atomic previous state differs from pre-read");}
@@ -221,7 +223,8 @@ const VoltagePolicyData& VoltagePolicyService::read(uint32_t selection){auto& p=
     p.data.message="Voltage policies read: "+std::to_string(available)+" / "+std::to_string(total)+" selected flags available";
     p.flags();return p.data;
 }
-VoltagePolicyResult VoltagePolicyService::apply(const VoltagePolicyRequest& request){return impl_->set(request);}
+void VoltagePolicyService::set_history_callback(std::function<void()> callback){impl_->history_callback=std::move(callback);}
+VoltagePolicyResult VoltagePolicyService::apply(const VoltagePolicyRequest& request){return impl_->set(request,{},true);}
 VoltagePolicyResult VoltagePolicyService::apply_profile(const VoltagePolicyRequest& request,const std::function<void(const VoltagePolicyReceipt&)>& journal){return impl_->set(request,journal);}
 VoltagePolicyResult VoltagePolicyService::preview(const VoltagePolicyRequest& request){
     auto& p=*impl_;VoltagePolicyResult result;Guard guard(p.api,p.gpu);
@@ -269,13 +272,13 @@ VoltagePolicyResult VoltagePolicyService::restore_initial(uint32_t selection){ui
         // transaction, never a claim to recover an unknown atomic prior.
         const auto pending=impl_->recovery_record,undo=impl_->undo_record,older=impl_->undo_before_recovery;
         impl_->recovery_record.reset();impl_->undo_record.reset();
-        auto result=impl_->set({selection,values,{}});
+        auto result=impl_->set({selection,values,{}},{},true);
         if(!result.ok&&!impl_->recovery_record){impl_->recovery_record=pending;impl_->undo_record=undo;impl_->undo_before_recovery=older;impl_->flags();}
         if(result.ok)impl_->undo_before_recovery.reset();
         if(result.ok){result.message="Captured initial request explicitly applied and verified; unknown prior was not reconstructed";impl_->data.message=result.message;}
         return result;
     }
-    return impl_->set({selection,values,{}});
+    return impl_->set({selection,values,{}},{},true);
 }
 VoltagePolicyResult VoltagePolicyService::recover(){auto& p=*impl_;VoltagePolicyResult out;Guard guard(p.api,p.gpu);
     if(!guard.held){out.message="GPU lock unavailable";return out;}if(!p.recovery_record){out.ok=true;out.message="No selected recovery pending";return out;}

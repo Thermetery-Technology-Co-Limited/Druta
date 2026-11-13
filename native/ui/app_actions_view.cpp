@@ -30,6 +30,11 @@ void draw_app_actions_menu(ViewState& state) {
     auto& actions=state.app_actions;
     if(ImGui::BeginMenu("File")) {
         ImGui::BeginDisabled(state.preview || !state.live);
+        if(ImGui::MenuItem("Profile catalog..."))state.profile_catalog_view.open=true;
+        if(ImGui::MenuItem("Undo from history...")){
+            state.profile_catalog_view.open=true;
+            state.profile_catalog_intents.push_back({ProfileCatalogIntent::Operation::stage_newest_history,{},{},{}});
+        }
         if(ImGui::MenuItem("Rail / power profiles..."))state.scoped_profile_view.open=true;
         ImGui::EndDisabled();
         ImGui::Separator();
