@@ -452,8 +452,9 @@ selected rail/power policies, timing fields and iCX, plus Python tuning-action,
 rail-limit and coupled power-action profiles. Python power imports retain the
 distinction between requested rows and explicit pins. Unsupported Python scopes
 are named in the catalog. iCX applies separately because it owns its controller
-and clock lifecycle. Timing profiles apply separately from memory-offset changes
-so their operating band can be qualified. Board-only Python power snapshots
+and clock lifecycle. Timing-plus-memory compositions qualify their initial band,
+apply timing fields before memory offsets, and restore memory requests before
+timing Undo. Board-only Python power snapshots
 without qualified peer-preserving semantics are refused before writes.
 
 I2C Connect / Scan can remember a UUID-bound route and recipe under the local
@@ -555,8 +556,11 @@ adapter changes. Automatic fan target fluctuations are not manual setpoints.
 Timings accepts released Python timing profiles, nvtune-profile-1, and flat
 fields exchanges using fresh helper metadata and a qualified current operating
 band. Aliases are resolved only by that helper; raw register/partition snapshots
-and mixed unrelated tuning scopes are refused. Timing and memory-offset changes
-still apply separately. Other outstanding profile adapters and composition
+and mixed unrelated tuning scopes are refused. Catalog timing and ordinary or
+additional memory offsets use whole preflight, timing-first Apply, fresh final
+selected-field verification and memory-first Undo. Their original values remain
+bound through dispatch; a changed original cannot become a new Undo baseline.
+Other outstanding profile adapters and composition
 restrictions remain listed in [the completion ledger](validation/PARITY-COMPLETION.md).
 
 The catalog also composes voltage admission/V/F flags and power-feedback
@@ -608,6 +612,11 @@ then checks the current scale and grid. Per-fan policies, raw/estimated rail
 requests and clock/voltage offsets use their existing qualified writers.
 Coupled power preserves explicit pins and freshly derived unpinned requests
 after board and named-current changes. The whole selection is preflighted
-before any write, and partial failure retains grouped Undo. Full-tune I2C and
-power-name annotation execution remain pending and must be explicitly omitted
-to apply other selected fields; they are never silently discarded.
+before any write, and partial failure retains grouped Undo. Full-tune NCT3933
+current-DAC settings apply as a separately selected scope after explicit live
+controller selection and I2C opt-in. The released recipe hash, route, identity
+and saved configuration must qualify; configuration is never written. Exact
+output bytes and their issued originals are retained for Apply and Undo.
+Other full-tune I2C formats and power-name annotation execution remain pending
+and must be explicitly omitted to apply other selected fields; they are never
+silently discarded.

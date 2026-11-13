@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "python_full_profile.h"
 #include "fan_profile.h"
+#include "python_i2c_profile.h"
 #include <algorithm>
 #include <cmath>
 #include <climits>
@@ -41,7 +42,7 @@ ProfileDescription source_description(const J& s){
  if(present(s,"power_limit_mw")||(present(s,"current_limits_ma")&&!s["current_limits_ma"].empty())||(present(s,"power_policies")&&!s["power_policies"].empty())||(present(s,"power_policy_pins")&&!s["power_policy_pins"].empty()))add(d,"power:*");
  if(present(s,"power_policy_names")&&!s["power_policy_names"].empty())add(d,"annotation:power");
  if(present(s,"fan_control_state")){J device=J::object();for(const auto k:{"name","vbios","driver","uuid","slot"})device[k]=present(s,"device")?s["device"].value(k,J()):J();J proxy={{"schema",2},{"scope","fan"},{"saved_at","full profile"},{"saved_ts",0},{"device",device},{"incomplete",J::array()},{"fan_control_state",s["fan_control_state"]}};(void)parse_fan_profile(proxy);add(d,"fan:policy");}else if(present(s,"fan_manual")||present(s,"fan_pct"))add(d,"fan:policy");
- if(present(s,"i2c")){const auto& i=s["i2c"];exact_keys(i,{"profile","sha256","port","addr7","rail","format","current_dac_control","control","offset_mv","display_name"});if(!i.empty()){for(const auto k:{"profile","sha256","rail","display_name","format"})if(i.contains(k))strnull(i[k]);for(const auto k:{"port","addr7"})if(present(i,k))integer(i[k],0,UINT32_MAX);if(present(i,"offset_mv"))(void)num(i["offset_mv"]);need(!(i.contains("offset_mv")&&(i.contains("control")||i.contains("current_dac_control")))&&!(i.contains("control")&&i.contains("current_dac_control")),"Conflicting I2C control forms");add(d,"i2c:controller");}}
+ if(present(s,"i2c")){const auto& i=s["i2c"];exact_keys(i,{"profile","sha256","port","addr7","rail","format","current_dac_control","control","offset_mv","display_name"});if(!i.empty()){for(const auto k:{"profile","sha256","rail","display_name","format"})if(i.contains(k))strnull(i[k]);for(const auto k:{"port","addr7"})if(present(i,k))integer(i[k],0,UINT32_MAX);if(present(i,"offset_mv"))(void)num(i["offset_mv"]);need(!(i.contains("offset_mv")&&(i.contains("control")||i.contains("current_dac_control")))&&!(i.contains("control")&&i.contains("current_dac_control")),"Conflicting I2C control forms");if(i.contains("current_dac_control")||i.value("format",J())=="i2c.current_dac_control")(void)parse_python_nct3933_profile(i);add(d,"i2c:controller");}}
  need(!d.targets.empty(),"Full profile selects no controls");d.summary="Python full tune: "+std::to_string(d.targets.size())+" targets; fresh preflight required";return d;
 }
 }

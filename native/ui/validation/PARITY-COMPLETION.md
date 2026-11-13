@@ -24,8 +24,8 @@ This ledger records subsequent completion evidence without narrowing their scope
 | Manual V/F profiles, identity/geometry validation, stage/preview/explicit Apply | Implemented/tested in second checkpoint; standalone scope, not full-tune composition |
 | Manual rail-limit profiles using independent qualified fields | Implemented/tested in third checkpoint: explicit native subset, fresh capture, gate-off preview, exact typed requests and grouped Undo |
 | Manual policy profiles and coupled board/current state | Implemented/tested in third checkpoint: board-first writes, selected explicit pins, complete selected readback, partial-failure Undo and unrelated-pin conflict protection; no new hardware-write qualification |
-| Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX is standalone, timing and memory-offset changes apply separately, and unqualified board-only Python power snapshots are refused before writes |
-| Remaining manual profiles, Python imports and catalog composition | Thirteenth increment implements selected full-tune core, memory, domain, boost, fan, rail, offset, current-layout-bound curve and coupled power imports. Full-tune I2C controller and power annotation execution remain pending. 95/95 CTest suites and 22 read-only renderer phases passed. See the [thirteenth increment](2026-11-13-parity-thirteenth-increment.md) and historical [scope audit](2026-11-13-profile-scope-gap-map.md) |
+| Profile catalog, included/omitted scopes, composition/conflict validation, partial-failure Undo | Implemented/tested in sixth: both-skin file catalog and selected targets, typed Python rail/full-power imports, whole preflight, final selected readback and grouped recovery receipts. Unsupported Python scopes are named; iCX remains standalone and unqualified board-only Python power snapshots are refused before writes. Fourteenth adds timing plus ordinary/additional memory composition with timing first, memory-first Undo and frozen baselines; 100/100 suites and 22 read-only renderer phases passed |
+| Remaining manual profiles, Python imports and catalog composition | Fourteenth adds standalone selected full-tune NCT3933 import; other full-tune I2C families and power annotation execution remain pending. Timing plus ordinary/additional memory catalog ordering is implemented with frozen baselines; 100/100 suites and 22 read-only renderer phases passed. See the [fourteenth increment](2026-11-13-parity-fourteenth-increment.md) and historical [scope audit](2026-11-13-profile-scope-gap-map.md) |
 | General frequency min/max/lock-max and legacy P0/max fan ownership workflow | Implemented in fourth checkpoint: current-adapter tables, explicit range/lock-max, exact accepted request checks, owned handover/release, independent legacy P0 and fan Undo; physical qualification remains adapter-specific |
 | Advanced read-only PERF groups and power arbitration diagnostics | PERF implemented in fourth checkpoint; explicit arbitration acquisition, real pure decoder integration, independent availability and stale retention implemented/tested in fifth. Current 3070 Ti layout is outside the traced semantic decoder; scoped evidence recorded |
 | Advanced power feedback/integral bounds, selected-field restoration | Fifth: qualified selected ratios, exact preserved-field readback, previous-edit Undo and captured-initial Restore. Ninth adds selected native/Python ratio profiles, ordered whole-selection preview and issued-only recovery; 87-suite and 20-phase renderer validation passed. Additional packet geometry and physical-write qualification remain separate, explicitly unproven |
@@ -58,6 +58,7 @@ Tenth increment: [selected catalog composition and Python adapters](2026-11-13-p
 Eleventh increment: [voltage catalog transactions](2026-11-13-parity-eleventh-increment.md); 92 suites and 22 read-only renderer phases passed.
 Twelfth increment: [saving and clock catalog transactions](2026-11-13-parity-twelfth-increment.md); 93 suites and 22 read-only renderer phases passed.
 Thirteenth increment: [selected full-tune import and handover](2026-11-13-parity-thirteenth-increment.md); 95/95 suites passed in 14.43 seconds and 22 read-only renderer phases passed.
+Fourteenth increment: [NCT profile import and timing ordering](2026-11-13-parity-fourteenth-increment.md); 100/100 suites and 22 read-only renderer phases passed.
 Open rows still require implementation; completing this increment does not complete the goal.
 
 Approved differences stay: weighted risk colors; Focused page routing; integrated
@@ -78,7 +79,7 @@ partial presentation port cannot mark the full goal complete. The goal remains
 active until every applicable review requirement has authoritative evidence.
 
 
-## Remaining scope after the thirteenth increment
+## Remaining scope after the fourteenth increment
 
 - Native current-ROM graph/role and installed-scaffold receipt/policy/retained-request
   providers for semantic REL/constants and scaffold offsets. The [provider map](2026-11-13-native-evidence-provider-map.md)
@@ -94,9 +95,10 @@ active until every applicable review requirement has authoritative evidence.
   composition is validated within its documented boundaries. Thirteenth-increment
   handovers qualify adaptive/idle, exclusive GR/count and opposite ELCG/SLCG;
   unknown adaptive prior, simultaneous shared GR/count and BLCG ENABLE remain
-  unqualified. Selected full-tune import is implemented; I2C controller and
-  power annotation execution remain pending. iCX remains standalone and timing
-  plus memory-offset changes require separate transactions.
+  unqualified. Selected full-tune NCT import is implemented as a standalone
+  transaction; other full-tune I2C families and power annotation execution remain
+  pending. iCX remains standalone. Timing plus ordinary/additional memory catalog
+  ordering is implemented with frozen baselines; 100/100 suites and 22 read-only renderer phases passed.
 - Physical effects, controller coverage and Vista/7 execution retain their original
   qualification boundaries. Mock transport tests and current read-only evidence do
   not establish those results.

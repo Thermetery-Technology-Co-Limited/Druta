@@ -3,6 +3,7 @@
 #pragma once
 #include "i2c_controls.h"
 #include <memory>
+#include <array>
 #include <utility>
 
 namespace druta::ui {
@@ -48,6 +49,13 @@ struct ControllerRequest {
     double value = 0;
     bool reset = false;
 };
+// Exact DAC command bytes. Configuration is an identity/scaling guard only;
+// saved profiles never write it. Both zero encodings remain distinct.
+struct Nct3933State { std::array<uint8_t,3> outputs{}; uint8_t configuration=0; };
+struct Nct3933PlanState;
+struct Nct3933ReceiptState;
+struct Nct3933Plan { std::shared_ptr<const Nct3933PlanState> state; };
+struct Nct3933Receipt { std::shared_ptr<Nct3933ReceiptState> state; };
 class ControllerDriver {
 public:
     virtual ~ControllerDriver() = default;
@@ -58,6 +66,12 @@ public:
     virtual I2cResult restore() = 0;
     virtual bool owned() const = 0;
     virtual bool needs_clock_clamp() const { return false; }
+    virtual I2cResult capture_nct3933(Nct3933State&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
+    virtual I2cResult preview_nct3933(const Nct3933State&,uint8_t,Nct3933Plan&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
+    virtual I2cResult apply_nct3933(const Nct3933Plan&,const ControllerContext&,const std::function<void(const Nct3933Receipt&)>&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
+    virtual I2cResult verify_nct3933(const Nct3933Plan&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
+    virtual I2cResult verify_nct3933(const Nct3933Receipt&,bool=false) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
+    virtual I2cResult restore_nct3933(const Nct3933Receipt&) { return {false,false,false,"Exact NCT3933 profile control unavailable"}; }
 };
 std::unique_ptr<ControllerDriver> make_nct3933(ControllerIo&, I2cRoute);
 std::unique_ptr<ControllerDriver> make_ncp4206(ControllerIo&, I2cRoute);

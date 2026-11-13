@@ -668,3 +668,17 @@ Unknown prior adaptive state and simultaneous shared-count ownership remain
 unqualified; BLCG has no source-defined ENABLE. No startup or reset replay is
 added. See the [thirteenth increment](ui/validation/2026-11-13-parity-thirteenth-increment.md)
 for validation and the remaining full review scope.
+
+## Continuation increment: controller profiles and timing order
+
+Selected full-tune NCT3933 profiles retain exact output bytes, qualify the
+released recipe/route and compare saved configuration without writing it.
+Opaque session receipts preserve issued-only recovery and permit normal manual
+edits after restoration. This controller scope remains separate from other
+tuning writers; the other saved controller formats and annotations remain open.
+
+Timing and memory-offset catalog composition now binds original requests through
+dispatch, applies timings first and restores memory before timing Undo. Final
+readback uses the current qualified operating band without weakening timing
+write or restoration checks. See the [fourteenth increment](ui/validation/2026-11-13-parity-fourteenth-increment.md)
+for tests and the remaining scope.

@@ -41,6 +41,10 @@ struct IcxProfilePlan {
     uint64_t selection_revision=0;
     ProfileJson document,prior;
 };
+struct I2cProfilePlanState;
+struct I2cProfileReceiptState;
+struct I2cProfilePlan { std::shared_ptr<const I2cProfilePlanState> state; };
+struct I2cProfileReceipt { std::shared_ptr<I2cProfileReceiptState> state; };
 // Worker-owned: no bus polling from telemetry or rendering. Controller release
 // precedes clock release, including close and failure recovery.
 class I2cSession final : private I2cTransport, private ControllerIo {
@@ -55,6 +59,13 @@ public:
     ActionResult preflight_icx_profile(const ProfileJson& document,IcxProfilePlan& out);
     ActionResult apply_icx_profile(const IcxProfilePlan& plan);
     ActionResult restore_icx_profile(const IcxProfilePlan& plan);
+    // Explicit selected legacy NCT profile. Opaque session/driver plans bind
+    // exact output bytes and comparison-only configuration; no clock hold.
+    ActionResult preflight_i2c_profile(const ProfileJson&,I2cProfilePlan&);
+    ActionResult apply_i2c_profile(const I2cProfilePlan&,const std::function<void(const I2cProfileReceipt&)>&);
+    ActionResult verify_i2c_profile(const I2cProfilePlan&);
+    ActionResult verify_i2c_profile(const I2cProfileReceipt&,bool original=false);
+    ActionResult restore_i2c_profile(const I2cProfileReceipt&);
     bool owned() const { return service_->has_owned_control() || (controller_ && controller_->owned()) || data_.clock_owned || (verify_hold_ && verify_hold_->owned()); }
 private:
     I2cApi api_;
@@ -68,6 +79,9 @@ private:
     std::optional<IcxProfilePlan> catalog_plan_;
     bool catalog_complete_=false;
     bool icx_plan_bound(const IcxProfilePlan& plan) const;
+    bool profile_bound(const I2cProfilePlanState&) const;
+    const std::shared_ptr<const uint8_t> profile_owner_=std::make_shared<const uint8_t>(uint8_t{0});
+    std::shared_ptr<I2cProfileReceiptState> profile_receipt_;
     bool selection_write_attempted_ = false;
     bool discovery_readonly_ = false;
     bool discovery_cancel_allowed_ = true;
