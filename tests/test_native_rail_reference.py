@@ -732,9 +732,11 @@ class QueryTests(ParityTest):
         control = {0: [-12500, 6250, 0, 25000]}
         options = config("turing", control=control)
         trace = self.parity(scenario, **options)
+        with self.assertRaises(TypeError) as unhashable:
+            {}[["vmin"]]  # Python's profile["bases"][rail][key]; CPython 3.14 names the dict key in its text
         self.assertEqual([step[1] for step in trace],
                          [None, 675.0, None, ("raises", "KeyError", "'bogus'"), None,
-                          ("raises", "TypeError", "unhashable type: 'list'"), None, 1125.0])
+                          ("raises", "TypeError", str(unhashable.exception)), None, 1125.0])
         self.assertEqual(masks(trace[:1]), FIRST_READ + SECOND_SAMPLE)
         self.assertEqual(masks(trace[1:]), [])
 
