@@ -16,6 +16,10 @@ struct VoltageOffsetRow {
 struct VoltageOffsetsData {
  uint64_t revision=0;dc_gpu_identity identity{};std::optional<dc_target> target;
  std::vector<VoltageOffsetRow> rows;bool undo_available=false,recovery_pending=false;std::string message;
+ // The same capture's independently reported policy per present rail (REL, ALT, OV,
+ // VMIN, effective) in uV, and the last read()'s failure (cleared by a good read).
+ std::array<std::optional<std::array<int64_t,5>>,2> rail_policy_uv;
+ std::string read_error;
 };
 struct VoltageOffsetsResult {bool ok=false,may_have_changed=false,rollback_verified=false;std::string message;};
 struct VoltageOffsetsPlan {struct State;bool ok=false;std::string message;std::shared_ptr<const State> state;};

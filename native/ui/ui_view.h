@@ -109,6 +109,44 @@ struct ViewState {
     bool hard_mod_ack = false, hard_plan_staged = false;
     uint64_t hard_ack_generation = 0;
     std::string curve_plan_message;
+    std::string curve_plan_note; // 1.9.1 _plan_note text for the Classic banner; dropped with the plan
+    // Classic Clocks > "Limited de-flatten <= cap": draw() refreshes whether a
+    // plan can be staged; the menu sets the request and draw() stages it locally.
+    bool limited_deflatten_ready = false, limited_deflatten_requested = false;
+
+    // Classic seeds the released 1.9.1 editor presets once (curve_draft.h), then
+    // applies 1.9.1 vf_read's rules on every fresh read. Focused keeps the above.
+    bool classic_curve_presets_applied = false;
+    // Classic selects the middle point on a new adapter/session, as 1.9.1 does
+    // when it has no selection yet; cleared once a curve has been observed.
+    bool curve_selection_pending = true;
+    // Set by Read curve and by a new adapter/session: the next fresh curve is a
+    // 1.9.1 vf_read (logged, floors and hard target reseeded).
+    bool curve_read_requested = false;
+    // completed_reads when that read was asked for: a curve already stale that
+    // fails again shows no edge, so two further reads answer the request.
+    uint64_t curve_read_reads = 0;
+    // The command results observe_curve has seen, the Undo label state before
+    // the newest one, and whether the catalog profile applied last is a full
+    // profile (1.9.1 refresh_full_profile re-reads the curve, scoped loads do not).
+    uint64_t curve_read_actions = 0;
+    bool classic_undo_metadata_only = false, classic_catalog_rereads = false;
+    // 1.9.1 _discard_armed: Read curve over staged edits asks twice.
+    bool classic_discard_armed = false;
+    // 1.9.1 log_once("read", ...): the read error this failure episode logged.
+    std::string classic_read_error_logged;
+    // 1.9.1 _power_request_feedback: a board-power Apply / Stock waiting for its
+    // result, and the warning its readback left on the Limits footer.
+    struct ClassicPowerRequest { uint64_t generation = 0, completed_actions = 0, log_id = 0; double requested_w = 0; };
+    std::optional<ClassicPowerRequest> classic_power_request;
+    struct ClassicPowerFeedback { uint64_t generation = 0; bool mismatch = false; std::string text; };
+    std::optional<ClassicPowerFeedback> classic_power_feedback;
+    // Classic log lines the released frontend writes besides command results
+    // (backend status, curve reads). after_log_id orders them among the
+    // session log; ok empty prints untagged.
+    struct ClassicLogLine { uint64_t after_log_id = 0; std::string text; std::optional<bool> ok; };
+    std::vector<ClassicLogLine> classic_log_lines;
+    uint64_t classic_backend_logged_generation = 0;
     uint64_t observed_curve_revision = 0;
     uint64_t acknowledged_curve_action = 0;
     uint64_t observed_curve_generation = 0;
@@ -121,6 +159,9 @@ struct ViewState {
     bool curve_entry_editing = false;
     bool curve_window_open = false;
     bool curve_inline_active = false; // Recomputed each frame; only one editor is drawn.
+    // Recomputed each frame: Classic's Advanced page drew its Power policies section
+    // open. The host passes it to Session::set_policy_readouts (read-only refresh).
+    bool power_policies_open = false;
     bool curve_window_focus_requested = false;
     bool curve_fit_requested = true;
     std::optional<uint32_t> curve_drag_point;
@@ -147,5 +188,8 @@ struct ViewState {
 // then scales it once; the host owns font loading and DPI changes.
 void apply_theme(float scale);
 void draw(ViewState& state);
+// Shared by the frequency-lock window and Classic's inline Clocks menu block.
+FrequencyLockViewContext frequency_lock_context(const ViewState& state);
+void queue_frequency_lock_intents(ViewState& state, const std::vector<FrequencyLockIntent>& intents);
 
 } // namespace druta::ui

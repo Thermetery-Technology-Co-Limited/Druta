@@ -5,6 +5,7 @@
 #include "monitor_model.h"
 #include "clock_monitor_model.h"
 #include "i2c_catalog.h"
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -59,6 +60,20 @@ std::optional<AppTarget> second_window_target(const SessionSnapshot& s,std::stri
         why="A verified selected PCI slot and GPU UUID are required; no second window was launched.";
     else {why.clear();return app_target(s);}
     return {};
+}
+std::optional<AppTarget> second_window_card_target(const SessionSnapshot& s,const std::string& slot,std::string& why) {
+    if(!slot.empty() && slot==s.selected_slot)return second_window_target(s,why);
+    const auto device=std::find_if(s.devices.begin(),s.devices.end(),[&](const Device& d){return !slot.empty() && d.slot==slot;});
+    if(device==s.devices.end())why="This card is no longer enumerated; no second window was launched.";
+    else if(device->uuid.empty())why="This card's GPU UUID was not enumerated; a second window needs its PCI slot and UUID.";
+    else {why.clear();return AppTarget{s.generation,device->slot,device->uuid};}
+    return {};
+}
+bool second_window_launchable(const AppTarget& t,const SessionSnapshot& s,std::string& why) {
+    if(t.generation!=s.generation){why="The session changed; no second window was launched.";return false;}
+    const auto current=second_window_card_target(s,t.slot,why);
+    if(current && (current->slot!=t.slot || current->uuid!=t.uuid)){why="The card at this PCI slot changed; no second window was launched.";return false;}
+    return bool(current);
 }
 DeviceReport selected_device_report(const SessionSnapshot& s) {
     DeviceReport report; report.target=app_target(s); const auto& d=s.data;const auto& id=d.identity;

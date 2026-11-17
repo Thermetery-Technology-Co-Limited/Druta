@@ -243,7 +243,9 @@ class Client final : public IBackend {
         if (!power_integral_) { result.message = "Power feedback controls unavailable"; return result; }
         HistoryCallbackScope history{[this]{power_integral_->set_history_callback({});}};power_integral_->set_history_callback([this,&cmd]{before_history("power-feedback",[this,&cmd]{std::vector<PowerIntegralKey> keys;if(cmd.integral_requests)for(const auto& r:*cmd.integral_requests)keys.push_back({r.policy,r.field});else if(cmd.integral_selection)keys=*cmd.integral_selection;else keys.push_back({cmd.integral_policy,cmd.integral_upper?PowerIntegralField::upper:PowerIntegralField::lower});return capture_power_integral_profile(power_integral_->read(),keys);});});
         if (cmd.operation == Command::Operation::power_integral_read) {
-            last_.power_integral = std::make_shared<PowerIntegralData>(power_integral_->read());
+            // Classic's explicit Read only adds the one read-only STATUS GET (PMU
+            // output, effective limit); captures and apply paths keep read().
+            last_.power_integral = std::make_shared<PowerIntegralData>(live_readouts_ ? power_integral_->read_with_status() : power_integral_->read());
             result.ok = last_.power_integral->current; result.message = last_.power_integral->message;
             return result;
         }
@@ -284,7 +286,7 @@ class Client final : public IBackend {
     std::unique_ptr<FrequencyLock> frequency_;
     ClockMonitorService clock_monitor_;
     std::optional<uint32_t> clock_architecture_;
-    bool clock_architecture_attempted_ = false, clock_step_measured_ = false;
+    bool clock_architecture_attempted_ = false, clock_step_measured_ = false, hold_architecture_attempted_ = false;
     uint32_t clock_step_khz_ = 0;
     uint64_t clock_sample_ = 0;
     void clock_tick(const dc_telemetry* telemetry) {
@@ -294,6 +296,20 @@ class Client final : public IBackend {
         input.architecture = clock_architecture_; input.step_khz = clock_step_khz_;
         input.step_measured = clock_step_measured_;
         last_.clock_monitor = std::make_shared<ClockMonitorData>(clock_monitor_.update(api_.clock_classify, input));
+    }
+    // Python refresh_control: each per-domain knob reads the paired private
+    // domain from the rows the Monitor table already classified (no second
+    // driver read). A failed or stale classification keeps the last pairing.
+    void clock_domain_pairing() {
+        last_.clock_domain_requests_only = api_.clkdom_blackwell && api_.clkdom_blackwell(gpu_) != 0;
+        const auto& monitor = last_.clock_monitor;
+        if (!api_.clkdom_pairing || !monitor || !monitor->available || monitor->stale) return;
+        std::vector<uint32_t> live;
+        for (const auto& row : monitor->rows)
+            if (row.raw.has_prog_mhz && std::isfinite(row.raw.prog_mhz) && row.raw.prog_mhz != 0) live.push_back(row.raw.domain);
+        dc_clkdom_pair pairs[DC_CLKDOM_SLOTS]{}; size_t count = 0;
+        if (api_.clkdom_pairing(gpu_, 1, live.data(), live.size(), pairs, static_cast<size_t>(DC_CLKDOM_SLOTS), &count) == DC_OK && count <= DC_CLKDOM_SLOTS)
+            last_.clock_domain_pairs.assign(pairs, pairs + count);
     }
     struct PowerSnapshot { uint32_t board = 0; std::vector<dc_policy_row> rows; std::vector<uint32_t> pin_ids; std::vector<int64_t> pin_values; std::optional<uint32_t> selected_policy; std::vector<uint32_t> selected_policies; bool guard_unselected_pins = false; };
     // Integral receipts include the full adapter identity. Keep them immutable
@@ -307,6 +323,12 @@ class Client final : public IBackend {
     std::optional<I2cProfilePlan> catalog_i2c_plan_;
     bool rail_mode_ = false;
     std::unique_ptr<RailControls> rail_service_;
+    bool live_readouts_ = false; // Session::set_live_readouts: the Classic presentation is shown
+    // Session::set_policy_readouts: Classic's Power policies section is open. The
+    // table is then re-read on an ordinary poll at most once a second (Python
+    // POLICY_REFRESH_S); the last capture's time throttles it.
+    bool policy_readouts_ = false;
+    std::optional<std::chrono::steady_clock::time_point> last_policy_capture_;
     std::unique_ptr<I2cSession> i2c_session_;
     std::function<bool()> discovery_cancelled_;
     std::function<void(const I2cDiscoveryProgress&)> discovery_progress_;
@@ -945,30 +967,58 @@ class Client final : public IBackend {
         }
 
     }
+    // A rail Undo entry still describes the card: the same rail type and a fresh
+    // request equal to the captured one, for its field and a linked partner.
+    static bool rail_undo_current(const RailUndo& u, const std::array<RailRow, DC_RAILS_COUNT>& rows) {
+        if (u.rail < 0 || u.rail >= static_cast<int>(rows.size()) || u.field >= DC_RAILS_LIMIT_FIELDS || (u.partner_field && *u.partner_field >= DC_RAILS_LIMIT_FIELDS)) return false;
+        const auto& row = rows[u.rail];
+        const auto same = [&](uint32_t field, int32_t requested) { const auto& f = row.fields[field]; return !f.stale && f.requested_uv && *f.requested_uv == requested; };
+        return row.type && *row.type == u.type && same(u.field, u.requested_uv) && (!u.partner_field || same(*u.partner_field, u.partner_requested_uv));
+    }
+    static bool exact_rail_uv(double mv, int32_t& out) {
+        const double raw = mv * 1000.0;
+        if (!std::isfinite(raw) || raw < INT32_MIN || raw > INT32_MAX || std::abs(raw - std::nearbyint(raw)) > 0.000001) return false;
+        out = static_cast<int32_t>(std::nearbyint(raw)); return true;
+    }
     ActionResult rail_action(const Command& cmd, bool undoing) {
         ActionResult result{}; if (!rail_service_) { result.message = "Rail controls unavailable"; return result; }
         if (!undoing && (!cmd.rail || cmd.rail->rail >= DC_RAILS_COUNT || cmd.rail->field >= DC_RAILS_LIMIT_FIELDS)) { result.message = "Invalid rail or field"; return result; }
+        // Python apply_vlim with Link ticked: both fields of one rail in one setter call.
+        const RailPartnerRequest* partner = !undoing && cmd.rail_partner ? &*cmd.rail_partner : nullptr;
+        // Python VLIM_LINKED: only reliability and alt-reliability are ever named together.
+        if (partner && (cmd.operation != Command::Operation::apply || partner->id.rail != cmd.rail->rail || !rail_linked_pair(cmd.rail->field, partner->id.field))) { result.message = "Invalid linked rail field; no write issued"; return result; }
         bool xoc = false; if ((undoing || cmd.operation != Command::Operation::stock) && !effective_xoc(xoc)) { result.message = "XOC session state unreadable; no rail write issued"; return result; }
         if (!api_.rails.lock || !api_.rails.unlock || api_.rails.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU for rail action"; return result; }
         struct UnlockRail { RailApi& api; dc_gpu* gpu; ~UnlockRail() { api.unlock(gpu); } } unlock{api_.rails, gpu_};
         const bool bound = !undoing && cmd.expected_binding && !cmd.expected_binding->empty();
-        auto binding_now = [&]() -> std::optional<std::string> {
-            auto rows = rail_service_->read(); const auto& row = rows[cmd.rail->rail]; const auto& field = row.fields[cmd.rail->field];
+        auto binding_now = [&](const RailId& id) -> std::optional<std::string> {
+            auto rows = rail_service_->read(); const auto& row = rows[id.rail]; const auto& field = row.fields[id.field];
             if (!row.type || !field.established || field.stale || !field.estimated_base_mv) return std::nullopt;
-            return rail_binding(cmd.rail->rail, cmd.rail->field, *row.type, *field.estimated_base_mv);
+            return rail_binding(id.rail, id.field, *row.type, *field.estimated_base_mv);
         };
-        if (bound) { auto current = binding_now(); if (!current || !binding_matches(cmd, *current)) { result.message = "Rail binding changed or unavailable; review the request before applying"; return result; } }
+        const auto partner_matches = [&] {
+            if (!partner || partner->expected_binding.empty()) return true;
+            const auto current = binding_now(partner->id); return current && *current == partner->expected_binding;
+        };
+        if (bound) { auto current = binding_now(*cmd.rail); if (!current || !binding_matches(cmd, *current)) { result.message = "Rail binding changed or unavailable; review the request before applying"; return result; } }
+        if (!partner_matches()) { result.message = "Linked rail binding changed or unavailable; no write issued to either field"; return result; }
         struct BindingChanged {};
         RailResult action; bool recorded = false;
         auto capture = [&](const RailUndo& before) {
-            if(!undoing)before_history("rail-limit",[this,&before]{return capture_scoped_profile(scoped_capture(),{ScopedKey::rail_field(static_cast<uint32_t>(before.rail),before.field)});});
-            if (bound) { auto current = binding_now(); if (!current || !binding_matches(cmd, *current)) throw BindingChanged{}; }
+            if(!undoing)before_history("rail-limit",[this,&before]{std::vector<ScopedKey> keys{ScopedKey::rail_field(static_cast<uint32_t>(before.rail),before.field)};if(before.partner_field)keys.push_back(ScopedKey::rail_field(static_cast<uint32_t>(before.rail),*before.partner_field));return capture_scoped_profile(scoped_capture(),keys);});
+            if (bound) { auto current = binding_now(*cmd.rail); if (!current || !binding_matches(cmd, *current)) throw BindingChanged{}; }
+            if (!partner_matches()) throw BindingChanged{};
             if (cmd.expected_request_raw && before.requested_uv != *cmd.expected_request_raw) throw BindingChanged{};
             Undo saved{}; saved.control = ControlId::count; saved.rail_entry = true; saved.rail = before; remember(saved); recorded = !suppress_undo_;
         };
         try {
             if (undoing) action = rail_service_->restore(undo_.back().rail, rail_mode_, xoc);
             else if (cmd.operation == Command::Operation::stock) action = rail_service_->stock(static_cast<int>(cmd.rail->rail), cmd.rail->field, capture);
+            else if (partner) {
+                int32_t uv = 0, partner_uv = 0;
+                if (!exact_rail_uv(cmd.value, uv) || !exact_rail_uv(partner->value, partner_uv)) { result.message = "Rail request is not exactly representable in microvolts"; return result; }
+                action = rail_service_->apply_pair(static_cast<int>(cmd.rail->rail), cmd.rail->field, uv, partner->id.field, partner_uv, rail_mode_, xoc, capture);
+            }
             else { double raw = cmd.value * 1000.0; if (!std::isfinite(raw) || raw < INT32_MIN || raw > INT32_MAX || std::abs(raw - std::nearbyint(raw)) > 0.000001) { result.message = "Rail request is not exactly representable in microvolts"; return result; } action = rail_service_->apply(static_cast<int>(cmd.rail->rail), cmd.rail->field, static_cast<int32_t>(std::nearbyint(raw)), rail_mode_, xoc, capture); }
         } catch (const BindingChanged&) { result.message = "Rail binding or request changed during preflight; no write issued"; return result; }
         result.ok = action.ok; result.may_have_changed = action.may_have_changed; result.message = action.message;
@@ -1932,7 +1982,8 @@ class Client final : public IBackend {
                     std::optional<size_t> entry;const auto before=[&](const TimingBatchPlan& saved){TimingHistoryScope pinned(*this);ensure_timing_backup(true);before_history("load-profile",[]{return ProfileJson();});if(!entry){auto u=std::make_unique<Undo>();u->control=ControlId::count;u->catalog_timing=saved;remember(*u);entry=undo_.size()-1;}else undo_[*entry].catalog_timing=saved;};
                     const auto applied=timings_->apply(*plan.timing,before);action.ok=applied.ok;action.may_have_changed=applied.may_have_changed;action.message=applied.message;
                     if(entry){if(applied.undo)undo_[*entry].catalog_timing=applied.undo;else if(!applied.may_have_changed)undo_.erase(undo_.begin()+*entry);}
-                    timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=action.message;last_.timings=std::make_shared<TimingViewData>(timing_data_);
+                    timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=action.message;timing_data_.message_ok=action.ok;
+                    timing_data_.message_source=TimingViewData::Source::other;timing_data_.capture_note.clear();last_.timings=std::make_shared<TimingViewData>(timing_data_);
                 }
                 result.may_have_changed=result.may_have_changed||action.may_have_changed;fold();
                 if(!action.ok)throw std::runtime_error(plan.name+": "+action.message);
@@ -1977,7 +2028,7 @@ class Client final : public IBackend {
             const auto now=timings_->preview(requests);if(!now.ok||!now.no_change||now.helper_token!=saved.catalog_timing->helper_token||now.slot!=saved.catalog_timing->slot||now.codename!=saved.catalog_timing->codename)return false;
             for(const auto& f:saved.catalog_timing->fields){const auto n=std::find_if(now.fields.begin(),now.fields.end(),[&](const auto& x){return x.field==f.field;});if(n==now.fields.end()||n->mask!=f.mask||n->offset!=f.offset||n->reg!=f.reg)return false;}return true;
         }
-        if(saved.rail_entry){if(!rail_service_)return false;const auto rows=rail_service_->read();if(saved.rail.rail<0||saved.rail.rail>=static_cast<int>(rows.size())||saved.rail.field>=DC_RAILS_LIMIT_FIELDS)return false;const auto& row=rows[saved.rail.rail];const auto& field=row.fields[saved.rail.field];return row.type&&*row.type==saved.rail.type&&!field.stale&&field.requested_uv&&*field.requested_uv==saved.rail.requested_uv;}
+        if(saved.rail_entry){if(!rail_service_)return false;return rail_undo_current(saved.rail,rail_service_->read());}
         if(saved.advanced_entry){auto current=std::make_unique<Undo>();std::string why;return advanced_capture(saved.advanced,*current,why)&&current->value==saved.value&&layout_equal(current->advanced_layout,saved.advanced_layout);}
         if(saved.curve_entry||saved.control==ControlId::core){dc_vf_delta_snapshot curve{};dc_vf_layout layout{};std::vector<dc_vf_point> points;std::string why;
             if(!curve_table(curve,points,why,&layout)||!same_curve(curve,saved.curve)||!same_curve_layout(layout,saved.curve_layout)||!same_curve_mapping(saved.curve_points,points,curve.freq_div))return false;
@@ -2005,6 +2056,18 @@ class Client final : public IBackend {
         if (!tuning_ || !maintenance_needed()) { out.message="No owned V/F hold"; return out; }
         const auto r=tuning_->release(); last_.tuning=tuning_->state();
         out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message=r.message; return out;
+    }
+    // Python restore_raised_limits_now (the button) and _sync_hold_headroom (the
+    // setting turned off): only on the user's click or untick, never on its own.
+    // Nothing raised by this session issues nothing; the hold stays. The result
+    // is Python's "headroom: <restore message>" line alone; the button's
+    // hold-still-in-force note is the Classic log's own untagged line.
+    ActionResult restore_raised_limits() {
+        ActionResult out;
+        if (!tuning_ || !tuning_->state().headroom) { out.ok=true; out.message="headroom: no raised limits to restore"; return out; }
+        const auto r=tuning_->restore_raised(); last_.tuning=tuning_->state();
+        out.ok=r.ok; out.may_have_changed=r.may_have_changed; out.message="headroom: "+r.message;
+        return out;
     }
     ActionResult release_frequency() {
         ActionResult out; out.ok=true;
@@ -2133,23 +2196,23 @@ class Client final : public IBackend {
         HistoryScope history(*this,"max-it",[this]{Command request;request.annotation_snapshot=history_annotations_;return capture_full_document(request);},false);
         Undo group{}; group.control=ControlId::count; remember(group); suppress_undo_=true;
         struct Unsuppress { bool& flag; ~Unsuppress(){flag=false;} } unsuppress{suppress_undo_};
-        auto step=[&](const Command& action,const Undo& before) {
+        auto step=[&](const char* name,const Command& action,const Undo& before) {
             undo_.back().group.push_back(before); const auto r=execute(action);
             if (!r.may_have_changed) undo_.back().group.pop_back(); result.may_have_changed|=r.may_have_changed;
-            if (!result.message.empty()) result.message+="\n"; result.message+=r.message; return r.ok;
+            if (!result.message.empty()) result.message+="\n"; result.message+=r.message; result.steps.push_back({name,r.ok,r.message}); return r.ok;
         };
         bool okay=true;
-        for (const auto& item:items) if (item.changed && !step(item.command,item.undo)) { okay=false; break; }
-        if (okay && !plan.changes.empty()) { Command curve=cmd; curve.operation=Command::Operation::apply_curve; curve.curve_deltas=plan.changes; okay=step(curve,curve_before); }
+        for (const auto& item:items) if (item.changed && !step(label(item.undo.control),item.command,item.undo)) { okay=false; break; }
+        if (okay && !plan.changes.empty()) { Command curve=cmd; curve.operation=Command::Operation::apply_curve; curve.curve_deltas=plan.changes; okay=step("V/F curve",curve,curve_before); }
         if (okay) {
             if (selected) { Command hold=cmd; hold.operation=Command::Operation::hold_curve_point; hold.hold_point_index=selected->idx;
                 dc_vf_delta_snapshot updated{}; std::string capture_error;
-                if (!curve_table(updated,hold.expected_curve,capture_error)) { result.message+="\nHold skipped: "+capture_error; okay=false; }
+                if (!curve_table(updated,hold.expected_curve,capture_error)) { result.message+="\nHold skipped: "+capture_error; result.steps.push_back({"V/F point hold",false,"Hold skipped: "+capture_error}); okay=false; }
                 hold.expected_curve_freq_div=updated.freq_div;
                 if (okay) {
-                const auto r=hold_action(hold); okay=r.ok; result.may_have_changed|=r.may_have_changed; result.message+="\n"+r.message;
+                const auto r=hold_action(hold); okay=r.ok; result.may_have_changed|=r.may_have_changed; result.message+="\n"+r.message; result.steps.push_back({"V/F point hold",r.ok,r.message});
                 }
-            } else { okay=false; result.message+="\nNo curve point at or below the cap"; }
+            } else { okay=false; result.message+="\nNo curve point at or below the cap"; result.steps.push_back({"V/F point hold",false,"No curve point at or below the cap"}); }
         }
         if (undo_.back().group.empty()) undo_.pop_back();
         result.ok=okay; result.message=(okay?"Max it applied: ":"Max it incomplete; captured Undo retained: ")+result.message; return result;
@@ -2191,14 +2254,14 @@ class Client final : public IBackend {
         try { status=api_.reset_all(gpu_,confirm_clamp,this,policy_inputs,&inputs,reset_statics,this,xoc?1:0,steps.data(),static_cast<uint32_t>(steps.size()),&count,&writes,&error); }
         catch (...) { count=0; }
         out.ok=status==DC_OK && count<=steps.size(); out.message.clear();
-        if (count<=steps.size()) for (uint32_t i=0;i<count;++i) { out.ok=out.ok && steps[i].ok!=0; out.message+="\n"+std::string(steps[i].name)+": "+steps[i].message; }
+        if (count<=steps.size()) for (uint32_t i=0;i<count;++i) { out.ok=out.ok && steps[i].ok!=0; out.message+="\n"+std::string(steps[i].name)+": "+steps[i].message;
+            out.steps.push_back({steps[i].name,steps[i].ok!=0,steps[i].message}); }
         // Keep only changed or unreadable requests. An untouched field does not
         // become ours to replay merely because Reset inspected it.
         if (!saved.group.empty() && !undo_.empty()) {
             const auto rail_now=rail_service_ ? rail_service_->read() : std::array<RailRow,DC_RAILS_COUNT>{};
             auto unchanged=[&](const Undo& before) {
-                if (before.rail_entry) { const auto& row=rail_now[before.rail.rail]; const auto& f=row.fields[before.rail.field];
-                    return row.type && *row.type==before.rail.type && !f.stale && f.requested_uv && *f.requested_uv==before.rail.requested_uv; }
+                if (before.rail_entry) return rail_undo_current(before.rail,rail_now);
                 if (before.advanced_entry) { Undo after{}; return advanced_capture(before.advanced,after,why) && layout_equal(before.advanced_layout,after.advanced_layout) && before.value==after.value; }
                 if (before.curve_entry) { dc_vf_delta_snapshot after{}; std::vector<dc_vf_point> points;
                     dc_vf_layout layout{}; return curve_table(after,points,why,&layout) && same_curve(before.curve,after) && same_curve_layout(before.curve_layout,layout) && same_curve_mapping(before.curve_points,points,after.freq_div); }
@@ -2219,6 +2282,7 @@ class Client final : public IBackend {
     }
     ActionResult timing_action(const Command& cmd) {
         ActionResult out;
+        const auto filed_revision=timing_data_.capture_revision;
         auto publish = [&] {
             timing_data_.undo_available = timing_undo_.has_value() || timing_batch_undo_.has_value();
             timing_data_.initial_available = timings_ && timings_->initial_snapshot().has_value();
@@ -2320,7 +2384,13 @@ class Client final : public IBackend {
                 out.ok=true; out.message="Timing profile saved; loading stages fields for explicit Preview and Apply";
             } catch (const std::exception& error) { out.message=std::string("Timing profile save failed: ")+error.what(); }
         }
-        timing_data_.message=out.message; publish(); return out;
+        timing_data_.message=out.message; timing_data_.message_ok=out.ok;
+        timing_data_.message_source=cmd.operation==Command::Operation::timings_capture_p0?TimingViewData::Source::capture_p0:
+            cmd.operation==Command::Operation::timings_preview_batch?TimingViewData::Source::batch_preview:TimingViewData::Source::other;
+        // Released 1.9.1 _timings_worker: a later capture clears the induced-load note.
+        if (cmd.operation==Command::Operation::timings_capture_p0) timing_data_.capture_note=out.message;
+        else if (timing_data_.capture_revision!=filed_revision) timing_data_.capture_note.clear();
+        publish(); return out;
     }
 public:
     PowerWeightCapture capture_weight_state(bool registry){
@@ -2357,6 +2427,7 @@ public:
         LOAD(power_integral.target_bind, dc_gpu_target_bind); LOAD(power_integral.probe_architecture, dc_perf_probe_architecture);
         LOAD(power_integral.abi, dc_cl_abi); LOAD(power_integral.rm, dc_cl_rm);
         LOAD(power_integral.transport_reset, dc_rm_transport_reset); LOAD(power_integral.policy_mask_set, dc_cl_policy_mask_set);
+        LOAD(power_integral.decode, dc_power_arbitration_decode);
         LOAD(voltage_policy.identity, dc_gpu_identity_get); LOAD(voltage_policy.bind, dc_gpu_target_bind);
         LOAD(voltage_policy.architecture_supported, dc_perf_probe_architecture); LOAD(voltage_policy.transport, dc_perf_transport);
         LOAD(voltage_policy.escape, dc_rm_escape_raw); LOAD(voltage_policy.reset_transport, dc_rm_transport_reset);
@@ -2391,7 +2462,7 @@ public:
         LOAD(tuning.recovery_pending, dc_gpu_vf_lock_recovery_pending); LOAD(tuning.recover, dc_gpu_vf_lock_recover);
         LOAD(tuning.headroom_record, dc_rails_hold_record_get); LOAD(tuning.headroom_apply, dc_rails_hold_apply);
         LOAD(tuning.headroom_restore, dc_rails_hold_restore); LOAD(tuning.headroom_live, dc_rails_hold_live_ok);
-        LOAD(tuning.headroom_overwritten, dc_rails_hold_overwritten);
+        LOAD(tuning.headroom_overwritten, dc_rails_hold_overwritten); LOAD(hold_architecture, dc_rails_hold_architecture);
         LOAD(cpc_live_read, dc_cpc_live_read);
         LOAD(i2c.identity, dc_gpu_identity_get); LOAD(i2c.read, dc_i2c_read); LOAD(i2c.write, dc_i2c_write);
         LOAD(i2c.read_bytes,dc_i2c_read_bytes); LOAD(i2c.controller_write,dc_i2c_controller_write);
@@ -2408,9 +2479,9 @@ public:
         LOAD(i2c.lock, dc_gpu_lock); LOAD(i2c.unlock, dc_gpu_unlock); LOAD(i2c.clocks, dc_gpu_lockable_clocks);
         LOAD(i2c.clamp, dc_gpu_clocks_lock); LOAD(i2c.release, dc_gpu_clocks_reset);
         LOAD(i2c.clock_status, dc_gpu_clk_lock_status); LOAD(i2c.vf_status, dc_gpu_vf_lock_status); LOAD(i2c.telemetry, dc_gpu_read_telemetry);
-        LOAD(rails.lock, dc_gpu_lock); LOAD(rails.unlock, dc_gpu_unlock); LOAD(rails.identity, dc_gpu_identity_get); LOAD(rails.limits, dc_rails_limits); LOAD(rails.fields, dc_rails_limit_fields); LOAD(rails.profile, dc_rails_profile); LOAD(rails.initial, dc_rails_initial_get); LOAD(rails.hold, dc_rails_hold_record_get); LOAD(rails.set_raw, dc_rails_set_limits_raw); LOAD(rails.reset, dc_rails_reset_limits); LOAD(planner.deflatten, dc_vfp_compute_deflatten); LOAD(planner.ramp, dc_vfp_compute_ramp); LOAD(planner.rephase, dc_vfp_compute_rephase); LOAD(planner.predict, dc_vfp_predict_curve); LOAD(abi_version, dc_abi_version); LOAD(enumerate, dc_enumerate_gpus); LOAD(open, dc_gpu_open); LOAD(close, dc_gpu_close); LOAD(identity, dc_gpu_identity_get);
+        LOAD(rails.lock, dc_gpu_lock); LOAD(rails.unlock, dc_gpu_unlock); LOAD(rails.identity, dc_gpu_identity_get); LOAD(rails.limits, dc_rails_limits); LOAD(rails.fields, dc_rails_limit_fields); LOAD(rails.profile, dc_rails_profile); LOAD(rails.initial, dc_rails_initial_get); LOAD(rails.hold, dc_rails_hold_record_get); LOAD(rails.set_raw, dc_rails_set_limits_raw); LOAD(rails.reset, dc_rails_reset_limits); LOAD(rails.state, dc_rails_state); LOAD(planner.deflatten, dc_vfp_compute_deflatten); LOAD(planner.ramp, dc_vfp_compute_ramp); LOAD(planner.rephase, dc_vfp_compute_rephase); LOAD(planner.predict, dc_vfp_predict_curve); LOAD(abi_version, dc_abi_version); LOAD(enumerate, dc_enumerate_gpus); LOAD(open, dc_gpu_open); LOAD(close, dc_gpu_close); LOAD(identity, dc_gpu_identity_get);
         LOAD(telemetry, dc_gpu_read_telemetry); LOAD(capabilities, dc_gpu_capabilities_get); LOAD(range, dc_gpu_clock_offset_range_get); LOAD(scale, dc_gpu_mem_offset_scale); LOAD(step, dc_gpu_memory_offset_step_units); LOAD(set_offset, dc_gpu_clock_offset_set);
-        LOAD(lock, dc_gpu_lock); LOAD(unlock, dc_gpu_unlock); LOAD(power_bounds, dc_pl_bounds); LOAD(power_set, dc_pl_set); LOAD(power_message, dc_pl_message_get); LOAD(current_limits, dc_cl_get_current_limits); LOAD(policy_read, dc_cl_power_policies_read); LOAD(policy_set, dc_cl_set_power_policy); LOAD(policy_message, dc_cl_policy_message_get); LOAD(pins_get, dc_cl_pins_get); LOAD(current_limit_error,dc_cl_error_get); LOAD(pins_set, dc_cl_pins_set); LOAD(envelopes, dc_request_envelopes_get); LOAD(reset_curve, dc_gpu_vf_curve_reset); LOAD(clock_step, dc_gpu_clock_step_khz); LOAD(max_rise, dc_gpu_max_rise_khz); LOAD(snapshot, dc_gpu_vf_delta_snapshot); LOAD(apply_deltas, dc_gpu_vf_deltas_apply); LOAD(fan_set, dc_gpu_fan_set); LOAD(fan_reset, dc_gpu_fan_reset); LOAD(fan_restore, dc_gpu_fan_restore); LOAD(boost_set, dc_gpu_voltage_boost_set); LOAD(fan_state, dc_gpu_fan_state_get); LOAD(fan_caps, dc_gpu_fan_capabilities_get); LOAD(boost, dc_gpu_voltage_boost_get); LOAD(clkdom_ok, dc_gpu_clkdom_ok); LOAD(clkdom_layout, dc_gpu_clkdom_layout); LOAD(clkdom_domains, dc_gpu_clkdom_domains); LOAD(clkdom_controls, dc_gpu_clkdom_controls_for_ui); LOAD(clkdom_offered, dc_gpu_clkdom_offset_slider_offered); LOAD(clkdom_label, dc_gpu_clkdom_control_label); LOAD(clkdom_requests, dc_gpu_clkdom_requests); LOAD(clkdom_set, dc_gpu_clkdom_offset_set); LOAD(rail_cap, dc_gpu_rail_offset_capability); LOAD(rail_read, dc_gpu_rail_offset_read); LOAD(rail_set, dc_gpu_rail_offset_set); LOAD(msvdd_reset, dc_gpu_msvdd_offset_reset); LOAD(msvdd_domains,dc_gpu_msvdd_domains_get); LOAD(clkdom_flags_set, dc_gpu_clkdom_flags_set); LOAD(clkdom_flags, dc_gpu_clkdom_flags_get); LOAD(curve_layout, dc_gpu_vf_layout); LOAD(curve, dc_gpu_vf_curve_read); LOAD(power, dc_pl_read); LOAD(enforced_power, dc_pl_enforced_read);
+        LOAD(lock, dc_gpu_lock); LOAD(unlock, dc_gpu_unlock); LOAD(power_bounds, dc_pl_bounds); LOAD(power_set, dc_pl_set); LOAD(power_message, dc_pl_message_get); LOAD(current_limits, dc_cl_get_current_limits); LOAD(policy_read, dc_cl_power_policies_read); LOAD(policy_set, dc_cl_set_power_policy); LOAD(policy_message, dc_cl_policy_message_get); LOAD(pins_get, dc_cl_pins_get); LOAD(current_limit_error,dc_cl_error_get); LOAD(pins_set, dc_cl_pins_set); LOAD(envelopes, dc_request_envelopes_get); LOAD(reset_curve, dc_gpu_vf_curve_reset); LOAD(clock_step, dc_gpu_clock_step_khz); LOAD(max_rise, dc_gpu_max_rise_khz); LOAD(snapshot, dc_gpu_vf_delta_snapshot); LOAD(apply_deltas, dc_gpu_vf_deltas_apply); LOAD(fan_set, dc_gpu_fan_set); LOAD(fan_reset, dc_gpu_fan_reset); LOAD(fan_restore, dc_gpu_fan_restore); LOAD(boost_set, dc_gpu_voltage_boost_set); LOAD(fan_state, dc_gpu_fan_state_get); LOAD(fan_caps, dc_gpu_fan_capabilities_get); LOAD(boost, dc_gpu_voltage_boost_get); LOAD(clkdom_ok, dc_gpu_clkdom_ok); LOAD(clkdom_layout, dc_gpu_clkdom_layout); LOAD(clkdom_domains, dc_gpu_clkdom_domains); LOAD(clkdom_controls, dc_gpu_clkdom_controls_for_ui); LOAD(clkdom_offered, dc_gpu_clkdom_offset_slider_offered); LOAD(clkdom_label, dc_gpu_clkdom_control_label); LOAD(clkdom_requests, dc_gpu_clkdom_requests); LOAD(clkdom_set, dc_gpu_clkdom_offset_set); LOAD(clkdom_blackwell, dc_gpu_clkdom_is_blackwell); LOAD(clkdom_pairing, dc_gpu_clkdom_pairing); LOAD(rail_cap, dc_gpu_rail_offset_capability); LOAD(rail_read, dc_gpu_rail_offset_read); LOAD(rail_set, dc_gpu_rail_offset_set); LOAD(msvdd_reset, dc_gpu_msvdd_offset_reset); LOAD(msvdd_domains,dc_gpu_msvdd_domains_get); LOAD(clkdom_flags_set, dc_gpu_clkdom_flags_set); LOAD(clkdom_flags, dc_gpu_clkdom_flags_get); LOAD(curve_layout, dc_gpu_vf_layout); LOAD(curve, dc_gpu_vf_curve_read); LOAD(power, dc_pl_read); LOAD(enforced_power, dc_pl_enforced_read); LOAD(native_power, dc_pl_native_power_limit);
 #undef LOAD
     }
 #endif
@@ -2535,7 +2606,7 @@ public:
     }
     void close() override {
         if (!prepare_close().ok) return;
-        clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false;
+        clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false; hold_architecture_attempted_ = false;
         clock_step_measured_ = false; clock_step_khz_ = 0; clock_sample_ = 0;
         timing_backup_token_.clear();timing_backup_path_.clear();timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_batch_undo_.reset(); timing_data_={};
         timing_owner_=TimingOwner::none;
@@ -2550,6 +2621,8 @@ public:
         voltage_tables_.reset(); voltage_limits_.reset();
         i2c_session_.reset(); rail_service_.reset(); rail_mode_ = false; if (gpu_ && api_.close) api_.close(gpu_); gpu_ = nullptr; opened_ = {}; last_ = {}; undo_.clear();
     }
+    void set_live_readouts(bool shown) override { live_readouts_ = shown; }
+    void set_policy_readouts(bool open) override { policy_readouts_ = open; }
     LiveData read(bool details) override {
         if(power_saving_)last_.power_saving=std::make_shared<PowerSavingData>(power_saving_->state());
         if(clock_gating_)last_.clock_gating=std::make_shared<ClockGatingData>(clock_gating_->state());
@@ -2570,6 +2643,14 @@ public:
             clock_architecture_attempted_ = true;
             uint32_t architecture = 0;
             if (retry(api_.i2c.architecture, gpu_, &architecture) == DC_OK && architecture) clock_architecture_ = architecture;
+        }
+        if (live_readouts_ && (details || !hold_architecture_attempted_)) {
+            // Python hold_headroom_architecture: a generation answer from the core,
+            // never a driver or device identity. A backend without it is False.
+            // Only the Classic Clocks menu shows it: Focused makes no such read.
+            hold_architecture_attempted_ = true; int32_t supported = -1;
+            if (!api_.hold_architecture) last_.hold_headroom_architecture = false;
+            else if (retry(api_.hold_architecture, gpu_, &supported) == DC_OK && (supported == 0 || supported == 1)) last_.hold_headroom_architecture = supported == 1;
         }
         last_.connected = true; last_.identity = id; last_.status.clear(); bool xoc_state = false; if (current_xoc(xoc_state)) { last_.xoc_known = true; last_.xoc_enabled = xoc_state; }
         dc_telemetry t{}; t.size = sizeof(t);
@@ -2603,6 +2684,9 @@ public:
         last_.timing_top_memory_mhz.reset();
         if (retry(api_.capabilities, gpu_, &caps) == DC_OK) {
             if(caps.mem_clock_count && caps.mem_clock_count<=512) last_.timing_top_memory_mhz=*std::max_element(caps.mem_clocks,caps.mem_clocks+caps.mem_clock_count);
+            // GPU.static mem_div/mem_type; a failed capability read keeps the established values.
+            if ((caps.present & DC_C_MEM_DIV) && caps.mem_div) last_.memory_divisor = caps.mem_div; else last_.memory_divisor.reset();
+            last_.memory_type = std::memchr(caps.mem_type, 0, sizeof(caps.mem_type)) && caps.mem_type[0] ? caps.mem_type : "unknown";
             if (caps.present & DC_C_PL_MIN) { st.pl_min_state = DC_CL_STATIC_VALUE; st.pl_min_mw = caps.pl_min_mw; }
             if (caps.present & DC_C_PL_MAX) { st.pl_max_state = DC_CL_STATIC_VALUE; st.pl_max_mw = caps.pl_max_mw; }
             if (caps.present & DC_C_PL_DEF) { st.pl_def_state = DC_CL_STATIC_VALUE; st.pl_def_mw = caps.pl_def_mw; }
@@ -2612,9 +2696,16 @@ public:
             bool xoc = false; if (effective_xoc(xoc) && api_.power_bounds(gpu_, &bounds_st, xoc ? 1 : 0, &lo, &hi, &bounds_err) == DC_OK && bounds_st.pl_def_state == DC_CL_STATIC_VALUE) power.stock_writable = bounds_st.pl_def_mw > 0 && bounds_st.pl_def_mw < UINT32_MAX && bounds_st.pl_def_mw >= lo && bounds_st.pl_def_mw <= hi;
         }
         int32_t has = 0; uint32_t mw = 0; dc_error err{}; err.size = sizeof(err);
+        // Python refresh_power_policies: while Classic's Power policies section is
+        // open, an ordinary poll re-reads the table rows it already shows, at most
+        // once a second. Focused, a closed section or an unread table makes no read.
+        const auto policy_now = std::chrono::steady_clock::now();
+        const bool policy_refresh = !details && policy_readouts_ && live_readouts_ && !last_.power_policies.empty()
+            && (!last_policy_capture_ || policy_now - *last_policy_capture_ >= std::chrono::seconds(1));
         if (retry(api_.power, gpu_, &st, &has, &mw, &err) == DC_OK && has) {
             power.availability = Availability::available; power.current = mw / 1000.0; power.unit = "W";
-            if (details) { PowerSnapshot captured; std::string reason; bool captured_ok = false;
+            if (details || policy_refresh) { PowerSnapshot captured; std::string reason; bool captured_ok = false;
+                last_policy_capture_ = policy_now;
                 dc_current_row currents[32]{}; uint32_t current_count = 0; bool current_answered = false;
                 if (power_api() && api_.lock(gpu_) == DC_OK) {
                     captured_ok = power_capture(captured, reason);
@@ -2638,10 +2729,19 @@ public:
                     for (const auto& row : captured.rows) { PowerPolicy policy{}; policy.id = row.policy; policy.label = "Policy " + std::to_string(row.policy); policy.named_current = row.named_current != 0; policy.binding = policy_binding(row);
                         policy.channel=row.channel;policy.policy_type=row.type;
                         if(row.unit==1 && row.consistent && row.value>=0)policy.observed_amps=row.value/1000.0;
+                        if(row.unit==1 && row.consistent && row.limit>=0)policy.limit_amps=row.limit/1000.0;
+                        if(row.unit==0 && row.consistent && row.value>=0)policy.observed_watts=row.value/1000.0;
+                        if(row.unit==0 && row.consistent && row.limit>=0)policy.limit_watts=row.limit/1000.0;
+                        for (size_t pin = 0; pin < captured.pin_ids.size(); ++pin) if (captured.pin_ids[pin] == row.policy) policy.pinned = captured.pin_values[pin] / 1000.0;
                         if (current_answered) policy.core_current = candidates == 1 && candidate_id == row.policy;
                         else if (row.named_current && row.unit == 1 && row.consistent) { auto old = std::find_if(previous_policies.begin(), previous_policies.end(), [&](const PowerPolicy& p) { return p.id == row.policy && p.binding == policy.binding && p.core_current; }); policy.core_current = old != previous_policies.end(); }
                         if (policy.core_current) policy.label = "Core current (NVVDD)"; policy.state.availability = Availability::available; policy.state.current = row.requested / 1000.0; policy.state.low = row.minimum / 1000.0; policy.state.high = row.maximum / 1000.0; policy.state.stock = row.default_value / 1000.0; policy.state.unit = row.unit == 0 ? "W" : row.unit == 1 ? "A" : "unknown"; policy.state.step = 0.001; policy.state.writable = !row.board && row.consistent && (row.writable || row.named_current) && (row.unit == 0 || row.unit == 1); policy.state.stock_writable = policy.state.writable && row.default_value >= row.minimum && row.default_value <= row.maximum; policy.state.detail = row.board ? "Board request is controlled separately" : row.consistent ? "Configured policy request" : "Policy record is inconsistent"; last_.power_policies.push_back(std::move(policy)); }
-                } else { power.availability = Availability::transient; power.detail = reason; for (auto& policy : last_.power_policies) { policy.state.availability = Availability::transient; policy.state.detail = reason; } }
+                } else {
+                    // A failed refresh keeps the last rows, marked unavailable; only
+                    // the detail read speaks for the board request's own state.
+                    if (details) { power.availability = Availability::transient; power.detail = reason; }
+                    for (auto& policy : last_.power_policies) { policy.state.availability = Availability::transient; policy.state.detail = reason; }
+                }
             }
             if (st.pl_min_state == DC_CL_STATIC_VALUE) power.low = std::min(st.pl_min_mw / 1000.0, *power.current);
             if (st.pl_max_state == DC_CL_STATIC_VALUE) power.high = std::max(st.pl_max_mw / 1000.0, *power.current);
@@ -2654,13 +2754,28 @@ public:
             if (st.pl_def_state == DC_CL_STATIC_VALUE) power.stock = st.pl_def_mw / 1000.0;
         } else {
             failure(power, !api_.power, "Configured power request unavailable");
-            if (details) for (auto& policy:last_.power_policies) {
+            if (details || policy_refresh) for (auto& policy:last_.power_policies) {
                 policy.state.availability=Availability::transient;
                 policy.state.detail="Coupled power/current readback unavailable; showing last request";
             }
         }
         has = 0; mw = 0; if (retry(api_.enforced_power, gpu_, &has, &mw) == DC_OK && has) last_.enforced_power_w = mw / 1000.0; else last_.enforced_power_w.reset();
+        // Python native_power_limit_for_ui on every refresh_control, one read-only
+        // try; only Classic shows it, so Focused makes no such read. Unread or
+        // failed is unknown (Python: "unavailable"), never the last value.
+        last_.native_power_limit_w.reset();
+        if (live_readouts_ && api_.native_power) {
+            dc_cl_statics native_st = st; int32_t native_has = 0; uint32_t native_mw = 0; size_t native_needed = 0;
+            if (api_.native_power(gpu_, &native_st, &native_has, &native_mw, nullptr, 0, &native_needed) == DC_OK && native_has == 1 && native_mw < 0xFFFFFFFFu)
+                last_.native_power_limit_w = native_mw / 1000.0;
+        }
         read_advanced(details); if (details) read_rails();
+        // Python refresh_rail_live every tick; the limits listing and boost only
+        // with the full read. Display only: no request or preflight uses it.
+        // Only the Classic presentation shows them: Focused makes no rail-state read.
+        // A readout kept from an earlier Classic read is marked stale until Classic reads again.
+        if (rail_service_ && live_readouts_) last_.rail_readouts = rail_service_->readouts(details);
+        else if (last_.rail_readouts) for (auto& readout : *last_.rail_readouts) readout.stale = true;
         if (details) {
             dc_vf_delta_snapshot snapshot{}; std::vector<dc_vf_point> points; std::string why; uint32_t curve_step = 0; int32_t measured = 0;
             if (api_.lock && api_.unlock && api_.lock(gpu_) == DC_OK) {
@@ -2676,7 +2791,10 @@ public:
             } else { last_.curve.clear(); last_.curve_error = "Could not lock GPU for curve"; last_.curve_writable = false; last_.curve_reset_writable = false; last_.curve_step_khz = 0; last_.curve_freq_div = 0; last_.curve_max_abs_delta_khz = 0; last_.curve_model_max_rise_khz = 0; }
         }
         clock_tick(last_.telemetry_valid ? &t : nullptr);
-        last_.undo_available = !undo_.empty(); last_.undo_metadata_only=!undo_.empty()&&undo_.back().annotation&&undo_.back().group.empty()&&undo_.back().completed.empty(); last_.undo_label = last_.undo_metadata_only ? "Undo power labels" : undo_.empty() ? "" : std::string("Undo ") + (undo_.back().curve_entry ? "V/F curve" : undo_.back().advanced_entry ? "advanced offset" : undo_.back().rail_entry ? "rail limit" : label(undo_.back().control)); return last_;
+        // Only Classic's Clock offsets rows show the pairing: Focused makes no
+        // such call and keeps the last pairing.
+        if (live_readouts_) clock_domain_pairing();
+        last_.undo_available =!undo_.empty(); last_.undo_metadata_only=!undo_.empty()&&undo_.back().annotation&&undo_.back().group.empty()&&undo_.back().completed.empty(); last_.undo_label = last_.undo_metadata_only ? "Undo power labels" : undo_.empty() ? "" : std::string("Undo ") + (undo_.back().curve_entry ? "V/F curve" : undo_.back().advanced_entry ? "advanced offset" : undo_.back().rail_entry ? "rail limit" : label(undo_.back().control)); return last_;
     }
     ActionResult execute(const Command& cmd) override {
         const bool outer=history_depth_++==0;
@@ -2796,6 +2914,7 @@ public:
             last_.xoc_known = true; last_.xoc_enabled = actual; result.ok = true; result.message = actual ? "XOC session mode enabled" : "XOC session mode disabled"; return result;
         }
         if (cmd.operation==Command::Operation::release_hold) return release_hold();
+        if (cmd.operation==Command::Operation::restore_raised_limits) return restore_raised_limits();
         if (cmd.operation == Command::Operation::prepare_scoped_profile || cmd.operation == Command::Operation::save_scoped_profile) return scoped_action(cmd);
         if(cmd.operation==Command::Operation::save_fan_profile)return fan_profile_action(nullptr,cmd.profile_path);
         if (cmd.operation == Command::Operation::save_curve_profile) {
@@ -2872,7 +2991,8 @@ public:
         if(cmd.operation==Command::Operation::undo&&!undo_.empty()&&undo_.back().catalog_timing){
             if(!timings_){result.message="Timing helper unavailable; catalog Undo retained";return result;}
             const auto restored=timings_->restore(*undo_.back().catalog_timing);result.ok=restored.ok;result.may_have_changed=restored.may_have_changed;result.message=restored.message;
-            if(result.ok)undo_.pop_back();timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=result.message;last_.timings=std::make_shared<TimingViewData>(timing_data_);return result;
+            if(result.ok)undo_.pop_back();timing_data_.snapshot=timings_->capture();++timing_data_.capture_revision;timing_data_.message=result.message;timing_data_.message_ok=result.ok;
+            timing_data_.message_source=TimingViewData::Source::other;timing_data_.capture_note.clear();last_.timings=std::make_shared<TimingViewData>(timing_data_);return result;
         }
         if (cmd.advanced && (cmd.operation == Command::Operation::apply || cmd.operation == Command::Operation::stock)) return advanced_action(cmd, false);
         if (cmd.power_policy && (cmd.operation == Command::Operation::apply || cmd.operation == Command::Operation::stock)) return execute_policy(cmd);

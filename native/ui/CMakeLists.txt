@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 cmake_policy(SET CMP0091 NEW)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  project(druta_ui LANGUAGES CXX)
+  project(druta_ui LANGUAGES C CXX)
   enable_testing()
 endif()
 if(NOT WIN32)
@@ -20,13 +20,27 @@ if(MSVC)
   target_compile_options(druta_ui_options INTERFACE /utf-8 /permissive-)
 endif()
 
+# FreeType rasterises the Classic presentation's text, as it does in released
+# 1.9.1. Only the modules TrueType faces need are built (freetype_config).
+add_library(druta_ui_freetype STATIC
+  vendor/freetype/src/base/ftsystem.c vendor/freetype/src/base/ftinit.c
+  vendor/freetype/src/base/ftdebug.c vendor/freetype/src/base/ftbase.c
+  vendor/freetype/src/base/ftbitmap.c vendor/freetype/src/base/ftglyph.c
+  vendor/freetype/src/base/ftsynth.c vendor/freetype/src/base/ftbbox.c
+  vendor/freetype/src/base/ftmm.c vendor/freetype/src/autofit/autofit.c vendor/freetype/src/truetype/truetype.c
+  vendor/freetype/src/sfnt/sfnt.c vendor/freetype/src/psnames/psnames.c
+  vendor/freetype/src/smooth/smooth.c vendor/freetype/src/gzip/ftgzip.c)
+target_include_directories(druta_ui_freetype PUBLIC vendor/freetype/include PRIVATE freetype_config)
+target_compile_definitions(druta_ui_freetype PRIVATE FT2_BUILD_LIBRARY "FT_CONFIG_MODULES_H=<druta_ftmodule.h>")
+
 add_library(druta_ui_vendor STATIC
   vendor/imgui/imgui.cpp vendor/imgui/imgui_draw.cpp
   vendor/imgui/imgui_widgets.cpp vendor/imgui/imgui_tables.cpp
   vendor/imgui/backends/imgui_impl_win32.cpp vendor/imgui/backends/imgui_impl_dx9.cpp
+  vendor/imgui/misc/freetype/imgui_freetype.cpp
   vendor/implot/implot.cpp vendor/implot/implot_items.cpp)
-target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/implot)
-target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
+target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/imgui/misc/freetype vendor/implot)
+target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options PRIVATE druta_ui_freetype)
 
 add_library(druta_ui_cuda STATIC cuda_driver.cpp timing_cuda_process.cpp)
 target_link_libraries(druta_ui_cuda PUBLIC druta_ui_options advapi32)
@@ -97,6 +111,10 @@ file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImGui-LICENSE.txt
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui/LICENSE.txt)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImPlot-LICENSE.txt
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/implot/LICENSE)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/FreeType-LICENSE.txt
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/freetype/LICENSE.TXT)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/FreeType-FTL.txt
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/freetype/docs/FTL.TXT)
 if(MSVC)
   target_compile_options(druta_ui_session PRIVATE /W4 /WX)
   target_compile_options(druta-ui PRIVATE /W4 /WX)

@@ -87,15 +87,44 @@ TimingCaptureResult capture_qualified_timings(const TimingCaptureTarget& target,
  }catch(const std::exception& e){result.ok=false;result.message=std::string("Timing capture failed: ")+e.what();return finish();}
  catch(...){result.ok=false;result.message="Timing capture failed";return finish();}
 }
+std::optional<uint32_t> timing_auto_exit_below(const std::vector<uint32_t>& states){
+ if(states.empty())return std::nullopt;
+ return states.size()>1?states[states.size()-2]:states.back();
+}
+void TimingReadFlight::queued(uint64_t generation,uint64_t completed){read_=Mark{generation,completed};}
+void TimingReadFlight::queued_since_observed(){if(seen_)read_=seen_;}
+bool TimingReadFlight::observe(uint64_t generation,uint64_t completed,bool busy){
+ if(read_&&(read_->generation!=generation||completed>read_->completed||!busy))read_.reset();
+ seen_=Mark{generation,completed};
+ return read_.has_value();
+}
+TimingAutoBusy timing_auto_busy(bool classic,bool session_busy,bool capture_busy){
+ if(classic&&capture_busy)return TimingAutoBusy::consume;
+ return session_busy?TimingAutoBusy::defer:TimingAutoBusy::idle;
+}
 void TimingAutoCapture::reset(){target_.reset();previous_clock_.reset();previous_top_.reset();previous_offset_.reset();fired_=false;}
-bool TimingAutoCapture::observe(bool enabled,bool paused,const std::optional<TimingBandObservation>& o){
+bool TimingAutoCapture::observe(bool enabled,bool paused,const std::optional<TimingBandObservation>& o,const TimingAutoGate* gate){
  if(!enabled){reset();return false;}if(paused){previous_clock_.reset();return false;}
  if(!o || !target_valid(o->target)){previous_clock_.reset();return false;}
+ if(last_auto_generation_!=o->target.generation){last_auto_.reset();last_auto_generation_=o->target.generation;}
  if(!target_ || !(*target_==o->target)){reset();target_=o->target;}
  if(!o->pstate || !o->memory_mhz || !o->top_memory_mhz || !o->memory_offset_raw){previous_clock_.reset();return false;}
- if(!timing_capture_in_p0_band(*o)){reset();return false;}
+ if(!timing_capture_in_p0_band(*o)){
+  // Released 1.9.1 hysteresis: the entry stands until the clock falls below
+  // the next enumerated state down, not as soon as P0 is left.
+  if(gate&&fired_&&gate->exit_below_mhz&&*o->memory_mhz>=*gate->exit_below_mhz){previous_clock_.reset();return false;}
+  reset();return false;}
  if(fired_)return false;
- if(!previous_clock_ || !previous_top_ || !previous_offset_ || *previous_clock_!=*o->memory_mhz || *previous_top_!=*o->top_memory_mhz || *previous_offset_!=*o->memory_offset_raw){previous_clock_=o->memory_mhz;previous_top_=o->top_memory_mhz;previous_offset_=o->memory_offset_raw;return false;}
- fired_=true;return true;
+ // Released 1.9.1: the entry edge is taken while busy, without a capture.
+ if(gate&&gate->busy){fired_=true;return false;}
+ // Focused waits for a second equal sample; released 1.9.1 takes the entry sample.
+ if(!gate&&(!previous_clock_ || !previous_top_ || !previous_offset_ || *previous_clock_!=*o->memory_mhz || *previous_top_!=*o->top_memory_mhz || *previous_offset_!=*o->memory_offset_raw)){previous_clock_=o->memory_mhz;previous_top_=o->top_memory_mhz;previous_offset_=o->memory_offset_raw;return false;}
+ fired_=true;
+ if(gate){
+  if(gate->captured_top_band&&gate->captured_top_band(*o->memory_mhz))return false;
+  if(last_auto_&&gate->now-*last_auto_<TimingAutoGate::min_gap)return false;
+  last_auto_=gate->now;
+ }
+ return true;
 }
 }

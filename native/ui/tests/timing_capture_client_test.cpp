@@ -43,8 +43,16 @@ NOINLINE void run(const wchar_t* path){auto workload=std::make_unique<FakeCuda>(
  Command select;select.operation=Command::Operation::timings_select_helper;select.timing_helper_path=path;check(b->execute(select).ok,"select helper");
  Command c;c.operation=Command::Operation::timings_capture_p0;c.timing_generation=1;c.curve_cap_mv=1000;
  check(b->execute(c).ok && sets==0 && clears==0&&process->starts==0,"already P0 captures directly through retained helper pin without CUDA");
+ // Released 1.9.1 tim_induce_note: the P0 capture's result is kept as its note until a later capture.
+ {auto st=b->read(false);check(st.timings&&st.timings->message_ok&&st.timings->message_source==TimingViewData::Source::capture_p0&&
+   !st.timings->capture_note.empty()&&st.timings->capture_note==st.timings->message,"P0 capture result is the capture note");
+  Command preview;preview.operation=Command::Operation::timings_preview_batch;b->execute(preview);st=b->read(false);
+  check(st.timings&&!st.timings->message_ok&&st.timings->message_source==TimingViewData::Source::batch_preview&&!st.timings->capture_note.empty(),"a preview keeps the note");
+  Command read;read.operation=Command::Operation::timings_read;const auto r=b->execute(read);st=b->read(false);
+  check(r.ok&&st.timings&&st.timings->capture_note.empty()&&st.timings->message_source==TimingViewData::Source::other&&st.timings->message_ok,"a later capture clears the note");}
  at_p0=false;check(b->execute(c).ok && sets==1 && clears==1 && !held,"idle capture acquires then releases own hold");
  foreign=true;check(!b->execute(c).ok && sets==1 && clears==1,"foreign lock refuses hold");foreign=false;
+ {const auto st=b->read(false);check(st.timings&&!st.timings->message_ok&&!st.timings->capture_note.empty()&&st.timings->capture_note==st.timings->message,"a refused P0 capture says why in its note");}
  fail_release=true;auto failed=b->execute(c);auto state=b->read(false);check(!failed.ok&&held&&state.timings&&state.timings->capture_hold_pending,"failed release retains published ownership");
  fail_release=false;Command release;release.operation=Command::Operation::timings_release_capture_hold;check(b->execute(release).ok&&!held,"explicit cleanup retry succeeds");
  b->close();check(b->open("0000:09:00.0",why)&&b->execute(select).ok,"reopen and select helper");at_p0=true;check(b->execute(c).ok,"reopen clears temporary owner");b->close();

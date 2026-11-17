@@ -22,6 +22,9 @@ struct ClockGatingState {
     std::array<uint32_t,4> native{};
     std::optional<uint64_t> supported_engines,eligible_engines;
     uint64_t observed_engines=0;
+    // BLCG/SLCG: source registers whose readback changed when this instance's held
+    // request was verified (Python observed_register_bits / observed_registers).
+    uint32_t observed_registers=0;
     std::vector<ClockGatingRegister> registers;
     std::vector<uint32_t> unverified_source_peers;
     std::optional<uint32_t> target_generation,generation,root_generation,width,root_width,gpu_max,root_max,initial_generation;

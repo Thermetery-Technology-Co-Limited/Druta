@@ -9,6 +9,8 @@
 #include "implot.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx9.h"
+#include "imgui_internal.h"
+#include "imgui_freetype.h"
 #include "refresh_policy.h"
 #include "ui_view.h"
 #include "device_recovery.h"
@@ -86,6 +88,7 @@ public:
 };
 struct Options {
     int width = 1280, height = 800;
+    bool size_given = false;
     float scale = 0;
     std::wstring smoke_dir, capture, core_path,recovery_receipt,restart_instance;
     bool recovery_helper=false,restart_child=false;uint32_t parent_pid=0;
@@ -132,6 +135,7 @@ bool parse_options(Options& o) {
                 wchar_t* end = nullptr; const long n = wcstol(value, &end, 10);
                 valid = *value && end && !*end && n >= 640 && n <= 7680;
                 if (key == L"--width") o.width = int(n); else o.height = int(n);
+                o.size_given = true;
             } else if (key == L"--scale") {
                 wchar_t* end = nullptr; const double n = wcstod(value, &end);
                 valid = *value && end && !*end && std::isfinite(n) && n >= 1 && n <= 3;
@@ -208,16 +212,89 @@ struct App {
             session->acknowledge_annotation_completion(event.generation,event.event_id);
         }
     }
+    // Released 1.9.1 run()/select_gpu(): one read-only timing capture per
+    // adapter once a helper is known, so the tab opens filled. Read only: no
+    // hold, no load, no write; nothing is submitted without a helper. Classic
+    // only: Focused keeps its explicit Read timings.
+    druta::ui::TimingStartupRead timing_startup;
+    void consume_timing_startup_read() {
+        using namespace druta::ui;
+        if(!session||closing)return;
+        const auto snapshot=session->snapshot();
+        if(!want_timing_startup_read(timing_startup,snapshot->generation,snapshot->busy,snapshot->opening,snapshot->data.connected,snapshot->data.timings.get(),
+                                     view.presentation==Presentation::classic))return;
+        Command command;command.operation=Command::Operation::timings_read;
+        if(!submit_command(command,snapshot->generation))timing_startup.done=false;
+        else timing_reads.queued(snapshot->generation,snapshot->completed_actions);
+    }
+    // Released 1.9.1 _tim_busy is set by every timing read, not only the held
+    // capture: a Re-read, the startup read or an automatic read in flight
+    // consumes a P0 entry in Classic.
+    druta::ui::TimingReadFlight timing_reads;
+    // Released 1.9.1 poll_timing_profile: once the session's save finishes,
+    // Classic names the file it wrote, or the error, on the profile line.
+    struct TimingSaveWait{uint64_t generation=0,completed=0;std::string path;};
+    std::optional<TimingSaveWait> timing_save_wait;
+    void consume_timing_profile_save() {
+        using namespace druta::ui;
+        if(!timing_save_wait||!session)return;
+        const auto snapshot=session->snapshot();const auto wait=*timing_save_wait;
+        const auto outcome=timing_setup_action_state(*snapshot,wait.generation,wait.completed,Command::Operation::timings_save_profile);
+        if(outcome==TimingSetupActionState::waiting)return;
+        timing_save_wait.reset();
+        // Focused keeps its operation-log sentence; a stale or superseded result is not claimed.
+        if(view.presentation!=Presentation::classic||outcome==TimingSetupActionState::stale)return;
+        // Classic still shows 'Choose a timing profile file...' here; an outcome
+        // another action overtook is pointed at, not claimed.
+        if(outcome==TimingSetupActionState::superseded){
+            if(view.timings_view.profile_status=="Choose a timing profile file...")
+                note_timing_profile(view.timings_view,"Timing profile save finished; its result is in the operation log.",true);
+            return;
+        }
+        std::string error;
+        if(outcome==TimingSetupActionState::rejected){
+            const auto found=std::find_if(snapshot->log.begin(),snapshot->log.end(),[&](const LogEntry& e){return e.id==snapshot->last_action_log_id;});
+            error=found!=snapshot->log.end()?found->message:std::string("Timing profile save failed.");
+        }
+        note_timing_profile_saved(view.timings_view,outcome==TimingSetupActionState::accepted,wait.path,error);
+    }
+    // Released 1.9.1 _timings_worker files every stable capture whatever
+    // tab is shown; reads finishing on another page still reach the comparison.
+    // Classic only: Focused syncs while its Timings page is drawn, as before.
+    // Classic also counts completed timing actions: a later one ends what
+    // 'Revert edits' cleared from tw_result (released 1.9.1 tw_clear).
+    uint64_t timing_actions_seen=0;
+    void consume_timing_captures() {
+        if(!session||view.presentation!=druta::ui::Presentation::classic)return;
+        const auto snapshot=session->snapshot();
+        druta::ui::sync_timings_view(view.timings_view,snapshot->data.timings.get(),snapshot->generation);
+        if(snapshot->completed_actions!=timing_actions_seen){timing_actions_seen=snapshot->completed_actions;
+            if(snapshot->last_action_operation&&druta::ui::is_timing_operation(*snapshot->last_action_operation))++view.timings_view.timing_actions;}
+    }
     druta::ui::TimingAutoCapture timing_auto;
     uint64_t timing_auto_read=0,timing_auto_generation=0;
     void consume_timing_auto() {
         using namespace druta::ui;
         if(!session||closing)return;
         const auto snapshot=session->snapshot();
-        const bool enabled=view.timings_view.auto_capture && view.timings_view.generation==snapshot->generation;
+        // Re-read was queued while drawing, after the previous tick.
+        if(view.timings_view.read_requested){view.timings_view.read_requested=false;timing_reads.queued_since_observed();}
+        const bool reading=timing_reads.observe(snapshot->generation,snapshot->completed_actions,snapshot->busy);
+        // Released 1.9.1 tim_busy: '  reading…' while a plain capture runs.
+        view.timings_view.read_in_flight=reading;
+        const bool enabled=timing_auto_capture_armed(view.timings_view,view.presentation==Presentation::classic) && view.timings_view.generation==snapshot->generation;
         const bool paused=!policy.telemetry_enabled()||snapshot->paused;
         if(!enabled||paused){timing_auto.observe(enabled,paused,{});return;}
-        if(snapshot->busy||snapshot->opening||!snapshot->data.connected)return;
+        // Classic follows released 1.9.1 timings_p0_watch: a P0 entry seen
+        // while a timing read runs is consumed (another command only
+        // defers it), and auto_wanted skips a clock that already
+        // has a top-band capture or a read within AUTO_MIN_GAP. Focused keeps
+        // its own gating.
+        const bool classic=view.presentation==Presentation::classic;
+        const auto& live_timings=snapshot->data.timings;
+        const auto busy=timing_auto_busy(classic,snapshot->busy,reading||
+            (live_timings&&(live_timings->capture_running||live_timings->capture_hold_pending||live_timings->capture_workload_pending)));
+        if(busy==TimingAutoBusy::defer||snapshot->opening||!snapshot->data.connected)return;
         if(timing_auto_generation==snapshot->generation && timing_auto_read==snapshot->completed_reads)return;
         timing_auto_generation=snapshot->generation;timing_auto_read=snapshot->completed_reads;
         std::optional<TimingBandObservation> observation;
@@ -229,9 +306,23 @@ struct App {
             sample.pstate=data.telemetry.pstate;sample.memory_mhz=data.telemetry.mem;
             sample.memory_offset_raw=data.telemetry.mem_off;sample.top_memory_mhz=data.timing_top_memory_mhz;observation=sample;
         }
-        if(timing_auto.observe(enabled,false,observation)) {
+        TimingAutoGate gate;gate.busy=busy==TimingAutoBusy::consume;
+        gate.captured_top_band=[this](uint32_t mem){const auto& caps=view.timings_view.captures;
+            return std::any_of(caps.begin(),caps.end(),[&](const TimingCapture& c){return c.memory_mhz==mem&&c.top_band;});};
+        // This adapter's enumerated memory states, as the last read listed them.
+        if(timings)gate.exit_below_mhz=timing_auto_exit_below(timings->snapshot.memory_states);
+        if(timing_auto.observe(enabled,false,observation,classic?&gate:nullptr)) {
             Command command;command.operation=Command::Operation::timings_read;
             if(!submit_command(command,snapshot->generation))timing_auto.reset();
+            else{
+                timing_reads.queued(snapshot->generation,snapshot->completed_actions);
+                // Released 1.9.1 timings_p0_watch logs a receipt, for a user who walked away.
+                if(classic&&observation&&observation->memory_mhz){
+                    const auto& log=snapshot->log;
+                    view.classic_log_lines.push_back({log.empty()?0:log.back().id,timing_auto_capture_receipt(*observation->memory_mhz,observation->top_memory_mhz),true});
+                    if(view.classic_log_lines.size()>200)view.classic_log_lines.erase(view.classic_log_lines.begin());
+                }
+            }
         }
     }
     static std::string path_utf8(const std::wstring& path) {
@@ -699,7 +790,7 @@ struct App {
         if(actions.second_window) {
             const auto target=*actions.second_window;actions.second_window.reset();
             const auto fresh=session?session->snapshot():view.live;std::string why;
-            if(!fresh || view.select_slot || !druta::ui::app_target_matches(target,*fresh) || !druta::ui::second_window_target(*fresh,why))
+            if(!fresh || view.select_slot || !druta::ui::second_window_launchable(target,*fresh,why))
                 actions.status="Second window cancelled: selected adapter changed or its slot/UUID is unverified. "+why;
             else {
                 try {
@@ -778,6 +869,9 @@ struct App {
         if (!session || closing) { view.commands.clear(); return; }
         consume_profile_catalog();
         consume_voltage_controls();consume_saving_controls();consume_policy_profiles();consume_power_weights();
+        // Python logs the rail Link toggle as "[ok] rail ceilings ...": a log line only.
+        for(const auto& note:view.advanced_view.log_notes)session->note(true,note);
+        view.advanced_view.log_notes.clear();
         if(view.import_policy_annotations){
             view.import_policy_annotations=false;
             try{
@@ -836,13 +930,33 @@ struct App {
             const bool save=view.timing_save_profile_requested;
             view.timing_save_profile_requested=view.timing_load_profile_requested=false;
             const auto before=session->snapshot(); const auto staged=view.timings_view.staged;
+            const bool classic=view.presentation==druta::ui::Presentation::classic;
             wchar_t path[32768]{}; OPENFILENAMEW dialog{}; dialog.lStructSize=sizeof(dialog);
             dialog.hwndOwner=window; dialog.lpstrFile=path; dialog.nMaxFile=static_cast<DWORD>(std::size(path));
             dialog.lpstrFilter=L"Druta timing profile (*.json)\0*.json\0\0"; dialog.lpstrDefExt=L"json";
             dialog.lpstrTitle=save ? L"Save captured timings with staged fields" : L"Load timing fields into draft";
             dialog.Flags=OFN_EXPLORER|OFN_NOCHANGEDIR|OFN_PATHMUSTEXIST|(save?OFN_OVERWRITEPROMPT:OFN_FILEMUSTEXIST);
-            const BOOL selected=save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog);
-            if (selected) {
+            // Released 1.9.1 open_timing_profile: Classic refuses before the
+            // picker, then opens it in the profile library's timings folder
+            // with its own title, filter and default name.
+            std::string refusal; druta::ui::TimingProfileDialog picker;
+            if (classic) {
+                refusal=druta::ui::classic_timing_profile_refusal(view.timings_view,before->data.timings.get(),save);
+                if (refusal.empty()) try {
+                    const auto directories=druta::ui::discover_profile_directories();
+                    const auto library=std::find_if(directories.begin(),directories.end(),[](const auto& d){return d.writable;});
+                    if (library==directories.end()) throw std::runtime_error("no writable profile library");
+                    picker=druta::ui::classic_timing_profile_dialog(save,library->path);
+                } catch (const std::exception& error) { refusal=std::string("Cannot open the timing profile folder: ")+error.what(); }
+                if (refusal.empty()) {
+                    wcscpy_s(path,picker.file.c_str()); dialog.lpstrInitialDir=picker.folder.c_str(); dialog.lpstrTitle=picker.title.c_str();
+                    dialog.lpstrFilter=L"Timing profiles (*.json)\0*.json\0\0";
+                    druta::ui::note_timing_profile(view.timings_view,"Choose a timing profile file...",true);
+                }
+            }
+            const BOOL selected=refusal.empty()&&(save?GetSaveFileNameW(&dialog):GetOpenFileNameW(&dialog));
+            if (!refusal.empty()) druta::ui::note_timing_profile(view.timings_view,refusal,false);
+            else if (selected) {
                 try {
                     const auto current=session->snapshot();
                     if (current->generation!=before->generation || !before->data.timings || !current->data.timings ||
@@ -854,16 +968,20 @@ struct App {
                         druta::ui::Command command; command.operation=druta::ui::Command::Operation::timings_save_profile;
                         command.profile_path=path; command.timing_editor=std::move(request);
                         if (!submit_command(command,before->generation)) throw std::runtime_error("Session is busy; timings were not saved");
-                        view.timings_view.message="Capturing timings; save result appears in the operation log.";
+                        // Classic keeps released 1.9.1's line until the save reports (consume_timing_profile_save).
+                        if (!classic) druta::ui::note_timing_profile(view.timings_view,"Capturing timings; save result appears in the operation log.",true);
+                        timing_save_wait=TimingSaveWait{current->generation,current->completed_actions,path_utf8(path)};
                     } else {
                         const auto document=druta::ui::read_profile(path);
                         const auto fresh=session->snapshot();
                         if (fresh->generation!=before->generation || !fresh->data.timings)
                             throw std::runtime_error("Selected session changed while loading timings");
-                        druta::ui::stage_timing_profile(document,*fresh->data.timings,view.timings_view);
+                        druta::ui::stage_timing_profile(document,*fresh->data.timings,view.timings_view,classic,path_utf8(path));
                     }
-                } catch (const std::exception& error) { view.timings_view.message=error.what(); }
-            } else if (const auto error=CommDlgExtendedError()) view.timings_view.message="Timing profile dialog failed (Windows error "+std::to_string(error)+").";
+                } catch (const std::exception& error) { druta::ui::note_timing_profile(view.timings_view,error.what(),false); }
+            } else if (const auto error=CommDlgExtendedError()) druta::ui::note_timing_profile(view.timings_view,"Timing profile dialog failed (Windows error "+std::to_string(error)+").",false);
+            // Released 1.9.1 poll_timing_profile says a cancelled picker; Focused said nothing.
+            else if (classic) druta::ui::note_timing_profile(view.timings_view,"File selection cancelled.",true);
             policy.note_activity(now_seconds());
         }
         if (view.save_profile_requested || view.load_profile_requested) {
@@ -1114,9 +1232,14 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     return DefWindowProcW(window, message, wparam, lparam);
 }
 void load_font() {
+    // Classic text goes through FreeType, as in released 1.9.1 (Dear PyGui):
+    // its hinting gives the whole-pixel glyph advances and stem shapes seen
+    // there. Focused keeps stb_truetype, set per font so its text is unchanged.
+    ImGui::GetIO().Fonts->SetFontLoader(ImGuiFreeType::GetFontLoader());
+    const ImFontLoader* stb = ImFontAtlasGetFontLoaderForStbTruetype();
     wchar_t directory[MAX_PATH]{};
     const bool have_directory = GetWindowsDirectoryW(directory, MAX_PATH) != 0;
-    const auto load = [&](const wchar_t* filename, float size) -> ImFont* {
+    const auto load = [&](const wchar_t* filename, float size, const ImFontLoader* loader) -> ImFont* {
         if (!have_directory) return nullptr;
         const std::wstring path = std::wstring(directory) + L"\\Fonts\\" + filename;
         HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
@@ -1125,7 +1248,8 @@ void load_font() {
             if (length > 0 && length < 32*1024*1024) {
                 void* bytes = IM_ALLOC(length); DWORD read = 0;
                 if (bytes && ReadFile(f, bytes, length, &read, nullptr) && read == length) {
-                    auto* font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes, int(length), size);
+                    ImFontConfig config; config.FontLoader = loader;
+                    auto* font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(bytes, int(length), size, &config);
                     CloseHandle(f); return font;
                 }
                 if (bytes) IM_FREE(bytes);
@@ -1136,13 +1260,14 @@ void load_font() {
     };
     // Keep Focused's default face/size unchanged. Classic follows released
     // 1.9.1's separate body, semibold heading and monospaced reading faces.
-    if (!load(L"segoeui.ttf", 18)) {
-        ImFontConfig config; config.SizePixels = 18;
+    if (!load(L"segoeui.ttf", 18, stb)) {
+        ImFontConfig config; config.SizePixels = 18; config.FontLoader = stb;
         ImGui::GetIO().Fonts->AddFontDefault(&config);
     }
-    druta::ui::classic_fonts.body = load(L"segoeui.ttf", 16);
-    druta::ui::classic_fonts.heading = load(L"seguisb.ttf", 26);
-    druta::ui::classic_fonts.mono = load(L"consola.ttf", 14);
+    druta::ui::classic_fonts.body = load(L"segoeui.ttf", 16, nullptr);
+    druta::ui::classic_fonts.heading = load(L"seguisb.ttf", 26, nullptr);
+    druta::ui::classic_fonts.mono = load(L"consola.ttf", 14, nullptr);
+    druta::ui::classic_fonts.mono_plain = load(L"consola.ttf", 14, stb);
 }
 
 // An opt-in bounded renderer harness. Live mode only reads; fixture mode opens
@@ -1283,6 +1408,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     RECT rect{0, 0, options.width, options.height}; AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0);
     app.window = CreateWindowExW(0, window_class, options.preview ? L"Druta Native UI - Preview" : L"Druta - Native", WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, rect.right-rect.left, rect.bottom-rect.top, nullptr, nullptr, instance, nullptr);
+    if (app.window && options.classic && !options.size_given) {
+        // Started in Classic with no size given: 1.9.1's default viewport, which
+        // is the outer window, so the client area matches 1.9.1's.
+        const float window_scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
+        const auto place = druta::ui::classic_default_window_placement(window_scale, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+        SetWindowPos(app.window, nullptr, place.x, place.y, place.width, place.height, SWP_NOZORDER | SWP_NOACTIVATE);
+        RECT client{};
+        if (GetClientRect(app.window, &client) && client.right > 0 && client.bottom > 0) {
+            app.width = UINT(client.right); app.height = UINT(client.bottom);
+        }
+    }
     if (!app.window || !app.create_device()) {
         MessageBoxW(nullptr, L"The Direct3D 9 preview window could not be created.", L"Druta native preview", MB_ICONERROR);
         if (app.device) app.device->Release(); if (app.d3d) app.d3d->Release();
@@ -1324,6 +1460,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         app.session = std::make_unique<druta::ui::Session>(std::move(backend),
             [window = app.window] { PostMessageW(window, session_update_message, 0, 0); },
             app.view.shunt.config.path.empty() ? std::wstring{} : app.view.shunt.config.path.substr(0,app.view.shunt.config.path.find_last_of(L"\\/")) + L"\\i2c-routes-native.json");
+        app.session->set_live_readouts(app.view.presentation == druta::ui::Presentation::classic);
         app.session->start(options.slot,options.expected_uuid);
         app.view.live = app.session->snapshot();
     }
@@ -1355,10 +1492,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             if (smoke.finished) { success = smoke.passed; break; }
         }
         const double now = now_seconds();
+        app.consume_timing_profile_save();
+        if (!testing) app.consume_timing_startup_read();
+        app.consume_timing_captures();
         app.consume_timing_auto();
         if(app.view.advanced_view.rail_gate_flash_until>ImGui::GetTime() || app.view.advanced_view.xoc_gate_flash_until>ImGui::GetTime() || app.view.i2c_gate_flash_until>ImGui::GetTime())
             app.policy.note_activity(now);
         if (app.policy.telemetry_due(now)) {
+            // Only Classic shows the rail live/effective readouts; Focused makes no read for them.
+            if (app.session && !app.closing) app.session->set_live_readouts(app.view.presentation == druta::ui::Presentation::classic);
+            // Classic's open Power policies section: the backend re-reads the policy
+            // table at most once a second (read-only; Focused never sets it).
+            if (app.session && !app.closing) app.session->set_policy_readouts(app.view.presentation == druta::ui::Presentation::classic
+                && app.view.page == druta::ui::Page::advanced && app.view.power_policies_open);
             if (app.session && !app.closing) app.session->request_poll();
             else if (options.preview) ++app.fixture_sample_ticks;
             app.policy.sampled(now);

@@ -19,6 +19,8 @@ struct PowerIntegralApi {
     decltype(&dc_cl_rm) rm=nullptr;
     decltype(&dc_rm_transport_reset) transport_reset=nullptr;
     decltype(&dc_cl_policy_mask_set) policy_mask_set=nullptr;
+    // Read-only STATUS decode for the explicit Read's PMU output and effective limit.
+    decltype(&dc_power_arbitration_decode) decode=nullptr;
 };
 enum class PowerIntegralField { lower,upper };
 struct PowerIntegralUndo {
@@ -30,16 +32,26 @@ struct PowerIntegralRow {
     uint32_t policy=0,type=0,channel=0,unit=0,request=0;
     uint16_t lower=0,upper=0,reported_lower=0,reported_upper=0;
     uint8_t past_samples=0,next_samples=0;
+    uint8_t default_past_samples=0,default_next_samples=0; // INFO's reported defaults
+    // Python _report: the STATUS read inside an explicit Read (raw mW or mA). Unknown
+    // when STATUS was not read, failed or reports the row unavailable.
+    std::optional<uint32_t> pmu_output,effective;
     bool available=false;
     std::string reason,binding;
     std::array<PowerIntegralUndo,2> undo{};
 };
+// PowerIntegralData::message after a successful read (Focused shows it as is;
+// Classic shows Python's "Read complete." for it).
+inline constexpr char power_integral_read_message[]="Current feedback requests read.";
 struct PowerIntegralData {
     bool current=false;
     dc_gpu_identity identity{};
     std::optional<dc_target> target;
     std::vector<PowerIntegralRow> rows;
     std::string message;
+    // The last failed read's message, cleared by a successful read. Classic shows
+    // Python's "Feedback adjustment read failed: ..." while message still equals it.
+    std::string read_error;
     bool profile_undo_available=false,profile_recovery_pending=false;
 };
 struct PowerIntegralResult {
@@ -75,7 +87,13 @@ class PowerIntegralService {
 public:
     PowerIntegralService(PowerIntegralApi api,dc_gpu* gpu,const dc_gpu_identity& identity);
     void set_history_callback(std::function<void()> callback);
+    // INFO and CONTROL only. History and profile captures, profile application and the
+    // Focused Read use it, so it sends exactly what it always sent.
     PowerIntegralData read();
+    // Classic's explicit Read only (Python PowerIntegralController._report): read() plus one
+    // read-only STATUS GET for each row's PMU output and effective limit. A failed STATUS
+    // read or decode is not fatal and leaves both unknown.
+    PowerIntegralData read_with_status();
     PowerIntegralResult apply(uint32_t policy,PowerIntegralField field,uint32_t raw,std::optional<uint16_t> expected={});
     PowerIntegralResult restore(uint32_t policy,PowerIntegralField field);
     PowerIntegralResult undo(uint32_t policy,PowerIntegralField field);
@@ -103,6 +121,7 @@ private:
     PowerIntegralPlan plan(const Snapshot&,const std::vector<PowerIntegralRequest>&);
     PowerIntegralResult restore_profile_locked(const PowerIntegralPlan&);
     bool binding();
+    PowerIntegralData read(bool status);
     bool capture(Snapshot& state);
     bool capture_once(Snapshot& state,int32_t& kind);
     void publish(const Snapshot& state);

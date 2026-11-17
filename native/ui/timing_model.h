@@ -25,5 +25,14 @@ struct TimingViewData {
     TimingCaptureMethod capture_method = TimingCaptureMethod::none;
     std::optional<TimingSnapshot> capture_diagnostic;
     std::string message;
+    // The outcome of the action that wrote message, and which kind of action
+    // that was: Classic colours tw_result by the outcome and shows a P0
+    // capture's and a batch preview's result on their own lines instead.
+    enum class Source { other, capture_p0, batch_preview };
+    bool message_ok = false;
+    Source message_source = Source::other;
+    // Released 1.9.1 tim_induce_note: the blue P0 read's result, kept until a
+    // later capture replaces the snapshot; empty otherwise.
+    std::string capture_note;
 };
 }

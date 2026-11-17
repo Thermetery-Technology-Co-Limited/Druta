@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <ctime>
+#include <map>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -37,10 +39,14 @@ std::string process_error(const char* phase,const TimingProcessResult& r){
 }
 bool fields_parse(const std::string& text,std::vector<TimingField>& out,std::vector<std::pair<std::string,std::string>>& aliases) {
     static const std::regex row("^([A-Za-z][A-Za-z0-9_]*)\\s+([A-Za-z][A-Za-z0-9_]*)\\s+\\[([0-9]+):([0-9]+)\\]\\s+([0-9]+)\\s+(.+?)\\s*$");
-    static const std::regex note("^\\s+([A-Za-z][A-Za-z0-9_]*)\\s+INFERRED:.*$");
+    // Released 1.9.1 _REGNOTE_RE: a row annotating a whole register; an
+    // INFERRED one taints its fields, and every kind is kept for note_text.
+    static const std::regex note("^\\s+([A-Za-z][A-Za-z0-9_]*)\\s+([A-Z][A-Z_]{2,}):\\s*(.*?)\\s*$");
     std::istringstream input(text); std::string line; std::smatch m; std::set<std::string> names,inferred;
+    std::map<std::string,std::string> notes;
     try { while(std::getline(input,line)) { if(!line.empty()&&line.back()=='\r')line.pop_back();
-        if(std::regex_match(line,m,note)){inferred.insert(m[1]);continue;}
+        if(std::regex_match(line,m,note)){if(m[2]=="INFERRED")inferred.insert(m[1]);
+            auto& joined=notes[m[1]];joined+=(joined.empty()?"":"  ")+m[2].str()+": "+m[3].str();continue;}
         const auto first=line.find_first_not_of(" \t");
         std::string prefix=first==std::string::npos?"":line.substr(first,7);
         std::transform(prefix.begin(),prefix.end(),prefix.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
@@ -55,7 +61,7 @@ bool fields_parse(const std::string& text,std::vector<TimingField>& out,std::vec
         TimingField f; f.name=m[1];f.reg=m[2];f.hi=static_cast<uint32_t>(hi);f.lo=static_cast<uint32_t>(lo);
         f.maximum=static_cast<uint32_t>(max);f.description=m[6];f.structural=f.description.find("[structural]")!=std::string::npos;out.push_back(f);
     } } catch(...) {return false;}
-    for(auto& f:out)f.inferred=inferred.count(f.reg)!=0;
+    for(auto& f:out){f.inferred=inferred.count(f.reg)!=0;const auto n=notes.find(f.reg);if(n!=notes.end())f.note=n->second;}
     for(size_t i=0;i<out.size();++i)for(size_t j=0;j<i;++j)
         if(out[i].reg==out[j].reg && out[i].lo<=out[j].hi && out[j].lo<=out[i].hi)
             out[i].overlapping=out[j].overlapping=true;
@@ -83,6 +89,13 @@ bool known_layout(std::string name) {
     std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return static_cast<char>(std::toupper(c));});
     return !name.empty() && name.rfind("UNKNOWN",0)!=0 && name.rfind("UNSUPPORTED",0)!=0 && name.rfind("GENERIC",0)!=0;
 }
+// Display-only text from the helper's JSON: short printable ASCII or nothing.
+std::string display_text(const nlohmann::json& doc,const char* key) {
+    if(!doc.contains(key) || !doc[key].is_string())return {};
+    auto text=doc[key].get<std::string>();
+    if(text.size()>48 || std::any_of(text.begin(),text.end(),[](unsigned char c){return c<0x20||c>0x7E;}))return {};
+    return text;
+}
 void state(TimingsApi& api,dc_gpu* gpu,std::optional<uint32_t>& memory,std::optional<uint32_t>& pstate,std::optional<int32_t>& offset) {
     if(!api.telemetry)return; dc_telemetry t{};t.size=sizeof(t);
     if(api.telemetry(gpu,&t)!=DC_OK)return;
@@ -98,7 +111,9 @@ bool diagnostic_capture(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity& id,Ti
     // counts. Split fragments and RFC/WL must not become time values.
     static const std::vector<std::string> suffixes={"_LO","_HI","_MSB","_LSB","_MID"};
     if(known_layout(s.codename))for(const auto& f:s.fields) {
-        if(f.structural || f.inferred || f.overlapping)continue;
+        // Released 1.9.1 Field.ns_ok: an INFERRED register offset is flagged
+        // on the name, not refused a conversion.
+        if(f.structural || f.overlapping)continue;
         bool split=false;
         for(const auto& suffix:suffixes) {
             for(const auto& other:s.fields)if(other.name==f.name+suffix)split=true;
@@ -112,6 +127,27 @@ bool diagnostic_capture(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity& id,Ti
     std::optional<uint32_t> before,after,pb,pa;std::optional<int32_t> ob,oa;
     state(api,gpu,before,pb,ob);const auto saved=t.run(TimingCommand::save,id.slot,"",0,false,false);state(api,gpu,after,pa,oa);
     if(!identity(api,gpu,id))return false;
+    // Identity text does not depend on the clock, so it is kept even when the
+    // partition evidence below is refused for a moved clock or state.
+    if(run_ok(saved))try {
+        const auto doc=nlohmann::json::parse(saved.output);
+        if(doc.is_object() && doc.contains("slot") && doc["slot"].is_string() && same_slot(doc["slot"].get<std::string>(),s.slot) &&
+           doc.contains("codename") && doc["codename"].is_string() && doc["codename"].get<std::string>()==s.codename) {
+            s.pci_id=display_text(doc,"pci_id");s.aperture=display_text(doc,"aperture_broadcast");s.boot0=display_text(doc,"boot0");
+            if(doc.contains("registers") && doc["registers"].is_object() && doc["registers"].contains("broadcast") && doc["registers"]["broadcast"].is_object()){
+                std::vector<TimingWord> words;bool agree=true;
+                for(auto it=doc["registers"]["broadcast"].begin();it!=doc["registers"]["broadcast"].end()&&agree&&words.size()<64;++it){
+                    if(!it.value().is_string() || !std::regex_match(it.key(),std::regex("[A-Za-z][A-Za-z0-9_]{0,63}"))){agree=false;break;}
+                    const auto text=it.value().get<std::string>();
+                    if(!std::regex_match(text,std::regex("0[xX][0-9a-fA-F]{1,8}"))){agree=false;break;}
+                    TimingWord w;w.name=it.key();w.value=static_cast<uint32_t>(std::stoul(text,nullptr,16));
+                    for(const auto& d:s.broadcast)if(d.name==w.name&&d.value!=w.value)agree=false;
+                    words.push_back(std::move(w));
+                }
+                if(agree)s.saved_broadcast=std::move(words);
+            }
+        }
+    }catch(...){}
     if(!run_ok(saved)||!before||!after||*before!=*after||!s.memory_clock_stable || !s.memory_before_mhz || *before!=*s.memory_before_mhz ||
        !pb || !pa || !s.pstate_before || !s.pstate_after || *pb!=*pa || *pb!=*s.pstate_before || *pb!=*s.pstate_after ||
        !ob || !oa || !s.offset_before || !s.offset_after || *ob!=*oa || *ob!=*s.offset_before || *ob!=*s.offset_after)return true;
@@ -138,6 +174,7 @@ bool diagnostic_capture(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity& id,Ti
 }
 TimingSnapshot capture_locked(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity& id,TimingTransport& t) {
     TimingSnapshot s; if(!identity(api,gpu,id)){s.message="GPU identity unavailable";return s;}
+    s.captured_unix=static_cast<int64_t>(std::time(nullptr));
     std::optional<int32_t> before_offset,after_offset;
     state(api,gpu,s.memory_before_mhz,s.pstate_before,before_offset);
     const auto f=t.run(TimingCommand::fields,"","",0,false,false);
@@ -150,6 +187,13 @@ TimingSnapshot capture_locked(TimingsApi& api,dc_gpu* gpu,const dc_gpu_identity&
     if(!identity(api,gpu,id)){s.message="GPU identity changed during capture";return s;}
     s.offset_before=before_offset; s.offset_after=after_offset;
     s.memory_clock_stable=s.memory_before_mhz && s.memory_after_mhz && *s.memory_before_mhz==*s.memory_after_mhz;
+    dc_capabilities info{};info.size=sizeof(info);
+    if(api.capabilities && api.capabilities(gpu,&info)==DC_OK) {
+        if(info.mem_clock_count<=512)for(uint32_t i=0;i<info.mem_clock_count;++i)if(info.mem_clocks[i])s.memory_states.push_back(info.mem_clocks[i]);
+        std::sort(s.memory_states.begin(),s.memory_states.end());
+        s.memory_states.erase(std::unique(s.memory_states.begin(),s.memory_states.end()),s.memory_states.end());
+        if(info.present&DC_C_MEM_TYPE_ID)s.memory_type.assign(info.mem_type,strnlen(info.mem_type,sizeof(info.mem_type)));
+    }
     dc_capabilities caps{};caps.size=sizeof(caps);
     if(s.memory_clock_stable && s.pstate_before && s.pstate_after && (*s.pstate_before==0||*s.pstate_before==2) &&
        (*s.pstate_after==0||*s.pstate_after==2) && before_offset && after_offset && *before_offset==*after_offset &&
@@ -204,6 +248,7 @@ bool preview_matches(const std::string& text,const TimingPlan& plan) {
     p.target_word=(w->value&~p.mask)|((value<<f->lo)&p.mask);p.no_change=p.target_word==p.prior_word;p.ok=true;p.message=p.no_change?"Field already matches":"Selected-field preview ready";return p;
 }
 }
+bool timing_layout_known(const std::string& codename){return known_layout(codename);}
 TimingsService::TimingsService(TimingsApi a,dc_gpu* gpu,const dc_gpu_identity& id,TimingTransport& t):api_(a),gpu_(gpu),target_(id),transport_(t){}
 TimingSnapshot TimingsService::capture(){
     Guard guard(api_,gpu_);TimingSnapshot s;if(!guard.held){s.message="GPU lock unavailable";return s;}

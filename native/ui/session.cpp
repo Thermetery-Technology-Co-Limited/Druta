@@ -116,6 +116,8 @@ struct Session::Impl {
     SessionSnapshot state;
     bool started = false, stopping = false, done = false, switch_pending = false,restart_exit=false;
     bool poll_pending = false, details_pending = false, command_pending = false;
+    bool live_readouts = false; // the host shows the Classic-only readouts
+    bool policy_readouts = false; // Classic's Power policies section is open
     bool backend_opened = false;
     bool maintenance_active = false, maintenance_inflight = false;
     bool backend_call_admitted = false; // one worker call reserved under lock
@@ -123,6 +125,7 @@ struct Session::Impl {
     std::string maintenance_error;
     unsigned read_retries = 0;
     Command command{};
+    bool command_automatic = false; // Session::submit's mark for the queued command
     std::uint64_t next_log = 0;
     std::uint64_t next_annotation_event = 0;
     std::string desired_slot, expected_uuid;
@@ -169,8 +172,8 @@ struct Session::Impl {
     void signal() { if (wake) SetEvent(wake); }
     void announce() noexcept { try { if (notify) notify(); } catch (...) {} }
     static DWORD WINAPI entry(void* p) { static_cast<Impl*>(p)->run(); return 0; }
-    void log_locked(bool ok, const std::string& message) {
-        state.log.push_back({++next_log, message, ok});
+    void log_locked(bool ok, const std::string& message, std::optional<Command::Operation> operation = std::nullopt, bool automatic = false) {
+        state.log.push_back({++next_log, message, ok, operation, automatic});
         if (state.log.size() > 200) state.log.erase(state.log.begin());
     }
     // A reserved call is already in flight for restart shutdown purposes. Do
@@ -183,7 +186,8 @@ struct Session::Impl {
     bool read_and_publish(std::uint64_t generation, bool details, bool initial = false, bool finish_action = false) {
         LiveData fresh;
         bool failed = false;
-        try { if(!admitted_backend_call([&]{fresh=backend->read(details);}))return false; }
+        bool readouts = false, policies = false; { Guard guard(lock); readouts = live_readouts; policies = policy_readouts; }
+        try { if(!admitted_backend_call([&]{backend->set_live_readouts(readouts);backend->set_policy_readouts(policies);fresh=backend->read(details);}))return false; }
         catch (...) { failed = true; }
         std::optional<TuningState> tuning;
         std::optional<bool> needs_maintenance;
@@ -296,11 +300,12 @@ struct Session::Impl {
             bool details = false;
             DWORD wait_ms = INFINITE;
             Command task;
+            bool automatic = false;
             {
                 Guard guard(lock);
                 if (stopping) {work = Work::stop;ending_for_restart=restart_exit;}
                 else if (switch_pending) { work = Work::change; switch_pending = false; slot = desired_slot; required_uuid = expected_uuid; generation = state.generation; }
-                else if (command_pending) { work = Work::action; command_pending = false; task = command; generation = state.generation; slot = state.selected_slot;
+                else if (command_pending) { work = Work::action; command_pending = false; task = command; automatic = command_automatic; generation = state.generation; slot = state.selected_slot;
                     if (discovery_action(task.operation)) discovery_generation=generation;
                 }
                 else if (maintenance_active && GetTickCount64() >= maintenance_due) { work = Work::maintain; generation = state.generation; maintenance_inflight = true; maintenance_due = GetTickCount64() + 1000; }
@@ -423,6 +428,8 @@ struct Session::Impl {
                                 state.i2c_ownership_uncertain=true;
                         }
                         state.last_action_operation = task.operation; state.last_action_ok = result.ok;
+                        state.last_action_requested = result.requested; state.last_action_readback = result.readback;
+                        state.last_action_may_have_changed = result.may_have_changed;
                         if(task.operation==Command::Operation::timings_capture_p0 && state.data.timings){
                             auto timing=std::make_shared<TimingViewData>(*state.data.timings);timing->capture_running=false;state.data.timings=std::move(timing);
                         }
@@ -438,8 +445,9 @@ struct Session::Impl {
                     }
                     const std::string message = generation == state.generation ? result.message :
                         "GPU " + slot + " (session " + std::to_string(generation) + "): " + result.message;
-                    log_locked(result.ok, message);
+                    log_locked(result.ok, message, task.operation, automatic);
                     if (generation == state.generation) {
+                        state.log.back().steps=result.steps;
                         state.last_action_log_id=state.log.back().id;
                         if (result.annotation_effect) {
                             state.annotation_completions.push_back({generation, ++next_annotation_event,
@@ -499,6 +507,7 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
       impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
       impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false; impl_->state.last_action_log_id = 0;
+      impl_->state.last_action_requested.reset(); impl_->state.last_action_readback.reset(); impl_->state.last_action_may_have_changed = false;
       impl_->state.frequency_ownership_uncertain = false;
       impl_->state.auxiliary_cleanup_pending = false;
       impl_->publish_locked(); }
@@ -519,6 +528,13 @@ void Session::request_poll(bool details) {
       } }
     impl_->signal();
 }
+void Session::set_live_readouts(bool shown) { Guard guard(impl_->lock); impl_->live_readouts = shown; }
+void Session::set_policy_readouts(bool open) { Guard guard(impl_->lock); impl_->policy_readouts = open; }
+void Session::note(bool ok, const std::string& message) {
+    { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done) return;
+      impl_->log_locked(ok, message); impl_->publish_locked(); }
+    impl_->announce();
+}
 void Session::set_paused(bool paused) {
     { Guard guard(impl_->lock); if (impl_->stopping || impl_->state.paused == paused) return;
       impl_->state.paused = paused;
@@ -535,7 +551,7 @@ void Session::set_paused(bool paused) {
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce();
 }
-bool Session::submit(Command command, std::uint64_t expected_generation) {
+bool Session::submit(Command command, std::uint64_t expected_generation, bool automatic) {
     bool accepted = false;
     { Guard guard(impl_->lock);
       const char* reason = nullptr;
@@ -555,7 +571,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation) {
               impl_->timing_capture_cancelled=false;
               if(impl_->state.data.timings){auto timing=std::make_shared<TimingViewData>(*impl_->state.data.timings);timing->capture_running=true;impl_->state.data.timings=std::move(timing);}
           }
-          impl_->command = std::move(command); impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
+          impl_->command = std::move(command); impl_->command_automatic = automatic; impl_->command_pending = true; impl_->state.busy = true; accepted = true; }
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return accepted;
 }

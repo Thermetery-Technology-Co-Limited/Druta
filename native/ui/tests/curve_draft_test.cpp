@@ -137,5 +137,154 @@ int main() {
     CHECK(!gestures.accept_applied() && gestures.dirty()); // further local edit retained
     gestures.observe(6, gestures.draft(), false, 2);
     CHECK(!gestures.accept_applied()); // no stale readback acceptance
+
+    // 1.9.1 vf_revert and push_undo labels: Revert is one undo step, needs no
+    // fresh read, and undo/redo report the step they moved.
+    CurveDraft classic;
+    classic.observe(7, points, true, 1);
+    CHECK(classic.stage_khz(9, 11000, "nudge idx 9 +1 MHz") && classic.stage_khz(2, -1000, "set idx 2 to 1601 MHz"));
+    classic.observe(7, points, false, 1); // the curve went stale: Revert still works
+    CHECK(classic.revert_undoable() && !classic.dirty() && classic.undo_depth() == 3 && classic.undo_label() == "revert edits");
+    CHECK(classic.undo_edit() && classic.redo_label() == "revert edits" && classic.undo_depth() == 2);
+    CHECK(classic.changes().size() == 2 && classic.draft()[0].delta_khz == 11000 && classic.draft()[1].delta_khz == -1000);
+    CHECK(classic.undo_edit() && classic.redo_label() == "set idx 2 to 1601 MHz" && classic.undo_label() == "nudge idx 9 +1 MHz");
+    CHECK(classic.redo_edit() && classic.undo_label() == "set idx 2 to 1601 MHz" && classic.redo_depth() == 1);
+    CHECK(classic.revert_undoable() && classic.revert_undoable() && classic.undo_depth() == 3); // a clean draft records nothing
+    // A fresh read that finds the same curve keeps the history only when asked to.
+    classic.observe(7, points, true, 1);
+    CHECK(!classic.can_undo());
+    CHECK(classic.stage_khz(9, 11000, "nudge idx 9 +1 MHz") && classic.revert_undoable());
+    classic.keep_history_across_reads(true);
+    classic.observe(7, points, true, 1);
+    CHECK(classic.undo_depth() == 2 && classic.undo_edit() && classic.dirty());
+    CHECK(classic.revert_undoable());
+    classic.observe(7, changed, true, 1); // a changed curve under a clean draft still drops it
+    CHECK(!classic.can_undo() && classic.baseline()[0].volt_mv == 851);
+    // A draft whose hardware changed underneath is rebased, as revert() is.
+    CHECK(classic.stage_khz(9, 5));
+    classic.observe(7, points, true, 1);
+    CHECK(!classic.can_apply() && classic.revert_undoable() && !classic.dirty() && !classic.can_undo()
+        && classic.baseline()[0].volt_mv == 850);
+    classic.begin_gesture("drag idx 9");
+    CHECK(classic.stage_khz(9, 20000) && classic.stage_khz(9, 30000));
+    classic.end_gesture();
+    CHECK(classic.undo_depth() == 1 && classic.undo_label() == "drag idx 9");
+
+    // Released 1.9.1 statistics line and plan banner, from arbitrary points.
+    const std::vector<dc_vf_point> shape{point(5, 950, 1700, 0), point(0, 700, 1500, 0), point(2, 800, 1600, 0),
+        point(7, 1100, 1800, 0), point(1, 750, 1600, 0), point(4, 900, 1700, 0), point(3, 850, 1700, 0), point(6, 1000, 1650, 0)};
+    const auto peak = curve_peak(shape, 1000);
+    CHECK(peak.peak_mhz == 1700 && peak.at_peak == 3 && peak.park_idx && *peak.park_idx == 3 && peak.park_mv == 850);
+    CHECK(curve_flat_runs(shape, 1000) == 2);             // idx 1-2 and idx 3-6, walked in index order
+    CHECK(curve_flat_runs(shape, 790) == 0);              // runs above the cap do not count
+    CHECK(curve_below_cap(1000.005, 1000) && !curve_below_cap(1000.02, 1000));
+    CHECK(!curve_peak(shape, 600).park_idx && curve_peak(shape, 600).at_peak == 0);
+    const std::string idle_info = curve_info_text(shape, shape, 1000);
+    CHECK(idle_info == "8 points   top \xE2\x89\xA4" "cap: idx 6 @ 1000.00 mV = 1650 MHz   peak 1700 MHz held by 3 point(s), "
+        "lowest = idx 3 @ 850.00 mV (where the card parks)   flat runs below cap: 2");
+    CHECK(curve_info_text(shape, shape, 600).find("top") == std::string::npos
+        && curve_info_text(shape, shape, 600).find("lowest = idx -- @ 0.00 mV") != std::string::npos);
+    CHECK(curve_info_text(shape, {}, 1000).empty());
+    auto edited = shape;
+    edited[7].delta_khz = 30000; edited[7].freq_mhz = 1680; // idx 6 raised by 30 MHz
+    CHECK(curve_pending_edits(shape, edited) == 1);
+    CHECK(curve_info_text(shape, edited, 1000).find("top \xE2\x89\xA4" "cap: idx 6 @ 1000.00 mV = 1680 MHz") != std::string::npos);
+    CHECK(curve_info_text(shape, edited, 1000).find("   [staged curve, 1 edit(s) not yet written]") != std::string::npos);
+
+    CurvePlanBannerInput input;
+    input.cap_mv = 1000; input.table_rows = 127; input.apply_label = "Apply now"; input.rephase_label = "Re-phase to 12.66 MHz increments";
+    auto banner = curve_plan_banner(shape, shape, input);
+    CHECK(banner.band == CurvePlanBand::idle && banner.head == "APPLY TO GPU  \xC2\xB7  nothing staged");
+    CHECK(banner.body.find("'Apply now' will write") != std::string::npos && banner.body.find("'Re-phase to 12.66 MHz increments'") != std::string::npos);
+    CHECK(banner.reset == "'Reset curve to stock' is one click too: it zeroes all 127 deltas back to the factory curve and discards 0 staged edit(s).");
+    banner = curve_plan_banner(shape, edited, input);
+    CHECK(banner.band == CurvePlanBand::warn && banner.head == "APPLY TO GPU  \xC2\xB7  ONE CLICK WRITES THIS");
+    // As 1.9.1 apply_plan: "top" here is the fastest point under the cap, the
+    // peak is the whole table's, and the held count is the capped peak's.
+    CHECK(banner.body.rfind("Writes 1 edited point(s): top \xE2\x89\xA4" "1000 mV becomes 1700 MHz, peak 1800 MHz held by 3 point(s), "
+        "the card parks at idx 3 @ 850.00 mV.\n", 0) == 0);
+    // 1.9.1: Reset re-reads the curve, so the staged edits are discarded with it.
+    CHECK(banner.body.find("Undo hardware write") != std::string::npos
+        && banner.reset == "'Reset curve to stock' is one click too: it zeroes all 127 deltas back to the factory curve and discards 1 staged edit(s).");
+    auto lowered = shape;
+    lowered[3].delta_khz = -50000; lowered[3].freq_mhz = 1750; // idx 7, above the cap, holds the table peak
+    banner = curve_plan_banner(shape, lowered, input);
+    CHECK(banner.band == CurvePlanBand::bad && banner.head == "APPLY TO GPU  \xC2\xB7  ONE CLICK LOWERS THE PEAK");
+    CHECK(banner.body.rfind("WARNING: this LOWERS the curve's peak from 1800 to 1750 MHz. Writes 1 edited point(s)", 0) == 0);
+    input.note = "Hard plan note"; input.note_hard = true;
+    banner = curve_plan_banner(shape, edited, input);
+    CHECK(banner.band == CurvePlanBand::bad && banner.head.find("HARD DE-FLATTEN - WITHOUT THE VOLTAGE MOD THIS WILL CRASH") != std::string::npos);
+    CHECK(banner.body.find("mV.\nHard plan note\nAn undo point") != std::string::npos);
+    banner = curve_plan_banner(shape, lowered, input);
+    CHECK(banner.band == CurvePlanBand::bad && banner.head.find("LOWERS THE PEAK") != std::string::npos
+        && banner.body.find("Hard plan note") != std::string::npos); // the peak warning keeps the headline, the note still prints
+
+    // Index box: exact point, else the next existing index the way the value moved.
+    const std::vector<dc_vf_point> sparse{point(9, 800, 1500, 0), point(2, 750, 1400, 0), point(20, 900, 1600, 0), point(4, 760, 1450, 0)};
+    CHECK(curve_nearest_index(sparse, 4, 9) == 4u);
+    CHECK(curve_nearest_index(sparse, 10, 9) == 20u && curve_nearest_index(sparse, 8, 9) == 4u);
+    CHECK(curve_nearest_index(sparse, 21, 20) == 20u && curve_nearest_index(sparse, -1, 2) == 2u);
+    CHECK(curve_nearest_index(sparse, 15, 9) == 20u && curve_nearest_index(sparse, 3, 9) == 2u);
+    CHECK(!curve_nearest_index({}, 3, 0));
+
+    // Set-MHz entry clamps to the adapter's reported range; an unreported bound clamps nothing.
+    CHECK(curve_clamp_entry_mhz(150, 405u, 1995u) == 405 && curve_clamp_entry_mhz(2500, 405u, 1995u) == 1995);
+    CHECK(curve_clamp_entry_mhz(1200, 405u, 1995u) == 1200);
+    CHECK(curve_clamp_entry_mhz(2500, std::nullopt, std::nullopt) == 2500 && curve_clamp_entry_mhz(5, std::nullopt, 1995u) == 5);
+    CHECK(curve_clamp_entry_mhz(2500, 405u, std::nullopt) == 2500 && curve_clamp_entry_mhz(150, 405u, std::nullopt) == 405);
+    CHECK(curve_clamp_entry_mhz(150, 2000u, 1000u) == 150); // inconsistent bounds are not applied
+
+    // 1.9.1 voltage boxes snap DOWN onto the 6.25 mV grid and clamp; on-grid values stay.
+    CHECK(curve_snap_mv(1100, curve_cap_min_mv, curve_cap_max_mv) == 1100);
+    CHECK(curve_snap_mv(1099.99, curve_cap_min_mv, curve_cap_max_mv) == 1093.75);
+    CHECK(curve_snap_mv(1093.75 - 1e-10, curve_cap_min_mv, curve_cap_max_mv) == 1093.75 - 1e-10); // float slop is not a step down
+    CHECK(curve_snap_mv(1500, curve_cap_min_mv, curve_cap_max_mv) == 1300 && curve_snap_mv(10, curve_cap_min_mv, curve_cap_max_mv) == 600);
+    CHECK(curve_snap_mv(std::numeric_limits<double>::quiet_NaN(), 750, 900) == 750);
+    CHECK(curve_snap_mv(800, 750, 900) == 800 && curve_snap_mv(950, 750, 900) == 900);
+    CHECK(std::fmod(curve_cap_default_mv, curve_voltage_grid_mv) == 0);
+    // Hard target: whole-MHz grid from the adapter's step, floored.
+    CHECK(curve_snap_target_mhz(1897, 15000) == 1890 && curve_snap_target_mhz(1890, 15000) == 1890);
+    CHECK(curve_snap_target_mhz(1900, 12657) == 1898 && curve_snap_target_mhz(1901.7, 0) == 1901);
+
+    // vf_read seed: the middle point of the read order, floors clamped to the
+    // curve's own voltage range, target from the uncapped table peak.
+    auto seed = curve_editor_seed(shape, 1000, 800);
+    CHECK(seed.middle_idx == 1u); // shape[4]: read order, not index order
+    CHECK(seed.ramp_floor_mv == 1000.0 && seed.hard_floor_mv == 800.0 && seed.hard_target_mhz == 1800.0);
+    seed = curve_editor_seed(sparse, 1000, 300);
+    CHECK(seed.middle_idx == 20u && seed.ramp_floor_mv == 900.0 && seed.hard_floor_mv == 750.0 && seed.hard_target_mhz == 1600.0);
+    seed = curve_editor_seed({}, 1000, 800);
+    CHECK(!seed.middle_idx && !seed.ramp_floor_mv && !seed.hard_floor_mv && !seed.hard_target_mhz);
+
+    // vf_read log line from the same peak/park/flat walk as the statistics line.
+    CHECK(curve_read_summary(shape, 1000) == "curve read: peak 1700 MHz, parks idx 3 @ 850.00 mV, 2 flat run(s) below 1000 mV");
+    CHECK(curve_read_summary(shape, 1093.75) == "curve read: peak 1700 MHz, parks idx 3 @ 850.00 mV, 2 flat run(s) below 1094 mV");
+    CHECK(curve_read_summary(shape, 600) == "curve read: peak 0 MHz, parks idx -- @ 0.00 mV, 0 flat run(s) below 600 mV");
+
+    // Plot budget: int(H*0.34) + idle banner, minus what the banner and open blocks take, 240 floor.
+    CHECK(curve_plot_budget(1261, 104, 104, 0, 240) == 428);
+    CHECK(curve_plot_budget(1261, 104, 160, 90, 240) == 282);
+    CHECK(curve_plot_budget(700, 104, 200, 0, 240) == 240);
+    // The shares are of the page height under the menu bar and pinned chrome:
+    // 1.9.1's own tree at 1528x1261 (menu 24, tab selector 28, unlock strip 28)
+    // records a 386 px plot under a 119 px banner and a 153 px log.
+    const float share = curve_share_height(1261, 24, 28 + 28);
+    CHECK(share == 1181);
+    CHECK(curve_plot_budget(share, 104, 119, 0, 240) == 386);
+    CHECK(curve_log_height(share, 90) == 153);
+    CHECK(curve_log_height(curve_share_height(1261, 0, 0), 90) == 163); // the raw client height overshoots
+    CHECK(curve_log_height(curve_share_height(600, 24, 56), 90) == 90 && curve_share_height(40, 24, 56) == 0);
+
+    // 1.9.1 update_vf_corner: three-space gaps, 2-decimal mV, whole MHz, a unitless
+    // signed delta in physical MHz (raw delta over the request divisor).
+    CHECK(curve_corner_text({63, 845, 1710, 0}, 1) == "idx 63   845.00 mV   1710 MHz   delta +0");
+    CHECK(curve_corner_text({7, 812.5, 1695, -30000}, 2) == "idx 7   812.50 mV   1695 MHz   delta -15");
+    CHECK(curve_corner_text({7, 812.5, 1695, -30000}, 0) == "idx 7   812.50 mV   1695 MHz   delta unverified");
+    // 1.9.1's key help, with the amounts one W/S press and a Shift press stage on this grid.
+    CHECK(curve_key_help(15000) == "drag a dot to move it  \xE2\x80\xA2  drag anywhere else to pan  \xE2\x80\xA2  A/D select  \xE2\x80\xA2  "
+        "W/S move \xC2\xB1" "15 MHz  \xE2\x80\xA2  hold Shift for \xC2\xB1" "45  \xE2\x80\xA2  "
+        "Ctrl+H hold the selected point (again to release)  \xE2\x80\xA2  Ctrl+Z / Ctrl+Y undo and redo staged edits");
+    CHECK(curve_key_help(12657).find("W/S move \xC2\xB1" "12.657 MHz  \xE2\x80\xA2  hold Shift for \xC2\xB1" "37.971  ") != std::string::npos);
+    CHECK(curve_key_help(0).find("W/S move -- MHz  \xE2\x80\xA2  hold Shift for --  ") != std::string::npos);
     std::printf("curve_draft_test: %u checks passed\n", checks);
 }

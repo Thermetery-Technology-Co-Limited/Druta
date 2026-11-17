@@ -12,6 +12,7 @@
 #define CHECK(x) do { ++checks; if (!(x)) { std::fprintf(stderr, "CHECK failed at line %d: %s\n", __LINE__, #x); ++failures; } } while (0)
 int failures = 0, checks = 0, boost_writes = 0;
 #include <cstring>
+#include <algorithm>
 using namespace druta::ui;
 namespace {
 int current = 40, writes = 0, mode = 0, range_fail = 0;
@@ -38,8 +39,14 @@ dc_status DC_CALL clock_telemetry(dc_gpu*, dc_telemetry* out) {
 dc_status DC_CALL clock_classifier(const uint32_t*, size_t, int32_t, uint32_t, int32_t, uint32_t, int32_t, uint32_t, dc_clock_domains* out) {
     out->count=1; auto& row=out->rows[0]; row.domain=0; row.scale=1;
     std::memcpy(row.name,"GPC",4); std::memcpy(row.grade,"confirmed",10); std::memcpy(row.kind,"freq",5);
-    row.prog_khz=1500000; row.meas_khz=1499000; return DC_OK;
+    row.prog_khz=1500000; row.meas_khz=1499000; row.has_prog_mhz=1; row.prog_mhz=1500; return DC_OK;
 }
+std::vector<uint32_t> paired_live; int32_t requests_only=0; int memory_caps_fail=0, pairing_calls=0, blackwell_calls=0;
+dc_status DC_CALL clock_pairing(dc_gpu*, int32_t has_rows, const uint32_t* live, size_t n, dc_clkdom_pair* pairs, size_t capacity, size_t* count) {
+    ++pairing_calls; CHECK(has_rows == 1); paired_live.assign(live, live + n); *count = 1;
+    if (capacity < 1) return DC_E_BUFFER; pairs[0] = {3, 0}; return DC_OK;
+}
+int32_t DC_CALL clock_blackwell(dc_gpu*) { ++blackwell_calls; return requests_only; }
 dc_status DC_CALL scale(dc_gpu*, dc_mem_offset_scale* out) { out->scale = 2; std::memcpy(out->unit, "MHz eff", sizeof("MHz eff")); return DC_OK; }
 uint32_t DC_CALL step(dc_gpu*) { return 2; }
 dc_status DC_CALL setter(dc_gpu*, uint32_t type, double value, int32_t preserve, dc_outcome* out) {
@@ -72,6 +79,10 @@ dc_status DC_CALL cpc_live(dc_gpu*, dc_cpc_observation* out, dc_error*) { CHECK(
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL unlock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL capabilities(dc_gpu*, dc_capabilities* c) { c->present = DC_C_PL_MIN | DC_C_PL_MAX | DC_C_PL_DEF; c->pl_min_mw = 100000; c->pl_max_mw = 500000; c->pl_def_mw = 200000; return DC_OK; }
+dc_status DC_CALL memory_capabilities(dc_gpu* gpu, dc_capabilities* c) {
+    if (memory_caps_fail) { --memory_caps_fail; return DC_E_UNAVAILABLE; }
+    capabilities(gpu, c); c->present |= DC_C_MEM_DIV; c->mem_div = 4; std::memcpy(c->mem_type, "GDDR6", sizeof("GDDR6")); return DC_OK;
+}
 dc_status DC_CALL power_read(dc_gpu*, dc_cl_statics*, int32_t* has, uint32_t* value, dc_error*) { *has = 1; *value = board; return DC_OK; }
 dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error*) { *low = 100000; *high = xoc && xoc_live ? 1999000 : 500000; if (board > *high) *high = board; return DC_OK; }
 dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = derived_test ? 700 : 200; if (power_throw) throw std::runtime_error("post-dispatch power failure"); *ok = 1; *needed = 1; return DC_OK; }
@@ -109,7 +120,12 @@ dc_status DC_CALL rail_fields(dc_gpu*, int32_t rail, uint32_t* count) { if (rail
 dc_status DC_CALL rail_limits(dc_gpu*, dc_rails_limit_set* out) { ++rail_limits_calls; if (rail_type_flip_at && rail_limits_calls == rail_type_flip_at) ++rail_type; if (rail_request_flip_at && rail_limits_calls == rail_request_flip_at) raw_limits[1][2]=850; for (int i = 0; i < 2; ++i) { out->present |= 1u << i; out->rails[i].type = i + rail_type; out->rails[i].has_base = 1; for (int j = 0; j < 4; ++j) { out->rails[i].fields[j] = raw_limits[i][j] / 1000.0; out->rails[i].base[j] = rail_base; } } return DC_OK; }
 dc_status DC_CALL rail_initial(dc_gpu*, int32_t rail, int32_t* has, int32_t values[4]) { *has = 1; for (int i = 0; i < 4; ++i) values[i] = override_rail_initial && rail==1 && i==2 ? rail_initial_override : (rail * 4 + i + 1) * 100; return DC_OK; }
 dc_status DC_CALL rail_hold(dc_gpu*, dc_rails_hold_record* out) { out->present = rail_held >= 0; out->rail = rail_held; return DC_OK; }
-dc_status DC_CALL rail_raw_set(dc_gpu*, int32_t rail, const dc_rails_raw_request* request, int32_t enabled, int32_t, dc_outcome* out, dc_rails_setter_writes* write_info) { CHECK(enabled && request->count == 1); ++rail_set_calls; auto field = request->order[0]; raw_limits[rail][field] = request->uv[field]; write_info->calls = 1; if (rail_throw) throw std::runtime_error("post-write failure"); out->ok = 1; return DC_OK; }
+// rail_set_last_count: fields named by the last setter call; rail_ignored_field:
+// a field the fake driver accepts without storing (a readback mismatch).
+uint32_t rail_set_last_count = 0; int rail_ignored_field = -1;
+dc_status DC_CALL rail_raw_set(dc_gpu*, int32_t rail, const dc_rails_raw_request* request, int32_t enabled, int32_t, dc_outcome* out, dc_rails_setter_writes* write_info) { CHECK(enabled && (request->count == 1 || request->count == 2)); ++rail_set_calls; rail_set_last_count = request->count; for (uint32_t i = 0; i < request->count; ++i) { auto field = request->order[i]; CHECK(request->passed[field]); if (static_cast<int>(field) != rail_ignored_field) raw_limits[rail][field] = request->uv[field]; } write_info->calls = 1; if (rail_throw) throw std::runtime_error("post-write failure"); out->ok = 1; return DC_OK; }
+double rail_live_mv = 920, rail_effective_mv = 1080; bool rail_state_fail = false; int rail_state_calls = 0;
+dc_status DC_CALL rail_state(dc_gpu*, dc_rails_state_set* out) { ++rail_state_calls; if (rail_state_fail) return DC_E_FAILED; out->present = 1; out->rails[0].live = rail_live_mv; out->rails[0].effective = rail_effective_mv; out->rails[0].reliability = 1080; return DC_OK; }
 dc_status DC_CALL rail_initial_set(dc_gpu*, int32_t, int32_t rail, const dc_rails_reset_request* request, dc_outcome* out, dc_rails_setter_writes* write_info) { for (int i = 0; i < 4; ++i) if (request->field_mask & (1u << i)) raw_limits[rail][i] = (rail * 4 + i + 1) * 100; write_info->calls = 1; out->ok = 1; return DC_OK; }
 uint32_t current_index = 7; bool current_read_fails = false, current_generic_label = false;
 dc_status DC_CALL alternate_policies(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_cl_policy_inputs_fn, void*, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
@@ -136,7 +152,9 @@ dc_status DC_CALL test_reset(dc_gpu*, dc_cl_confirm_fn, void*, dc_cl_policy_inpu
     ++reset_calls; CHECK(cap >= DC_RESET_STEPS_MAX); core_value = 0; delta = 0; delta2 = 0;
     if (reset_api_failure) { *count = 0; return DC_E_FAILED; }
     *count = 2; std::memcpy(steps[0].name, "core offset", sizeof("core offset")); steps[0].ok = 1;
-    std::memcpy(steps[1].name, "fan", sizeof("fan")); steps[1].ok = reset_step_failure ? 0 : 1; return DC_OK;
+    std::snprintf(steps[0].message, sizeof(steps[0].message), "fixture offset zeroed");
+    std::memcpy(steps[1].name, "fan", sizeof("fan")); steps[1].ok = reset_step_failure ? 0 : 1;
+    std::snprintf(steps[1].message, sizeof(steps[1].message), "%s", reset_step_failure ? "fixture fan refusal" : "fixture fan to auto"); return DC_OK;
 }
 int perf_group_reads=0; bool perf_partial_failure=false;
 dc_status DC_CALL perf_read_group(dc_gpu*,const char* name,uint32_t attempts,dc_perf_group_result* result,dc_error* error) {
@@ -218,6 +236,140 @@ TEST_NOINLINE void perf_frequency_integration_tests() {
     foreign_client->read(true);CHECK(!foreign_client->frequency_state()->ownership.needs_cleanup());
     CHECK(foreign_client->prepare_close().ok);foreign_client->close();CHECK(freq_locked && freq_resets==after_owned_release);
     freq_locked=false;freq_min=freq_max=0;
+}
+// Python apply_vlim with Link ticked: one Command names both reliability fields.
+TEST_NOINLINE void linked_rail_tests(const CoreApi& rail_api, const Command& undo) {
+    std::string error; raw_limits[1][0] = 500; raw_limits[1][1] = 600; raw_limits[1][2] = 700; raw_limits[1][3] = 800;
+    auto client = create_core_backend_for_test(rail_api); CHECK(client->open("0000:02:00.0", error));
+    Command gate{}; gate.operation = Command::Operation::set_rail_mode; gate.enabled = true; CHECK(client->execute(gate).ok);
+    auto view = client->read(true); CHECK(view.rail_controls.size() == 8);
+    const auto binding = [&](uint32_t rail, uint32_t field) {
+        for (const auto& r : view.rail_controls) if (r.id.rail == rail && r.id.field == field) return r.binding;
+        return std::string();
+    };
+    Command linked{}; linked.operation = Command::Operation::apply; linked.rail = RailId{1, 0}; linked.value = 1.0; linked.expected_binding = binding(1, 0);
+    linked.rail_partner = RailPartnerRequest{RailId{1, 1}, 1.1, binding(1, 1)};
+    CHECK(!linked.expected_binding->empty() && !linked.rail_partner->expected_binding.empty());
+
+    // A changed partner binding refuses before any write to either field.
+    auto stale = linked; stale.rail_partner->expected_binding = "rail:1:1:stale";
+    int calls = rail_set_calls; auto refused = client->execute(stale);
+    CHECK(!refused.ok && !refused.may_have_changed && rail_set_calls == calls && raw_limits[1][0] == 500 && raw_limits[1][1] == 600);
+    rail_base = 901; refused = client->execute(linked); rail_base = 900; // both references moved
+    CHECK(!refused.ok && rail_set_calls == calls && raw_limits[1][0] == 500 && raw_limits[1][1] == 600);
+    // A partner on another rail, the same field, or a linked Initial is refused.
+    auto other_rail = linked; other_rail.rail_partner->id.rail = 0; CHECK(!client->execute(other_rail).ok && rail_set_calls == calls);
+    auto same_field = linked; same_field.rail_partner->id.field = 0; CHECK(!client->execute(same_field).ok && rail_set_calls == calls);
+    // Python VLIM_LINKED names only reliability and alt-reliability: overvoltage and vmin never pair.
+    for (uint32_t other : {2u, 3u}) {
+        auto with_other = linked; with_other.rail_partner = RailPartnerRequest{RailId{1, other}, 1.1, binding(1, other)};
+        CHECK(!with_other.rail_partner->expected_binding.empty());
+        auto refused_pair = client->execute(with_other);
+        CHECK(!refused_pair.ok && !refused_pair.may_have_changed && rail_set_calls == calls);
+        for (uint32_t reliability : {0u, 1u}) {
+            Command from_other{}; from_other.operation = Command::Operation::apply; from_other.rail = RailId{1, other}; from_other.value = 1.0;
+            from_other.expected_binding = binding(1, other);
+            from_other.rail_partner = RailPartnerRequest{RailId{1, reliability}, 1.1, binding(1, reliability)};
+            refused_pair = client->execute(from_other);
+            CHECK(!refused_pair.ok && !refused_pair.may_have_changed && rail_set_calls == calls);
+        }
+    }
+    CHECK(raw_limits[1][0] == 500 && raw_limits[1][1] == 600 && raw_limits[1][2] == 700 && raw_limits[1][3] == 800);
+    auto linked_stock = linked; linked_stock.operation = Command::Operation::stock; CHECK(!client->execute(linked_stock).ok && rail_set_calls == calls);
+    CHECK(!client->read(false).undo_available);
+
+    // One setter call writes and reads back both; Undo is one entry restoring both in one call.
+    auto applied = client->execute(linked);
+    CHECK(applied.ok && rail_set_calls == calls + 1 && rail_set_last_count == 2 && raw_limits[1][0] == 1000 && raw_limits[1][1] == 1100 && raw_limits[1][2] == 700);
+    CHECK(client->read(false).undo_label == "Undo rail limit");
+    auto undone = client->execute(undo);
+    CHECK(undone.ok && rail_set_calls == calls + 2 && rail_set_last_count == 2 && raw_limits[1][0] == 500 && raw_limits[1][1] == 600);
+    CHECK(!client->read(false).undo_available);
+
+    // The partner's readback differs: failure is reported, Undo is kept and restores both.
+    rail_ignored_field = 1; applied = client->execute(linked); rail_ignored_field = -1;
+    CHECK(!applied.ok && applied.may_have_changed && raw_limits[1][0] == 1000 && raw_limits[1][1] == 600);
+    CHECK(client->read(false).undo_label == "Undo rail limit");
+    undone = client->execute(undo);
+    CHECK(undone.ok && rail_set_last_count == 2 && raw_limits[1][0] == 500 && raw_limits[1][1] == 600 && !client->read(false).undo_available);
+
+    // Unlinked apply: one field, one entry, exactly as before.
+    Command single{}; single.operation = Command::Operation::apply; single.rail = RailId{1, 1}; single.value = 0.65; single.expected_binding = binding(1, 1);
+    calls = rail_set_calls; CHECK(client->execute(single).ok && rail_set_calls == calls + 1 && rail_set_last_count == 1 && raw_limits[1][1] == 650 && raw_limits[1][0] == 500);
+    CHECK(client->execute(undo).ok && rail_set_last_count == 1 && raw_limits[1][1] == 600 && !client->read(false).undo_available);
+}
+// Disk Undo of a linked apply names both fields' prior requests, an unlinked one
+// only its own field. Undo of a linked entry after only the partner moved
+// elsewhere still restores both prior requests in one call.
+TEST_NOINLINE void linked_rail_history_tests(const CoreApi& rail_api, const Command& undo) {
+    std::string error; raw_limits[1][0] = 500; raw_limits[1][1] = 600; raw_limits[1][2] = 700; raw_limits[1][3] = 800;
+    std::vector<std::pair<std::string, ProfileJson>> saved;
+    CoreApi with_history = rail_api; with_history.history = std::make_shared<ProfileHistorySink>();
+    with_history.history->save = [&](const std::string& action, const ProfileJson& document) { saved.push_back({action, document}); };
+    auto client = create_core_backend_for_test(with_history); CHECK(client->open("0000:02:00.0", error));
+    Command gate{}; gate.operation = Command::Operation::set_rail_mode; gate.enabled = true; CHECK(client->execute(gate).ok);
+    auto view = client->read(true);
+    const auto binding = [&](uint32_t rail, uint32_t field) {
+        for (const auto& r : view.rail_controls) if (r.id.rail == rail && r.id.field == field) return r.binding;
+        return std::string();
+    };
+    const auto entry = [](const ProfileJson& document, uint32_t field) -> std::optional<int> {
+        if (!document.contains("entries")) return std::nullopt;
+        for (const auto& e : document["entries"])
+            if (e.value("kind", "") == "rail" && e["rail"] == 1 && e["field"] == field) return e["value"].get<int>();
+        return std::nullopt;
+    };
+    Command linked{}; linked.operation = Command::Operation::apply; linked.rail = RailId{1, 0}; linked.value = 1.0; linked.expected_binding = binding(1, 0);
+    linked.rail_partner = RailPartnerRequest{RailId{1, 1}, 1.1, binding(1, 1)};
+    int calls = rail_set_calls;
+    CHECK(client->execute(linked).ok && rail_set_calls == calls + 1 && raw_limits[1][0] == 1000 && raw_limits[1][1] == 1100);
+    CHECK(saved.size() == 1);
+    if (saved.size() == 1) {
+        CHECK(saved[0].first == "rail-limit" && saved[0].second["entries"].size() == 2);
+        CHECK(entry(saved[0].second, 0) == 500 && entry(saved[0].second, 1) == 600);
+    }
+    // Only the partner changes outside this entry; Undo restores both, one call, no new disk record.
+    raw_limits[1][1] = 1150; calls = rail_set_calls;
+    CHECK(client->execute(undo).ok && rail_set_calls == calls + 1 && rail_set_last_count == 2 && raw_limits[1][0] == 500 && raw_limits[1][1] == 600);
+    CHECK(saved.size() == 1 && !client->read(false).undo_available);
+    // Unlinked: the disk record names only the moved field, as before.
+    view = client->read(true);
+    Command single{}; single.operation = Command::Operation::apply; single.rail = RailId{1, 1}; single.value = 0.65; single.expected_binding = binding(1, 1);
+    CHECK(client->execute(single).ok && rail_set_last_count == 1 && raw_limits[1][1] == 650 && raw_limits[1][0] == 500);
+    CHECK(saved.size() == 2);
+    if (saved.size() == 2) CHECK(saved[1].second["entries"].size() == 1 && entry(saved[1].second, 1) == 600 && !entry(saved[1].second, 0));
+    CHECK(client->execute(undo).ok && raw_limits[1][1] == 600);
+}
+// Python refresh_rail_live: the live/effective readout follows every poll and
+// keeps the last reading, stale, after a failed read; without the export it is unknown.
+TEST_NOINLINE void rail_readout_tests(const CoreApi& rail_api) {
+    std::string error;
+    CoreApi with_state = rail_api; with_state.rails.state = rail_state;
+    auto client = create_core_backend_for_test(with_state); CHECK(client->open("0000:02:00.0", error));
+    rail_live_mv = 920; rail_effective_mv = 1080; rail_state_fail = false;
+    // Focused (the default) never shows them: no rail-state read on any poll.
+    const int focused_calls = rail_state_calls; auto view = client->read(true); view = client->read(false);
+    CHECK(rail_state_calls == focused_calls && !view.rail_readouts);
+    client->set_live_readouts(true);
+    view = client->read(true);
+    CHECK(view.rail_readouts && (*view.rail_readouts)[0].listed && (*view.rail_readouts)[1].listed && !(*view.rail_readouts)[0].stale);
+    CHECK(view.rail_readouts && (*view.rail_readouts)[0].state && (*view.rail_readouts)[0].state->live == 920 && (*view.rail_readouts)[0].state->effective == 1080);
+    CHECK(view.rail_readouts && !(*view.rail_readouts)[1].state);
+    rail_live_mv = 905.5; const int calls = rail_state_calls; view = client->read(false);
+    CHECK(rail_state_calls > calls && view.rail_readouts && (*view.rail_readouts)[0].state && (*view.rail_readouts)[0].state->live == 905.5 && (*view.rail_readouts)[0].listed);
+    rail_state_fail = true; view = client->read(false); rail_state_fail = false;
+    CHECK(view.rail_readouts && (*view.rail_readouts)[0].stale && (*view.rail_readouts)[0].state && (*view.rail_readouts)[0].state->live == 905.5);
+    CHECK(view.rail_controls.size() == 8);
+    view = client->read(false); CHECK(view.rail_readouts && !(*view.rail_readouts)[0].stale);
+    client->set_live_readouts(false); const int hidden_calls = rail_state_calls; view = client->read(false); view = client->read(true);
+    CHECK(rail_state_calls == hidden_calls);
+    // The kept reading is not presented as live once Classic shows it again before its next read.
+    CHECK(view.rail_readouts && (*view.rail_readouts)[0].stale && (*view.rail_readouts)[0].state && (*view.rail_readouts)[0].state->live == 905.5);
+    client->set_live_readouts(true); view = client->read(false);
+    CHECK(rail_state_calls > hidden_calls && view.rail_readouts && !(*view.rail_readouts)[0].stale);
+    auto without = create_core_backend_for_test(rail_api); CHECK(without->open("0000:02:00.0", error));
+    without->set_live_readouts(true); view = without->read(true);
+    CHECK(view.rail_readouts && (*view.rail_readouts)[0].listed && !(*view.rail_readouts)[0].state && !(*view.rail_readouts)[0].stale && view.rail_controls.size() == 8);
 }
 TEST_NOINLINE void scoped_client_tests(const CoreApi& rail_api, const wchar_t* directory, const Command& undo) {
     std::string error;
@@ -359,19 +511,316 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
     auto action_view = action_client->read(true); Command max_cmd{}; max_cmd.operation = Command::Operation::max_it; max_cmd.expected_curve = action_view.curve; max_cmd.expected_curve_freq_div = action_view.curve_freq_div; max_cmd.hold_headroom = false;
     max_cmd.curve_floor_mv = 800; max_cmd.curve_cap_mv = 850; int before_max_power = power_writes, before_max_boost = boost_writes; CHECK(!action_client->execute(max_cmd).ok && power_writes == before_max_power && boost_writes == before_max_boost && fan_level == 40);
     max_cmd.curve_cap_mv = 950; test_foreign_clock = true; CHECK(!action_client->execute(max_cmd).ok && power_writes == before_max_power && fan_level == 40); test_foreign_clock = false;
+    // Each step's own result is reported beside the unchanged joined message.
+    const auto steps_in_message = [](const ActionResult& r) { size_t at = 0;
+        for (const auto& s : r.steps) { at = r.message.find(s.message, at); if (s.message.empty() || at == std::string::npos) return false; at += s.message.size(); }
+        return !r.steps.empty(); };
     fan_refuse = true; auto partial_max = action_client->execute(max_cmd); CHECK(!partial_max.ok && power_writes == before_max_power && action_client->read(false).undo_available); fan_refuse = false;
+    CHECK(partial_max.steps.size() == 1 && partial_max.steps[0].name == "fan" && !partial_max.steps[0].ok && steps_in_message(partial_max));
     CHECK(action_client->execute(undo).ok && fan_level == 40);
-    board = 1000000; xoc_flag = 1; xoc_live = true; auto max_result = action_client->execute(max_cmd); CHECK(max_result.ok && board == 500000 && boost_value == 100 && test_vf_held); CHECK(action_client->execute(undo).ok && !test_vf_held && board == 1000000 && boost_value == 10 && fan_level == 40);
+    board = 1000000; xoc_flag = 1; xoc_live = true; auto max_result = action_client->execute(max_cmd); CHECK(max_result.ok && board == 500000 && boost_value == 100 && test_vf_held);
+    CHECK(max_result.steps.size() == 4 && max_result.steps[0].name == "fan" && max_result.steps[1].name == "board power" && max_result.steps[2].name == "voltage boost"
+        && max_result.steps[3].name == "V/F point hold" && std::all_of(max_result.steps.begin(), max_result.steps.end(), [](const ActionStep& s) { return s.ok; })
+        && steps_in_message(max_result));
+    CHECK(action_client->execute(undo).ok && !test_vf_held && board == 1000000 && boost_value == 10 && fan_level == 40);
     power_throw = true; bool caught_max = false; try { action_client->execute(max_cmd); } catch (const std::exception&) { caught_max = true; } power_throw = false;
     CHECK(caught_max && board == 500000 && action_client->read(false).undo_available); CHECK(action_client->execute(undo).ok && board == 1000000 && fan_level == 40);
     Command reset_command{}; reset_command.operation = Command::Operation::reset_controls; test_foreign_clock = true; int old_reset_calls = reset_calls; CHECK(!action_client->execute(reset_command).ok && reset_calls == old_reset_calls); test_foreign_clock = false;
     nonlinear_curve = true; reset_step_failure = true; core_value = 30; delta = 123; delta2 = 456; auto reset_failed = action_client->execute(reset_command); CHECK(!reset_failed.ok && reset_failed.may_have_changed && action_client->read(false).undo_available); reset_step_failure = false;
+    CHECK(reset_failed.steps.size() == 2 && reset_failed.steps[0].name == "core offset" && reset_failed.steps[0].ok && reset_failed.steps[0].message == "fixture offset zeroed"
+        && reset_failed.steps[1].name == "fan" && !reset_failed.steps[1].ok && reset_failed.steps[1].message == "fixture fan refusal"
+        && reset_failed.message.rfind("Reset incomplete\ncore offset: fixture offset zeroed\nfan: fixture fan refusal", 0) == 0);
     CHECK(action_client->execute(undo).ok && core_value == 30 && delta == 123 && delta2 == 456); nonlinear_curve = false;
+    const int calls_before_ok = reset_calls; auto reset_ok = action_client->execute(reset_command);
+    CHECK(reset_ok.ok && reset_calls == calls_before_ok + 1 && reset_ok.steps.size() == 2 && reset_ok.steps[0].ok && reset_ok.steps[1].ok
+        && reset_ok.steps[1].message == "fixture fan to auto" && reset_ok.message.rfind("Reset controls completed\ncore offset: fixture offset zeroed\nfan: fixture fan to auto", 0) == 0);
+    CHECK(action_client->execute(undo).ok && core_value == 30 && delta == 123 && delta2 == 456);
     reset_api_failure = true; reset_failed = action_client->execute(reset_command); CHECK(!reset_failed.ok && reset_failed.may_have_changed && action_client->read(false).undo_available); reset_api_failure = false;
     board = 200000; peer = 100; pin_present = false; action_client->read(true); const int policy_before_power = policy_reads;
     Command refresh_power{}; refresh_power.operation = Command::Operation::apply; refresh_power.control = ControlId::power; refresh_power.value = 250;
     CHECK(action_client->execute(refresh_power).ok && policy_reads > policy_before_power); const auto refreshed_power = action_client->read(false);
     CHECK(refreshed_power.power_policies.size() == 2 && refreshed_power.power_policies[1].state.current == 0.2);
+}
+// Python refresh_power_policies: a milliwatt row's reading and effective limit
+// come from the same policy row as a current row's; an inconsistent record or a
+// missing word stays unknown.
+bool watt_row_consistent = true; int watt_table_reads = 0; int64_t watt_row_value = 312250, watt_row_limit = 450000;
+dc_status DC_CALL watt_policies(dc_gpu*, dc_cl_confirm_fn, void*, dc_cl_policy_inputs_fn, void*, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
+    ++watt_table_reads; *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 500000; rows[0].requested = board; rows[0].consistent = 1; rows[0].limit = 480000; rows[0].value = 301000;
+    rows[1].policy = 3; rows[1].unit = 0; rows[1].minimum = 1000; rows[1].maximum = 600000; rows[1].requested = 450000; rows[1].writable = 1;
+    rows[1].consistent = watt_row_consistent; rows[1].limit = watt_row_limit; rows[1].value = watt_row_value; return DC_OK;
+}
+TEST_NOINLINE void watt_policy_readback_tests(const CoreApi& pa) {
+    std::string error; CoreApi watt_api = pa; watt_api.policy_read = watt_policies; watt_api.pins_get = no_pins;
+    auto client = create_core_backend_for_test(watt_api); CHECK(client->open("0000:02:00.0", error)); board = 200000;
+    const int reads = watt_table_reads; auto view = client->read(true);
+    CHECK(watt_table_reads == reads + 1 && view.power_policies.size() == 2); // the one table read the amp rows use
+    if (view.power_policies.size() == 2) {
+        const auto& w = view.power_policies[1];
+        CHECK(w.state.unit == "W" && w.observed_watts && *w.observed_watts == 312.25 && w.limit_watts && *w.limit_watts == 450.0 && !w.observed_amps && !w.limit_amps);
+        CHECK(view.power_policies[0].observed_watts && *view.power_policies[0].observed_watts == 301.0 && view.power_policies[0].limit_watts && *view.power_policies[0].limit_watts == 480.0);
+    }
+    watt_row_consistent = false; view = client->read(true);
+    CHECK(view.power_policies.size() == 2 && !view.power_policies[1].observed_watts && !view.power_policies[1].limit_watts);
+    watt_row_consistent = true; watt_row_value = -1; view = client->read(true);
+    CHECK(view.power_policies.size() == 2 && !view.power_policies[1].observed_watts && view.power_policies[1].limit_watts);
+    watt_row_value = 312250;
+}
+// Python native_power_limit_for_ui: a read-only native effective limit on every
+// Classic poll; Focused never reads it, and a failed read is unknown.
+int native_reads = 0; int32_t native_has = 1; uint32_t native_mw = 972070; dc_status native_status = DC_OK;
+dc_status DC_CALL native_limit(dc_gpu*, dc_cl_statics* st, int32_t* has, uint32_t* value, char*, size_t, size_t* needed) {
+    ++native_reads; CHECK(st && st->size == sizeof(*st) && needed);
+    *has = native_has; *value = native_has ? native_mw : 0; if (needed) *needed = 1; return native_status;
+}
+TEST_NOINLINE void native_power_limit_tests(const CoreApi& pa) {
+    std::string error; CoreApi native_api = pa; native_api.native_power = native_limit; native_api.pins_get = no_pins;
+    auto client = create_core_backend_for_test(native_api); CHECK(client->open("0000:02:00.0", error)); board = 200000;
+    const int power_before = power_writes, policy_before = policy_writes, pins_before = pin_writes;
+    // Focused (the default): no native read on a detail or ordinary poll.
+    int reads = native_reads; auto view = client->read(true); view = client->read(false);
+    CHECK(native_reads == reads && !view.native_power_limit_w);
+    client->set_live_readouts(true);
+    view = client->read(false); CHECK(native_reads == reads + 1 && view.native_power_limit_w && *view.native_power_limit_w == 972.07);
+    view = client->read(true); CHECK(native_reads == reads + 2 && view.native_power_limit_w && *view.native_power_limit_w == 972.07);
+    // A failed read shows unavailable, never the last value.
+    native_has = 0; view = client->read(false); CHECK(!view.native_power_limit_w);
+    native_has = 1; native_status = DC_E_FAILED; view = client->read(false); CHECK(!view.native_power_limit_w); native_status = DC_OK;
+    native_mw = 0xFFFFFFFFu; view = client->read(false); CHECK(!view.native_power_limit_w);
+    native_mw = 0; view = client->read(false); CHECK(view.native_power_limit_w && *view.native_power_limit_w == 0.0); // Python: 0 <= mW
+    native_mw = 972070; view = client->read(false); CHECK(view.native_power_limit_w && *view.native_power_limit_w == 972.07);
+    // Hidden again: no read, and the value is not carried as current.
+    client->set_live_readouts(false); reads = native_reads; view = client->read(false);
+    CHECK(native_reads == reads && !view.native_power_limit_w);
+    CoreApi bare = native_api; bare.native_power = nullptr; auto without = create_core_backend_for_test(bare); CHECK(without->open("0000:02:00.0", error));
+    without->set_live_readouts(true); CHECK(!without->read(false).native_power_limit_w);
+    CHECK(power_writes == power_before && policy_writes == policy_before && pin_writes == pins_before); // read-only
+}
+// Python refresh_power_policies: while Classic's Power policies section is open,
+// an ordinary poll re-reads the table at most once a second (POLICY_REFRESH_S);
+// a closed section, Focused or an unread table makes no read. A failed refresh
+// keeps the last rows, marked unavailable. The read carries this session's pins.
+bool refresh_table_fails = false;
+dc_status DC_CALL refresh_policies(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context, dc_cl_policy_inputs_fn inputs, void* input_context, dc_policy_row* rows, uint32_t capacity, uint32_t* n, dc_error* error) {
+    if (refresh_table_fails) { ++watt_table_reads; *n = 0; return DC_E_FAILED; }
+    return watt_policies(gpu, confirm, context, inputs, input_context, rows, capacity, n, error);
+}
+dc_status DC_CALL one_pin(dc_gpu*, uint32_t* ids, int64_t* values, uint32_t, uint32_t* n) { *n = 1; ids[0] = 3; values[0] = 450000; return DC_OK; }
+TEST_NOINLINE void policy_refresh_tests(const CoreApi& pa) {
+    std::string error; CoreApi refresh_api = pa; refresh_api.policy_read = refresh_policies; refresh_api.pins_get = one_pin;
+    auto client = create_core_backend_for_test(refresh_api); CHECK(client->open("0000:02:00.0", error)); board = 200000;
+    const int power_before = power_writes, policy_before = policy_writes, pins_before = pin_writes;
+    // An open section before the table was ever read: nothing to refresh.
+    client->set_live_readouts(true); client->set_policy_readouts(true);
+    int reads = watt_table_reads; auto view = client->read(false); CHECK(watt_table_reads == reads && view.power_policies.empty());
+    view = client->read(true); CHECK(view.power_policies.size() == 2);
+    if (view.power_policies.size() == 2) CHECK(view.power_policies[1].pinned && *view.power_policies[1].pinned == 450.0 && !view.power_policies[0].pinned);
+    // The detail read just captured it: a poll within the second makes no read.
+    reads = watt_table_reads; view = client->read(false); CHECK(watt_table_reads == reads);
+    Sleep(1050);
+    watt_row_value = 333000; view = client->read(false); CHECK(watt_table_reads == reads + 1);
+    if (view.power_policies.size() == 2) CHECK(view.power_policies[1].observed_watts && *view.power_policies[1].observed_watts == 333.0);
+    view = client->read(false); view = client->read(false); CHECK(watt_table_reads == reads + 1); // at most once a second
+    // A closed section and Focused make no read.
+    Sleep(1050);
+    client->set_policy_readouts(false); reads = watt_table_reads; view = client->read(false); CHECK(watt_table_reads == reads);
+    client->set_policy_readouts(true); client->set_live_readouts(false); view = client->read(false); CHECK(watt_table_reads == reads);
+    // A failed refresh keeps the rows, marked unavailable, and leaves the board request alone.
+    client->set_live_readouts(true); refresh_table_fails = true; view = client->read(false); CHECK(watt_table_reads > reads);
+    CHECK(view.power_policies.size() == 2 && view.power_policies[1].state.availability == Availability::transient && view.power_policies[1].state.current == 450.0);
+    CHECK(view.controls[static_cast<size_t>(ControlId::power)].availability == Availability::available);
+    refresh_table_fails = false; watt_row_value = 312250;
+    CHECK(power_writes == power_before && policy_writes == policy_before && pin_writes == pins_before); // read-only
+}
+// Kept out of main(): main's frame already holds dozens of LiveData values,
+// and the nested backend calls overflow the default 1 MB test stack.
+TEST_NOINLINE void clock_domain_pairing_tests(const CoreApi& clock_api) {
+    std::string error;
+    CoreApi paired_api=clock_api; paired_api.clkdom_pairing=clock_pairing; paired_api.clkdom_blackwell=clock_blackwell; paired_api.capabilities=memory_capabilities;
+    auto paired=create_core_backend_for_test(paired_api); CHECK(paired->open("0000:02:00.0", error));
+    // Focused (live readouts off) never asks the core for the pairing.
+    pairing_calls=0; blackwell_calls=0;
+    auto paired_state=paired->read(false); paired_state=paired->read(true);
+    CHECK(pairing_calls==0 && blackwell_calls==0 && paired_state.clock_domain_pairs.empty() && !paired_state.clock_domain_requests_only);
+    CHECK(paired_state.memory_divisor==4u && paired_state.memory_type=="GDDR6");
+    paired->set_live_readouts(true); paired_state=paired->read(false);
+    CHECK(pairing_calls==1 && blackwell_calls==1);
+    CHECK(paired_state.clock_domain_pairs.size()==1 && paired_state.clock_domain_pairs[0].control==3 && paired_state.clock_domain_pairs[0].domain==0
+        && paired_live==std::vector<uint32_t>{0} && !paired_state.clock_domain_requests_only);
+    memory_caps_fail=8; requests_only=1; paired_state=paired->read(false);
+    CHECK(paired_state.memory_divisor==4u && paired_state.memory_type=="GDDR6" && paired_state.clock_domain_requests_only);
+    // Hidden again: no call, and the last pairing is kept.
+    paired->set_live_readouts(false); const int pairs_before=pairing_calls, blackwell_before=blackwell_calls; requests_only=0;
+    paired_state=paired->read(false);
+    CHECK(pairing_calls==pairs_before && blackwell_calls==blackwell_before && paired_state.clock_domain_pairs.size()==1 && paired_state.clock_domain_requests_only);
+    memory_caps_fail=0; requests_only=0;
+}
+// Fake hold-headroom core: the record is the raise; restore drops it unless told to fail.
+bool hr_record=false, hr_restore_fails=false; int hr_restores=0, hr_arch_reads=0; int32_t hr_arch=1; dc_status hr_arch_status=DC_OK;
+dc_status DC_CALL hr_record_get(dc_gpu*, dc_rails_hold_record* r) { r->present=hr_record?1:0; r->rail=0; return DC_OK; }
+dc_status DC_CALL hr_apply(dc_gpu*, double hold_mv, double margin_mv, uint32_t, int32_t, int32_t, dc_rails_before_write_fn, void*, dc_rails_hold_outcome* out, dc_rails_setter_writes*) {
+    CHECK(hold_mv==900 && margin_mv==25); hr_record=true; out->ok=DC_RAILS_HOLD_OK; return DC_OK;
+}
+dc_status DC_CALL hr_restore(dc_gpu*, int32_t force, dc_rails_hold_outcome* out, dc_rails_setter_writes*) {
+    CHECK(force==0); ++hr_restores;
+    if (hr_restore_fails) { out->ok=DC_RAILS_HOLD_FAILED; std::strcpy(out->message,"headroom restore not verified: fake readback"); return DC_OK; }
+    hr_record=false; out->ok=DC_RAILS_HOLD_OK; std::strcpy(out->message,"NVVDD: reliability restored after the hold"); return DC_OK;
+}
+dc_status DC_CALL hr_live(dc_gpu*, int32_t, const dc_rails_hold_record*, int32_t, double, dc_outcome* out) { out->ok=1; return DC_OK; }
+dc_status DC_CALL hr_overwritten(dc_gpu*, int32_t, const dc_rails_limit_set*, int32_t* out) { *out=0; return DC_OK; }
+dc_status DC_CALL hr_architecture(dc_gpu*, int32_t* supported) { ++hr_arch_reads; *supported=hr_arch; return hr_arch_status; }
+// Python restore_raised_limits_now and hold_headroom_architecture over the fake core.
+TEST_NOINLINE void hold_restore_tests() {
+    std::string error;
+    CoreApi a=api(); a.lock=lock_gpu; a.unlock=unlock_gpu;
+    a.tuning.lock=lock_gpu; a.tuning.unlock=unlock_gpu; a.tuning.identity=identity;
+    a.tuning.vf_status=tuning_vf_status; a.tuning.clock_status=tuning_clock_status; a.tuning.vf_set=tuning_vf_set; a.tuning.vf_clear=tuning_vf_clear;
+    a.tuning.recovery_pending=tuning_recovery; a.tuning.recover=tuning_recover;
+    a.tuning.headroom_record=hr_record_get; a.tuning.headroom_apply=hr_apply; a.tuning.headroom_restore=hr_restore;
+    a.tuning.headroom_live=hr_live; a.tuning.headroom_overwritten=hr_overwritten; a.hold_architecture=hr_architecture;
+    test_vf_held=false; test_foreign_clock=false; hr_record=false;
+    // hr-02: the core's generation answer, not a driver or device identity.
+    // Focused does not show it and makes no such read.
+    auto client=create_core_backend_for_test(a); CHECK(client->open("0000:02:00.0", error));
+    const int focused_reads=hr_arch_reads; auto data=client->read(false); data=client->read(true);
+    CHECK(hr_arch_reads==focused_reads && !data.hold_headroom_architecture.has_value());
+    client->set_live_readouts(true);
+    data=client->read(true); CHECK(data.hold_headroom_architecture==true && hr_arch_reads>focused_reads);
+    hr_arch=-1; CHECK(client->read(true).hold_headroom_architecture==true); // an unread answer keeps the definite one
+    hr_arch_status=DC_E_UNAVAILABLE; hr_arch=1; CHECK(client->read(true).hold_headroom_architecture==true); hr_arch_status=DC_OK;
+    {
+        hr_arch=-1; auto unread=create_core_backend_for_test(a); CHECK(unread->open("0000:02:00.0", error)); unread->set_live_readouts(true);
+        CHECK(!unread->read(false).hold_headroom_architecture.has_value());
+        hr_arch=0; CHECK(unread->read(true).hold_headroom_architecture==false);
+        hr_arch=1; hr_arch_status=DC_E_UNAVAILABLE; auto failed=create_core_backend_for_test(a); CHECK(failed->open("0000:02:00.0", error)); failed->set_live_readouts(true);
+        CHECK(!failed->read(false).hold_headroom_architecture.has_value()); hr_arch_status=DC_OK;
+        CoreApi bare=a; bare.hold_architecture=nullptr; auto without=create_core_backend_for_test(bare); CHECK(without->open("0000:02:00.0", error)); without->set_live_readouts(true);
+        CHECK(without->read(false).hold_headroom_architecture==false);
+    }
+    hr_arch=1;
+    // hr-01: nothing raised issues nothing.
+    Command restore{}; restore.operation=Command::Operation::restore_raised_limits;
+    auto restored=client->execute(restore);
+    CHECK(restored.ok && !restored.may_have_changed && hr_restores==0 && restored.message=="headroom: no raised limits to restore");
+    data=client->read(true);
+    Command hold{}; hold.operation=Command::Operation::hold_curve_point; hold.expected_curve=data.curve; hold.expected_curve_freq_div=data.curve_freq_div;
+    hold.hold_point_index=3; hold.hold_headroom=true; hold.headroom_margin_mv=25;
+    CHECK(client->execute(hold).ok && test_vf_held && hr_record && client->tuning_state()->headroom && client->read(false).tuning.headroom);
+    // A changed target is refused before any restore.
+    changed_id=true; restored=client->execute(restore); changed_id=false;
+    CHECK(!restored.ok && hr_restores==0 && hr_record && client->tuning_state()->headroom);
+    // A raise in force: exactly one restore, read back, the hold kept.
+    restored=client->execute(restore);
+    CHECK(restored.ok && restored.may_have_changed && hr_restores==1 && !hr_record && test_vf_held);
+    // Python's "headroom: <message>" line alone; the hold-still-in-force note is the Classic log's own line.
+    CHECK(restored.message=="headroom: NVVDD: reliability restored after the hold");
+    auto after=client->tuning_state(); CHECK(after && !after->headroom && after->owned && after->confirmed && !client->read(false).tuning.headroom);
+    restored=client->execute(restore); CHECK(restored.ok && hr_restores==1);
+    Command release{}; release.operation=Command::Operation::release_hold;
+    CHECK(client->execute(release).ok && !test_vf_held && hr_restores==1);
+    // A failed restore keeps the raise, the flag and the hold, after one bounded retry.
+    data=client->read(true); hold.expected_curve=data.curve; hold.expected_curve_freq_div=data.curve_freq_div;
+    CHECK(client->execute(hold).ok && hr_record);
+    hr_restore_fails=true; restored=client->execute(restore);
+    CHECK(!restored.ok && restored.may_have_changed && hr_restores==3 && hr_record && test_vf_held && client->tuning_state()->headroom);
+    CHECK(restored.message=="headroom: headroom restore not verified: fake readback" && client->read(false).tuning.headroom);
+    hr_restore_fails=false; CHECK(client->execute(release).ok && !test_vf_held && !hr_record && hr_restores==4);
+    // A later hold raises again and the same restore takes it off once more.
+    data=client->read(true); hold.expected_curve=data.curve; hold.expected_curve_freq_div=data.curve_freq_div;
+    CHECK(client->execute(hold).ok && hr_record);
+    restored=client->execute(restore);
+    CHECK(restored.ok && restored.may_have_changed && hr_restores==5 && !hr_record && test_vf_held && !client->tuning_state()->headroom);
+    CHECK(client->execute(release).ok && !test_vf_held && hr_restores==5);
+}
+// Fake power-feedback transport: one qualified policy (INFO / CONTROL in the
+// packet geometry the service understands), the read-only STATUS GET counted.
+namespace integral_fake {
+dc_gpu_identity id{}; dc_target target{}; dc_power_layout layout{};
+std::vector<uint32_t> info, control; int status_reads = 0, sets = 0; bool status_fails = false;
+void put8(std::vector<uint32_t>& w, size_t at, uint32_t v) { const auto s = static_cast<uint32_t>((at % 4) * 8); w[at / 4] = (w[at / 4] & ~(255u << s)) | (v << s); }
+void put16(std::vector<uint32_t>& w, size_t at, uint16_t v) { put8(w, at, v & 255u); put8(w, at + 1, static_cast<uint32_t>(v >> 8)); }
+uint16_t get16(const std::vector<uint32_t>& w, size_t at) { return static_cast<uint16_t>((w[at / 4] >> ((at % 4) * 8)) & 65535u); }
+void reset() {
+    id = {}; id.size = sizeof(id); id.nvapi_ok = id.nvml_ok = id.nvapi_selected = id.nvml_selected = 1;
+    std::snprintf(id.slot, sizeof(id.slot), "0000:02:00.0"); std::snprintf(id.uuid, sizeof(id.uuid), "GPU-feedback");
+    id.nvapi_handle = 0x4455; id.nvapi_devid = 0x2203; id.nvapi_subsys = 0x1234;
+    target = {}; target.size = sizeof(target); std::snprintf(target.slot, sizeof(target.slot), "%s", id.slot);
+    target.architecture = 7; target.handle = id.nvapi_handle; target.device_id = id.nvapi_devid; target.subsystem_id = id.nvapi_subsys;
+    layout = {}; layout.size = sizeof(layout); layout.sizes[0] = 20512; layout.sizes[1] = 397048; layout.sizes[2] = layout.sizes[3] = 13876;
+    layout.info_base = 0xCC; layout.info_stride = 0x104; layout.status_base = 0x9C; layout.status_stride = 0x1730;
+    layout.control_base = 0x14; layout.control_stride = 0xC4;
+    info.assign(20512 / 4, 0); control.assign(13876 / 4, 0); info[1] = 1; control[3] = 255; control[4] = 1;
+    const size_t a = 0xCC, b = 0x14;
+    put8(info, a, 0x30); put8(info, a + 4, 5); put8(info, a + 5, 10); info[(a + 8) / 4] = 10; info[(a + 16) / 4] = 600000;
+    put8(info, a + 0x20, 2); put8(info, a + 0x22, 4); put8(info, a + 0x23, 5); put16(info, a + 0x24, 1024); put16(info, a + 0x26, 4096);
+    control[b / 4] = 5; control[(b + 4) / 4] = 320000; put8(control, b + 8, 2); put8(control, b + 9, 4); put8(control, b + 10, 5);
+    put16(control, b + 12, 1024); put16(control, b + 14, 4096);
+    status_reads = sets = 0; status_fails = false;
+}
+dc_status DC_CALL get_identity(const dc_gpu*, dc_gpu_identity* out) { *out = id; return DC_OK; }
+dc_status DC_CALL bind(dc_gpu*, int32_t, dc_target* out, dc_error*) { *out = target; return DC_OK; }
+int32_t DC_CALL probe(uint32_t) { return 1; }
+dc_status DC_CALL abi(dc_gpu*, dc_power_layout* out, uint32_t* index, dc_error*) { *out = layout; *index = 0; return DC_OK; }
+dc_status DC_CALL transport_reset(dc_gpu*, int32_t) { return DC_OK; }
+dc_status DC_CALL mask(dc_gpu*, uint32_t) { return DC_OK; }
+dc_status DC_CALL rm(dc_gpu*, uint32_t command, const uint32_t* params, uint32_t param_count, int32_t, uint32_t, int32_t, uint32_t* out, uint32_t capacity, uint32_t* count, dc_error* error) {
+    if (command == 0x2080E61B) { // SET: the selected policy row
+        ++sets; CHECK(params && param_count == control.size());
+        if (params && param_count == control.size()) std::copy(params + 0x14 / 4, params + (0x14 + 0xC4) / 4, control.begin() + 0x14 / 4);
+        *count = 0; return DC_OK;
+    }
+    if (command == 0x2080A619) { // STATUS: read-only diagnostics
+        ++status_reads; if (status_fails) { error->kind = DC_ERR_TRANSIENT; return DC_E_FAILED; }
+        const uint32_t words = 397048 / 4; if (capacity < words) return DC_E_BUFFER;
+        std::fill(out, out + words, 0u); *count = words; return DC_OK;
+    }
+    const auto& words = command == 0x2080A618 ? info : control;
+    if (capacity < words.size()) return DC_E_BUFFER;
+    std::copy(words.begin(), words.end(), out); *count = static_cast<uint32_t>(words.size()); return DC_OK;
+}
+dc_status DC_CALL decode(const dc_power_layout*, const dc_arbitration_words*, const dc_arbitration_words*, const dc_arbitration_words*, dc_arbitration_report* out) {
+    const uint32_t size = out->size; *out = {}; out->size = size; out->schema = 1; out->available = 1; out->policy_count = 1;
+    out->policies[0].policy = 0; out->policies[0].available = 1; out->policies[0].effective = 350000; out->policies[0].pmu.available = 1; out->policies[0].pmu.output = 298250;
+    return DC_OK;
+}
+CoreApi core() {
+    CoreApi a{}; a.abi_version = version; a.enumerate = enumerate; a.open = open_gpu; a.close = close_gpu; a.identity = get_identity; a.lock = lock_gpu; a.unlock = unlock_gpu;
+    auto& p = a.power_integral; p.lock = lock_gpu; p.unlock = unlock_gpu; p.identity = get_identity; p.target_bind = bind; p.probe_architecture = probe;
+    p.abi = abi; p.rm = rm; p.transport_reset = transport_reset; p.policy_mask_set = mask; p.decode = decode;
+    return a;
+}
+}
+// Python PowerIntegralController._report: only Classic's explicit Read adds the one
+// read-only STATUS GET (PMU output, effective limit); a failed STATUS read leaves
+// both unknown. Focused's Read, the history capture and Apply send what they did.
+TEST_NOINLINE void power_integral_status_tests() {
+    std::string error; integral_fake::reset(); int captures = 0;
+    CoreApi a = integral_fake::core(); a.history = std::make_shared<ProfileHistorySink>();
+    a.history->save = [&](const std::string&, const ProfileJson&) { ++captures; };
+    auto client = create_core_backend_for_test(a); CHECK(client->open("0000:02:00.0", error));
+    Command read{}; read.operation = Command::Operation::power_integral_read;
+    // Focused: no STATUS read, so both stay unknown.
+    CHECK(client->execute(read).ok && integral_fake::status_reads == 0);
+    auto shown = client->read(false).power_integral;
+    CHECK(shown && shown->current && shown->rows.size() == 1 && !shown->rows[0].pmu_output && !shown->rows[0].effective);
+    // Classic: exactly one STATUS read, and the Read publishes its values.
+    client->set_live_readouts(true);
+    CHECK(client->execute(read).ok && integral_fake::status_reads == 1);
+    shown = client->read(false).power_integral;
+    CHECK(shown && shown->rows.size() == 1 && shown->rows[0].pmu_output == 298250u && shown->rows[0].effective == 350000u);
+    // A failed STATUS read is not fatal: the Read completes, both unknown again.
+    integral_fake::status_fails = true;
+    CHECK(client->execute(read).ok && integral_fake::status_reads == 2);
+    shown = client->read(false).power_integral;
+    CHECK(shown && shown->current && shown->rows.size() == 1 && !shown->rows[0].pmu_output && !shown->rows[0].effective);
+    integral_fake::status_fails = false;
+    // Apply in Classic, its history capture included: no STATUS read.
+    Command apply{}; apply.operation = Command::Operation::power_integral_apply; apply.integral_policy = 0; apply.integral_upper = true;
+    apply.integral_raw = 5000; apply.expected_request_raw = 4096;
+    const auto applied = client->execute(apply);
+    CHECK(applied.ok && integral_fake::sets == 1 && captures == 1 && integral_fake::get16(integral_fake::control, 0x14 + 14) == 5000);
+    CHECK(integral_fake::status_reads == 2);
+    client->close();
 }
 #undef TEST_NOINLINE
 }
@@ -469,6 +918,10 @@ int main() {
     CoreApi missing_step_api=clock_api; missing_step_api.clock_step=nullptr;
     auto no_step=create_core_backend_for_test(missing_step_api); CHECK(no_step->open("0000:02:00.0", error));
     clock_state=no_step->read(true); CHECK(clock_state.clock_monitor && !clock_state.clock_monitor->readings[0].bin_mhz);
+    // Classic per-domain readbacks pair against the rows the Monitor already
+    // classified (no second read); memory divisor/type come from capabilities.
+    CHECK(clock_state.clock_domain_pairs.empty() && !clock_state.memory_divisor && clock_state.memory_type == "unknown");
+    clock_domain_pairing_tests(clock_api);
     test_clock_step=1000; test_clock_measured=1; clock_step_fail=0;
     Command save{}; save.operation = Command::Operation::save_profile; save.profile_path = path;
     fan_auto = false; fan_mode = 1; mode = 0; CHECK(pb->execute(save).ok); auto saved = read_profile(path);
@@ -553,6 +1006,9 @@ int main() {
     rail_fields_fail = true; rail_view = rb->read(true); CHECK(!rail_view.rail_controls[0].state.writable && rail_view.rail_writable); rail_fields_fail = false;
     flags_fail = true; rail_command.operation = Command::Operation::stock; CHECK(rb->execute(rail_command).ok && raw_limits[1][2] == 700); flags_fail = false;
     scoped_client_tests(rail_api,directory,undo);
+    linked_rail_tests(rail_api,undo);
+    linked_rail_history_tests(rail_api,undo);
+    rail_readout_tests(rail_api);
     fan_mode = 0; fan_auto = false; fan_level = 40; fan_refuse = true; fan.value = 60; fan.operation = Command::Operation::apply;
     CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_refuse = false;
     fan_post_fail = true; CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_post_fail = false;
@@ -577,6 +1033,11 @@ int main() {
     CoreApi no_reset = pa; no_reset.reset_curve = nullptr; auto partial_curve = create_core_backend_for_test(no_reset); CHECK(partial_curve->open("0000:02:00.0", error)); auto partial_state = partial_curve->read(true); CHECK(partial_state.curve_writable && !partial_state.curve_reset_writable);
     fresh = pb->read(true); curve.operation = Command::Operation::reset_curve; curve.expected_curve = fresh.curve; curve.curve_deltas.clear(); CHECK(pb->execute(curve).ok && delta == 0 && delta2 == 0); CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
     power_and_actions_tests(pa, advanced_api, undo, power, policy_cmd);
+    watt_policy_readback_tests(pa);
+    native_power_limit_tests(pa);
+    policy_refresh_tests(pa);
+    hold_restore_tests();
+    power_integral_status_tests();
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

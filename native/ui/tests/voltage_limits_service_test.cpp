@@ -115,7 +115,10 @@ int main(){
  exchange_profiles();
  fresh();{VoltageLimitsService s(api(),reinterpret_cast<dc_gpu*>(1),device);auto data=s.read();CHECK(data.rows.size()==3&&data.rows[0].writable&&!data.rows[1].writable&&data.rows[2].writable);CHECK(data.equations_message.find("exports")!=std::string::npos);
  auto r=request(s,VoltageLimitKind::switch_delay,1,250);CHECK(s.apply(r).ok&&get(dc,24)==250&&get(dc,28)==0xC0FFEE);CHECK(s.undo().ok&&get(dc,24)==20);
- failed_gets=2;data=s.read(2);CHECK(data.rows[0].stale&&data.rows[0].writable&&data.rows[0].value==20);CHECK(!s.read(2).rows[0].stale);
+ failed_gets=2;data=s.read(2);CHECK(data.rows[0].stale&&data.rows[0].writable&&data.rows[0].value==20);
+ // registry_panel.py refresh_voltage_devices: the failed Read keeps its reason for the status line.
+ const auto equations_error=data.equations_read_error;CHECK(!data.devices_read_error.empty()&&data.devices_read_retained);
+ data=s.read(2);CHECK(!data.rows[0].stale&&data.devices_read_error.empty()&&!data.devices_read_retained&&data.equations_read_error==equations_error); // a devices Read leaves the equations family's state alone
  auto bad=request(s,VoltageLimitKind::switch_delay,12,0);const auto before=sets;CHECK(!s.apply(std::vector<VoltageLimitRequest>{r,bad}).ok&&sets==before);CHECK(!s.apply(std::vector<VoltageLimitRequest>{r,r}).ok&&sets==before);bad=r;bad.binding+="foreign";CHECK(!s.apply(bad).ok&&sets==before);
  auto doc=capture_voltage_limits_profile(s.state(),{{VoltageLimitKind::switch_delay,0,1}});doc["entries"][0]["value"]=350;auto staged=stage_voltage_limits_profile(doc,s.state());CHECK(staged.size()==1&&sets==before);CHECK(s.apply(staged).ok&&get(dc,24)==350);CHECK(s.restore_initial({VoltageLimitKind::switch_delay,0,1}).ok&&get(dc,24)==20);
  doc["entries"][0]["value"]=1.5;rejects([&]{stage_voltage_limits_profile(doc,s.state());});}
@@ -136,5 +139,12 @@ int main(){
  auto vmin=request(s,VoltageLimitKind::vmin,5,1150000);const auto count=sets;CHECK(!s.apply(vmin).ok&&sets==count);
  auto fixed=request(s,VoltageLimitKind::rel,6,1120000);fixed.lower=1120000;CHECK(s.apply(fixed).ok);CHECK(s.restore_rom(fixed.key).ok&&voltage(ec,0x408+6*0x80+4)==0);}
  fresh();{VoltageLimitsService s(api(),reinterpret_cast<dc_gpu*>(1),device);s.read(2);int history=0;bool reject=false;s.set_history_callback([&]{++history;if(reject)throw std::runtime_error("history refused");});auto same=request(s,VoltageLimitKind::switch_delay,1,20);CHECK(s.apply(same).ok&&history==0&&sets==0);auto first=request(s,VoltageLimitKind::switch_delay,1,30);CHECK(s.apply(first).ok&&history==1&&sets==1);auto next=request(s,VoltageLimitKind::switch_delay,1,35);reject=true;CHECK(!s.apply(next).ok&&history==2&&sets==1&&s.state().undo_available);CHECK(s.undo().ok&&get(dc,24)==20&&history==2);}
+ fresh();equations=true;{VoltageLimitsService s(api(true),reinterpret_cast<dc_gpu*>(1),device);const auto data=s.read();
+  // Inventory detail comes from the same evidence read, with no write: the rail's REL, ALT, OV, VMIN and
+  // effective policy, VMIN's largest input below every other reported bound, and each device's INFO type.
+  const auto find=[&](VoltageLimitKind kind,uint32_t index){return *std::find_if(data.rows.begin(),data.rows.end(),[&](const auto& r){return r.key.kind==kind&&r.key.index==index;});};
+  const auto rel=find(VoltageLimitKind::rel,6),vmin=find(VoltageLimitKind::vmin,5),delay=find(VoltageLimitKind::switch_delay,1);
+  CHECK(rel.rail_policy[0]==1100000&&rel.rail_policy[1]==1120000&&rel.rail_policy[2]==1200000&&rel.rail_policy[3]==700000&&rel.rail_policy[4]==1100000&&!rel.vmin_maximum);
+  CHECK(vmin.reported==700000&&vmin.vmin_maximum==1100000&&delay.device_type==3u&&!rel.device_type&&sets==0);}
  std::printf("Voltage limits service: %u checks\n",checks);return 0;
 }

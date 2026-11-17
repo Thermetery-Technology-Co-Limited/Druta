@@ -21,6 +21,8 @@ struct Fake {
     int fail_set_at=0,throw_set_at=0,interfere_at=0;
     bool fail_set=false,skip_set=false,foreign_after_set=false,unrelated_after_set=false,change_identity_after_set=false;
     bool require_mask=true;int bind_calls=0;
+    // STATUS GET (power_integral_runtime STATUS): the read-only diagnostics packet.
+    std::vector<uint32_t> status=std::vector<uint32_t>(397048/4);bool status_fails=false;int status_reads=0;
     Fake(){id.size=sizeof(id);id.nvapi_ok=id.nvml_ok=id.nvapi_selected=id.nvml_selected=1;
         std::snprintf(id.slot,sizeof(id.slot),"0000:7e:02.0");std::snprintf(id.uuid,sizeof(id.uuid),"GPU-alternate-policy");
         id.nvapi_handle=0x778899;id.nvapi_devid=0x11223344;id.nvapi_subsys=0x55667788;
@@ -68,6 +70,9 @@ dc_status DC_CALL rm(dc_gpu* gpu,uint32_t command,const uint32_t* params,uint32_
         f.fail_reads=f.post_failures;f.post_failures=0;
         *count=0;if(f.fail_set||f.fail_set_at==f.sets){error->kind=DC_ERR_TRANSIENT;std::snprintf(error->message,sizeof(error->message),"SET status uncertain");return DC_E_FAILED;}return DC_OK;
     }
+    if(command==0x2080A619){++f.status_reads;check(!params && has_mask && policy_mask==f.info[1] && live==0,"STATUS GET is a plain GET with the INFO mask");
+        if(f.status_fails){error->kind=DC_ERR_TRANSIENT;return DC_E_FAILED;}
+        if(capacity<f.status.size())return DC_E_BUFFER;std::copy(f.status.begin(),f.status.end(),out);*count=static_cast<uint32_t>(f.status.size());return DC_OK;}
     ++f.reads;if(f.fail_reads-->0){error->kind=DC_ERR_TRANSIENT;return DC_E_FAILED;}
     const auto& words=command==0x2080A618?f.info:f.control;
     if(command==0x2080A61A)check(has_mask && policy_mask==f.info[1],"CONTROL GET uses INFO mask");
@@ -76,6 +81,40 @@ dc_status DC_CALL rm(dc_gpu* gpu,uint32_t command,const uint32_t* params,uint32_
 }
 PowerIntegralApi api(){PowerIntegralApi a;a.lock=lock;a.unlock=unlock;a.identity=identity;a.target_bind=bind;a.probe_architecture=probe;
     a.abi=abi;a.rm=rm;a.transport_reset=reset;a.policy_mask_set=mask;return a;}
+// power_arbitration.decode stand-in: policy 0 reports an effective limit and a PMU
+// output; policy 1 is unavailable in STATUS. It checks it was handed the read's packets.
+int decodes=0;bool decode_refuses=false;
+dc_status DC_CALL decode(const dc_power_layout* layout,const dc_arbitration_words* info,const dc_arbitration_words* control,const dc_arbitration_words* status,dc_arbitration_report* out){
+    ++decodes;check(layout && layout->size==sizeof(*layout) && info->count==20512/4 && control->count==13876/4 && status->count==397048/4 && status->present==1,"decode receives the Read's INFO, CONTROL and STATUS");
+    const uint32_t size=out->size;*out={};out->size=size;out->schema=1;
+    if(decode_refuses){std::snprintf(out->reason,sizeof(out->reason),"refused");return DC_OK;}
+    out->available=1;out->has_mask=1;out->mask=3;out->policy_count=2;
+    out->policies[0].policy=0;out->policies[0].available=1;out->policies[0].effective=250000;out->policies[0].pmu.available=1;out->policies[0].pmu.output=200500;
+    out->policies[1].policy=1;out->policies[1].available=0;return DC_OK;}
+// Python PowerIntegralController._report: STATUS inside Classic's explicit Read gives each
+// row's PMU output and effective limit; a failed STATUS read is not fatal. Every other
+// read (Focused, history and profile captures, profile application) sends what it did.
+void status_readback(){
+    auto a=api();a.decode=decode;
+    Fake f;PowerIntegralService s(a,f.gpu(),f.id);auto d=s.read();
+    check(d.current && f.status_reads==0 && decodes==0 && !d.rows[0].effective && !d.rows[0].pmu_output,"the plain read makes no STATUS GET, so its values stay unknown");
+    const auto plain_reads=f.reads;d=s.read_with_status();
+    check(d.current && f.status_reads==1 && decodes==1 && f.reads==plain_reads*2,"Classic's Read adds exactly one STATUS GET to the plain read's GETs");
+    check(d.rows.size()==2 && d.rows[0].effective==250000u && d.rows[0].pmu_output==200500u,"an available STATUS row gives effective limit and PMU output");
+    check(d.rows.size()==2 && !d.rows[1].effective && !d.rows[1].pmu_output,"an unavailable STATUS row stays unknown");
+    f.status_fails=true;d=s.read_with_status();
+    check(d.current && d.message==power_integral_read_message && !d.rows[0].effective && !d.rows[0].pmu_output,"a failed STATUS read leaves the values unknown and the Read complete");
+    f.status_fails=false;decode_refuses=true;d=s.read_with_status();
+    check(d.current && !d.rows[0].effective && !d.rows[0].pmu_output,"a refused decode leaves the values unknown");
+    decode_refuses=false;const auto status_before=f.status_reads;
+    // The host's history capture reads the policies before the first SET; it must not add STATUS.
+    int captures=0;s.set_history_callback([&]{++captures;s.read();});
+    check(s.apply(0,PowerIntegralField::upper,5000,4096).ok && captures==1 && f.status_reads==status_before,"Apply, its history capture included, makes no STATUS read");
+    s.set_history_callback({});
+    Fake plain;PowerIntegralService without(api(),plain.gpu(),plain.id);const auto pd=without.read_with_status();
+    check(pd.current && plain.status_reads==0 && !pd.rows[0].effective,"without a decoder no STATUS GET is made");
+    check(f.sets==1 && plain.sets==0,"the STATUS read writes nothing");
+}
 void normal(){
     Fake f;PowerIntegralService s(api(),f.gpu(),f.id);check(f.bind_calls==0,"construction performs no privileged probe");
     auto d=s.read();check(d.current && d.rows.size()==2 && d.rows[0].available && d.rows[1].available,"alternate identity and independent mW/mA rows qualify");
@@ -94,6 +133,20 @@ void qualification(){
     Fake f;put8(f.info,0xCC+6,7);PowerIntegralService s(api(),f.gpu(),f.id);auto d=s.read();
     check(!d.rows[0].available && d.rows[1].available,"unsupported unit isolates row");check(!s.apply(0,PowerIntegralField::upper,5000).ok && f.sets==0,"unknown unit cannot write");
     check(s.apply(1,PowerIntegralField::upper,5000).ok,"unrelated qualified row stays usable");
+    // Python _report: the default sample counts are INFO's own bytes, separate from CONTROL's.
+    Fake counts;put8(counts.info,0xCC+0x22,7);put8(counts.info,0xCC+0x23,9);PowerIntegralService counted(api(),counts.gpu(),counts.id);const auto cd=counted.read();
+    check(cd.current && cd.message==power_integral_read_message && cd.rows[0].default_past_samples==7 && cd.rows[0].default_next_samples==9
+        && cd.rows[0].past_samples==4 && cd.rows[0].next_samples==5 && cd.rows[1].default_past_samples==4,"a read carries INFO's default sample counts and the read status");
+    // Python PowerIntegralPanel._failed("read"): the failed read's own text is
+    // kept apart from later messages, with the published values; a good read clears it.
+    check(cd.read_error.empty(),"a good read records no read failure");
+    std::snprintf(counts.id.uuid,sizeof(counts.id.uuid),"GPU-replaced");const auto failed=counted.read();
+    check(!failed.current && !failed.read_error.empty() && failed.read_error==failed.message && failed.target && failed.rows.size()==2,
+        "a failed read keeps its message as the read failure and the values published before it");
+    std::snprintf(counts.id.uuid,sizeof(counts.id.uuid),"GPU-alternate-policy");const auto again=counted.read();
+    check(again.current && again.read_error.empty() && again.message==power_integral_read_message,"a later good read clears the read failure");
+    Fake never;never.target.architecture=3;PowerIntegralService ns(api(),never.gpu(),never.id);const auto first=ns.read();
+    check(!first.current && first.read_error==first.message && !first.read_error.empty() && !first.target,"a first read that fails has published nothing");
     Fake mode;put8(mode.control,0x14+8,1);PowerIntegralService ms(api(),mode.gpu(),mode.id);check(!ms.read().rows[0].available,"unsupported mode refuses row");
     Fake layout;layout.layout.control_stride+=4;PowerIntegralService ls(api(),layout.gpu(),layout.id);check(!ls.read().current && layout.reads==0,"alternate unknown layout rejected before GET");
     Fake mapped;mapped.layout.has_commands=1;PowerIntegralService mapped_s(api(),mapped.gpu(),mapped.id);check(!mapped_s.read().current,"remapped commands rejected");
@@ -222,4 +275,4 @@ void history_boundary(){
     refused=service.apply(one);check(!refused.ok&&!refused.may_have_changed&&f.sets==8&&!service.has_undo(),"batch history failure precedes ownership and SET");
     int journals=0;check(service.apply(one,[&](const auto&){++journals;}).ok&&journals==1&&f.sets==9,"external profile journal retains its own capture boundary");
 }
-int main(){normal();qualification();bounds();failures_and_recovery();profiles();verification();preview_recovery_gates();batch_failure();history_boundary();std::printf("Power integral service: %d failures\n",failures);return failures?1:0;}
+int main(){normal();status_readback();qualification();bounds();failures_and_recovery();profiles();verification();preview_recovery_gates();batch_failure();history_boundary();std::printf("Power integral service: %d failures\n",failures);return failures?1:0;}

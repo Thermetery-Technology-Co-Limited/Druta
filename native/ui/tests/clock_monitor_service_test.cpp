@@ -79,6 +79,16 @@ int main(){
     r=light.feed(1950000,1949910,84);CHECK(r.state=="light");
     Feeder fallback;fallback.input.step_measured=false;for(unsigned i=0;i<10;++i)r=fallback.feed(2115000,2087000+(i%2)*8);
     CHECK(r.state=="judged"&&r.verdict.empty()&&!r.bin_mhz);
+    // Python Reading.window_util: the lowest and highest load over the judged window only,
+    // the oldest dropping out with its delta past 15 readings; none before a judgment.
+    Feeder mixed;for(unsigned i=0;i<10;++i){r=mixed.feed(2115000,2087000+(i%2)*8,i<5?91:i%2?95:99);
+        if(i<9)CHECK(!r.window_util);}
+    CHECK(r.state=="judged"&&r.window.size()==5&&r.window_util&&r.window_util->first==95&&r.window_util->second==99);
+    for(unsigned i=0;i<15;++i)r=mixed.feed(2115000,2087000+(i%2)*8,i%2?97:98);
+    CHECK(r.state=="judged"&&r.window.size()==15&&r.window_util&&r.window_util->first==97&&r.window_util->second==98);
+    mixed.input.telemetry=nullptr;++mixed.input.sample_id;mixed.input.now_seconds+=0.5;
+    data=mixed.service.update(classify,mixed.input);CHECK(data.readings[0].stale&&!data.readings[0].window_util);
+    r=mixed.feed(2115000,2087016,99,0.5);CHECK(r.state=="load start"&&!r.window_util);
     Feeder stuck;for(unsigned i=0;i<10;++i)stuck.feed(2115000,2087000+(i%2)*8);
     for(unsigned i=0;i<5;++i)r=stuck.feed(2115000,2087008);CHECK(r.state=="stuck"&&r.verdict.empty());
     // Independent missing public/utility fields do not erase the table.

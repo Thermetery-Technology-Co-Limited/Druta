@@ -90,21 +90,64 @@ std::array<RailRow, DC_RAILS_COUNT> RailControls::read() {
     }
     return last_;
 }
+std::array<RailReadout, DC_RAILS_COUNT> RailControls::readouts(bool with_limits) {
+    for (auto& r : last_readouts_) r.stale = true;
+    Lock guard(api_, gpu_);
+    if (!guard.held || !identity(api_, gpu_, target_)) return last_readouts_;
+    dc_rails_state_set states{}; bool states_ok = false;
+    if (api_.state) for (int i = 0; i < 2 && !states_ok; ++i) {
+        states = {}; states.size = sizeof(states);
+        states_ok = api_.state(gpu_, &states) == DC_OK;
+    }
+    dc_rails_limit_set set{}; bool listing = false;
+    if (with_limits && api_.limits) for (int i = 0; i < 2 && !listing; ++i) {
+        set = {}; set.size = sizeof(set);
+        listing = api_.limits(gpu_, &set) == DC_OK;
+    }
+    for (uint32_t rail = 0; rail < DC_RAILS_COUNT; ++rail) {
+        auto& out = last_readouts_[rail];
+        // A failed limits read leaves the listing and boost unknown and the
+        // readout stale; it never reports a rail as absent.
+        if (with_limits && !listing) continue;
+        if (with_limits) {
+            out.listed = (set.present & (1u << rail)) != 0;
+            out.boost_mv.reset();
+            // The core reports the state's boost, else 0.0: Python's "_boost_mv" default.
+            if (out.listed && std::isfinite(set.rails[rail].boost_mv)) out.boost_mv = set.rails[rail].boost_mv;
+        }
+        if (api_.state && !states_ok) continue; // transient: keep the last reading, marked stale
+        out.state.reset();
+        if (states_ok && (states.present & (1u << rail))) out.state = states.rails[rail];
+        out.stale = false;
+    }
+    return last_readouts_;
+}
 RailResult RailControls::apply(int rail, std::uint32_t field, std::int32_t raw_uv, bool mode, bool xoc,
                                 const std::function<void(const RailUndo&)>& before_write) {
-    return write(rail, field, raw_uv, mode, xoc, false, {}, before_write);
+    const Target t{field, raw_uv};
+    return write(rail, &t, 1, mode, xoc, false, {}, before_write);
+}
+RailResult RailControls::apply_pair(int rail, std::uint32_t field_a, std::int32_t raw_uv_a, std::uint32_t field_b, std::int32_t raw_uv_b,
+                                     bool mode, bool xoc, const std::function<void(const RailUndo&)>& before_write) {
+    if (!rail_linked_pair(field_a, field_b)) return failed("Only reliability and alt-reliability can be linked; no write issued");
+    const Target t[2]{{field_a, raw_uv_a}, {field_b, raw_uv_b}};
+    return write(rail, t, 2, mode, xoc, false, {}, before_write);
 }
 RailResult RailControls::stock(int rail, std::uint32_t field, const std::function<void(const RailUndo&)>& before_write) {
-    return write(rail, field, 0, false, false, true, {}, before_write);
+    const Target t{field, 0};
+    return write(rail, &t, 1, false, false, true, {}, before_write);
 }
 RailResult RailControls::restore(const RailUndo& undo, bool mode, bool xoc) {
-    return write(undo.rail, undo.field, undo.requested_uv, mode, xoc, false, undo.type, {});
+    const Target t[2]{{undo.field, undo.requested_uv}, {undo.partner_field.value_or(0), undo.partner_requested_uv}};
+    return write(undo.rail, t, undo.partner_field ? 2 : 1, mode, xoc, false, undo.type, {});
 }
-RailResult RailControls::write(int rail, std::uint32_t field, std::int32_t value, bool mode, bool xoc,
+RailResult RailControls::write(int rail, const Target* targets, std::size_t count, bool mode, bool xoc,
                                bool stock_action, const std::optional<std::int32_t>& expected_type,
                                const std::function<void(const RailUndo&)>& before_write) {
-    if (rail < 0 || rail >= static_cast<int>(DC_RAILS_COUNT) || field >= DC_RAILS_LIMIT_FIELDS)
+    if (rail < 0 || rail >= static_cast<int>(DC_RAILS_COUNT) || count == 0 || count > 2 ||
+        (count == 2 && targets[0].field == targets[1].field))
         return failed("Invalid rail or field");
+    for (std::size_t i = 0; i < count; ++i) if (targets[i].field >= DC_RAILS_LIMIT_FIELDS) return failed("Invalid rail or field");
     if (!stock_action && !mode) return failed("Rail limits mode is off; no write issued");
     if ((!stock_action && !api_.set_raw) || (stock_action && !api_.reset)) return failed("Rail write interface unavailable");
     Lock guard(api_, gpu_);
@@ -115,38 +158,56 @@ RailResult RailControls::write(int rail, std::uint32_t field, std::int32_t value
         return failed("Hold-headroom state unavailable; no write issued");
     if (hold.present && hold.rail == rail)
         return failed("A hold owns this rail; release it before changing its limits");
-    dc_rails_limit_row before{}; std::int32_t previous = 0;
-    if (!fields(api_, gpu_, rail) || !limits(api_, gpu_, rail, before) || !before.has_base ||
-        !std::isfinite(before.base[field]) || !to_uv(before.fields[field], previous))
+    dc_rails_limit_row before{}; std::int32_t previous[2]{}, value[2]{};
+    if (!fields(api_, gpu_, rail) || !limits(api_, gpu_, rail, before) || !before.has_base)
         return failed("Selected rail field or current-card reference unavailable");
+    for (std::size_t i = 0; i < count; ++i)
+        if (!std::isfinite(before.base[targets[i].field]) || !to_uv(before.fields[targets[i].field], previous[i]))
+            return failed("Selected rail field or current-card reference unavailable");
     if (expected_type && *expected_type != before.type) return failed("Rail type changed; Undo retained");
+    for (std::size_t i = 0; i < count; ++i) value[i] = targets[i].value;
     if (stock_action) {
         std::int32_t first[4]{};
         if (!initial_type_[rail] || *initial_type_[rail] != before.type || !initial(api_, gpu_, rail, first))
             return failed("Captured initial request or its rail identity unavailable");
-        value = first[field];
+        for (std::size_t i = 0; i < count; ++i) value[i] = first[targets[i].field];
     }
-    if (previous == value) { RailResult r; r.ok = true; r.message = "Selected request already matches"; return r; }
-    RailResult result; result.undo = RailUndo{rail, field, before.type, previous};
+    bool unchanged = true;
+    for (std::size_t i = 0; i < count; ++i) unchanged = unchanged && previous[i] == value[i];
+    if (unchanged) { RailResult r; r.ok = true; r.message = count == 2 ? "Selected requests already match" : "Selected request already matches"; return r; }
+    RailUndo undo{rail, targets[0].field, before.type, previous[0]};
+    if (count == 2) { undo.partner_field = targets[1].field; undo.partner_requested_uv = previous[1]; }
+    RailResult result; result.undo = undo;
     if (before_write) before_write(*result.undo); // a throwing capture prevents the setter
     dc_outcome outcome{}; dc_rails_setter_writes writes{}; writes.size = sizeof(writes);
     dc_status status;
     if (stock_action) {
-        dc_rails_reset_request request{}; request.size = sizeof(request); request.has_fields = 1; request.field_mask = 1u << field;
+        dc_rails_reset_request request{}; request.size = sizeof(request); request.has_fields = 1;
+        for (std::size_t i = 0; i < count; ++i) request.field_mask |= 1u << targets[i].field;
         status = api_.reset(gpu_, 1, rail, &request, &outcome, &writes);
     } else {
-        dc_rails_raw_request request{}; request.size = sizeof(request); request.count = 1;
-        request.order[0] = field; request.passed[field] = 1; request.uv[field] = value;
+        // Both fields go in one setter call, in the caller's order, as Python's
+        // set_volt_rail_limits(rail, **limits) writes one record per rail.
+        dc_rails_raw_request request{}; request.size = sizeof(request); request.count = static_cast<uint32_t>(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto f = targets[i].field;
+            request.order[i] = f; request.passed[f] = 1; request.uv[f] = value[i];
+        }
         status = api_.set_raw(gpu_, rail, &request, 1, xoc ? 1 : 0, &outcome, &writes);
     }
     result.may_have_changed = writes.calls != 0 || status != DC_OK;
     if (!result.may_have_changed) result.undo.reset();
-    dc_rails_limit_row after{}; std::int32_t actual = 0;
-    const bool verified = identity(api_, gpu_, target_) && limits(api_, gpu_, rail, after) &&
-        after.type == before.type && to_uv(after.fields[field], actual) && actual == value;
+    dc_rails_limit_row after{};
+    bool verified = identity(api_, gpu_, target_) && limits(api_, gpu_, rail, after) && after.type == before.type;
+    for (std::size_t i = 0; i < count && verified; ++i) {
+        std::int32_t actual = 0;
+        verified = to_uv(after.fields[targets[i].field], actual) && actual == value[i];
+    }
     result.ok = status == DC_OK && outcome.ok && verified;
-    result.message = outcome.message[0] ? outcome.message : result.ok ? "Selected request verified" : "Rail write failed";
-    if (!verified) result.message += "; selected request readback differs or is unavailable";
+    result.message = outcome.message[0] ? outcome.message
+        : result.ok ? (count == 2 ? "Linked requests verified" : "Selected request verified") : "Rail write failed";
+    if (!verified) result.message += count == 2 ? "; linked requests readback differs or is unavailable"
+                                                : "; selected request readback differs or is unavailable";
     return result;
 }
 }

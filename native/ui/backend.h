@@ -8,6 +8,7 @@
 #include "i2c_route_cache.h"
 #include "tuning_actions.h"
 #include "frequency_lock.h"
+#include "rail_controls.h"
 #include <array>
 #include <memory>
 #include <optional>
@@ -52,7 +53,12 @@ struct AdvancedId { AdvancedKind kind = AdvancedKind::clock_domain; uint32_t dom
 struct AdvancedControl { AdvancedId id; std::string label; ControlState state; std::string binding; };
 struct RailId { uint32_t rail = 0; uint32_t field = 0; };
 struct RailControl { RailId id; ControlState state; std::optional<double> estimated_base_mv; std::string binding; };
-struct PowerPolicy { uint32_t id = 0; std::string label; bool named_current = false; bool core_current = false; ControlState state; std::string binding; std::optional<uint32_t> channel,policy_type; std::optional<double> observed_amps; };
+// Python apply_vlim with Link ticked: the other field of the same rail, written
+// in the same setter call as Command::rail. Value is the request delta in mV.
+struct RailPartnerRequest { RailId id; double value = 0; std::string expected_binding; };
+struct PowerPolicy { uint32_t id = 0; std::string label; bool named_current = false; bool core_current = false; ControlState state; std::string binding; std::optional<uint32_t> channel,policy_type; std::optional<double> observed_amps; std::optional<double> limit_amps; /* effective policy limit (Python limit_ma) */
+    std::optional<double> observed_watts, limit_watts; /* the same reading and effective limit of a milliwatt row */
+    std::optional<double> pinned; /* this session's pin of the request (Python row["pinned"]), in the row's unit */ };
 struct Device { std::string slot, name, uuid; };
 struct I2cControlProfile {
     std::string id, label, description;
@@ -92,8 +98,23 @@ struct LiveData {
     // Explicitly captured profile catalog; ordinary polling does not recapture it.
     std::shared_ptr<const ScopedSnapshot> scoped_profiles;
     std::shared_ptr<const ClockMonitorData> clock_monitor;
+    // GPU.static mem_div / mem_type from dc_capabilities. Unset divisor means
+    // the memory technology is unknown and memory clocks stay in driver units.
+    std::optional<uint32_t> memory_divisor;
+    std::string memory_type = "unknown";
+    // clkdom_is_blackwell and clkdom_pairing (control index -> private domain),
+    // paired against the same classified rows the Monitor domain table shows.
+    bool clock_domain_requests_only = false;
+    std::vector<dc_clkdom_pair> clock_domain_pairs;
+    // tuning.headroom: this session's hold raised the voltage limits and the raise is in force.
     TuningState tuning;
     bool max_it_available = false, reset_controls_available = false, hold_available = false;
+    // dc_rails_hold_architecture (Python hold_headroom_architecture): whether this
+    // GPU generation has the rail-limit control a hold raises. Unset: not read
+    // yet or the architecture could not be read (try again); false also without
+    // the export. A later unread answer keeps the last definite one. Read on
+    // Classic polls only (set_live_readouts).
+    std::optional<bool> hold_headroom_architecture;
     std::shared_ptr<const TimingViewData> timings;
     std::optional<uint32_t> timing_top_memory_mhz;
     I2cViewData i2c;
@@ -103,11 +124,18 @@ struct LiveData {
     std::string telemetry_error;
     std::array<ControlState, static_cast<size_t>(ControlId::count)> controls{};
     std::optional<double> enforced_power_w;
+    // Python native_power_limit_for_ui (W): read on Classic polls only; unset
+    // while hidden or after a failed read, which Python shows as unavailable.
+    std::optional<double> native_power_limit_w;
     std::vector<AdvancedControl> advanced_controls;
     std::vector<PowerPolicy> power_policies;
     std::vector<RailControl> rail_controls;
     bool rail_mode_known = false, rail_mode_enabled = false;
     bool rail_writable_known = false, rail_writable = false;
+    // Python build_volt_limits_rows / refresh_rail_live display readout: the
+    // full read with the detail poll, the state alone on every other poll.
+    // Unset without a rail service; a failed read keeps the last one, stale.
+    std::optional<std::array<RailReadout, DC_RAILS_COUNT>> rail_readouts;
     std::vector<dc_vf_point> curve;
     dc_vf_layout curve_layout{};
     bool curve_writable = false;
@@ -143,7 +171,10 @@ struct Command {
         power_saving_read,power_saving_apply,power_saving_undo,power_saving_restore,power_saving_recover,power_saving_release,power_saving_save,
         clock_gating_read,clock_gating_apply,clock_gating_undo,clock_gating_restore,clock_gating_recover,clock_gating_release,clock_gating_save, save_fan_profile,
         power_weights_read,power_weights_preview,power_weights_prepare,power_weights_inspect,
-        save_full_profile,timings_forget_helper };
+        save_full_profile,timings_forget_helper,
+        // Python restore_raised_limits_now and the headroom setting turned off:
+        // take this session's hold raise off; the hold stays.
+        restore_raised_limits };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -191,6 +222,8 @@ struct Command {
     std::optional<AdvancedId> advanced;
     std::optional<uint32_t> power_policy;
     std::optional<RailId> rail;
+    // Linked apply only (Operation::apply with rail set): one setter call names both fields.
+    std::optional<RailPartnerRequest> rail_partner;
     std::optional<std::string> expected_binding;
     // Comparison-only preconditions for a multi-control transaction, never
     // state to replay. Existing individual commands leave them unset.
@@ -201,6 +234,9 @@ struct Command {
     std::vector<dc_vf_delta> curve_deltas;
     std::shared_ptr<const dc_vf_layout> expected_curve_layout;
 };
+// One step of a multi-step action (Reset controls, Max it) as the step itself
+// reported it; message already holds the same text.
+struct ActionStep { std::string name; bool ok = false; std::string message; };
 struct ActionResult {
     bool ok = false;
     bool may_have_changed = false;
@@ -208,6 +244,8 @@ struct ActionResult {
     std::optional<double> requested, readback;
     // Qualified UI effect, not proof of a UI/file commit or GPU mutation.
     std::shared_ptr<const PolicyAnnotationEffect> annotation_effect;
+    // Reset controls and Max it: each step in the order it ran.
+    std::vector<ActionStep> steps;
 };
 inline bool is_i2c_operation(Command::Operation operation) {
     return (operation >= Command::Operation::i2c_scan && operation <= Command::Operation::i2c_release)
@@ -249,6 +287,13 @@ public:
     virtual std::optional<TuningState> tuning_state() const { return {}; }
     virtual std::optional<FrequencyLockData> frequency_state() const { return {}; }
     virtual ActionResult maintain() { ActionResult r; r.ok = true; return r; }
+    // Set on the worker before each read: whether the host shows the display-only
+    // readouts (Classic). A backend skips their per-poll reads when they are hidden.
+    virtual void set_live_readouts(bool) {}
+    // Set on the worker before each read: Classic's Power policies section is open.
+    // With live readouts shown, a read then re-reads the policy table at most once a
+    // second (Python refresh_power_policies, POLICY_REFRESH_S). Read-only.
+    virtual void set_policy_readouts(bool) {}
     virtual LiveData read(bool details) = 0;
     virtual ActionResult execute(const Command& command) = 0;
 };

@@ -15,7 +15,7 @@ validated the combined changes. It is not full Python frontend parity.
   show units, and the integrated V/F editor remains below the knob region.
 - Separate Segoe body/semibold headings and Consolas readings/log restore the
   typography, with fallback fonts. Control/Advanced/Monitor/Timings use actual
-  tabs. The read-only log supports selection and Copy log.
+  tabs. The read-only log supports selection; in Classic, Copy log is in the log's right-click menu.
 - Both presentations expose seven telemetry tiles, throttle/performance reason
   statuses, power and utilization, PCIe counters, state and fans. Focused hides
   secondary detail by default; Classic expands it. History remains optional.

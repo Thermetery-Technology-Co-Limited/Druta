@@ -31,8 +31,10 @@ struct Fake : IBackend {
     std::atomic<bool> empty_enumeration{false}, replacement_uuid{false};
     std::string opened_slot;
     std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
-    std::atomic<int> fan_mode{0};
+    std::atomic<int> fan_mode{0}, readout_hint{-1}, hinted_reads{0}, policy_hint{-1};
     bool xoc = false, rails = false;
+    void set_live_readouts(bool shown) override { readout_hint = shown ? 1 : 0; ++hinted_reads; }
+    void set_policy_readouts(bool open) override { policy_hint = open ? 1 : 0; }
     Fake() { InitializeCriticalSection(&lock); }
     ~Fake() override { CloseHandle(entered); CloseHandle(release); CloseHandle(maintenance_entered); CloseHandle(maintenance_release); DeleteCriticalSection(&lock); }
     void record(const std::string& s) { EnterCriticalSection(&lock); calls.push_back(s); LeaveCriticalSection(&lock); }
@@ -126,8 +128,11 @@ struct Fake : IBackend {
         if (cmd.operation == Command::Operation::set_xoc) xoc = cmd.enabled;
         if (cmd.operation == Command::Operation::set_rail_mode) rails = cmd.enabled;
         if (throw_after_action.load()) throw_reads = true;
-        ActionResult r; r.ok = !fail_gate.load(); r.message = "done"; return r;
+        ActionResult r; r.ok = !fail_gate.load(); r.message = "done";
+        r.requested = result_requested; r.readback = result_readback; r.may_have_changed = result_changed; return r;
     }
+    // Set before a submit; the session's lock orders it before the worker reads it.
+    std::optional<double> result_requested, result_readback; bool result_changed = false;
 };
 static bool until(const std::function<bool()>& condition) {
     for (int i = 0; i < 500; ++i) { if (condition()) return true; Sleep(5); }
@@ -154,8 +159,71 @@ static void disconnected_integral_policy_recovery() {
     CHECK(!session.submit(cmd,generation));SetEvent(fake->release);CHECK(until([&]{return !session.snapshot()->busy;}));
     session.begin_shutdown();CHECK(until([&]{return session.finished();}));CHECK(!session.submit(cmd,generation));
 }
+// A UI note is a log line only; the readout hint reaches the backend before every read.
+static void notes_and_readout_hint() {
+    auto owner=std::make_unique<Fake>();auto* fake=owner.get();Session session(std::move(owner),[]{});
+    session.note(true,"before start");CHECK(session.snapshot()->log.empty()); // no session yet
+    session.start("a");CHECK(until([&]{auto s=session.snapshot();return !s->opening&&s->data.connected;}));
+    CHECK(fake->readout_hint==0 && fake->hinted_reads==fake->total_reads); // Focused by default
+    const auto before=session.snapshot()->completed_actions;CHECK(session.submit({},session.snapshot()->generation));
+    CHECK(until([&]{auto s=session.snapshot();return !s->busy&&s->completed_actions>before;}));
+    const auto acted=session.snapshot();const auto action_id=acted->last_action_log_id;
+    EnterCriticalSection(&fake->lock);const auto executes=std::count(fake->calls.begin(),fake->calls.end(),"execute");LeaveCriticalSection(&fake->lock);
+    CHECK(action_id!=0);
+    session.note(true,"rail ceilings linked: limits move together");
+    auto noted=session.snapshot();
+    CHECK(noted->log.back().message=="rail ceilings linked: limits move together" && noted->log.back().ok && noted->log.back().id>action_id);
+    CHECK(noted->last_action_log_id==action_id && noted->last_action_operation==acted->last_action_operation && noted->last_action_ok==acted->last_action_ok);
+    CHECK(!noted->busy && noted->completed_actions==acted->completed_actions && noted->revision>acted->revision);
+    session.note(false,"rail ceilings unlinked");CHECK(!session.snapshot()->log.back().ok);
+    Sleep(40);EnterCriticalSection(&fake->lock);const auto executes_after=std::count(fake->calls.begin(),fake->calls.end(),"execute");LeaveCriticalSection(&fake->lock);
+    CHECK(executes_after==executes); // no backend command
+    session.set_live_readouts(true);const auto reads=session.snapshot()->completed_reads;session.request_poll();
+    CHECK(until([&]{return session.snapshot()->completed_reads>reads;}));CHECK(fake->readout_hint==1);
+    session.set_live_readouts(false);const auto hidden=session.snapshot()->completed_reads;session.request_poll(true);
+    CHECK(until([&]{return session.snapshot()->completed_reads>hidden;}));CHECK(fake->readout_hint==0);
+    // Classic's open Power policies section reaches the backend before the next read.
+    CHECK(fake->policy_hint==0);
+    session.set_policy_readouts(true);const auto open=session.snapshot()->completed_reads;session.request_poll();
+    CHECK(until([&]{return session.snapshot()->completed_reads>open;}));CHECK(fake->policy_hint==1);
+    session.set_policy_readouts(false);const auto closed=session.snapshot()->completed_reads;session.request_poll();
+    CHECK(until([&]{return session.snapshot()->completed_reads>closed;}));CHECK(fake->policy_hint==0);
+    session.begin_shutdown();CHECK(until([&]{return session.finished();}));
+    const auto entries=session.snapshot()->log.size();session.note(true,"after shutdown");CHECK(session.snapshot()->log.size()==entries);
+}
+// An action's log entry names its operation and whether the host submitted it on
+// its own; the snapshot carries the result's request, readback and dispatch, and
+// a GPU switch clears them. A UI note names no operation.
+static void action_entries_name_their_result() {
+    auto owner=std::make_unique<Fake>();auto* fake=owner.get();Session session(std::move(owner),[]{});
+    session.start("a");CHECK(until([&]{auto s=session.snapshot();return !s->opening&&s->data.connected;}));
+    const auto run=[&](const Command& cmd,bool automatic){
+        const auto before=session.snapshot()->completed_actions;CHECK(session.submit(cmd,session.snapshot()->generation,automatic));
+        CHECK(until([&]{auto s=session.snapshot();return !s->busy&&s->completed_actions>before;}));return session.snapshot();
+    };
+    Command power;power.operation=Command::Operation::apply;power.control=ControlId::power;power.value=950;
+    fake->result_requested=950;fake->result_readback=850;fake->result_changed=true;
+    auto s=run(power,false);
+    const auto entry=std::find_if(s->log.begin(),s->log.end(),[&](const LogEntry& e){return e.id==s->last_action_log_id;});
+    CHECK(entry!=s->log.end()&&entry->operation==Command::Operation::apply&&!entry->automatic);
+    CHECK(s->last_action_requested==950.0&&s->last_action_readback==850.0&&s->last_action_may_have_changed);
+    fake->result_requested.reset();fake->result_readback.reset();fake->result_changed=false;
+    Command select;select.operation=Command::Operation::timings_select_helper;
+    s=run(select,true);
+    CHECK(s->log.back().id==s->last_action_log_id&&s->log.back().operation==Command::Operation::timings_select_helper&&s->log.back().automatic);
+    CHECK(!s->last_action_requested&&!s->last_action_readback&&!s->last_action_may_have_changed);
+    session.note(true,"fixture UI line");s=session.snapshot();
+    CHECK(s->log.back().message=="fixture UI line"&&!s->log.back().operation&&!s->log.back().automatic);
+    fake->result_requested=950;fake->result_readback=950;fake->result_changed=true;run(power,false);
+    CHECK(session.select_device("b"));
+    CHECK(until([&]{auto now=session.snapshot();return !now->opening&&now->data.connected;}));
+    s=session.snapshot();CHECK(!s->last_action_requested&&!s->last_action_readback&&!s->last_action_may_have_changed);
+    session.begin_shutdown();CHECK(until([&]{return session.finished();}));
+}
 int main() {
     disconnected_integral_policy_recovery();
+    notes_and_readout_hint();
+    action_entries_name_their_result();
     // Startup UUID binding checks enumeration before open and every fresh read.
     for (const auto& request : {std::pair<std::string,std::string>{"a","2"}, {"", "1"}, {"missing", "1"}}) {
         auto absent=std::make_unique<Fake>(); auto* fake=absent.get();

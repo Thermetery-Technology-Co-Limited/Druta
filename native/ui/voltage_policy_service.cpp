@@ -125,6 +125,7 @@ struct VoltagePolicyService::Impl {
     }
     void publish(const Sample& sample,uint32_t mask){
         data.target=binding;
+        if(mask&voltage_admission)data.gate_read_error.clear();if(mask&voltage_vf_policies)data.vf_read_error.clear();
         for(size_t i=0;i<3;++i)if(mask&(1u<<i)){auto& row=data.rows[i];row.current=(sample.values&(1u<<i))!=0;
             if(!row.initial)row.initial=row.current;row.availability=VoltagePolicyAvailability::available;row.writable=true;row.message.clear();}
     }
@@ -216,12 +217,14 @@ VoltagePolicyService::~VoltagePolicyService()=default;
 const VoltagePolicyData& VoltagePolicyService::state()const{return impl_->data;}
 const VoltagePolicyData& VoltagePolicyService::read(uint32_t selection){auto& p=*impl_;Guard guard(p.api,p.gpu);
     if(!selection||(selection&~voltage_all_policies)){p.data.message="Select understood voltage policies to read";p.flags();return p.data;}
-    if(!guard.held){p.data.message="GPU lock unavailable";p.unavailable(selection,VoltagePolicyAvailability::transient,p.data.message);p.flags();return p.data;}
-    for(uint32_t mask:{1u,6u})if(selection&mask){try{p.publish(p.fresh(mask),mask);}catch(const Failure& error){p.unavailable(mask,error.availability,error.what());}
-        catch(const std::exception& error){p.unavailable(mask,VoltagePolicyAvailability::transient,error.what());}}
+    const auto read_failed=[&](uint32_t mask,const std::string& message){
+        if(mask&voltage_admission)p.data.gate_read_error=message;if(mask&voltage_vf_policies)p.data.vf_read_error=message;};
+    if(!guard.held){p.data.message="GPU lock unavailable";p.unavailable(selection,VoltagePolicyAvailability::transient,p.data.message);read_failed(selection,p.data.message);p.flags();return p.data;}
+    for(uint32_t mask:{1u,6u})if(selection&mask){try{p.publish(p.fresh(mask),mask);}catch(const Failure& error){p.unavailable(mask,error.availability,error.what());read_failed(mask,error.what());}
+        catch(const std::exception& error){p.unavailable(mask,VoltagePolicyAvailability::transient,error.what());read_failed(mask,error.what());}}
     unsigned available=0,total=0;for(size_t i=0;i<3;++i)if(selection&(1u<<i)){++total;if(p.data.rows[i].availability==VoltagePolicyAvailability::available)++available;}
     p.data.message="Voltage policies read: "+std::to_string(available)+" / "+std::to_string(total)+" selected flags available";
-    p.flags();return p.data;
+    p.data.read_message=p.data.message;p.flags();return p.data;
 }
 void VoltagePolicyService::set_history_callback(std::function<void()> callback){impl_->history_callback=std::move(callback);}
 VoltagePolicyResult VoltagePolicyService::apply(const VoltagePolicyRequest& request){return impl_->set(request,{},true);}

@@ -15,7 +15,16 @@ struct HistorySample {
     double time = 0;
     std::optional<double> core_mhz, temp_c, power_w;
 };
-struct LogEntry { std::uint64_t id = 0; std::string message; bool ok = false; };
+struct LogEntry {
+    std::uint64_t id = 0; std::string message; bool ok = false;
+    // A command's result entry names the operation it answers, and whether the
+    // host submitted that command on its own (Session::submit's automatic)
+    // rather than for a user action. Other lines leave both unset.
+    std::optional<Command::Operation> operation;
+    bool automatic = false;
+    // The result's own steps (Reset controls, Max it) for the current GPU.
+    std::vector<ActionStep> steps;
+};
 struct PolicyAnnotationCompletion {
     std::uint64_t generation = 0, event_id = 0, action_log_id = 0;
     Command::Operation operation{};
@@ -27,6 +36,10 @@ struct SessionSnapshot {
     std::uint64_t last_action_log_id = 0; // exact result entry for last_action_operation
     std::optional<Command::Operation> last_action_operation;
     bool last_action_ok = false;
+    // That action's own result (ActionResult): the value it asked for, what it
+    // read back, and whether it may have reached the hardware.
+    std::optional<double> last_action_requested, last_action_readback;
+    bool last_action_may_have_changed = false;
     std::vector<Device> devices;
     std::string selected_slot, status;
     LiveData data;
@@ -61,8 +74,19 @@ public:
     // Retry the current slot while retaining any startup UUID constraint.
     bool reconnect();
     void request_poll(bool details = false);
+    // Whether the host shows the display-only readouts (the Classic presentation);
+    // the next read passes it to the backend, which skips them when hidden.
+    void set_live_readouts(bool shown);
+    // Whether Classic's Power policies section is open; the next read passes it
+    // to the backend (IBackend::set_policy_readouts). Read-only.
+    void set_policy_readouts(bool open);
+    // A log line from the UI itself: no backend command, and busy, the command
+    // queue and last_action_* are untouched.
+    void note(bool ok, const std::string& message);
     void set_paused(bool paused);
-    bool submit(Command command, std::uint64_t expected_generation);
+    // automatic: the host submits this command on its own, not for a user
+    // action; the result's LogEntry carries the mark. Nothing else changes.
+    bool submit(Command command, std::uint64_t expected_generation, bool automatic = false);
     static constexpr std::size_t annotation_completion_capacity = 32;
     // Duplicate acknowledgments succeed only for an actually issued ID in this generation.
     bool acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id);

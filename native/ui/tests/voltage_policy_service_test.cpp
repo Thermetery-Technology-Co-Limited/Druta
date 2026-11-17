@@ -47,6 +47,9 @@ int main(){
  transient_get=2;data=s.read(1);CHECK(data.rows[0].current==false&&data.rows[0].writable&&data.rows[0].availability==VoltagePolicyAvailability::transient);
  CHECK(s.read(1).rows[0].availability==VoltagePolicyAvailability::available);
  unsupported_gate=true;data=s.read();CHECK(data.rows[0].availability==VoltagePolicyAvailability::unsupported&&data.rows[1].availability==VoltagePolicyAvailability::available);
+ // registry_panel.py refresh_voltage_gate / refresh_clock_vf_live: each Read's failure is kept apart.
+ CHECK(!data.gate_read_error.empty()&&data.vf_read_error.empty()&&data.read_message==data.message);
+ unsupported_gate=false;data=s.read();CHECK(data.gate_read_error.empty()&&data.vf_read_error.empty());
  }
  fresh();{gate=true;VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);s.read();race=true;auto r=s.apply({1,0,1});CHECK(!r.ok&&r.rollback_verified&&!gate&&writes==1);CHECK(s.state().rows[0].current==false);}
  fresh();{gate=true;VoltagePolicyService s(api(),reinterpret_cast<dc_gpu*>(1),dev);s.read();race=malformed_set=true;auto r=s.apply({1,0,1});CHECK(!r.ok&&!r.rollback_verified&&s.state().recovery_pending&&writes==1&&!gate);CHECK(!s.recover().ok&&writes==1);CHECK(s.state().recovery_prior_unknown&&!s.state().undo_available);CHECK(s.restore_initial(1).ok&&writes==2&&gate&&!s.state().recovery_pending);}

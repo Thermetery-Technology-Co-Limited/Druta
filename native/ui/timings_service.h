@@ -17,7 +17,10 @@ struct TimingsApi {
     decltype(&dc_gpu_unlock) unlock = nullptr;
 };
 struct TimingWord { std::string name, confidence; uint32_t offset = 0, value = 0; };
-struct TimingField { std::string name, reg, description; uint32_t lo=0, hi=0, maximum=0; bool structural=false, inferred=false, overlapping=false; };
+struct TimingField { std::string name, reg, description; uint32_t lo=0, hi=0, maximum=0; bool structural=false, inferred=false, overlapping=false;
+    // Released 1.9.1 FieldTable.note_text(register): the helper's notes on this
+    // field's register ('INFERRED: ...'), joined by two spaces; display only.
+    std::string note; };
 struct TimingPartition { std::string scope; std::vector<TimingWord> words; };
 struct TimingUnitEvidence { std::string field, reg, codename; uint32_t lo=0, hi=0; bool cycles=false, nanoseconds=false; std::string provenance; };
 struct TimingDiagnosticEvidence {
@@ -36,7 +39,18 @@ struct TimingSnapshot {
     std::vector<TimingField> fields;
     std::vector<std::pair<std::string,std::string>> aliases; // helper spelling -> canonical field
     TimingDiagnosticEvidence diagnostic_evidence;
+    // Display-only identity from the helper's save JSON (empty when absent or
+    // unreadable), and the adapter's own memory type and enumerated clocks.
+    std::string pci_id, aperture, boot0, memory_type;
+    // The save JSON's broadcast words, display-only; kept only when every
+    // dump word it shares agrees. Never used for planning or writes.
+    std::vector<TimingWord> saved_broadcast;
+    std::vector<uint32_t> memory_states; // ascending, unique, reported MHz
+    std::optional<int64_t> captured_unix; // wall time the capture started
 };
+// Released 1.9.1 known_timing_layout: nvtune identified a chip rather than a
+// generic layout.
+bool timing_layout_known(const std::string& codename);
 struct TimingRequest { std::string field; uint32_t value=0; };
 struct TimingPlan {
     bool ok=false, no_change=false;

@@ -17,6 +17,25 @@ void normal(){Fake x;VoltageTablesService service(api(),x.gpu(),x.id);check(x.re
     check(service.restore_initial({VoltageTableFamily::requests,1,5}).ok&&x.value(1,5)==2555,"captured initial is an explicit selected value operation");
     check(x.depth==0,"GPU lock released after all operations");
 }
+// Python voltage_requests_panel._show / refresh: the inventory's reported policy per present
+// rail, the missing active rails and the gate's own failure come from the same read; a
+// failed Read keeps its reason, and whether the previous display was retained.
+void inventory_detail(){Fake x;VoltageTablesService s(api(),x.gpu(),x.id);const auto& d=s.read(1);
+    check(d.request_policy_uv[0]&&*d.request_policy_uv[0]==std::array<int64_t,5>{1100000,1000000,1200000,600000,1050000}&&d.request_policy_uv[1]
+        &&d.missing_rails.empty()&&d.gate_error.empty()&&d.requests_read_error.empty(),"a complete read carries each rail's reported policy, REL to effective");
+    x.public_present=1;s.read(1);
+    check(s.state().missing_rails==std::vector<uint32_t>{1}&&s.state().request_policy_uv[0]&&!s.state().request_policy_uv[1],"an active rail the read could not pair is named and has no reported policy");
+    x.public_present=3;x.gate_rejected=true;s.read(1);
+    check(!s.state().gate_enabled&&!s.state().gate_error.empty()&&s.state().requests_read_error.empty(),"an unread gate keeps its own failure apart from a good requests read");
+    x.gate_rejected=false;x.fail_reads=100;s.read(1);
+    check(!s.state().requests_read_error.empty()&&s.state().requests_read_retained&&s.state().rows[0].stale,"a failed transient Read records its reason and the retained display");
+    x.fail_reads=0;s.read(1);check(s.state().requests_read_error.empty()&&!s.state().requests_read_retained,"a good read clears the read failure");
+    Fake never;never.fail_reads=100;VoltageTablesService n(api(),never.gpu(),never.id);n.read(1);
+    check(!n.state().requests_read_error.empty()&&!n.state().requests_read_retained,"a first Read that fails retained nothing");
+    s.read(2);check(!s.state().offsets_read_error.empty()&&s.state().offsets_read_error==s.state().offsets_message&&s.state().requests_read_error.empty(),
+        "a failed offsets Read keeps its own reason, apart from the requests family");
+    check(x.sets==0&&never.sets==0,"the inventory detail writes nothing");
+}
 void qualification(){Fake x;x.info[12+0x33]=5;x.info[12+76+0x33]=8;VoltageTablesService service(api(),x.gpu(),x.id);
     check(service.read(1).requests_complete,"alternate independently paired rail identities qualify");
     x.admission=false;service.read(1);const int sets=x.sets;auto r=service.apply(request(service,0,0,2000));
@@ -179,4 +198,4 @@ void catalog_restore_whole_preflight(){Fake x;VoltageTablesService s(api(),x.gpu
 void history_boundary(){Fake x;VoltageTablesService s(api(),x.gpu(),x.id);s.read(1);int calls=0;bool fail_history=false;s.set_history_callback([&]{++calls;if(fail_history)throw std::runtime_error("history refused");});
  auto same=request(s,0,0,1000);check(s.apply(same).ok&&calls==0&&x.sets==0,"No-op table request skips history and SET");x.admission=false;auto desired=request(s,0,0,1100);check(!s.apply(desired).ok&&calls==0&&x.sets==0,"Closed admission skips history");x.admission=true;check(s.apply(desired).ok&&calls==1&&x.sets==1,"Changed request captures once before SET");auto second=request(s,0,0,1200);fail_history=true;check(!s.apply(second).ok&&calls==2&&x.sets==1&&s.state().undo_available,"History failure blocks SET and preserves Undo");check(s.undo().ok&&x.value(0,0)==1000&&calls==2,"Undo bypasses history callback");}
 }
-int main(){history_boundary();normal();qualification();recovery();profiles();exchange_profiles();nvapi_only();catalog_transactions();catalog_qualification();catalog_partial();catalog_chain_and_exceptions();catalog_publication();catalog_restore_whole_preflight();std::printf("Voltage tables service: %d failures\n",failures);return failures?1:0;}
+int main(){history_boundary();normal();inventory_detail();qualification();recovery();profiles();exchange_profiles();nvapi_only();catalog_transactions();catalog_qualification();catalog_partial();catalog_chain_and_exceptions();catalog_publication();catalog_restore_whole_preflight();std::printf("Voltage tables service: %d failures\n",failures);return failures?1:0;}

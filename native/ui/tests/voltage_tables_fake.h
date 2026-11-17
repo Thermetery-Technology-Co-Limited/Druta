@@ -15,6 +15,7 @@ struct Fake {
     std::vector<uint8_t> info=std::vector<uint8_t>(0x98C),native=std::vector<uint8_t>(0x40C);
     std::array<std::vector<uint8_t>,2> public_rows;
     bool admission=true,exports=true,set_error=false,foreign_after_set=false,identity_after_set=false,unknown_after_set=false,mutate_input=false;
+    bool gate_rejected=false; // the admission gate GET is refused (RM 0x1F)
     int sets=0,reads=0,depth=0,fail_reads=0,post_set_failures=0,refreshes=0;
     Fake(){id.size=sizeof(id);std::snprintf(id.slot,sizeof(id.slot),"0000:af:02.0");std::snprintf(id.uuid,sizeof(id.uuid),"GPU-voltage-tables-alternate");
         id.nvapi_ok=id.nvapi_selected=1;id.nvapi_handle=0x556677;id.nvapi_devid=0x789A;id.nvapi_subsys=0xBADCABCD;
@@ -40,7 +41,7 @@ inline dc_status DC_CALL transport(dc_gpu*,dc_rm_transport* out,dc_error*){out->
 inline dc_status DC_CALL escape(dc_gpu* gpu,uint8_t* bytes,size_t,const dc_escape_fields*,int32_t* nt,dc_error*){
     auto& x=f(gpu);auto* packet=reinterpret_cast<uint32_t*>(bytes);++x.reads;*nt=0;
     if(x.fail_reads-->0){*nt=-1;return DC_OK;}packet[5]=packet[11]=1;
-    if(packet[14]==0x2080A030){packet[17]=x.admission?1u:0u;return DC_OK;}
+    if(packet[14]==0x2080A030){if(x.gate_rejected){packet[16]=0x1F;return DC_OK;}packet[17]=x.admission?1u:0u;return DC_OK;}
     if(packet[14]==0x2080B201){auto info=x.info;put(info,4,x.active);std::memcpy(packet+17,info.data(),info.size());return DC_OK;}
     if(packet[14]==0x2080B213){const auto mask=packet[18];auto native=x.native;put(native,4,mask);std::memcpy(packet+17,native.data(),native.size());return DC_OK;}
     packet[16]=0x1F;return DC_OK;
