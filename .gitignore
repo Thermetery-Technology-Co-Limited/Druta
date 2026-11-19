@@ -29,6 +29,10 @@ profiles/autosave-*.json
 # this tool. Keep them out of the repo entirely rather than relying on
 # remembering not to `git add` them.
 docs/
+!native/ui/vendor/freetype/docs/
+native/ui/vendor/freetype/docs/*
+!native/ui/vendor/freetype/docs/FTL.TXT
+!native/ui/vendor/freetype/docs/GPLv2.TXT
 findings-for-*.md
 
 # Private kernel driver. Read-only BAR0 access, built locally for hardware

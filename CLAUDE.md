@@ -25,6 +25,11 @@ through registry/VBIOS configuration. These overrides require a GPU driver
 refresh to load and persist until removed or changed. Ordinary tuning controls
 remain session-only.
 
+## Hardware memory-timing tests
+
+Run hardware memory-timing tests only at verified P0. Check the selected card's
+P-state and memory clock immediately before and after each timing sample.
+
 ## Driver versions
 
 - Never add a driver whitelist, allowlist or denylist, and never make a

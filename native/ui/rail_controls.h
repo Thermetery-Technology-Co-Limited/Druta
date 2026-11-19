@@ -63,12 +63,16 @@ struct RailResult {
 class RailControls {
 public:
     RailControls(RailApi api, dc_gpu* handle, const dc_gpu_identity& target);
-    std::array<RailRow, DC_RAILS_COUNT> read();
+    // When requested, return the effective NVVDD cap from this limits read.
+    std::array<RailRow, DC_RAILS_COUNT> read(std::optional<double>* nvvdd_effective_mv = nullptr);
     // Display readout. with_limits: also re-read which rails the limits read
     // lists and their boost (Python build_volt_limits_rows); without it only the
     // state getter runs (Python refresh_rail_live, every tick) and the listing
     // and boost from the last full readout are kept.
-    std::array<RailReadout, DC_RAILS_COUNT> readouts(bool with_limits = true);
+    // The optional cap comes from the current state read even if the separate
+    // edit-limit listing is unavailable.
+    std::array<RailReadout, DC_RAILS_COUNT> readouts(bool with_limits = true,
+        std::optional<double>* nvvdd_effective_mv = nullptr);
     RailResult apply(int rail, std::uint32_t field, std::int32_t raw_uv, bool rail_mode, bool xoc,
                      const std::function<void(const RailUndo&)>& before_write = {});
     // Python set_volt_rail_limits(rail, a=..., b=...): both fields in one setter

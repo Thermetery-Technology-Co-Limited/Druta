@@ -27,21 +27,157 @@ bool target_same(const PowerWeightReceipt& r,const PowerWeightCapture& c){return
 PowerWeightReceipt active(const std::string& id){const auto dir=power_weight_receipt_directory();if(dir.empty())throw std::runtime_error("Weight receipt directory unavailable");auto r=read_weight_receipt(dir,id);auto found=discover_weight_receipt(dir,r.identity.slot,r.uuid);if(!found||found->id!=id)throw std::runtime_error("Weight receipt is not active");return r;}
 std::wstring result_path(const std::string& id){const auto directory=full(power_weight_receipt_directory());if(directory.empty())throw std::runtime_error("Weight receipt directory unavailable");for(unsigned i=0;i<128;++i){auto path=directory+L"\\verify-"+wide(id)+L"-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64())+L"-"+std::to_wstring(i)+L".json";HANDLE h=CreateFileW(path.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);if(h!=INVALID_HANDLE_VALUE){CloseHandle(h);return path;}if(GetLastError()!=ERROR_FILE_EXISTS)break;}throw std::runtime_error("Cannot reserve verification result");}
 bool valid_result(const std::wstring& path,const std::string& id){const auto root=full(power_weight_receipt_directory()),p=full(path);if(root.empty()||p.empty())return false;const auto at=p.find_last_of(L"\\/");return at!=std::wstring::npos&&_wcsicmp(root.c_str(),p.substr(0,at).c_str())==0&&p.substr(at+1).rfind(L"verify-"+wide(id)+L"-",0)==0&&p.size()>5&&_wcsicmp(p.c_str()+p.size()-5,L".json")==0;}
-PowerWeightBoundaryResult verify_child(const std::wstring& exe,const std::wstring& core,const PowerWeightReceipt& receipt,bool original){PowerWeightBoundaryResult result;std::wstring path;try{path=result_path(receipt.id);PROCESS_INFORMATION pi{};const auto cmd=quote(exe)+L" --weight-verify-child "+wide(receipt.id)+(original?L" original ":L" expected ")+quote(path)+L" "+quote(core);if(!spawn(exe,cmd,pi))throw std::runtime_error("Cannot launch fresh verification process");CloseHandle(pi.hThread);const auto status=WaitForSingleObject(pi.hProcess,30000);if(status==WAIT_TIMEOUT){TerminateProcess(pi.hProcess,1);const auto stopped=WaitForSingleObject(pi.hProcess,5000);CloseHandle(pi.hProcess);result=power_weight_child_timeout(stopped==WAIT_OBJECT_0);throw std::runtime_error("Fresh verification timed out");}DWORD exit_code=1;const bool exited=status==WAIT_OBJECT_0&&GetExitCodeProcess(pi.hProcess,&exit_code);CloseHandle(pi.hProcess);if(!exited||exit_code)throw std::runtime_error("Fresh verification process failed");const auto doc=read_profile(path,65536);if(!doc.is_object()||doc.value("format",std::string())!="druta-weight-verify"||doc.value("id",std::string())!=receipt.id||!doc.contains("original")||!doc["original"].is_boolean()||doc["original"].get<bool>()!=original||!doc.contains("ok")||!doc["ok"].is_boolean()||!doc.contains("message")||!doc["message"].is_string())throw std::runtime_error("Fresh verification result malformed");result.ok=doc["ok"].get<bool>();result.message=doc["message"].get<std::string>();}catch(const std::exception& e){result.message=e.what();}if(!path.empty())DeleteFileW(path.c_str());return result;}
-int verify_main(const std::string& id,bool original,const std::wstring& result,const std::wstring& core){if(!valid_result(result,id)||full(core).empty())return 1;try{const auto receipt=active(id);const auto capture=capture_power_weights_from_core(full(core),receipt.identity.slot,receipt.uuid,true);if(!target_same(receipt,capture))throw std::runtime_error("Fresh verification adapter mismatch");if(!capture.windows||capture.windows->slot!=receipt.windows.slot||capture.windows->instance_id!=receipt.windows.instance_id||capture.windows->driver_key!=receipt.windows.driver_key||capture.registry_availability!=VoltagePolicyAvailability::available||!capture.registry||!power_weight_verify_registry(receipt,*capture.registry,original))throw std::runtime_error("Fresh verification Windows target or registry differs");const auto plan=derive_weight_receipt(receipt).plan;const auto checked=verify_power_relationship_weights(plan,capture.identity,capture.layout,capture.info,&capture.image,original);ProfileJson doc={{"format","druta-weight-verify"},{"id",id},{"original",original},{"ok",checked.ok},{"message",checked.message}};write_profile(result,doc);return 0;}catch(const std::exception& error){try{ProfileJson doc={{"format","druta-weight-verify"},{"id",id},{"original",original},{"ok",false},{"message",error.what()}};write_profile(result,doc);return 0;}catch(...){return 1;}}}
+PowerWeightBoundaryResult verify_child(const std::wstring& exe,const std::wstring& core,const PowerWeightReceipt& receipt,bool original,bool staged=false){PowerWeightBoundaryResult result;std::wstring path;try{path=result_path(receipt.id);PROCESS_INFORMATION pi{};const auto cmd=quote(exe)+L" --weight-verify-child "+wide(receipt.id)+(original?L" original ":staged?L" staged ":L" expected ")+quote(path)+L" "+quote(core);if(!spawn(exe,cmd,pi))throw std::runtime_error("Cannot launch fresh verification process");CloseHandle(pi.hThread);const auto status=WaitForSingleObject(pi.hProcess,30000);if(status==WAIT_TIMEOUT){TerminateProcess(pi.hProcess,1);const auto stopped=WaitForSingleObject(pi.hProcess,5000);CloseHandle(pi.hProcess);result=power_weight_child_timeout(stopped==WAIT_OBJECT_0);throw std::runtime_error("Fresh verification timed out");}DWORD exit_code=1;const bool exited=status==WAIT_OBJECT_0&&GetExitCodeProcess(pi.hProcess,&exit_code);CloseHandle(pi.hProcess);if(!exited||exit_code)throw std::runtime_error("Fresh verification process failed");const auto doc=read_profile(path,65536);if(!doc.is_object()||doc.value("format",std::string())!="druta-weight-verify"||doc.value("id",std::string())!=receipt.id||!doc.contains("original")||!doc["original"].is_boolean()||doc["original"].get<bool>()!=original||doc.value("staged",false)!=staged||!doc.contains("ok")||!doc["ok"].is_boolean()||!doc.contains("message")||!doc["message"].is_string())throw std::runtime_error("Fresh verification result malformed");result.ok=doc["ok"].get<bool>();result.message=doc["message"].get<std::string>();result.retryable=staged&&doc.value("retryable",false);}catch(const std::exception& e){result.message=e.what();}if(!path.empty())DeleteFileW(path.c_str());return result;}
+int verify_main(const std::string& id,bool original,bool staged,const std::wstring& result,const std::wstring& core) {
+ if(!valid_result(result,id)||full(core).empty())return 1;
+ bool ok=false,retryable=false;std::string message;
+ try {
+  const auto receipt=active(id);
+  if(staged&&(!receipt.is_pascal_clocks()||receipt.phase!="clock_initializing"))
+   throw std::runtime_error("A staged clock proof requires the current initializing clock receipt");
+  const auto capture=capture_power_weights_from_core(full(core),receipt.identity.slot,receipt.uuid,true,receipt.is_pascal_clocks());
+  if(!target_same(receipt,capture))throw std::runtime_error("Fresh verification adapter mismatch");
+  if(!capture.windows||capture.windows->slot!=receipt.windows.slot||
+     capture.windows->instance_id!=receipt.windows.instance_id||capture.windows->driver_key!=receipt.windows.driver_key||
+     capture.registry_availability!=VoltagePolicyAvailability::available||!capture.registry||
+     !power_weight_verify_registry(receipt,*capture.registry,original,staged))
+   throw std::runtime_error("Fresh verification Windows target or registry differs");
+  const auto derived=derive_weight_receipt(receipt);
+  if(receipt.is_pascal_clocks()) {
+   ok=capture.image_availability==VoltagePolicyAvailability::available&&
+      capture.image==(original?receipt.image:derived.clock_plan.image);
+   retryable=staged&&!ok&&(capture.image_availability==VoltagePolicyAvailability::transient||
+                 (capture.image_availability==VoltagePolicyAvailability::available&&
+                  (capture.image==receipt.image||
+                   (!derived.clock_source_image.empty()&&capture.image==derived.clock_source_image))));
+   message=ok?"Complete running clock image verified":staged?"Driver has not loaded the expected staged clock image":"Complete running clock image differs";
+  } else {
+   const auto checked=verify_power_relationship_weights(derived.plan,capture.identity,capture.layout,capture.info,&capture.image,original);
+   ok=checked.ok;message=checked.message;
+  }
+ } catch(const VoltageEquationEvidenceError& error) {
+  retryable=staged&&error.kind==VoltagePolicyAvailability::transient;
+  message=error.what();
+ } catch(const std::exception& error) { message=error.what(); }
+ try {
+  write_profile(result,ProfileJson{{"format","druta-weight-verify"},{"id",id},{"original",original},
+                                   {"staged",staged},{"retryable",retryable},{"ok",ok},{"message",message}});
+  return 0;
+ } catch(...) { return 1; }
+}
 PowerWeightRegistryRecovery recover_registry(const PowerWeightReceipt& receipt){
  const auto devices=enumerate_restart_targets();const std::wstring instance(receipt.windows.instance_id.begin(),receipt.windows.instance_id.end());unsigned matches=0;for(const auto& device:devices)if(device.slot==receipt.identity.slot&&_wcsicmp(device.instance_id.c_str(),instance.c_str())==0)++matches;if(matches!=1)throw std::runtime_error("Saved PCI instance not uniquely present");
  HKEY key=nullptr;const auto path=L"SYSTEM\\CurrentControlSet\\Enum\\"+instance;if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,path.c_str(),0,KEY_READ|KEY_WOW64_64KEY,&key)!=ERROR_SUCCESS)throw std::runtime_error("Cannot inspect saved PCI instance");wchar_t value[1024]{};DWORD type=0,size=sizeof(value);const auto status=RegQueryValueExW(key,L"Driver",nullptr,&type,reinterpret_cast<BYTE*>(value),&size);RegCloseKey(key);if(status!=ERROR_SUCCESS||type!=REG_SZ||size<sizeof(wchar_t)||size>sizeof(value)||value[size/sizeof(wchar_t)-1]!=0)throw std::runtime_error("Saved PCI driver binding unavailable");const std::wstring full_key=L"SYSTEM\\CurrentControlSet\\Control\\Class\\"+std::wstring(value);const std::wstring expected(receipt.windows.driver_key.begin(),receipt.windows.driver_key.end());if(_wcsicmp(full_key.c_str(),expected.c_str()))throw std::runtime_error("Saved PCI driver binding changed");PowerWeightRegistryRecovery out;out.windows=receipt.windows;out.registry=read_power_weight_registry(out.windows);return out;
 }
-int helper(const PowerWeightHostRequest& request){bool parent_exited=false;try{if(_wcsicmp(full(request.executable).c_str(),own().c_str())!=0||full(request.core).empty()||!power_weight_host_gate(request.parent_pid,wait_parent,[&](){parent_exited=true;}))return 1;auto receipt=active(request.receipt_id);const auto dir=power_weight_receipt_directory();dc_gpu_identity opened{};try{const auto initial=capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,true);if(!target_same(receipt,initial))throw std::runtime_error("Weight helper adapter mismatch");opened=initial.adapter;}catch(const VoltageEquationEvidenceError& e){if(request.operation!=PowerWeightOperation::remove||(e.kind!=VoltagePolicyAvailability::transient&&e.kind!=VoltagePolicyAvailability::unsupported))throw;}
- PowerWeightTransactionApi api;api.capture=[&](dc_gpu*,bool registry){return capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,registry);};api.persist=[&](const auto& r,bool create){if(create){const auto existing=active(r.id);auto normalized=r;normalized.phase=existing.phase;normalized.message=existing.message;normalized.issued_names=existing.issued_names;normalized.refresh_requested=existing.refresh_requested;normalized.uncertain=existing.uncertain;if(encode_weight_receipt(normalized)!=encode_weight_receipt(existing))throw std::runtime_error("Prepared weight receipt differs");}save_weight_receipt(dir,r);};api.clear_active=[&](const auto& r){return clear_active_weight_receipt(dir,r);};api.write=[](const auto& t,const auto& before,const auto& after,const auto& journal){return write_power_weight_registry(t,before,after,journal);};api.restart=[&](const auto& t){DeviceRestartTarget wanted{t.slot,std::wstring(t.instance_id.begin(),t.instance_id.end()),L"selected GPU"};DeviceRestartApi a;a.enumerate=enumerate_restart_targets;a.started=restart_target_started;a.launch_child=[&](const auto& device,uint32_t timeout){return launch_device_restart_child(own(),device,timeout);};const auto v=restart_device(wanted,a);return power_weight_restart_result(v);};api.recovery_registry=recover_registry;api.fresh_verify=[&](const auto& r,bool original){return verify_child(own(),full(request.core),r,original);};PowerWeightTransaction transaction(api,reinterpret_cast<dc_gpu*>(1),opened);const auto result=transaction.run(request.operation,receipt,request.operation==PowerWeightOperation::verify&&receipt.restoring);
- PROCESS_INFORMATION pi{};auto cmd=quote(own())+L" --gpu "+quote(wide(receipt.identity.slot))+L" --expect-uuid "+quote(wide(receipt.uuid))+L" --core "+quote(full(request.core))+L" --page advanced --weight-result "+wide(receipt.id);if(spawn(own(),cmd,pi)){CloseHandle(pi.hThread);CloseHandle(pi.hProcess);}return result.ok?0:1;}catch(const std::exception& error){if(parent_exited)try{auto r=active(request.receipt_id);r.message=error.what();try{save_weight_receipt(power_weight_receipt_directory(),r);}catch(...){}PROCESS_INFORMATION pi{};auto cmd=quote(own())+L" --gpu "+quote(wide(r.identity.slot))+L" --expect-uuid "+quote(wide(r.uuid))+L" --core "+quote(full(request.core))+L" --page advanced --weight-result "+wide(r.id);if(spawn(own(),cmd,pi)){CloseHandle(pi.hThread);CloseHandle(pi.hProcess);}}catch(...){}return 1;}}
+struct HelperLock {
+ HANDLE handle=INVALID_HANDLE_VALUE;
+ ~HelperLock(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}
+};
+HANDLE try_operation_lock(const std::string& id) {
+ const auto path=power_weight_operation_lock_path(power_weight_receipt_directory(),id);
+ return CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL|FILE_FLAG_DELETE_ON_CLOSE,nullptr);
+}
+bool reopen_result(const std::wstring& core,const PowerWeightReceipt& r,const PowerWeightHostRequest& request) {
+ PROCESS_INFORMATION pi{};
+ const auto exe=own();
+ auto cmd=quote(exe)+L" --gpu "+quote(wide(r.identity.slot))+L" --expect-uuid "+quote(wide(r.uuid))+
+          L" --core "+quote(core)+L" --weight-result "+wide(r.id);
+ cmd += request.daily && r.is_pascal_clocks() ? L" --page daily" : L" --page advanced";
+ if (request.classic && r.is_pascal_clocks()) cmd += L" --classic";
+ if(!spawn(exe,cmd,pi))return false;
+ CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return true;
+}
+int helper(const PowerWeightHostRequest& request){bool parent_exited=false;HelperLock operation_lock;try{if(_wcsicmp(full(request.executable).c_str(),own().c_str())!=0||full(request.core).empty()||!power_weight_host_gate(request.parent_pid,wait_parent,[&](){parent_exited=true;}))return 1;const auto dir=power_weight_receipt_directory();
+ operation_lock.handle=try_operation_lock(request.receipt_id);
+ if(operation_lock.handle==INVALID_HANDLE_VALUE) {
+  // A second launcher can race the probe before either parent closes.
+  // Give that user the read-only result without touching the owner's journal.
+  parent_exited=false;
+  reopen_result(full(request.core),read_weight_receipt(dir,request.receipt_id),request);
+  return 1;
+ }
+ auto receipt=active(request.receipt_id);dc_gpu_identity opened{};try{const auto initial=capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,true,receipt.is_pascal_clocks());if(!target_same(receipt,initial))throw std::runtime_error("Weight helper adapter mismatch");opened=initial.adapter;}catch(const VoltageEquationEvidenceError& e){if(request.operation!=PowerWeightOperation::remove||(e.kind!=VoltagePolicyAvailability::transient&&e.kind!=VoltagePolicyAvailability::unsupported))throw;}
+ PowerWeightTransactionApi api;api.capture=[&](dc_gpu*,bool registry){return capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,registry,receipt.is_pascal_clocks());};api.persist=[&](const auto& r,bool create){if(create){const auto existing=active(r.id);auto normalized=r;normalized.phase=existing.phase;normalized.message=existing.message;normalized.issued_names=existing.issued_names;normalized.refresh_requested=existing.refresh_requested;normalized.uncertain=existing.uncertain;if(encode_weight_receipt(normalized)!=encode_weight_receipt(existing))throw std::runtime_error("Prepared weight receipt differs");}save_weight_receipt(dir,r);};api.clear_active=[&](const auto& r){return clear_active_weight_receipt(dir,r);};api.write=[](const auto& t,const auto& before,const auto& after,const auto& journal){return write_power_weight_registry(t,before,after,journal);};api.restart=[&](const auto& t){DeviceRestartTarget wanted{t.slot,std::wstring(t.instance_id.begin(),t.instance_id.end()),L"selected GPU"};DeviceRestartApi a;a.enumerate=enumerate_restart_targets;a.started=restart_target_started;a.launch_child=[&](const auto& device,uint32_t timeout){return receipt.is_pascal_clocks()?launch_clock_restart_child(own(),device,timeout):launch_device_restart_child(own(),device,timeout);};const auto v=restart_device(wanted,a);return power_weight_restart_result(v);};api.recovery_registry=recover_registry;api.fresh_verify=[&](const auto& r,bool original){return verify_child(own(),full(request.core),r,original);};api.fresh_verify_staged=[&](const auto& r){return verify_child(own(),full(request.core),r,false,true);};api.wait_clock_ready=[](){Sleep(400);};PowerWeightTransaction transaction(api,reinterpret_cast<dc_gpu*>(1),opened);const auto result=transaction.run(request.operation,receipt,request.operation==PowerWeightOperation::verify&&receipt.restoring);
+ reopen_result(full(request.core),receipt,request);return result.ok?0:1;
+ }catch(const std::exception& error){
+  if(parent_exited)try {
+   const auto dir=power_weight_receipt_directory();
+   auto prior=read_weight_receipt(dir,request.receipt_id);
+   auto current=discover_weight_receipt(dir,prior.identity.slot,prior.uuid);
+   if(current&&current->id==prior.id) {
+    current->message=error.what();
+    try{save_weight_receipt(dir,*current);}catch(...){}
+   }
+   // Another window may have advanced the session while this helper waited
+   // for its parent to exit. Reopen on the current record in that case.
+   reopen_result(full(request.core),current?*current:prior,request);
+  }catch(...){}
+  return 1;
+ }}
 }
 PowerWeightBoundaryResult power_weight_child_timeout(bool exit_confirmed){PowerWeightBoundaryResult out;out.timed_out=true;out.uncertain=true;out.cleanup_pending=!exit_confirmed;out.message="Fresh verification timed out";return out;}
 PowerWeightBoundaryResult power_weight_restart_result(const DeviceRestartResult& value){PowerWeightBoundaryResult out;out.ok=value.ok;out.reboot_required=value.reboot_required;out.uncertain=value.uncertain;out.message=value.message;return out;}
 bool power_weight_host_gate(uint32_t pid,const std::function<bool(uint32_t)>& wait,const std::function<void()>& admitted){if(!pid||!wait||!admitted||!wait(pid))return false;admitted();return true;}
-bool power_weight_verify_registry(const PowerWeightReceipt& receipt,const PowerWeightRegistrySnapshot& current,bool original){try{const auto after=derive_weight_receipt(receipt).after;const auto fold=[](std::wstring name){for(auto& c:name)if(c>=L'A'&&c<=L'Z')c=static_cast<wchar_t>(c+L'a'-L'A');return name;};const auto equal=[&](const PowerWeightRegistrySnapshot& a,const PowerWeightRegistrySnapshot& b){if(a.size()!=b.size())return false;for(const auto& v:a){const auto found=std::find_if(b.begin(),b.end(),[&](const auto& x){return fold(x.name)==fold(v.name);});if(found==b.end()||found->type!=v.type||found->bytes!=v.bytes)return false;}return true;};if(!original)return equal(after,current);auto issued=receipt.before;for(const auto& name:receipt.issued_names){const auto key=fold(name);const auto found=std::find_if(after.begin(),after.end(),[&](const auto& v){return fold(v.name)==key;});if(found==after.end())return false;auto old=std::find_if(issued.begin(),issued.end(),[&](const auto& v){return fold(v.name)==key;});if(old==issued.end())issued.push_back(*found);else *old=*found;}return equal(restore_power_weight_registry(receipt.before,issued,current),current);}catch(...){return false;}}
 bool power_weight_verify_result(const ProfileJson& doc,const std::string& id,bool original){return doc.is_object()&&doc.value("format",std::string())=="druta-weight-verify"&&doc.value("id",std::string())==id&&doc.contains("original")&&doc["original"].is_boolean()&&doc["original"].get<bool>()==original&&doc.contains("ok")&&doc["ok"].is_boolean()&&doc["ok"].get<bool>();}
-bool launch_power_weight_host(const PowerWeightHostRequest& request,std::string& error){try{const auto exe=full(request.executable),core=full(request.core);if(exe.empty()||_wcsicmp(exe.c_str(),own().c_str())||core.empty()||!request.parent_pid||request.parent_pid!=GetCurrentProcessId())throw std::runtime_error("Invalid weight helper target or paths");(void)active(request.receipt_id);PROCESS_INFORMATION pi{};const auto cmd=quote(exe)+L" --weight-helper "+wide(request.receipt_id)+L" "+operation(request.operation)+L" "+std::to_wstring(request.parent_pid)+L" "+quote(core);if(!spawn(exe,cmd,pi))throw std::runtime_error("Cannot start weight helper");CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return true;}catch(const std::exception& e){error=e.what();return false;}}
-bool dispatch_power_weight_host(int argc,wchar_t** argv,int& exit_code){if(argc<2)return false;const bool h=!wcscmp(argv[1],L"--weight-helper"),v=!wcscmp(argv[1],L"--weight-verify-child");if(!h&&!v)return false;exit_code=1;try{if(argc!=6)return true;const auto id=narrow(argv[2]);if(!std::regex_match(id,std::regex("^[0-9a-f]{32}$")))return true;if(h){wchar_t* end=nullptr;const auto pid=wcstoul(argv[4],&end,10);if(!end||*end||!pid||pid>0xfffffffful)return true;PowerWeightHostRequest r{id,parse_op(argv[3]),static_cast<uint32_t>(pid),own(),argv[5]};exit_code=helper(r);}else{const bool original=!wcscmp(argv[3],L"original");if(!original&&wcscmp(argv[3],L"expected"))return true;exit_code=verify_main(id,original,argv[4],argv[5]);}}catch(...){exit_code=1;}return true;}
+bool launch_power_weight_host(const PowerWeightHostRequest& request, std::string& error) {
+    try {
+        const auto exe = full(request.executable), core = full(request.core);
+        if (exe.empty() || _wcsicmp(exe.c_str(), own().c_str()) || core.empty() ||
+            !request.parent_pid || request.parent_pid != GetCurrentProcessId())
+            throw std::runtime_error("Invalid weight helper target or paths");
+        (void)active(request.receipt_id);
+        {
+            HelperLock probe;
+            probe.handle = try_operation_lock(request.receipt_id);
+            if (probe.handle == INVALID_HANDLE_VALUE)
+                throw std::runtime_error("A helper is already using this recovery record, or its lock cannot be opened");
+        }
+        PROCESS_INFORMATION pi{};
+        auto command = quote(exe) + L" --weight-helper " + wide(request.receipt_id) + L" " +
+            operation(request.operation) + L" " + std::to_wstring(request.parent_pid) + L" " + quote(core);
+        if (request.classic) command += L" --classic";
+        if (request.daily) command += L" --daily";
+        if (!spawn(exe, command, pi)) throw std::runtime_error("Cannot start weight helper");
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+bool dispatch_power_weight_host(int argc, wchar_t** argv, int& exit_code) {
+    if (argc < 2) return false;
+    const bool run_helper = !wcscmp(argv[1], L"--weight-helper");
+    if (!run_helper && wcscmp(argv[1], L"--weight-verify-child")) return false;
+    exit_code = 1;
+    try {
+        if (argc < 6 || argc > 8 || (!run_helper && argc != 6)) return true;
+        bool classic = false, daily = false;
+        for (int i = 6; i < argc; ++i) {
+            if (!classic && !wcscmp(argv[i], L"--classic")) classic = true;
+            else if (!daily && !wcscmp(argv[i], L"--daily")) daily = true;
+            else return true;
+        }
+        const auto id = narrow(argv[2]);
+        if (!std::regex_match(id, std::regex("^[0-9a-f]{32}$"))) return true;
+        if (run_helper) {
+            wchar_t* end = nullptr;
+            const auto pid = wcstoul(argv[4], &end, 10);
+            if (!end || *end || !pid || pid > 0xfffffffful) return true;
+            PowerWeightHostRequest request{id, parse_op(argv[3]), static_cast<uint32_t>(pid), own(), argv[5], classic, daily};
+            exit_code = helper(request);
+        } else {
+            const bool original = !wcscmp(argv[3], L"original");
+            const bool staged = !wcscmp(argv[3], L"staged");
+            if (!original && !staged && wcscmp(argv[3], L"expected")) return true;
+            exit_code = verify_main(id, original, staged, argv[4], argv[5]);
+        }
+    } catch (...) {
+        exit_code = 1;
+    }
+    return true;
+}
 }

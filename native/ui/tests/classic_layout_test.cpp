@@ -4,6 +4,7 @@
 #include "ui_view.h"
 #include "session.h"
 #include "classic_layout.h"
+#include "../window_placement.h"
 #include "imgui_internal.h"
 #include "implot.h"
 #include <cmath>
@@ -249,6 +250,45 @@ void default_window_placement() {
     const auto e = classic_default_window_placement(1.25f, 0, 0);
     check(e.width == 1930 && e.height == 1625 && e.x == 100 && e.y == 100, "an unreadable screen size leaves the scaled default");
 }
+
+void focused_window_placement() {
+    // At 125%, the 1280 x 800 logical default occupies 1600 x 1000 client pixels.
+    const RECT current{-1650, 45, -343, 908};
+    const SIZE current_client{1280, 800};
+    const RECT resized = client_window_rect(current, current_client, initial_client_pixels({}, 1.25f));
+    check(resized.left == -1650 && resized.top == 45 && resized.right == -23 && resized.bottom == 1108,
+        "a larger client keeps the window origin and both measured frame dimensions");
+    const auto explicit_width = initial_client_pixels({1024, 0}, 1.5f);
+    const auto explicit_height = initial_client_pixels({0, 768}, 2);
+    check(explicit_width.cx == 1024 && explicit_width.cy == 1200 &&
+          explicit_height.cx == 2560 && explicit_height.cy == 768,
+          "only unspecified client dimensions follow display scaling");
+
+    const RECT work{-1920, -120, 0, 960};
+    const RECT positioned = fit_window_to_work_area(resized, work);
+    check(positioned.left == -1650 && positioned.top == -103 && positioned.right == -23 && positioned.bottom == 960,
+        "a scaled window that fits moves above the bottom work-area edge without shrinking");
+
+    const RECT manual{-1410, -60, -330, 660};
+    const RECT unchanged = fit_window_to_work_area(manual, work);
+    check(unchanged.left == manual.left && unchanged.top == manual.top &&
+        unchanged.right == manual.right && unchanged.bottom == manual.bottom,
+        "an in-bounds window keeps its manually selected size and position");
+
+    const RECT oversized{-1700, 210, 250, 1340};
+    const RECT fit_width = fit_window_to_work_area(oversized, work, true, false);
+    check(fit_width.left == -1920 && fit_width.right == 0 && fit_width.top == -120 && fit_width.bottom == 1010,
+        "fitting width keeps the explicit height and pins it to the top of the work area");
+
+    const RECT fit_height = fit_window_to_work_area(oversized, work, false, true);
+    check(fit_height.left == -1920 && fit_height.right == 30 && fit_height.top == -120 && fit_height.bottom == 960,
+        "fitting height keeps the explicit width and pins it to the left of the work area");
+
+    const RECT fit_both = fit_window_to_work_area(oversized, work);
+    check(fit_both.left == work.left && fit_both.top == work.top &&
+        fit_both.right == work.right && fit_both.bottom == work.bottom,
+        "a default window larger than the work area fits both dimensions on a negative-origin monitor");
+}
 }
 int main() {
     ImGui::CreateContext(); ImPlot::CreateContext();
@@ -260,7 +300,8 @@ int main() {
     // No host fonts: exercising fallback is intentional.
     layout(1900, 1, true); layout(1024, 1, false); layout(1900, 1.5f, false);
     gate_row(1); gate_row(1.5f); gate_row_spacing(1); gate_row_spacing(1.5f); default_window_placement();
+    focused_window_placement();
     ImPlot::DestroyContext(); ImGui::DestroyContext();
-    std::printf("Classic geometry: %d failures\n", failures);
+    std::printf("UI geometry: %d failures\n", failures);
     return failures ? 1 : 0;
 }

@@ -62,6 +62,9 @@ adversarial review.
 
 # Hardware capability and evidence
 
+Run hardware memory-timing tests only at verified P0. Check the selected card's
+P-state and memory clock immediately before and after each timing sample.
+
 Never implement a safety check or feature gate solely from observations on a
 developer's devices. Gate architectural support by GPU generation, then validate
 the understood API/layout and capabilities reported by the user's current

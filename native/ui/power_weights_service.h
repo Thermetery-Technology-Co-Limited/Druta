@@ -30,6 +30,7 @@ struct PowerWeightsData {
  std::string image_message,info_message,registry_message,message;
  std::shared_ptr<const PowerWeightsPreview> preview;
  std::shared_ptr<const PowerWeightReceipt> receipt;
+ bool receipt_from_active_pointer=false;
  std::string receipt_message;
 };
 struct PowerWeightsResult {bool ok=false;std::string message;};

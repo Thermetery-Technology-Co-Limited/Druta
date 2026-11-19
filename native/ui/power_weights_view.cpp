@@ -123,7 +123,7 @@ std::vector<PowerWeightsIntent> draw_power_weights(PowerWeightsViewState& view,c
     ImGui::TextWrapped("Adapter: %s",preview.windows.slot.c_str());for(const auto& r:preview.registry_added){std::string name;for(wchar_t c:r.name)name.push_back(c>=0&&c<128?static_cast<char>(c):'?');ImGui::Text("%s: %zu bytes",name.c_str(),r.bytes.size());}}
   }
  }
- if(data&&data->receipt){const auto& receipt=*data->receipt;ImGui::Separator();
+ if(data&&data->receipt&&!data->receipt->is_pascal_clocks()){const auto& receipt=*data->receipt;ImGui::Separator();
   ImGui::TextWrapped("Saved override: %s | %s",receipt.id.c_str(),receipt.phase.c_str());
   ImGui::TextWrapped("%s",receipt.message.c_str());
   ImGui::BeginDisabled(busy||receipt.phase=="removed");

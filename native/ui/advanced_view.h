@@ -54,7 +54,8 @@ void draw_mode_bar(const SessionSnapshot& snapshot, bool& unlocked, std::vector<
 void draw_advanced_controls(const SessionSnapshot& snapshot, bool unlocked, bool verbose,
     AdvancedViewState& state, std::vector<Command>& commands, bool include_rails = true, bool include_offsets = true, const PolicyAnnotations* annotations = nullptr);
 void draw_clock_voltage_offsets(const SessionSnapshot& snapshot, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group = OffsetGroup::all);
+    AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group = OffsetGroup::all,
+    const std::vector<uint32_t>& replaced = {});
 // Python domain_knob_label: the per-domain offset row's label and its colour,
 // from the same pairing and classified rows the Monitor domain table shows.
 struct ClockDomainLabel {
@@ -75,7 +76,8 @@ PowerRequestStatus power_request_status(std::optional<double> requested_w, std::
 // Common row services reused by the original Control layout and Focused Daily.
 // in_open_table: Classic emits the rows into the caller's open Clock offsets table.
 void draw_clock_domain_controls(const SessionSnapshot& snapshot, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands, bool in_open_table = false);
+    AdvancedViewState& state, std::vector<Command>& commands, bool in_open_table = false,
+    const std::vector<uint32_t>& replaced = {});
 // in_open_table: emit the row into the caller's open classic knob table (Python's
 // Limits table, under Power) instead of a table of its own.
 void draw_core_current_limit(const SessionSnapshot& snapshot, bool unlocked, bool classic,

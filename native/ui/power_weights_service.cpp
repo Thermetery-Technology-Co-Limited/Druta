@@ -79,6 +79,7 @@ PowerWeightsResult PowerWeightsService::inspect_receipt(const std::string& id){a
   (require(bool(p.api.read_receipt),"Weight receipt history unavailable"),std::optional<PowerWeightReceipt>{p.api.read_receipt(id)});
  if(found)require(found->identity.slot==text(p.opened.slot)&&found->uuid==text(p.opened.uuid),"Saved weight receipt belongs to another adapter");
  p.data.receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;
+ p.data.receipt_from_active_pointer=id.empty()&&found.has_value();
  result.ok=true;result.message=found?found->phase+": "+found->message:"No saved relationship override for this adapter";
  }catch(const std::exception& e){p.data.receipt.reset();result.message=e.what();}
  p.data.receipt_message=result.message;++p.data.revision;return result;}

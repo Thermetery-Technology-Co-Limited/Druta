@@ -201,21 +201,42 @@ constexpr const char* kLessEqual = "\xE2\x89\xA4"; // U+2264
 constexpr const char* kDot = "\xC2\xB7";          // U+00B7
 }
 
-bool curve_below_cap(double volt_mv, double cap_mv) { return volt_mv <= cap_mv + 0.01; }
-
-CurvePeak curve_peak(const std::vector<dc_vf_point>& points, double cap_mv) {
+namespace {
+CurvePeak peak_at_or_below(const std::vector<dc_vf_point>& points, double cap_mv) {
     CurvePeak result;
     bool any = false;
-    for (const auto& p : points) if (curve_below_cap(p.volt_mv, cap_mv) && (!any || p.freq_mhz > result.peak_mhz)) {
+    for (const auto& p : points) if (p.volt_mv <= cap_mv && (!any || p.freq_mhz > result.peak_mhz)) {
         result.peak_mhz = p.freq_mhz; any = true;
     }
     if (!any) return {};
     for (const auto& p : points) {
-        if (!curve_below_cap(p.volt_mv, cap_mv) || p.freq_mhz != result.peak_mhz) continue;
+        if (!(p.volt_mv <= cap_mv) || p.freq_mhz != result.peak_mhz) continue;
         ++result.at_peak;
         if (!result.park_idx || p.volt_mv < result.park_mv) { result.park_idx = p.idx; result.park_mv = p.volt_mv; }
     }
     return result;
+}
+}
+
+bool curve_below_cap(double volt_mv, double cap_mv) { return volt_mv <= cap_mv + 0.01; }
+
+CurvePeak curve_peak(const std::vector<dc_vf_point>& points, double cap_mv) {
+    return peak_at_or_below(points, cap_mv + 0.01);
+}
+
+std::optional<CurvePeak> pascal_p0_curve_peak(const std::vector<dc_vf_point>& points,
+    std::uint32_t freq_div, std::optional<double> nvvdd_effective_mv, double staged_core_change_mhz) {
+    if (!nvvdd_effective_mv || !std::isfinite(*nvvdd_effective_mv) || *nvvdd_effective_mv <= 0 ||
+        !std::isfinite(staged_core_change_mhz) || freq_div != 2 || !valid(points, freq_div))
+        return std::nullopt;
+    for (const auto& point : points) {
+        if (point.volt_mv <= 0 || point.freq_mhz <= 0) return std::nullopt;
+    }
+    auto peak = peak_at_or_below(points, *nvvdd_effective_mv);
+    if (!peak.park_idx) return std::nullopt;
+    peak.peak_mhz += staged_core_change_mhz;
+    if (!std::isfinite(peak.peak_mhz) || peak.peak_mhz <= 0) return std::nullopt;
+    return peak;
 }
 
 std::size_t curve_flat_runs(const std::vector<dc_vf_point>& points, double cap_mv) {

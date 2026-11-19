@@ -18,6 +18,7 @@
 #include <future>
 #include "timing_capture.h"
 #include "classic_layout.h"
+#include "window_placement.h"
 #include "session.h"
 #include "curve_profile.h"
 #include "policy_annotation_profile.h"
@@ -87,8 +88,7 @@ public:
     }
 };
 struct Options {
-    int width = 1280, height = 800;
-    bool size_given = false;
+    int width = 0, height = 0;
     float scale = 0;
     std::wstring smoke_dir, capture, core_path,recovery_receipt,restart_instance;
     bool recovery_helper=false,restart_child=false;uint32_t parent_pid=0;
@@ -135,7 +135,6 @@ bool parse_options(Options& o) {
                 wchar_t* end = nullptr; const long n = wcstol(value, &end, 10);
                 valid = *value && end && !*end && n >= 640 && n <= 7680;
                 if (key == L"--width") o.width = int(n); else o.height = int(n);
-                o.size_given = true;
             } else if (key == L"--scale") {
                 wchar_t* end = nullptr; const double n = wcstod(value, &end);
                 valid = *value && end && !*end && std::isfinite(n) && n >= 1 && n <= 3;
@@ -167,7 +166,7 @@ struct App {
     std::optional<druta::ui::AppTarget> recovery_target;
     UINT width = 1280, height = 800;
     bool resize_pending = false, device_lost = false, initialized = false, quit = false;
-    float pending_scale = 0, scale = 1;
+    float pending_scale = 0, scale = 1, scale_override = 0;
     double device_retry_at = 0;
     unsigned long long frames = 0, presents = 0, fixture_sample_ticks = 0, resets = 0;
     bool i2c_save_waiting = false;
@@ -184,8 +183,14 @@ struct App {
     std::optional<uint64_t> history_stage_generation;
     bool library_read_for_history=false;
     druta::ui::TimingSetupHost timing_setup;
-    std::optional<std::pair<uint64_t,uint64_t>> weight_prepare_pending;
+    struct OverridePreparation {
+        uint64_t generation, actions;
+        druta::ui::Command::Operation operation;
+        bool front, classic;
+    };
+    std::optional<OverridePreparation> weight_prepare_pending;
     std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
+    druta::ui::Page weight_reopen_page = druta::ui::Page::advanced;
     druta::ui::PolicyAnnotationCommits annotation_commits;
     uint64_t annotation_generation=0,annotation_action_log=0;
     std::string annotation_status;
@@ -806,13 +811,20 @@ struct App {
             }
         }
     }
-    void handoff_power_weights(const druta::ui::PowerWeightReceipt& receipt,druta::ui::PowerWeightOperation operation) {
+    void handoff_power_weights(const druta::ui::PowerWeightReceipt& receipt,druta::ui::PowerWeightOperation operation,
+                               bool clock_front, bool classic) {
         using namespace druta::ui;
         const auto current=session?session->snapshot():nullptr;
         if(!current||current->busy||current->opening||view.select_slot||receipt.identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&receipt.uuid!=current->data.identity.uuid))
             throw std::runtime_error("Selected adapter changed or is busy; inspect the saved override again");
+        if(receipt.is_pascal_clocks() && operation!=PowerWeightOperation::verify){
+            std::string why;
+            if(!restart_device_target(*current,why,view.app_actions.administrator)) throw std::runtime_error(why);
+        }
         PowerWeightHostRequest request;request.receipt_id=receipt.id;request.operation=operation;
         request.parent_pid=GetCurrentProcessId();request.executable=app_executable;request.core=active_core_path;
+        request.classic=receipt.is_pascal_clocks()&&classic;
+        request.daily=receipt.is_pascal_clocks()&&clock_front;
         std::string why;if(!launch_power_weight_host(request,why))throw std::runtime_error(why);
         view.power_weights_view.status="Finishing the session; the selected override helper will continue after Druta closes";
         request_close(true);
@@ -824,44 +836,82 @@ struct App {
         auto selected_receipt=current->data.power_weights?current->data.power_weights->receipt:std::shared_ptr<const PowerWeightReceipt>{};
         if(!selected_receipt&&view.power_weights_saved)selected_receipt=view.power_weights_saved->receipt;
         if(selected_receipt&&(selected_receipt->identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&selected_receipt->uuid!=current->data.identity.uuid)))selected_receipt.reset();
-        if(!weight_initial_receipt.empty()&&!current->opening){
+        if(!weight_initial_receipt.empty()&&!current->opening&&!current->busy){
             sync_power_weights_view(view.power_weights_view,current->data.power_weights.get(),current->generation);
             const auto id=std::move(weight_initial_receipt);weight_initial_receipt.clear();
+            bool clock_result=false;
             try{auto receipt=read_weight_receipt({},id);if(receipt.identity.slot!=weight_expected_slot||receipt.uuid!=weight_expected_uuid)throw std::runtime_error("Saved override belongs to another startup target");
-                auto data=std::make_shared<PowerWeightsData>();data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));data->receipt_message=data->receipt->phase+": "+data->receipt->message;view.power_weights_saved=std::move(data);
+                clock_result=receipt.is_pascal_clocks();
+                auto data=std::make_shared<PowerWeightsData>();
+                if(clock_result){
+                    auto active=discover_weight_receipt({},receipt.identity.slot,receipt.uuid);
+                    data->receipt_from_active_pointer=active.has_value();
+                    if(active) data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(*active));
+                    else if(receipt.phase=="removed") data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));
+                } else {
+                    data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));
+                }
+                if(data->receipt) data->receipt_message=data->receipt->phase+": "+data->receipt->message;
+                view.power_weights_saved=std::move(data);
             }catch(const std::exception& e){view.power_weights_view.status=e.what();}
-            view.page=Page::advanced;view.open_power_weights_requested=true;
+            view.page=clock_result?weight_reopen_page:Page::advanced;
+            view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result;
+            if(clock_result && current->data.connected && !current->busy &&
+               current->selected_slot==weight_expected_slot && current->data.identity.uuid==weight_expected_uuid){
+                Command read;
+                read.operation=Command::Operation::pascal_clock_read;
+                view.pascal_clock_view.sync(current->generation);
+                if (session->submit(read,current->generation,true)) ++view.pascal_clock_view.automatic_reads;
+            }
         }
         if(weight_prepare_pending){
             const auto pending=*weight_prepare_pending;
-            if(current->generation!=pending.first){weight_prepare_pending.reset();view.power_weights_view.status="Adapter changed; saved override was not activated";}
-            else if(!current->busy&&current->completed_actions>pending.second){
+            if(current->generation!=pending.generation){weight_prepare_pending.reset();view.power_weights_view.status="Adapter changed; saved override was not activated";}
+            else if(!current->busy&&current->completed_actions>pending.actions){
                 weight_prepare_pending.reset();
-                try{if(current->last_action_operation!=Command::Operation::power_weights_prepare||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
+                try{if(current->last_action_operation!=pending.operation||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
                     throw std::runtime_error("Activation preparation did not complete; inspect the saved override for details");
-                    handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply);
+                    handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply,
+                                          pending.front,pending.classic);
                 }catch(const std::exception& e){view.power_weights_view.status=e.what();}
             }
         }
         auto intents=std::move(view.power_weights_intents);view.power_weights_intents.clear();
         for(auto& intent:intents)try{
             if(closing||weight_prepare_pending||current->busy||view.select_slot)throw std::runtime_error("Wait for the current operation");
+            const bool clock_request = intent.operation == PowerWeightsIntent::Operation::read_clocks ||
+                intent.operation == PowerWeightsIntent::Operation::prepare_clocks;
+            if (clock_request && (!view.live || view.live->generation != current->generation))
+                throw std::runtime_error("Selected GPU session changed. Read the clock table again.");
             view.power_weights_view.status.clear();Command command;
             switch(intent.operation){
+            case PowerWeightsIntent::Operation::read_clocks:
+                view.power_weights_saved.reset();
+                command.operation=Command::Operation::pascal_clock_read;break;
+            case PowerWeightsIntent::Operation::prepare_clocks:{
+                std::string why;
+                if(!restart_device_target(*current,why,view.app_actions.administrator))throw std::runtime_error(why);
+                command.operation=Command::Operation::pascal_clock_prepare;
+                command.enabled=view.controls_unlocked;
+                command.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(std::move(intent.clock_edits));break;}
             case PowerWeightsIntent::Operation::read:command.operation=Command::Operation::power_weights_read;break;
             case PowerWeightsIntent::Operation::preview:command.operation=Command::Operation::power_weights_preview;command.power_weight_requests=std::make_shared<const std::vector<PowerWeightRequest>>(std::move(intent.requests));break;
             case PowerWeightsIntent::Operation::inspect:
                 if(!current->data.connected&&selected_receipt){const auto found=discover_weight_receipt({},selected_receipt->identity.slot,selected_receipt->uuid);auto data=std::make_shared<PowerWeightsData>();
-                    data->receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;data->receipt_message=found?found->phase+": "+found->message:"No active override remains";view.power_weights_view.status=data->receipt_message;view.power_weights_saved=std::move(data);continue;}
+                    data->receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;data->receipt_from_active_pointer=found.has_value();data->receipt_message=found?found->phase+": "+found->message:"No active override remains";view.power_weights_view.status=data->receipt_message;view.power_weights_saved=std::move(data);continue;}
                 view.power_weights_saved.reset();command.operation=Command::Operation::power_weights_inspect;break;
             case PowerWeightsIntent::Operation::prepare:command.operation=Command::Operation::power_weights_prepare;command.enabled=view.controls_unlocked;break;
             default:
                 if(!selected_receipt)throw std::runtime_error("Inspect the saved override first");
                 if(intent.operation!=PowerWeightsIntent::Operation::verify&&!view.controls_unlocked)throw std::runtime_error("Unlock controls before activation or removal");
-                handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply);continue;
+                handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply,
+                                      intent.clock_front,view.presentation==Presentation::classic);continue;
             }
             if(!submit_command(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
-            if(intent.operation==PowerWeightsIntent::Operation::prepare){weight_prepare_pending={{current->generation,current->completed_actions}};view.power_weights_view.status="Saving the recovery record before activation...";}
+            if(command.operation==Command::Operation::power_weights_prepare||command.operation==Command::Operation::pascal_clock_prepare){
+                weight_prepare_pending=OverridePreparation{current->generation,current->completed_actions,command.operation,
+                    intent.clock_front,view.presentation==Presentation::classic};
+                view.power_weights_view.status="Saving the recovery record before activation...";}
         }catch(const std::exception& e){view.power_weights_view.status=e.what();}
     }
     void consume_actions() {
@@ -1095,11 +1145,27 @@ struct App {
                 druta::ui::mark_scoped_profile_pending(view.scoped_profile_view, *baseline, command.operation, true);
         }
         view.commands.clear();
+        if (view.automatic_clock_read && !closing) {
+            const auto current = session->snapshot();
+            if (!current->busy && !current->opening && current->data.connected &&
+                current->generation == *view.automatic_clock_read && !current->data.pascal_clock_fresh) {
+                druta::ui::Command read;
+                read.operation = druta::ui::Command::Operation::pascal_clock_read;
+                if (session->submit(read, current->generation, true)) ++view.pascal_clock_view.automatic_reads;
+            }
+        }
     }
-    void client_size(int w, int h) {
-        RECT r{0, 0, w, h};
-        AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
-        SetWindowPos(window, nullptr, 0, 0, r.right-r.left, r.bottom-r.top, SWP_NOMOVE | SWP_NOZORDER);
+    void client_size(int w, int h, bool fit_width = false, bool fit_height = false) {
+        RECT outer{}, client{};
+        if (!GetWindowRect(window, &outer) || !GetClientRect(window, &client)) return;
+        auto rect = druta::ui::client_window_rect(outer, {client.right, client.bottom}, {w, h});
+        if (fit_width || fit_height) {
+            MONITORINFO monitor{sizeof(monitor)};
+            if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
+                rect = druta::ui::fit_window_to_work_area(rect, monitor.rcWork, fit_width, fit_height);
+        }
+        SetWindowPos(window, nullptr, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
     }
     bool create_device() {
         d3d = Direct3DCreate9(D3D_SDK_VERSION);
@@ -1204,10 +1270,16 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             }
             return 0;
         case dpi_changed_message: {
-            app->pending_scale = float(HIWORD(wparam)) / 96.0f;
-            const auto* rect = reinterpret_cast<const RECT*>(lparam);
-            SetWindowPos(window, nullptr, rect->left, rect->top, rect->right-rect->left,
-                rect->bottom-rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (!app->scale_override) app->pending_scale = float(HIWORD(wparam)) / 96.0f;
+            RECT rect = *reinterpret_cast<const RECT*>(lparam);
+            if (app->view.presentation == druta::ui::Presentation::focused && !IsZoomed(window) && !IsIconic(window)) {
+                MONITORINFO monitor{sizeof(monitor)};
+                if (GetMonitorInfoW(MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST), &monitor))
+                    rect = druta::ui::fit_window_to_work_area(rect, monitor.rcWork);
+            }
+            SetWindowPos(window, nullptr, rect.left, rect.top, rect.right - rect.left,
+                rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            app->policy.note_activity(now_seconds());
             return 0;
         }
         case WM_GETMINMAXINFO: {
@@ -1301,11 +1373,16 @@ struct Smoke {
         bool ok = (phase == 3 || phase == 5) ? (f == 0 && t <= (live ? 1u : 0u)) : (f > 0 && p > 0 && captured);
         if (live) {
             const auto snapshot = app.session->snapshot();
-            // Entering Timings discovers and selects a helper path without running
-            // it. Permit that single setup action; any capture/write still fails.
-            const bool read_only_setup = phase >= 15 && snapshot->completed_actions == 1 &&
-                snapshot->last_action_operation == druta::ui::Command::Operation::timings_select_helper && snapshot->last_action_ok;
-            ok = ok && snapshot->data.connected && (snapshot->completed_actions == 0 || read_only_setup);
+            // Allow only the bounded clock reads plus the Timings helper selection.
+            const auto clock_reads = static_cast<uint64_t>(std::count_if(snapshot->log.begin(), snapshot->log.end(), [](const auto& log) {
+                return log.automatic && log.operation == druta::ui::Command::Operation::pascal_clock_read;
+            }));
+            // Classic discovers its helper on entry, even on the Control page.
+            const auto helper_selections = static_cast<uint64_t>(std::count_if(snapshot->log.begin(), snapshot->log.end(), [](const auto& log) {
+                return log.automatic && log.ok && log.operation == druta::ui::Command::Operation::timings_select_helper;
+            }));
+            ok = ok && snapshot->data.connected && clock_reads <= 2 && helper_selections <= 1 &&
+                snapshot->completed_actions == clock_reads + helper_selections;
         }
         if (live && phase == 2) ok = ok && t > 0;
         if (phase >= 7) {
@@ -1314,9 +1391,17 @@ struct Smoke {
         }
         if (phase == 10) ok = ok && app.width == 1024 && app.height == 768 && app.resets > 0;
         if (phase == 11) ok = ok && app.view.shunt.open && !app.view.shunt.dirty && !app.view.shunt.save_requested;
-        if (phase == 12 || phase == 13) ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok && app.view.profile_catalog_intents.empty();
+        if (phase == 12 || phase == 13) {
+            const auto& intents = app.view.profile_catalog_intents;
+            // Opening the fixture catalog queues a read; only a live session consumes it.
+            const bool pending_read = !live && intents.size() == 1 &&
+                intents.front().operation == druta::ui::ProfileCatalogIntent::Operation::refresh_library;
+            ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok &&
+                (intents.empty() || pending_read);
+        }
         if (phase == 14) ok = ok && app.view.policy_workspace.open && !app.view.save_policy_annotations && !app.view.policy_workspace.preview;
-        if (phase == 15) ok = ok && !app.view.timings_view.auto_capture && app.view.commands.empty();
+        if (phase == 15) ok = ok && !app.view.timings_view.auto_capture &&
+            !app.view.timings_view.classic_auto_capture && app.view.commands.empty();
         if(phase==16)ok=ok&&app.view.power_saving_intents.empty()&&!app.view.open_power_saving_requested;
         if(phase==17)ok=ok&&app.view.clock_gating_intents.empty()&&!app.view.open_clock_gating_requested;
         if(phase==18)ok=ok&&app.view.voltage_policy_profile_intents.empty()&&!app.view.open_voltage_policy_requested;
@@ -1330,7 +1415,14 @@ struct Smoke {
             names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == phase_count-1 ? "" : ",");
         report += row;
         if (++phase == phase_count) {
-            report += "  ],\n  \"completed_worker_actions\": " + std::to_string(live ? app.session->snapshot()->completed_actions : 0)
+            const auto snapshot = live ? app.session->snapshot() : nullptr;
+            auto actions = druta::ui::ProfileJson::array();
+            if (snapshot) for (const auto& entry : snapshot->log) {
+                if (entry.operation) actions.push_back({{"operation", static_cast<int>(*entry.operation)},
+                    {"automatic", entry.automatic}, {"ok", entry.ok}, {"message", entry.message}});
+            }
+            report += "  ],\n  \"completed_worker_actions\": " + std::to_string(snapshot ? snapshot->completed_actions : 0)
+                + ",\n  \"worker_actions\": " + actions.dump(-1, ' ', false, druta::ui::ProfileJson::error_handler_t::replace)
                 + ",\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -1365,13 +1457,14 @@ struct Smoke {
         }
         if (phase == 14) {app.view.profile_catalog_view.open=false;app.view.policy_workspace.open=true;app.view.presentation=druta::ui::Presentation::focused;}
         if (phase == 15) {app.view.policy_workspace.open=false;app.view.page=druta::ui::Page::timings;app.view.presentation=druta::ui::Presentation::classic;}
-        if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=true;}
-        if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=true;}
-        if(phase==18){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_policy_requested=true;}
-        if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=true;}
-        if(phase==20){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_tables_requested=true;}
-        if(phase==21){app.view.presentation=druta::ui::Presentation::classic;app.view.open_voltage_limits_requested=true;}
-        if(phase==22){app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_weights_requested=true;}
+        // Advanced has a static preview. Its individual hardware panels exist only in live sessions.
+        if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=live;}
+        if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=live;}
+        if(phase==18){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_policy_requested=live;}
+        if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=live;}
+        if(phase==20){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_tables_requested=live;}
+        if(phase==21){app.view.presentation=druta::ui::Presentation::classic;app.view.open_voltage_limits_requested=live;}
+        if(phase==22){app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_weights_requested=live;}
         begin(app);
     }
 };
@@ -1401,19 +1494,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if(options.restart_child||options.parent_pid||!options.restart_instance.empty())return 2;
     ImGui_ImplWin32_EnableDpiAwareness();
     App app; active = &app;
-    app.width = UINT(options.width); app.height = UINT(options.height);
+    app.scale_override = options.scale;
+    app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, window_proc, 0, 0, instance, nullptr,
         LoadCursorW(nullptr, IDC_ARROW), nullptr, nullptr, window_class, nullptr};
     if (!RegisterClassExW(&wc)) return 3;
-    RECT rect{0, 0, options.width, options.height}; AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0);
     app.window = CreateWindowExW(0, window_class, options.preview ? L"Druta Native UI - Preview" : L"Druta - Native", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, rect.right-rect.left, rect.bottom-rect.top, nullptr, nullptr, instance, nullptr);
-    if (app.window && options.classic && !options.size_given) {
-        // Started in Classic with no size given: 1.9.1's default viewport, which
-        // is the outer window, so the client area matches 1.9.1's.
-        const float window_scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
-        const auto place = druta::ui::classic_default_window_placement(window_scale, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
-        SetWindowPos(app.window, nullptr, place.x, place.y, place.width, place.height, SWP_NOZORDER | SWP_NOACTIVATE);
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, instance, nullptr);
+    if (app.window) {
+        app.scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
+        if (options.classic && !options.width && !options.height) {
+            // Classic follows the released outer-window geometry.
+            const auto place = druta::ui::classic_default_window_placement(app.scale, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            SetWindowPos(app.window, nullptr, place.x, place.y, place.width, place.height, SWP_NOZORDER | SWP_NOACTIVATE);
+        } else {
+            const SIZE client = druta::ui::initial_client_pixels({options.width, options.height}, options.classic ? 1.0f : app.scale);
+            app.client_size(client.cx, client.cy,
+                            !options.classic && !options.width, !options.classic && !options.height);
+        }
         RECT client{};
         if (GetClientRect(app.window, &client) && client.right > 0 && client.bottom > 0) {
             app.width = UINT(client.right); app.height = UINT(client.bottom);
@@ -1428,7 +1526,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGuiIO& io = ImGui::GetIO(); io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr; io.LogFilename = nullptr; // no automatic state/tuning persistence
     load_font();
-    app.scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
     druta::ui::apply_theme(app.scale); ImGui::GetStyle().FontScaleDpi = app.scale;
     ImGui_ImplWin32_Init(app.window); ImGui_ImplDX9_Init(app.device); app.initialized = true;
     app.view.page = options.page;
@@ -1443,7 +1540,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             app.view.app_actions.status=receipt.message+(receipt.reboot_required?" Windows reports that a reboot is required.":"")+" A fresh session was opened; no tuning was reapplied.";
         }catch(const std::exception& e){app.view.app_actions.status=std::string("Recovery receipt unavailable: ")+e.what();}
     }
-    app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     app.view.hotkey_available = RegisterHotKey(app.window, restore_hotkey, MOD_CONTROL | MOD_SHIFT, VK_F11) != FALSE;
     if (!options.preview) {
         if (options.core_path.empty()) {
@@ -1466,7 +1562,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     ShowWindow(app.window, SW_SHOW); UpdateWindow(app.window);
     app.weight_initial_receipt=options.weight_result;app.weight_expected_slot=options.slot;app.weight_expected_uuid=options.expected_uuid;
+    app.weight_reopen_page=options.page;
     Smoke smoke(app); MessageWait waiter; const bool testing = !options.smoke_dir.empty();
+    if (testing) app.view.timings_view.classic_auto_capture = false;
     bool success = true, captured_output = false; unsigned settled_frames = 0;
     const double started = now_seconds();
     while (!app.quit) {
@@ -1495,7 +1593,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         app.consume_timing_profile_save();
         if (!testing) app.consume_timing_startup_read();
         app.consume_timing_captures();
-        app.consume_timing_auto();
+        // Smoke renders Timings but does not execute the helper or capture registers.
+        if (!testing) app.consume_timing_auto();
         if(app.view.advanced_view.rail_gate_flash_until>ImGui::GetTime() || app.view.advanced_view.xoc_gate_flash_until>ImGui::GetTime() || app.view.i2c_gate_flash_until>ImGui::GetTime())
             app.policy.note_activity(now);
         if (app.policy.telemetry_due(now)) {
@@ -1511,7 +1610,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         }
         if (app.policy.render_due(now) && now >= app.device_retry_at) {
             std::wstring capture;
-            const bool view_ready = options.preview || (app.view.live && !app.view.live->opening && app.view.live->revision > 1);
+            const bool view_ready = options.preview || (app.view.live && !app.view.live->opening &&
+                app.view.live->revision > 1 && (options.capture.empty() || druta::ui::front_clock_capture_ready(app.view)));
             if (testing && !smoke.captured && smoke.captures[smoke.phase] && app.frames-smoke.frames >= 2 && settled_frames >= 2)
                 capture = options.smoke_dir + L"\\" + smoke.captures[smoke.phase];
             // ImPlot applies auto-fit on the next frame after points arrive.

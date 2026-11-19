@@ -120,6 +120,25 @@ Focused shows corrected watts for uniform ratios and a capacity-weighted
 estimate for mixed ones; Classic Daily shows raw watts, with the corrected value
 in the tooltip and on Monitor. Raw driver watts are always used for power Apply.
 
+### Firmware clock controls
+
+**Daily tuning** in Focused and **Control → Clock offsets** in Classic read
+the selected card’s table automatically. The editor is also in **Advanced**.
+Pascal exposes per-state GPC, XBAR and SYS / Video ceilings in MHz, up to 200%
+of the original clock-program ceiling for each domain (subject to the field's
+encoding limit). The shared XBAR and SYS ratios range from 1–200% of GPC.
+Each ratio row estimates its P0 target using
+the fastest graphics V/F point at or below the selected GPU’s effective NVVDD
+limit. Staging a ratio, core offset or curve edit updates the preview. The
+performance-state selector controls the separate firmware ceilings.
+Supported Kepler and Maxwell performance tables expose independent per-state
+MHz targets for GPC, XBAR and SYS.
+Review lists all staged edits before Apply refreshes the selected adapter.
+Once the edited image is loaded, Druta removes its temporary registry records.
+The editor reads back the applied values when it reopens. Further edits keep
+the other session settings. Restore returns to the image captured before the
+first Apply, and Verify closes a saved session after a normal driver restart.
+
 ## Native I2C controller path
 
 On 64-bit processes, the core can use the NVAPI Ex I2C transport for explicit
@@ -176,6 +195,24 @@ The typed CoreClient uses `drutacore`'s C ABI, including the fresh
 experiment path remain available; no Python runtime is required by the EXE.
 Standalone Python and the UI own separate sessions, so a handle mutex is not
 cross-process tuning ownership.
+
+## Standalone compatibility on older Windows
+
+The Vista and XP targets concern the native executable and its companion
+core DLL. The optional Python plugin is outside qualification on those two
+systems. Python can run the build tools on a separate machine.
+
+| Target | Status of the native program |
+|---|---|
+| Windows 7 SP1 x64 | Ready for an on-machine check. Launch, render both layouts at system DPI, and verify a read from the selected adapter before exercising Apply and Restore. The restart path uses SetupAPI on this OS and has fixture coverage. |
+| Vista SP2 x64 | The inspected VS 2022 v143 Release EXE statically imports `TryAcquireSRWLockExclusive`, which requires Windows 7. A Vista-compatible runtime build of the EXE and core DLL needs an import check and a real Vista launch. |
+| Windows XP | The existing XP build targets cover the core DLL and command-line probe. The current GUI and its v143 core DLL both declare PE subsystem 6.0 and import `InitializeCriticalSectionEx`, introduced in Vista. Running the full GUI requires a separate XP build and qualification. |
+
+The inspection used the x64 Release binaries from this branch on Windows 10
+build 19045. No legacy OS launch was verified. [Windows API requirement for
+the lock import](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive) ·
+[Windows API requirement for critical-section initialization](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-initializecriticalsectionex) ·
+[Core and probe build instructions](../README.md).
 
 ## Build on Windows
 
@@ -240,7 +277,7 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 | `--preview` | Fixture layout; opens no GPU handle and performs no tuning or telemetry reads. |
 | `--core ABSOLUTE_DLL` | Load the explicitly selected core DLL in live mode. |
 | `--gpu PCI_SLOT` | Select by PCI slot; the live adapter picker can change it later. |
-| `--width N`, `--height N` | Initial client pixels, each 640–7680. |
+| `--width N`, `--height N` | Initial client size in physical pixels, each 640–7680. Focused scales each unspecified dimension from its 1280×800 default at 100% and fits the window to the monitor's work area. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
 | `--classic` | Start in the 1.9.1-inspired Classic composition instead of Focused. Without a size, the window opens at Python's default (1544x1300 at 100% scale, clamped to the screen). |
 | `--page daily\|curve\|advanced\|monitor\|timings` | Choose the initial page. |

@@ -16,6 +16,7 @@ struct PowerWeightCapture {
 };
 struct PowerWeightCaptureApi {
  VoltageEvidenceApi evidence;
+ decltype(&dc_gpu_vbios_target_bind) clock_bind=nullptr;
  decltype(&dc_cl_abi) abi=nullptr;
  decltype(&dc_cl_rm) rm=nullptr;
  std::function<VoltageScaffoldWindowsTarget(const dc_gpu_identity&,const dc_target&)> resolve_windows;
@@ -24,5 +25,5 @@ struct PowerWeightCaptureApi {
 // Zero-I/O construction. Each explicit capture is locked and target-bracketed.
 // Component failures are independent; identity/target errors abort the call.
 // False excludes ALL Windows-key and registry lookup.
-std::function<PowerWeightCapture(dc_gpu*,bool include_registry)> make_power_weight_capture(PowerWeightCaptureApi,const dc_gpu_identity&);
+std::function<PowerWeightCapture(dc_gpu*,bool include_registry)> make_power_weight_capture(PowerWeightCaptureApi,const dc_gpu_identity&,bool clock_only=false);
 }

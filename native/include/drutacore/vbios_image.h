@@ -9,6 +9,9 @@ extern "C" {
 #define DC_VBIOS_IMAGE_EXPORT 0xFC13EE11u
 #define DC_VBIOS_IMAGE_VERSION 0x20010u
 #define DC_VBIOS_IMAGE_CAPACITY 0xFA000u
+/* Read the selected ROM target's fresh PCI identity and GPU architecture.
+ * Independent of modern PERF groups. On failure, out is unchanged. */
+DC_API dc_status DC_CALL dc_gpu_vbios_target_bind(dc_gpu* gpu,dc_target* out,dc_error* error);
 /* One read-only, paired-target V2 capture. This entry does not establish
  * matching-read stability, interpret the ROM, or permit any image write.
  * Allocate DC_VBIOS_IMAGE_CAPACITY bytes to hold any understood response.
