@@ -1440,6 +1440,13 @@ the controller in all six words, yet its tFAW never reached the sampled P0
 controller state. [Profile and timing map](experiments/ga104-memory-layout-20261119.json) ·
 [P0 controller readings](experiments/ga104-p0-tfaw24-20261119.json).
 
+With the baseline image restored, two P0 samples at 9501 MHz reproduced all six
+row 0 words at each of FBPA 0, 2 and 3 as well as broadcast. tFAW was 20 cycles
+throughout. These three partitions have individually identified readbacks on
+this board. FBPA 1 remains unverified. Only broadcast was sampled while the
+24-cycle image was active in the earlier trial.
+[Stock P0 readings by partition](experiments/ga104-p0-partition-baseline-20261120.json).
+
 GA10x also exposes an independent capacity measurement. NVIDIA's driver reads
 the usable framebuffer size published by VBIOS Devinit. This 3070 Ti returned
 8192 MiB there and the same total through the driver's physical RAM query and
