@@ -6,6 +6,7 @@
 #include "vbios_voltage_graph.h"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <optional>
@@ -51,9 +52,10 @@ public:
     std::optional<Image> efi;
     std::map<unsigned, Token> tokens;
 
-    std::optional<size_t> pointer(unsigned tag, unsigned offset) const {
+    std::optional<size_t> pointer(unsigned tag, unsigned offset, bool allow_version_one = false) const {
         const auto it = tokens.find(tag);
-        if (it == tokens.end() || it->second.version != 2 || offset + 4 > it->second.payload.size) return {};
+        if (it == tokens.end() || (it->second.version != 2 && !(allow_version_one && it->second.version == 1)) ||
+            offset + 4 > it->second.payload.size) return {};
         uint64_t ptr = le32(bytes, it->second.payload.at + offset);
         if (!ptr) return {};
         if (efi && ptr >= legacy.extent.end()) ptr += efi->extent.size;
@@ -240,7 +242,62 @@ void add_states(Decoded& out, const Directory& dir, const Programs& tables,
     }
 }
 
-Decoded decode(const Bytes& b) {
+// Nine-clock PERF 4.x layout from Druta's decode_kepler_clocks.py
+// (GK104 and GM107 captures). Clock records 0, 1 and 4 use doubled MHz.
+void add_legacy_targets(Decoded& out, const Directory& dir, const PascalClockTable* original) {
+    const auto perf = dir.pointer('P', 0, true);
+    require(perf.has_value(), "Missing performance table pointer");
+    const auto& b = dir.bytes;
+    const size_t at = *perf;
+    dir.own({at, 6}, true);
+    const unsigned header = b[at + 1], row = b[at + 2], entry = b[at + 3], domains = b[at + 4], count = b[at + 5];
+    require(b[at] == 0x40 && header >= 6 && row >= 1 && entry == 4 && domains == 9 && count && count <= 16,
+            "Unrecognized legacy performance clock layout");
+    const unsigned stride = row + domains * entry;
+    dir.own({at, header + count * stride}, true);
+    const std::array<std::pair<PascalClockDomain, unsigned>, 3> columns{{
+        {PascalClockDomain::gpc, 0}, {PascalClockDomain::xbar, 1}, {PascalClockDomain::sys, 4}
+    }};
+    std::set<int> states;
+    for (unsigned i = 0; i < count; ++i) {
+        const size_t start = at + header + i * stride;
+        const int level = b[start];
+        if (level == 0xff) continue;
+        require(level <= 15 && states.insert(15 - level).second, "Unexpected or duplicate legacy performance level");
+        for (const auto& [domain, column] : columns) {
+            const size_t offset = start + row + column * entry;
+            const int raw = int(le16(b, offset) & frequency_mask);
+            if (raw && raw != frequency_mask)
+                out.located.push_back({{domain, 15 - level, raw, raw, raw}, offset});
+        }
+    }
+    out.table.state_targets = true;
+    if (original)
+        require(original->ok && original->state_targets && original->device_id == out.table.device_id,
+                "Original clock ranges belong to a different layout or device");
+    // This table contains targets, not operating limits. Offer the range of
+    // targets the adapter already programs for each domain across its states.
+    for (auto& l : out.located) {
+        auto& f = l.field;
+        if (original) {
+            const auto prior = std::find_if(original->fields.begin(), original->fields.end(), [&](const auto& old) {
+                return old.domain == f.domain && old.pstate == f.pstate;
+            });
+            require(prior != original->fields.end() && prior->minimum <= f.current && f.current <= prior->maximum,
+                    "Running clock differs from the original target range");
+            f.minimum = prior->minimum;
+            f.maximum = prior->maximum;
+        } else {
+            for (const auto& peer : out.located) if (peer.field.domain == f.domain) {
+                f.minimum = std::min(f.minimum, peer.field.current);
+                f.maximum = std::max(f.maximum, peer.field.current);
+            }
+        }
+    }
+}
+
+Decoded decode(const Bytes& b, uint32_t architecture, const PascalClockTable* original) {
+    require(clock_override_architecture(architecture), "No firmware clock override layout for this architecture");
     Decoded out;
     const Directory dir(b);
     const auto i = dir.tokens.find('i');
@@ -250,23 +307,53 @@ Decoded decode(const Bytes& b) {
     out.table.selector_version = le32(b, selector);
     out.table.selector_oem = b[selector + 4];
     out.table.device_id = static_cast<uint16_t>(dir.legacy.device);
-    const auto tables = read_programs(dir);
-    const auto bindings = tables.bindings();
-    add_states(out, dir, tables, bindings);
-    for (const auto& bound : bindings) {
-        if (bound.ratio)
-            out.located.push_back({{bound.domain, -1, b[*bound.ratio], minimum_ratio, maximum_ratio},
-                                   *bound.ratio});
-    }
-    require(!out.located.empty(), "No qualified Pascal clock fields");
+    if (architecture == 4) {
+        const auto tables = read_programs(dir);
+        const auto bindings = tables.bindings();
+        add_states(out, dir, tables, bindings);
+        for (const auto& bound : bindings) {
+            if (bound.ratio)
+                out.located.push_back({{bound.domain, -1, b[*bound.ratio], minimum_ratio, maximum_ratio},
+                                       *bound.ratio});
+        }
+    } else add_legacy_targets(out, dir, original);
+    require(!out.located.empty(), "No qualified firmware clock fields");
     for (const auto& l : out.located) out.table.fields.push_back(l.field);
     out.table.ok = true;
     return out;
 }
+
+const PascalClockField* find_field(const PascalClockTable& table, PascalClockDomain domain, int pstate) {
+    const auto found = std::find_if(table.fields.begin(), table.fields.end(), [&](const PascalClockField& field) {
+        return field.domain == domain && field.pstate == pstate;
+    });
+    return found == table.fields.end() ? nullptr : &*found;
 }
 
-PascalClockTable inspect_pascal_clocks(const Bytes& image) {
-    try { return decode(image).table; }
+std::optional<int> preview_value(const PascalClockField* field, const std::vector<PascalClockEdit>& edits) {
+    if (!field) return {};
+    std::optional<int> staged;
+    for (const auto& edit : edits) {
+        if (edit.domain != field->domain || edit.pstate != field->pstate) continue;
+        if (staged || edit.expected != field->current || edit.value < field->minimum || edit.value > field->maximum)
+            return {};
+        staged = edit.value;
+    }
+    return staged.value_or(field->current);
+}
+
+std::optional<double> positive_frequency(double mhz) {
+    if (!std::isfinite(mhz) || mhz <= 0) return {};
+    return mhz;
+}
+}
+
+bool clock_override_architecture(uint32_t architecture) {
+    return architecture == 2 || architecture == 3 || architecture == 4;
+}
+
+PascalClockTable inspect_pascal_clocks(const Bytes& image, uint32_t architecture, const PascalClockTable* original) {
+    try { return decode(image, architecture, original).table; }
     catch (const std::exception& e) {
         PascalClockTable out;
         out.message = e.what();
@@ -274,9 +361,46 @@ PascalClockTable inspect_pascal_clocks(const Bytes& image) {
     }
 }
 
-PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalClockEdit>& edits) {
+std::optional<double> preview_clock_offset(double live_mhz, double applied_offset_mhz,
+                                           double staged_offset_mhz) {
+    if (!positive_frequency(live_mhz)) return {};
+    return positive_frequency(live_mhz + (staged_offset_mhz - applied_offset_mhz));
+}
+
+PascalClockPreview pascal_clock_preview(const PascalClockTable& table,
+    const std::vector<PascalClockEdit>& edits, PascalClockDomain domain, int pstate,
+    double core_offset_mhz, std::optional<double> gpc_reference_mhz) {
+    PascalClockPreview out;
+    if (!table.ok || pstate < 0) return out;
+
+    const auto* state = find_field(table, domain, pstate);
+    const auto raw = preview_value(state, edits);
+    if (table.state_targets) {
+        if (raw) out.nominal_mhz = positive_frequency(*raw / 2.0);
+        return out;
+    }
+
+    // For ceiling fields, the qualified minimum is the read-only nominal
+    // frequency from the same firmware performance tuple (all doubled MHz).
+    if (raw) out.ceiling_mhz = *raw / 2.0;
+    if (gpc_reference_mhz) {
+        gpc_reference_mhz = positive_frequency(*gpc_reference_mhz);
+    } else if (const auto* gpc = find_field(table, PascalClockDomain::gpc, pstate)) {
+        gpc_reference_mhz = positive_frequency(gpc->minimum / 2.0 + (pstate == 0 ? core_offset_mhz : 0));
+    }
+    if (!gpc_reference_mhz) return out;
+    if (domain == PascalClockDomain::gpc) {
+        out.nominal_mhz = gpc_reference_mhz;
+    } else if (const auto ratio = preview_value(find_field(table, domain, -1), edits)) {
+        out.nominal_mhz = positive_frequency(*gpc_reference_mhz * (*ratio / 100.0));
+    }
+    return out;
+}
+
+PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalClockEdit>& edits,
+                                  uint32_t architecture, const PascalClockTable* original) {
     try {
-        const auto decoded = decode(image);
+        const auto decoded = decode(image, architecture, original);
         require(!edits.empty(), "Select at least one clock field");
         std::set<size_t> seen;
         Bytes patched = image;
@@ -291,6 +415,10 @@ PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalC
             require(edit.value >= f.minimum && edit.value <= f.maximum, "Clock setting exceeds the qualified range");
             if (f.pstate == -1) {
                 patched[it->offset] = static_cast<uint8_t>(edit.value);
+            } else if (decoded.table.state_targets) {
+                const unsigned word = (le16(image, it->offset) & ~frequency_mask) | unsigned(edit.value);
+                patched[it->offset] = static_cast<uint8_t>(word);
+                patched[it->offset + 1] = static_cast<uint8_t>(word >> 8);
             } else {
                 // PERF 5.x PARAM1[27:14] is the maximum. Both nibble/byte
                 // boundaries are shared with other (including reserved) bits.

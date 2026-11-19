@@ -97,6 +97,7 @@ struct LiveData {
     std::shared_ptr<const PascalClockTable> pascal_clocks;
     std::string pascal_clock_status;
     bool pascal_clock_fresh = false;
+    Availability pascal_clock_availability = Availability::unknown;
     std::string pascal_clock_original_receipt;
     std::string pascal_clock_active_receipt;
     std::shared_ptr<const PowerIntegralData> power_integral;

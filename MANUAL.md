@@ -34,16 +34,28 @@ instead of running the full telemetry scan. The window still processes restore,
 close and shutdown messages while paused. Without active maintenance or an
 in-flight operation, it issues no recurring GPU telemetry reads.
 
-## Pascal clock ceilings and ratios in the native GUI
+## Firmware clock controls in the native GUI
 
-Open **Advanced → Pascal clock ceilings and ratios** in Focused. In Classic,
-open **Advanced → Registry / BIOS overrides → Pascal clock ceilings and ratios**.
-Select **Read clock table**, then choose a **Performance state**.
-The editor offers **GPC**, **XBAR** and **SYS / Video** ceilings for entries it can decode on the
-selected GPU. Values are nominal MHz in 0.5 MHz steps. On the tested GTX 1050 Ti,
-SYS also governs the reported Video clock and affects H.264 decode speed.
+Open **Daily tuning** in Focused or **Control → Clock offsets** in Classic.
+Druta reads the selected card’s clock table and shows the sliders it supports.
+Choose a **Performance state** to edit that state's entries. The same editor is
+available in **Advanced**, under **Registry / BIOS overrides** in Classic.
 
-The XBAR and SYS sliders each accept 1–105% of GPC in whole-percent steps.
+On Pascal, the state sliders set **GPC**, **XBAR** and **SYS / Video** ceilings
+in 0.5 MHz steps. Beside each ratio, **Est. target** shows the requested
+percentage of GPC in MHz. It updates as you move the ratio or change the core
+offset. When the selected state is active, it uses the sampled core clock.
+Otherwise it uses the selected state's firmware nominal when available.
+GPU Boost and the state ceiling can affect the clock you actually measure.
+On the tested GTX 1050 Ti, SYS also governs the reported Video clock and
+affects H.264 decode speed.
+
+On Kepler and Maxwell cards with a supported nine-clock performance table,
+**GPC**, **XBAR** and **SYS** have independent MHz targets for each state.
+Each slider spans the targets already programmed for that domain on the card.
+Moving the GPC slider leaves the independent XBAR and SYS targets as set.
+
+The Pascal XBAR and SYS ratio sliders each accept 1–105% of GPC in whole-percent steps.
 They apply across performance states, including states other than the one selected.
 At 105% on the tested GTX 1050 Ti, each clock ran about 4.4% faster than GPC
 in P0. The exact clock depends on the operating point. You can stage ceilings in

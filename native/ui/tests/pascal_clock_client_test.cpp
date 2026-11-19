@@ -64,6 +64,7 @@ int main() {
     CHECK(client->execute(read).ok && reads == 1 && registry_reads == 0);
     const auto snapshot = client->read(false);
     CHECK(snapshot.pascal_clock_fresh && snapshot.pascal_clocks && snapshot.pascal_clocks->fields.size() == 11);
+    CHECK(snapshot.pascal_clock_availability == Availability::available);
     // Even a byte outside the selected tuple invalidates the staged image.
     c.image.back() ^= 1;
     CHECK(!client->execute(prepare).ok && !receipt);
@@ -110,12 +111,16 @@ int main() {
     }
     c.image_availability = VoltagePolicyAvailability::transient;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
+    CHECK(client->read(false).pascal_clock_availability == Availability::transient && client->read(false).pascal_clocks);
+    c.image_availability = VoltagePolicyAvailability::unsupported;
+    CHECK(!client->execute(read).ok && client->read(false).pascal_clock_availability == Availability::unsupported);
     c.image_availability = VoltagePolicyAvailability::available;
     CHECK(client->execute(read).ok);
     c.identity.device_id = 0x1234;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
     c.identity.device_id = 0x1bbc; c.identity.architecture = 7;
     CHECK(!client->execute(read).ok && writes == 0);
+    CHECK(client->read(false).pascal_clock_availability == Availability::unsupported);
     client->close();
     CHECK(writes == 0);
     std::printf("Pascal clock client: %d checks, %d failures\n", checks, failures);

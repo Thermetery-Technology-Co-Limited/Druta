@@ -157,7 +157,7 @@ void classic_hierarchy(){
         check(text.find(body)==std::string::npos,"opening a section leaves every subsection closed");
     check(text.find("This driver session only. A GPU restart returns these to the driver's values.")!=std::string::npos,"session-only scope note is shown");
     check(text.find("Read-only.")!=std::string::npos,"Diagnostics states it is read-only");
-    check(text.find("Power relationship weights persist until removed")!=std::string::npos&&text.find("Pascal clock settings last for the driver session")!=std::string::npos,"registry section describes the two override lifetimes");
+    check(text.find("Power relationship weights persist until removed")!=std::string::npos&&text.find("Firmware clock settings last for the driver session")!=std::string::npos,"registry section describes the two override lifetimes");
     check(text.find("does not install them")!=std::string::npos,"voltage section states its offset exception");
     check(state.commands.empty()&&state.power_saving_intents.empty()&&state.clock_gating_intents.empty()&&state.voltage_tables_intents.empty()&&state.voltage_limits_intents.empty(),"opening sections dispatches nothing");
     // power_integral_panel.py: the feedback adjustment sits inline at the end of Power
@@ -303,6 +303,137 @@ void reopened_pascal_clocks(Presentation presentation) {
           "Restore remains available for the active clock override");
 }
 
+void front_page_clocks(Presentation presentation) {
+    ViewState state;
+    state.preview = false;
+    state.presentation = presentation;
+    state.page = Page::daily;
+    state.open_pascal_clocks_requested = true;
+    state.app_actions.administrator = true;
+    auto live = std::make_shared<SessionSnapshot>();
+    live->generation = 5;
+    live->selected_slot = "0000:13:00.0";
+    std::strcpy(live->data.identity.uuid, "GPU-alternate-clock-layout");
+    live->data.connected = true;
+    state.live = live;
+    const bool classic = presentation == Presentation::classic;
+    const auto has_live_offsets = [&](const std::string& text) {
+        return text.find(classic ? "Core clock offset" : "Core offset") != std::string::npos &&
+            text.find("Memory offset") != std::string::npos;
+    };
+
+    auto text = frame(state);
+    check(!state.automatic_clock_read && has_live_offsets(text), "Unknown GPU keeps the normal front-page offsets");
+    live->data.clock_architecture = 7;
+    text = frame(state);
+    check(!state.automatic_clock_read && has_live_offsets(text), "A newer GPU keeps its own clock controls");
+    live->data.clock_architecture = 3;
+    frame(state);
+    check(state.automatic_clock_read == live->generation && !front_clock_capture_ready(state) &&
+          state.commands.empty() && state.power_weights_intents.empty(),
+          "Opening the older GPU front page requests only a paired read");
+    state.pascal_clock_view.automatic_reads = 1;
+    live->data.pascal_clock_availability = Availability::transient;
+    frame(state);
+    check(state.automatic_clock_read == live->generation && !front_clock_capture_ready(state),
+          "A transient clock read gets bounded automatic recovery before screenshots");
+    state.pascal_clock_view.automatic_reads = 2;
+    live->data.pascal_clock_status = "Clock capture temporarily unavailable";
+    text = frame(state);
+    check(!state.automatic_clock_read && front_clock_capture_ready(state) && text.find("Read clock table") != std::string::npos,
+          "After automatic recovery the transient read has a manual retry");
+    live->data.pascal_clock_availability = Availability::unsupported;
+    text = frame(state);
+    check(!state.automatic_clock_read && text.find("Read clock table") == std::string::npos && has_live_offsets(text),
+          "An unqualified layout keeps its normal controls without a clock-override retry");
+
+    auto table = std::make_shared<PascalClockTable>();
+    table->ok = true;
+    table->state_targets = true;
+    table->fields = {{PascalClockDomain::sys, 0, 3100, 2000, 3800}};
+    live->data.pascal_clocks = table;
+    live->data.pascal_clock_availability = Availability::available;
+    live->data.pascal_clock_fresh = true;
+    live->data.advanced_controls = {{{AdvancedKind::clock_domain, 3}, "SYS"},
+                                    {{AdvancedKind::clock_domain, 5}, "VIDEO"}};
+    text = frame(state);
+    check(text.find("Nominal target") != std::string::npos && text.find("SYS / Video") == std::string::npos &&
+          has_live_offsets(text), "Qualified legacy SYS exposes a nominal target and keeps both live offsets");
+    check(classic ? text.find("control domain 3 offset") == std::string::npos : text.find("SYS") == text.rfind("SYS"),
+          "The qualified SYS target replaces its normal domain row on the front page");
+    check(text.find(classic ? "control domain 5 offset" : "VIDEO") != std::string::npos,
+          "Independent legacy Video remains on its original offset path");
+
+    live->data.clock_architecture = 4;
+    live->data.advanced_controls.clear();
+    table->state_targets = false;
+    table->fields = {{PascalClockDomain::gpc, 0, 3800, 3200, 4200},
+                     {PascalClockDomain::xbar, -1, 98, 1, 105}};
+    auto& core = live->data.controls[static_cast<size_t>(ControlId::core)];
+    core.availability = Availability::available;
+    core.current = 80;
+    core.low = -300;
+    core.high = 300;
+    auto& telemetry = live->data.telemetry;
+    telemetry.present = DC_T_CORE | DC_T_PSTATE | DC_T_CORE_OFF;
+    telemetry.core = 1800;
+    telemetry.pstate = 0;
+    telemetry.core_off = 80;
+    text = frame(state);
+    check(text.find("1764.0 MHz") != std::string::npos && has_live_offsets(text),
+          "The Pascal ratio estimates from live GPC while core and memory offsets remain present");
+    state.pascal_clock_view.stage(table->fields.back(), 95);
+    text = frame(state);
+    check(text.find("1710.0 MHz") != std::string::npos && state.power_weights_intents.empty(),
+          "Staging a ratio updates its estimate without a write");
+    auto& core_draft = state.drafts[static_cast<size_t>(ControlId::core)];
+    core_draft.dirty = true;
+    core_draft.value = 100;
+    text = frame(state);
+    check(text.find("1729.0 MHz") != std::string::npos, "A staged core offset adjusts the base by the change from applied");
+    telemetry.core = 1900;
+    text = frame(state);
+    check(text.find("1824.0 MHz") != std::string::npos, "A changing live GPC updates the staged ratio target");
+    live->telemetry_stale_mask = DC_T_CORE;
+    text = frame(state);
+    check(text.find("the firmware GPC nominal when available") != std::string::npos &&
+          text.find("1824.0 MHz") == std::string::npos, "A stale sample loses its live reference");
+    table->fields.push_back({PascalClockDomain::gpc, 8, 800, 600, 900});
+    state.pascal_clock_view.selected_pstate = 8;
+    telemetry.pstate = 8;
+    telemetry.core = 400;
+    live->telemetry_stale_mask = 0;
+    text = frame(state);
+    check(text.find("380.0 MHz") != std::string::npos && text.find("Target estimates for P8 use the live GPC clock.") != std::string::npos,
+          "The P0 core-offset draft does not shift a live P8 ratio target");
+    live->telemetry_stale_mask = DC_T_CORE;
+    text = frame(state);
+    check(text.find("285.0 MHz") != std::string::npos, "The P0 core-offset draft does not shift the P8 firmware nominal");
+
+    auto* window = advanced_window(Presentation::focused);
+    if (classic && window) {
+        auto* workspace = window;
+        window = nullptr;
+        for (auto* w : ImGui::GetCurrentContext()->Windows)
+            if (w->ParentWindow == workspace && w->ChildId == workspace->GetID("classic-knob-columns")) window = w;
+    }
+    check(window != nullptr, "The front-page clock controls have a content window");
+    if (!window) return;
+    const auto scope = classic ? window->GetID("classic-control-columns") : window->IDStack[0];
+    const auto sliders = ImHashStr("PascalClockSliders", 0, ImHashStr("pascal-clock-panel", 0, scope));
+    ImGui::ActivateItemByID(ImHashStr("Review clock changes", 0, sliders));
+    frame(state);
+    check(state.pascal_clock_view.reviewing && state.power_weights_intents.empty(), "Front-page Review stages no write");
+    ImGui::ActivateItemByID(ImHashStr("Apply and refresh selected GPU", 0, sliders));
+    frame(state);
+    check(state.power_weights_intents.size() == 1 &&
+          state.power_weights_intents.front().operation == PowerWeightsIntent::Operation::prepare_clocks &&
+          state.power_weights_intents.front().clock_front &&
+          state.power_weights_intents.front().clock_edits.size() == 1 &&
+          state.power_weights_intents.front().clock_edits.front().value == 95,
+          "Front-page Apply sends the reviewed ratio through the qualified override path");
+}
+
 // Released 1.9.1 build_power_policy_section and the adv_status mirror line.
 PowerPolicy policy(uint32_t id,const char* unit,double current,double low,double high,bool writable,const char* detail){
     PowerPolicy p;p.id=id;p.label="Policy "+std::to_string(id);p.binding="binding-"+std::to_string(id);p.channel=id+1;p.policy_type=5;
@@ -404,5 +535,6 @@ int main(){ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO(
     unsigned char* pixels=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
     pages(Presentation::focused);pages(Presentation::classic);classic_hierarchy();
     reopened_pascal_clocks(Presentation::focused);reopened_pascal_clocks(Presentation::classic);
+    front_page_clocks(Presentation::focused);front_page_clocks(Presentation::classic);
     classic_power_policies();section_style();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("Advanced view integration: %d failures\n",failures);return failures?1:0;}

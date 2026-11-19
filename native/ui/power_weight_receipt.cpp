@@ -149,16 +149,16 @@ PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
  uint32_t version=0;uint8_t oem=0;
  std::vector<PowerWeightRegistryPatch> patches;
  if(r.is_pascal_clocks()) {
-  require(r.identity.architecture==4&&r.requests.empty()&&r.info.empty()&&r.clocks.size()<=50,
-          "Pascal clock receipt geometry or architecture invalid");
-  const auto table=inspect_pascal_clocks(r.image);
+  require(clock_override_architecture(r.identity.architecture)&&r.requests.empty()&&r.info.empty()&&r.clocks.size()<=50,
+          "Clock receipt geometry or architecture invalid");
+  const auto table=inspect_pascal_clocks(r.image,r.identity.architecture);
   require(table.ok,table.message.c_str());
   require(table.device_id==r.identity.device_id,"Clock ROM PCI device differs from selected GPU");
-  out.clock_plan=plan_pascal_clocks(r.image,r.clocks);
+  out.clock_plan=plan_pascal_clocks(r.image,r.clocks,r.identity.architecture);
   require(out.clock_plan.ok,out.clock_plan.message.c_str());
   if(!r.previous_clocks.empty()) {
    require(r.previous_clocks.size()<=50,"Previous Pascal clock receipt geometry invalid");
-   auto previous=plan_pascal_clocks(r.image,r.previous_clocks);
+   auto previous=plan_pascal_clocks(r.image,r.previous_clocks,r.identity.architecture);
    require(previous.ok,previous.message.c_str());
    require(previous.image!=r.image&&previous.image!=out.clock_plan.image,"Clock revision requires a distinct running image");
    out.clock_source_image=std::move(previous.image);
@@ -212,12 +212,12 @@ PowerWeightReceipt revise_pascal_clock_receipt(const PowerWeightCapture& c,const
  require(c.image==previous.clock_plan.image&&c.image!=active.image,
          "The running image differs from the verified clock override");
  require(same_registry(active.before,r.before),"The clock override's original registry settings changed");
- const auto wanted=plan_pascal_clocks(c.image,edits);
+ const auto original=inspect_pascal_clocks(active.image,active.identity.architecture);
+ const auto wanted=plan_pascal_clocks(c.image,edits,active.identity.architecture,&original);
  require(wanted.ok,wanted.message.c_str());
  require(wanted.image!=c.image,"The selected clocks already match the running image");
 
  // The restart loads from the original image. Stage all effective edits on that image.
- const auto original=inspect_pascal_clocks(active.image);
  r.image=active.image;
  r.before=active.before;
  r.previous_clocks=active.clocks;

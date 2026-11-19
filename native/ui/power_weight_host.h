@@ -4,7 +4,14 @@
 #include "power_weight_transaction.h"
 #include "device_restart.h"
 namespace druta::ui {
-struct PowerWeightHostRequest {std::string receipt_id;PowerWeightOperation operation=PowerWeightOperation::verify;uint32_t parent_pid=0;std::wstring executable,core;};
+struct PowerWeightHostRequest {
+    std::string receipt_id;
+    PowerWeightOperation operation = PowerWeightOperation::verify;
+    uint32_t parent_pid = 0;
+    std::wstring executable, core;
+    bool classic = false;
+    bool daily = false;
+};
 // Testable admission and child-result checks used by the production host.
 bool power_weight_host_gate(uint32_t,const std::function<bool(uint32_t)>& wait_parent,const std::function<void()>& admitted);
 PowerWeightBoundaryResult power_weight_child_timeout(bool exit_confirmed);

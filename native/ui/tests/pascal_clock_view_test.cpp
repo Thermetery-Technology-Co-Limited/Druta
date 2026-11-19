@@ -22,7 +22,8 @@ struct Frame {
 };
 
 Frame frame(PascalClockViewState& state, const PascalClockTable* table, uint64_t generation,
-            const char* click = nullptr, bool edit = true, bool apply = true) {
+            const char* click = nullptr, bool edit = true, bool apply = true,
+            const PascalClockReference& reference = {}) {
     constexpr const char* window = "Pascal clocks test";
     if (click) {
         const auto* w = ImGui::FindWindowByName(window);
@@ -35,12 +36,46 @@ Frame frame(PascalClockViewState& state, const PascalClockTable* table, uint64_t
     ImGui::SetNextWindowSize({1100, 740});
     ImGui::Begin(window);
     ImGui::LogToBuffer();
-    draw_pascal_clock_sliders(state, table, generation, edit, apply, f.confirmed);
+    draw_pascal_clock_sliders(state, table, generation, edit, apply, f.confirmed, reference);
     f.text = ImGui::GetCurrentContext()->LogBuffer.c_str();
     ImGui::LogFinish();
     ImGui::End();
     ImGui::Render();
     return f;
+}
+
+void check_clock_column_widths(const PascalClockTable& clocks, float width, const ImGuiStyle& style) {
+    const auto old_style = ImGui::GetStyle();
+    ImGui::GetStyle() = style;
+    ImGui::NewFrame();
+    ImGui::SetNextWindowSize({width, 690});
+    ImGui::Begin("Clock column sizing test");
+    ImGui::LogToBuffer();
+    const auto panel = ImGui::GetID("PascalClockSliders");
+    PascalClockViewState state;
+    std::vector<PascalClockEdit> confirmed;
+    draw_pascal_clock_sliders(state, &clocks, 1, true, true, confirmed, {0, 1800.0});
+    const std::string text = ImGui::GetCurrentContext()->LogBuffer.c_str();
+    ImGui::LogFinish();
+    check(text.find("1764.0 MHz") != std::string::npos, "The narrow layout still shows the estimated ratio frequency");
+    const float chrome = 2 * (ImGui::GetFrameHeight() + style.FramePadding.x + style.ItemInnerSpacing.x);
+    const auto check_table = [&](const char* id, const char* digits) {
+        const auto* table = ImGui::TableFindByID(ImHashStr(id, 0, panel));
+        check(table != nullptr, "Clock table is rendered for the selected style");
+        const auto& input = table->Columns[2];
+        check(input.WorkMaxX - input.WorkMinX - chrome >= ImGui::CalcTextSize(digits).x,
+              "The complete numeric value fits beside its two step buttons");
+        if (table->Columns[1].WidthGiven < 3 * ImGui::GetFrameHeight())
+            std::fprintf(stderr, "%s slider %.0f px in %.0f px (%g DPI, %g px frame)\n", id,
+                         table->Columns[1].WidthGiven, table->WorkRect.GetWidth(), style.FontScaleDpi, ImGui::GetFrameHeight());
+        check(table->Columns[1].WidthGiven >= 3 * ImGui::GetFrameHeight(),
+              "The clock slider keeps usable space when the numeric input is widened");
+    };
+    check_table("state_ceilings", "1911.5");
+    check_table("shared_ratios", "105");
+    ImGui::End();
+    ImGui::Render();
+    ImGui::GetStyle() = old_style;
 }
 }
 
@@ -123,6 +158,24 @@ int main() {
     partial.fields = {table.fields[0]};
     frame(state, &partial, 11);
     check(state.selected_pstate == 8, "Accept an adapter whose only shown state is P8");
+    PascalClockViewState ratio_only_state;
+    partial.fields = {table.fields[3]};
+    auto ratio_only = frame(ratio_only_state, &partial, 12, nullptr, true, true, {8, 250.0});
+    check(ratio_only.text.find("245.0 MHz") != std::string::npos &&
+          ratio_only.text.find("Target estimates for P8") != std::string::npos,
+          "A ratio-only layout estimates from the live state when no state selector is available");
+    partial.fields = {{PascalClockDomain::gpc, 0, 3200, 3200, 3200}};
+    auto fixed = frame(ratio_only_state, &partial, 12);
+    check(!has_writable_pascal_clock(&partial, PascalClockDomain::gpc) && fixed.text.find("##slider") == std::string::npos &&
+          fixed.text.find("Maximum") == std::string::npos, "Hide a fixed field instead of presenting a dead slider");
+    ImGuiStyle focused;
+    focused.FramePadding = {10, 7};
+    focused.ItemInnerSpacing = {8, 6};
+    check_clock_column_widths(table, 500, focused);
+    ImGuiStyle classic;
+    classic.ScaleAllSizes(1.5f);
+    classic.FontScaleDpi = 1.5f;
+    check_clock_column_widths(table, 500, classic);
     ImGui::DestroyContext();
     std::puts("Pascal clock slider view passed");
 }

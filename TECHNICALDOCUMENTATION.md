@@ -432,6 +432,21 @@ version 0x50 performance table can also supply an individual maximum per domain
 and performance state. Druta edits only the maximum bits of a selected entry.
 The editor divides the stored double-rate MHz by two for display.
 
+In Daily tuning and Classic Control the ratio rows estimate target MHz as
+`GPC MHz × ratio / 100`. The active state's reference follows core telemetry.
+A staged P0 core offset adds only its difference from the applied offset to
+a live P0 reading. The fallback is the selected state's firmware GPC nominal.
+The selected ceiling is shown independently because Boost can move the actual
+clock away from either value.
+
+The Kepler and Maxwell editor recognizes the nine-clock, four-byte-record
+PERF 4.x layout captured in the GTX 770 and GM107 samples. GPC2CLK, XBAR2CLK
+and SYS2CLK occupy slots 0, 1 and 4. Each per-state edit updates the low
+14 bits of that domain's word in doubled MHz and preserves its flags and all
+other records. The editable range comes from the original image's targets
+for that domain across states. Decoder tests cover those captures. Physical
+clock movement on those two architectures still needs an on-card measurement.
+
 On the MSI GTX 1050 Ti Gaming X (GP107, driver 581.80), the following P0
 measurements used separate before, edited and restored runs. These are physical
 clock-counter readings except where the row gives throughput.
@@ -1330,6 +1345,28 @@ stock` zeroes the table, which is not the same as putting a previous state back.
 
 Decodes and edits the framebuffer-partition memory timing registers through
 `nvtune`.
+
+## Session firmware override experiment for tFAW
+
+The P0 trial used the driver's temporary ROM records and a selected GPU
+restart to change one bit of tFAW in a Memory Tweak Table entry. Each phase
+checked the complete running image and independently sampled the memory
+controller's CONFIG3. Both sides of each timing sample had to report P0
+and the same memory clock. CONFIG1, which contains tCL, was read for
+comparison. The test ran without nvtune or a VBIOS flash.
+
+| Card on driver 581.80 | State and reported memory clock | Tweak row | Requested tFAW | Controller tFAW before / edited / restored | tCL throughout |
+|---|---|---:|---:|---:|---:|
+| GTX 1050 Ti, GP107 | P0, 3504 MHz | 9 | 29 | 28 / 29 / 28 | 22 |
+| RTX 3070 Ti, GA104 | P0, 9501 MHz | 0 | 21 | 20 / 20 / 20 | 30 |
+
+Both cards loaded the edited image and returned to the exact original image.
+Only the GTX 1050 Ti changed the programmed controller timing. A short
+CUDA copy workload reached P0 on the 1050 Ti. A Direct3D graphics workload
+reached P0 on the 3070 Ti.
+The evidence file
+also retains earlier P8 and P2 trials as historical records.
+[Trial records and full-image digests](experiments/firmware-tfaw-20261119.json).
 
 ## A cycle count is not a time until you know its clock
 

@@ -16,6 +16,7 @@ struct PowerWeightCapture {
 };
 struct PowerWeightCaptureApi {
  VoltageEvidenceApi evidence;
+ decltype(&dc_gpu_vbios_target_bind) clock_bind=nullptr;
  decltype(&dc_cl_abi) abi=nullptr;
  decltype(&dc_cl_rm) rm=nullptr;
  std::function<VoltageScaffoldWindowsTarget(const dc_gpu_identity&,const dc_target&)> resolve_windows;

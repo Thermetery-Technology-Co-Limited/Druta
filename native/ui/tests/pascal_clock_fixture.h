@@ -60,4 +60,46 @@ inline std::vector<uint8_t> pascal_clock_fixture() {
     }
     return b;
 }
+
+inline std::vector<uint8_t> legacy_clock_fixture(uint32_t architecture) {
+    constexpr size_t perf = 0x300;
+    // Recorded GTX 770 and GM107 P0/P8 values and flags, with disabled
+    // slots and arbitrary reserved words in a synthetic PCI image.
+    const bool kepler = architecture == 2;
+    const size_t header = kepler ? 30 : 33;
+    const size_t row_header = kepler ? 25 : 32;
+    const size_t stride = row_header + 9 * 4;
+    auto rom = pascal_clock_fixture();
+    std::fill(rom.begin() + 0xc8, rom.begin() + 0xd0, 0); // No Pascal clock-program pointers.
+    rom[perf] = 0x40;
+    rom[perf + 1] = static_cast<uint8_t>(header);
+    rom[perf + 2] = static_cast<uint8_t>(row_header);
+    rom[perf + 3] = 4;
+    rom[perf + 4] = 9;
+    rom[perf + 5] = 4;
+    rom[147] = kepler ? 1 : 2; // BIT P token versions both locate PERF.
+    const size_t p0 = perf + header + 3 * stride;
+    const size_t p8 = perf + header;
+    rom[p8] = 7;
+    rom[p8 + stride] = rom[p8 + 2 * stride] = 0xff;
+    rom[p0] = 15;
+    const unsigned p0_clocks[]{1080, 1165, kepler ? 1115u : 1130u, kepler ? 3505u : 900u,
+        kepler ? 1134u : 1120u, 1080, 540, 324, kepler ? 540u : 648u};
+    const unsigned p8_clocks[]{810, 810, 810, kepler ? 324u : 405u, 810, 648, 405, 324, kepler ? 540u : 405u};
+    for (size_t domain = 0; domain < 9; ++domain) {
+        const size_t high = p0 + row_header + domain * 4;
+        const size_t low = p8 + row_header + domain * 4;
+        const unsigned p0_flags = domain < 5 ? 0x4000 : 0;
+        const unsigned p8_flags = kepler && domain < 5 && domain != 3 ? 0x8000 : 0;
+        rom[high] = static_cast<uint8_t>(p0_clocks[domain]);
+        rom[high + 1] = static_cast<uint8_t>((p0_clocks[domain] | p0_flags) >> 8);
+        rom[high + 2] = 0xA5;
+        rom[high + 3] = 0x5A;
+        rom[low] = static_cast<uint8_t>(p8_clocks[domain]);
+        rom[low + 1] = static_cast<uint8_t>((p8_clocks[domain] | p8_flags) >> 8);
+        rom[low + 2] = 0xC3;
+        rom[low + 3] = 0x3C;
+    }
+    return rom;
+}
 }

@@ -1154,8 +1154,14 @@ void interactive_curve_plot(ViewState& state, std::optional<float> fixed_height 
     ImPlot::GetInputMap() = saved_input;
 }
 
+std::vector<uint32_t> replaced_clock_offsets(const SessionSnapshot& snapshot);
+void queue_front_pascal_clock_read(ViewState& state);
+void front_pascal_clock_panel(ViewState& state);
+
 void live_daily(ViewState& state, bool verbose) {
     const auto& snapshot = *state.live;
+    state.open_pascal_clocks_requested = false;
+    queue_front_pascal_clock_read(state);
     if (!short_view()) title(verbose ? "Control" : "Daily tuning", "Stage a request, then Apply. Undo restores the recorded request.");
     live_summary(snapshot,state.shunt.correction);
     ImGui::BeginDisabled(snapshot.busy || snapshot.opening);
@@ -1175,7 +1181,9 @@ void live_daily(ViewState& state, bool verbose) {
     }
     ImGui::SeparatorText("NVVDD current limit");
     draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
-    draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,OffsetGroup::daily_clocks);
+    front_pascal_clock_panel(state);
+    draw_clock_voltage_offsets(snapshot,state.controls_unlocked,false,state.advanced_view,state.commands,
+                               OffsetGroup::daily_clocks,replaced_clock_offsets(snapshot));
     if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s", state.advanced_view.notice.c_str());
     if (verbose) {
         if (ImGui::CollapsingHeader("Rail limits", ImGuiTreeNodeFlags_DefaultOpen))
@@ -2016,13 +2024,82 @@ const PowerWeightReceipt* selected_override(const ViewState& state) {
     return data->receipt.get();
 }
 
+bool front_clock_candidate(const SessionSnapshot& snapshot) {
+    const auto arch = snapshot.data.clock_architecture;
+    return arch && clock_override_architecture(*arch);
+}
+
 bool show_pascal_clocks(const ViewState& state) {
     const auto arch = state.live->data.clock_architecture;
     const auto* receipt = selected_override(state);
-    return !arch || *arch == 4 || (receipt && receipt->is_pascal_clocks());
+    return !arch || front_clock_candidate(*state.live) || (receipt && receipt->is_pascal_clocks());
 }
 
-void pascal_clock_panel(ViewState& state) {
+const PascalClockTable* front_clock_table(const SessionSnapshot& snapshot) {
+    return front_clock_candidate(snapshot) && snapshot.data.pascal_clock_availability != Availability::unsupported ?
+        snapshot.data.pascal_clocks.get() : nullptr;
+}
+
+std::vector<uint32_t> replaced_clock_offsets(const SessionSnapshot& snapshot) {
+    const auto* table = front_clock_table(snapshot);
+    const bool xbar = has_writable_pascal_clock(table, PascalClockDomain::xbar);
+    const bool sys = has_writable_pascal_clock(table, PascalClockDomain::sys);
+    std::vector<uint32_t> replaced;
+    for (const auto& control : snapshot.data.advanced_controls) {
+        if (control.id.kind != AdvancedKind::clock_domain || control.id.domain == 2) continue;
+        const bool shared_video = table && !table->state_targets && (control.label == "VIDEO" || control.label == "Video");
+        if ((xbar && (control.label == "XBAR" || control.label == "Crossbar")) ||
+            (sys && (control.label == "SYS" || shared_video)))
+            replaced.push_back(control.id.domain);
+    }
+    return replaced;
+}
+
+bool front_clock_fields(const SessionSnapshot& snapshot) {
+    const auto* table = front_clock_table(snapshot);
+    return has_writable_pascal_clock(table, PascalClockDomain::gpc) ||
+        has_writable_pascal_clock(table, PascalClockDomain::xbar) ||
+        has_writable_pascal_clock(table, PascalClockDomain::sys);
+}
+
+bool front_clock_read_needed(const SessionSnapshot& s, unsigned attempts) {
+    const auto availability = s.data.pascal_clock_availability;
+    const bool initial = availability == Availability::unknown && attempts == 0;
+    const bool recovery = availability == Availability::transient && attempts < 2;
+    return front_clock_candidate(s) && s.data.connected && !s.data.pascal_clock_fresh && (initial || recovery);
+}
+
+void queue_front_pascal_clock_read(ViewState& state) {
+    const auto& s = *state.live;
+    if (!s.opening && !s.busy && front_clock_read_needed(s, state.pascal_clock_view.automatic_reads))
+        state.automatic_clock_read = s.generation;
+}
+
+PascalClockReference clock_preview_reference(const ViewState& state) {
+    const auto& s = *state.live;
+    const auto index = static_cast<size_t>(ControlId::core);
+    const auto& control = s.data.controls[index];
+    const auto& draft = state.drafts[index];
+    const auto& telemetry = s.data.telemetry;
+    auto applied = control.availability == Availability::available ? control.current : std::nullopt;
+    if (!s.paused && !(s.telemetry_stale_mask & DC_T_CORE_OFF)) {
+        if (const auto offset = telemetry_value(s, DC_T_CORE_OFF, telemetry.core_off)) applied = offset;
+    }
+    const bool staged = draft.dirty && std::isfinite(draft.value) &&
+        (!control.low || draft.value >= *control.low) && (!control.high || draft.value <= *control.high);
+    PascalClockReference reference;
+    if (applied && std::isfinite(*applied)) reference.core_offset_mhz = staged ? draft.value : *applied;
+    if (!s.data.connected || s.paused || (s.telemetry_stale_mask & (DC_T_CORE | DC_T_PSTATE))) return reference;
+    if (auto live = telemetry_value(s, DC_T_CORE, telemetry.core); live && *live > 0 &&
+        (telemetry.present & DC_T_PSTATE)) {
+        reference.live_pstate = telemetry.pstate;
+        reference.live_gpc_mhz = telemetry.pstate != 0 || !staged ? live :
+            applied ? preview_clock_offset(*live, *applied, draft.value) : std::nullopt;
+    }
+    return reference;
+}
+
+void pascal_clock_panel(ViewState& state, bool front = false) {
     auto& s = *state.live;
     const bool busy = s.busy || s.opening;
     const auto* receipt = selected_override(state);
@@ -2035,24 +2112,32 @@ void pascal_clock_panel(ViewState& state) {
     std::string restart_reason;
     const bool can_restart = restart_device_target(s, restart_reason, state.app_actions.administrator).has_value();
     ImGui::PushID("pascal-clock-panel");
-    ImGui::BeginDisabled(busy || !s.data.connected);
-    if (ImGui::Button("Read clock table")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read_clocks, {}});
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(busy);
-    if (ImGui::Button("Inspect saved override")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::inspect, {}});
-    ImGui::EndDisabled();
-    if (!s.data.pascal_clock_status.empty()) ImGui::TextWrapped("%s", s.data.pascal_clock_status.c_str());
+    if (!front || !s.data.pascal_clock_fresh) {
+        ImGui::BeginDisabled(busy || !s.data.connected);
+        if (ImGui::Button("Read clock table")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read_clocks, {}});
+        ImGui::EndDisabled();
+    }
+    if (!front) {
+        ImGui::SameLine();
+        ImGui::BeginDisabled(busy);
+        if (ImGui::Button("Inspect saved override")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::inspect, {}});
+        ImGui::EndDisabled();
+    }
+    if ((!front || !s.data.pascal_clock_fresh) && !s.data.pascal_clock_status.empty())
+        ImGui::TextWrapped("%s", s.data.pascal_clock_status.c_str());
     if (!state.power_weights_view.status.empty()) ImGui::TextWrapped("%s",state.power_weights_view.status.c_str());
 
     const bool editable = !busy && s.data.connected && s.data.pascal_clock_fresh && (!owned || active_clocks);
     std::vector<PascalClockEdit> edits;
-    draw_pascal_clock_sliders(state.pascal_clock_view, s.data.pascal_clocks.get(), s.generation,
-                              editable, editable && state.controls_unlocked && can_restart, edits);
+    const auto* table = front ? front_clock_table(s) : s.data.pascal_clocks.get();
+    draw_pascal_clock_sliders(state.pascal_clock_view, table, s.generation,
+                              editable, editable && state.controls_unlocked && can_restart, edits,
+                              clock_preview_reference(state));
     if (editable && !state.controls_unlocked) ImGui::TextWrapped("Unlock tuning controls to apply clock changes.");
-    if (!busy && !can_restart) ImGui::TextWrapped("%s", restart_reason.c_str());
+    if (!busy && !can_restart && (!front || front_clock_fields(s) || (receipt && receipt->is_pascal_clocks())))
+        ImGui::TextWrapped("%s", restart_reason.c_str());
     if (!edits.empty())
-        state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks, {}, std::move(edits)});
+        state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks, {}, std::move(edits), front});
 
     if (receipt && receipt->is_pascal_clocks()) {
         if (receipt->id == s.data.pascal_clock_original_receipt)
@@ -2066,18 +2151,34 @@ void pascal_clock_panel(ViewState& state) {
         }
         if (owned) {
             ImGui::BeginDisabled(busy);
-            if (ImGui::Button("Verify clock override")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::verify,{}});
+            if (ImGui::Button("Verify clock override"))
+                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::verify, {}, {}, front});
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::BeginDisabled(busy || !state.controls_unlocked || !can_restart);
             if (ImGui::Button("Restore original clocks and refresh GPU"))
-                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::remove,{}});
+                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::remove, {}, {}, front});
             ImGui::EndDisabled();
         }
     } else if (owned) {
         ImGui::TextWrapped("Resolve the saved power relationship override before applying clock changes.");
     }
     ImGui::PopID();
+}
+
+void front_pascal_clock_panel(ViewState& state) {
+    const auto& s = *state.live;
+    const auto* receipt = selected_override(state);
+    if (!front_clock_fields(s) && !(receipt && receipt->is_pascal_clocks()) &&
+        (!front_clock_candidate(s) || s.data.pascal_clock_availability != Availability::transient)) return;
+    ImGui::SeparatorText(s.data.pascal_clocks && s.data.pascal_clocks->state_targets ?
+        "Clock targets" : "Clock ceilings and ratios");
+    pascal_clock_panel(state, true);
+}
+
+const char* advanced_clock_title(const SessionSnapshot& snapshot) {
+    const auto arch = snapshot.data.clock_architecture;
+    return arch && *arch < 4 ? "Firmware clock targets" : "Pascal clock ceilings and ratios";
 }
 
 void power_weights_panel(ViewState& state, bool classic) {
@@ -2225,7 +2326,7 @@ void live_semantic_controls(ViewState& state, bool classic) {
     if(ImGui::CollapsingHeader("Power relationship weights")) power_weights_panel(state, classic);
     if (show_pascal_clocks(state)) {
         if (policy_navigation) ImGui::SetNextItemOpen(clocks_navigation);
-        if (ImGui::CollapsingHeader("Pascal clock ceilings and ratios")) {
+        if (ImGui::CollapsingHeader(advanced_clock_title(*state.live))) {
             if (clocks_navigation) ImGui::SetScrollHereY(0.0f);
             pascal_clock_panel(state);
         }
@@ -2333,9 +2434,9 @@ void classic_advanced_sections(ViewState& state) {
     next(weights||clocks);
     if (ClassicSection section{"Registry / BIOS overrides", 0,
         "Applying changes refreshes the selected GPU. Power relationship weights persist until removed. "
-        "Pascal clock settings last for the driver session."}) {
+        "Firmware clock settings last for the driver session."}) {
         if (show_pascal_clocks(state))
-            sub("Pascal clock ceilings and ratios", clocks, true, [&]{ pascal_clock_panel(state); });
+            sub(advanced_clock_title(*state.live), clocks, true, [&]{ pascal_clock_panel(state); });
         sub("Power relationship weights", weights, true, [&]{ power_weights_panel(state, true); });
         // registry_panel.py build_registry "DIFR configured state". Its reader
         // (lpwr_runtime.read) has no native port yet, so the subsection says so
@@ -2797,6 +2898,7 @@ void classic_control_summary(const SessionSnapshot& s) {
 void classic_daily(ViewState& state) {
     if (!state.live) { ImGui::TextUnformatted("Opening adapter..."); return; }
     const auto& s = *state.live;
+    queue_front_pascal_clock_read(state);
     classic_control_summary(s);
     // Python build_control: a two-column table with no width of its own, each
     // column fixed at the released knob width. ImGui narrows the columns that do
@@ -2815,6 +2917,8 @@ void classic_daily(ViewState& state) {
         ImGui::TableSetupColumn("Clocks and limits", ImGuiTableColumnFlags_WidthFixed, column_width);
         ImGui::TableSetupColumn("Rails", ImGuiTableColumnFlags_WidthFixed, column_width);
         ImGui::TableNextColumn();
+        if (state.open_pascal_clocks_requested) ImGui::SetNextItemOpen(true);
+        state.open_pascal_clocks_requested = false;
         if (ImGui::CollapsingHeader("Clock offsets", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (classic_knob_table("classic-clock-offsets")) {
                 live_control_row(state, ControlId::core, "Core clock offset (MHz)", true);
@@ -2825,9 +2929,11 @@ void classic_daily(ViewState& state) {
                     : std::string(s.data.memory_divisor ? "MHz true" : "MHz eff")) + ")";
                 live_control_row(state, ControlId::memory, memory_label.c_str(), true);
                 // Python build_domain_offset_rows: the per-domain rows share this table.
-                draw_clock_domain_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands, true);
+                draw_clock_domain_controls(s, state.controls_unlocked, true, state.advanced_view, state.commands,
+                                           true, replaced_clock_offsets(s));
                 ImGui::EndTable();
             }
+            front_pascal_clock_panel(state);
         }
         section_gap();
         if (ImGui::CollapsingHeader("Limits", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -3023,10 +3129,18 @@ void classic_floating_pages(ViewState& state) {
 
 } // namespace
 
+bool front_clock_capture_ready(const ViewState& state) {
+    if (!state.live || state.page != Page::daily) return true;
+    const auto& s = *state.live;
+    if (!front_clock_candidate(s) || !s.data.connected || s.data.pascal_clock_fresh) return true;
+    const auto attempts = state.pascal_clock_view.generation == s.generation ? state.pascal_clock_view.automatic_reads : 0;
+    return !s.busy && !front_clock_read_needed(s, attempts);
+}
+
 bool ViewState::has_draft() const {
     if (!preview) {
         for (const auto& draft : drafts) if (draft.dirty) return true;
-        return false;
+        return !pascal_clock_view.drafts.empty();
     }
     return core_offset_mhz != 0.0f || memory_offset_mhz != 0.0f
         || power_limit_w != 310.0f || fan_percent != 30.0f;
@@ -3039,6 +3153,7 @@ void ViewState::revert_draft() {
             draft.dirty = false;
             draft.editing = false;
         }
+        pascal_clock_view.discard();
         return;
     }
     core_offset_mhz = memory_offset_mhz = 0.0f;
@@ -3124,12 +3239,16 @@ void apply_theme(float scale) {
 void draw(ViewState& state) {
     state.curve_inline_active = false;
     state.power_policies_open = false;
+    state.automatic_clock_read.reset();
     if (state.page == Page::curve) {
         state.page = Page::daily;
         state.curve_window_open = true;
         state.curve_window_focus_requested = true;
     }
-    if (!state.preview) { sync_live_drafts(state); observe_curve(state); observe_power_request(state); }
+    if (!state.preview) {
+        if (state.live) state.pascal_clock_view.sync(state.live->generation);
+        sync_live_drafts(state); observe_curve(state); observe_power_request(state);
+    }
     const bool classic = state.presentation == Presentation::classic;
     classic_fonts.classic = classic;
     if (!classic || !state.live) state.classic_reset_deadline = 0;

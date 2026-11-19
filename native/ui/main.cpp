@@ -187,9 +187,11 @@ struct App {
     struct OverridePreparation {
         uint64_t generation, actions;
         druta::ui::Command::Operation operation;
+        bool front, classic;
     };
     std::optional<OverridePreparation> weight_prepare_pending;
     std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
+    druta::ui::Page weight_reopen_page = druta::ui::Page::advanced;
     druta::ui::PolicyAnnotationCommits annotation_commits;
     uint64_t annotation_generation=0,annotation_action_log=0;
     std::string annotation_status;
@@ -810,7 +812,8 @@ struct App {
             }
         }
     }
-    void handoff_power_weights(const druta::ui::PowerWeightReceipt& receipt,druta::ui::PowerWeightOperation operation) {
+    void handoff_power_weights(const druta::ui::PowerWeightReceipt& receipt,druta::ui::PowerWeightOperation operation,
+                               bool clock_front, bool classic) {
         using namespace druta::ui;
         const auto current=session?session->snapshot():nullptr;
         if(!current||current->busy||current->opening||view.select_slot||receipt.identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&receipt.uuid!=current->data.identity.uuid))
@@ -821,6 +824,8 @@ struct App {
         }
         PowerWeightHostRequest request;request.receipt_id=receipt.id;request.operation=operation;
         request.parent_pid=GetCurrentProcessId();request.executable=app_executable;request.core=active_core_path;
+        request.classic=receipt.is_pascal_clocks()&&classic;
+        request.daily=receipt.is_pascal_clocks()&&clock_front;
         std::string why;if(!launch_power_weight_host(request,why))throw std::runtime_error(why);
         view.power_weights_view.status="Finishing the session; the selected override helper will continue after Druta closes";
         request_close(true);
@@ -850,12 +855,14 @@ struct App {
                 if(data->receipt) data->receipt_message=data->receipt->phase+": "+data->receipt->message;
                 view.power_weights_saved=std::move(data);
             }catch(const std::exception& e){view.power_weights_view.status=e.what();}
-            view.page=Page::advanced;view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result;
+            view.page=clock_result?weight_reopen_page:Page::advanced;
+            view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result;
             if(clock_result && current->data.connected && !current->busy &&
                current->selected_slot==weight_expected_slot && current->data.identity.uuid==weight_expected_uuid){
                 Command read;
                 read.operation=Command::Operation::pascal_clock_read;
-                submit_command(read,current->generation);
+                view.pascal_clock_view.sync(current->generation);
+                if (session->submit(read,current->generation,true)) ++view.pascal_clock_view.automatic_reads;
             }
         }
         if(weight_prepare_pending){
@@ -865,13 +872,18 @@ struct App {
                 weight_prepare_pending.reset();
                 try{if(current->last_action_operation!=pending.operation||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
                     throw std::runtime_error("Activation preparation did not complete; inspect the saved override for details");
-                    handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply);
+                    handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply,
+                                          pending.front,pending.classic);
                 }catch(const std::exception& e){view.power_weights_view.status=e.what();}
             }
         }
         auto intents=std::move(view.power_weights_intents);view.power_weights_intents.clear();
         for(auto& intent:intents)try{
             if(closing||weight_prepare_pending||current->busy||view.select_slot)throw std::runtime_error("Wait for the current operation");
+            const bool clock_request = intent.operation == PowerWeightsIntent::Operation::read_clocks ||
+                intent.operation == PowerWeightsIntent::Operation::prepare_clocks;
+            if (clock_request && (!view.live || view.live->generation != current->generation))
+                throw std::runtime_error("Selected GPU session changed. Read the clock table again.");
             view.power_weights_view.status.clear();Command command;
             switch(intent.operation){
             case PowerWeightsIntent::Operation::read_clocks:
@@ -893,11 +905,14 @@ struct App {
             default:
                 if(!selected_receipt)throw std::runtime_error("Inspect the saved override first");
                 if(intent.operation!=PowerWeightsIntent::Operation::verify&&!view.controls_unlocked)throw std::runtime_error("Unlock controls before activation or removal");
-                handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply);continue;
+                handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply,
+                                      intent.clock_front,view.presentation==Presentation::classic);continue;
             }
             if(!submit_command(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
             if(command.operation==Command::Operation::power_weights_prepare||command.operation==Command::Operation::pascal_clock_prepare){
-                weight_prepare_pending=OverridePreparation{current->generation,current->completed_actions,command.operation};view.power_weights_view.status="Saving the recovery record before activation...";}
+                weight_prepare_pending=OverridePreparation{current->generation,current->completed_actions,command.operation,
+                    intent.clock_front,view.presentation==Presentation::classic};
+                view.power_weights_view.status="Saving the recovery record before activation...";}
         }catch(const std::exception& e){view.power_weights_view.status=e.what();}
     }
     void consume_actions() {
@@ -1131,6 +1146,15 @@ struct App {
                 druta::ui::mark_scoped_profile_pending(view.scoped_profile_view, *baseline, command.operation, true);
         }
         view.commands.clear();
+        if (view.automatic_clock_read && !closing) {
+            const auto current = session->snapshot();
+            if (!current->busy && !current->opening && current->data.connected &&
+                current->generation == *view.automatic_clock_read && !current->data.pascal_clock_fresh) {
+                druta::ui::Command read;
+                read.operation = druta::ui::Command::Operation::pascal_clock_read;
+                if (session->submit(read, current->generation, true)) ++view.pascal_clock_view.automatic_reads;
+            }
+        }
     }
     void client_size(int w, int h) {
         RECT r{0, 0, w, h};
@@ -1337,11 +1361,14 @@ struct Smoke {
         bool ok = (phase == 3 || phase == 5) ? (f == 0 && t <= (live ? 1u : 0u)) : (f > 0 && p > 0 && captured);
         if (live) {
             const auto snapshot = app.session->snapshot();
-            // Entering Timings discovers and selects a helper path without running
-            // it. Permit that single setup action; any capture/write still fails.
-            const bool read_only_setup = phase >= 15 && snapshot->completed_actions == 1 &&
+            // Allow only the bounded clock reads plus the Timings helper selection.
+            const auto clock_reads = static_cast<uint64_t>(std::count_if(snapshot->log.begin(), snapshot->log.end(), [](const auto& log) {
+                return log.automatic && log.operation == druta::ui::Command::Operation::pascal_clock_read;
+            }));
+            const auto other_actions = snapshot->completed_actions - std::min(clock_reads, snapshot->completed_actions);
+            const bool read_only_setup = phase >= 15 && other_actions == 1 &&
                 snapshot->last_action_operation == druta::ui::Command::Operation::timings_select_helper && snapshot->last_action_ok;
-            ok = ok && snapshot->data.connected && (snapshot->completed_actions == 0 || read_only_setup);
+            ok = ok && snapshot->data.connected && clock_reads <= 2 && (other_actions == 0 || read_only_setup);
         }
         if (live && phase == 2) ok = ok && t > 0;
         if (phase >= 7) {
@@ -1502,6 +1529,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     }
     ShowWindow(app.window, SW_SHOW); UpdateWindow(app.window);
     app.weight_initial_receipt=options.weight_result;app.weight_expected_slot=options.slot;app.weight_expected_uuid=options.expected_uuid;
+    app.weight_reopen_page=options.page;
     Smoke smoke(app); MessageWait waiter; const bool testing = !options.smoke_dir.empty();
     bool success = true, captured_output = false; unsigned settled_frames = 0;
     const double started = now_seconds();
@@ -1547,7 +1575,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         }
         if (app.policy.render_due(now) && now >= app.device_retry_at) {
             std::wstring capture;
-            const bool view_ready = options.preview || (app.view.live && !app.view.live->opening && app.view.live->revision > 1);
+            const bool view_ready = options.preview || (app.view.live && !app.view.live->opening &&
+                app.view.live->revision > 1 && (options.capture.empty() || druta::ui::front_clock_capture_ready(app.view)));
             if (testing && !smoke.captured && smoke.captures[smoke.phase] && app.frames-smoke.frames >= 2 && settled_frames >= 2)
                 capture = options.smoke_dir + L"\\" + smoke.captures[smoke.phase];
             // ImPlot applies auto-fit on the next frame after points arrive.

@@ -53,6 +53,7 @@ struct ViewState {
     PowerWeightsViewState power_weights_view;
     PascalClockViewState pascal_clock_view;
     bool open_pascal_clocks_requested = false;
+    std::optional<uint64_t> automatic_clock_read;
     std::vector<PowerWeightsIntent> power_weights_intents;
     std::shared_ptr<const PowerWeightsData> power_weights_saved;
     VoltagePolicyViewState voltage_policy_view;
@@ -191,6 +192,7 @@ struct ViewState {
 // then scales it once; the host owns font loading and DPI changes.
 void apply_theme(float scale);
 void draw(ViewState& state);
+bool front_clock_capture_ready(const ViewState& state);
 // Shared by the frequency-lock window and Classic's inline Clocks menu block.
 FrequencyLockViewContext frequency_lock_context(const ViewState& state);
 void queue_frequency_lock_intents(ViewState& state, const std::vector<FrequencyLockIntent>& intents);

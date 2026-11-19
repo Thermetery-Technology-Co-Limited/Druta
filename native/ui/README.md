@@ -120,12 +120,15 @@ Focused shows corrected watts for uniform ratios and a capacity-weighted
 estimate for mixed ones; Classic Daily shows raw watts, with the corrected value
 in the tooltip and on Monitor. Raw driver watts are always used for power Apply.
 
-### Pascal clock ceilings and ratios
+### Firmware clock controls
 
-In **Advanced**, open **Pascal clock ceilings and ratios**. Classic groups
-this under **Registry / BIOS overrides**. Read the running table, select a
-performance state and stage its GPC, XBAR or SYS / Video ceiling in MHz.
-The XBAR and SYS sliders each accept 1–105% of GPC and affect all states.
+**Daily tuning** in Focused and **Control → Clock offsets** in Classic read
+the selected card’s table automatically. The editor is also in **Advanced**.
+Pascal exposes per-state GPC, XBAR and SYS / Video ceilings in MHz and shared
+XBAR and SYS ratios from 1–105% of GPC. The ratio rows show estimated MHz
+using live GPC in the selected state or its firmware nominal when available.
+Supported Kepler and Maxwell performance tables expose independent per-state
+MHz targets for GPC, XBAR and SYS.
 Review lists all staged edits before Apply refreshes the selected adapter.
 Once the edited image is loaded, Druta removes its temporary registry records.
 The editor reads back the applied values when it reopens. Further edits keep

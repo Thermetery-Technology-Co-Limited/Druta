@@ -78,11 +78,13 @@ HANDLE try_operation_lock(const std::string& id) {
  return CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,
                     FILE_ATTRIBUTE_NORMAL|FILE_FLAG_DELETE_ON_CLOSE,nullptr);
 }
-bool reopen_result(const std::wstring& core,const PowerWeightReceipt& r) {
+bool reopen_result(const std::wstring& core,const PowerWeightReceipt& r,const PowerWeightHostRequest& request) {
  PROCESS_INFORMATION pi{};
  const auto exe=own();
- const auto cmd=quote(exe)+L" --gpu "+quote(wide(r.identity.slot))+L" --expect-uuid "+quote(wide(r.uuid))+
-                L" --core "+quote(core)+L" --page advanced --weight-result "+wide(r.id);
+ auto cmd=quote(exe)+L" --gpu "+quote(wide(r.identity.slot))+L" --expect-uuid "+quote(wide(r.uuid))+
+          L" --core "+quote(core)+L" --weight-result "+wide(r.id);
+ cmd += request.daily && r.is_pascal_clocks() ? L" --page daily" : L" --page advanced";
+ if (request.classic && r.is_pascal_clocks()) cmd += L" --classic";
  if(!spawn(exe,cmd,pi))return false;
  CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return true;
 }
@@ -92,12 +94,12 @@ int helper(const PowerWeightHostRequest& request){bool parent_exited=false;Helpe
   // A second launcher can race the probe before either parent closes.
   // Give that user the read-only result without touching the owner's journal.
   parent_exited=false;
-  reopen_result(full(request.core),read_weight_receipt(dir,request.receipt_id));
+  reopen_result(full(request.core),read_weight_receipt(dir,request.receipt_id),request);
   return 1;
  }
  auto receipt=active(request.receipt_id);dc_gpu_identity opened{};try{const auto initial=capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,true,receipt.is_pascal_clocks());if(!target_same(receipt,initial))throw std::runtime_error("Weight helper adapter mismatch");opened=initial.adapter;}catch(const VoltageEquationEvidenceError& e){if(request.operation!=PowerWeightOperation::remove||(e.kind!=VoltagePolicyAvailability::transient&&e.kind!=VoltagePolicyAvailability::unsupported))throw;}
  PowerWeightTransactionApi api;api.capture=[&](dc_gpu*,bool registry){return capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,registry,receipt.is_pascal_clocks());};api.persist=[&](const auto& r,bool create){if(create){const auto existing=active(r.id);auto normalized=r;normalized.phase=existing.phase;normalized.message=existing.message;normalized.issued_names=existing.issued_names;normalized.refresh_requested=existing.refresh_requested;normalized.uncertain=existing.uncertain;if(encode_weight_receipt(normalized)!=encode_weight_receipt(existing))throw std::runtime_error("Prepared weight receipt differs");}save_weight_receipt(dir,r);};api.clear_active=[&](const auto& r){return clear_active_weight_receipt(dir,r);};api.write=[](const auto& t,const auto& before,const auto& after,const auto& journal){return write_power_weight_registry(t,before,after,journal);};api.restart=[&](const auto& t){DeviceRestartTarget wanted{t.slot,std::wstring(t.instance_id.begin(),t.instance_id.end()),L"selected GPU"};DeviceRestartApi a;a.enumerate=enumerate_restart_targets;a.started=restart_target_started;a.launch_child=[&](const auto& device,uint32_t timeout){return receipt.is_pascal_clocks()?launch_clock_restart_child(own(),device,timeout):launch_device_restart_child(own(),device,timeout);};const auto v=restart_device(wanted,a);return power_weight_restart_result(v);};api.recovery_registry=recover_registry;api.fresh_verify=[&](const auto& r,bool original){return verify_child(own(),full(request.core),r,original);};api.fresh_verify_staged=[&](const auto& r){return verify_child(own(),full(request.core),r,false,true);};api.wait_clock_ready=[](){Sleep(400);};PowerWeightTransaction transaction(api,reinterpret_cast<dc_gpu*>(1),opened);const auto result=transaction.run(request.operation,receipt,request.operation==PowerWeightOperation::verify&&receipt.restoring);
- reopen_result(full(request.core),receipt);return result.ok?0:1;
+ reopen_result(full(request.core),receipt,request);return result.ok?0:1;
  }catch(const std::exception& error){
   if(parent_exited)try {
    const auto dir=power_weight_receipt_directory();
@@ -109,7 +111,7 @@ int helper(const PowerWeightHostRequest& request){bool parent_exited=false;Helpe
    }
    // Another window may have advanced the session while this helper waited
    // for its parent to exit. Reopen on the current record in that case.
-   reopen_result(full(request.core),current?*current:prior);
+   reopen_result(full(request.core),current?*current:prior,request);
   }catch(...){}
   return 1;
  }}
@@ -118,9 +120,64 @@ PowerWeightBoundaryResult power_weight_child_timeout(bool exit_confirmed){PowerW
 PowerWeightBoundaryResult power_weight_restart_result(const DeviceRestartResult& value){PowerWeightBoundaryResult out;out.ok=value.ok;out.reboot_required=value.reboot_required;out.uncertain=value.uncertain;out.message=value.message;return out;}
 bool power_weight_host_gate(uint32_t pid,const std::function<bool(uint32_t)>& wait,const std::function<void()>& admitted){if(!pid||!wait||!admitted||!wait(pid))return false;admitted();return true;}
 bool power_weight_verify_result(const ProfileJson& doc,const std::string& id,bool original){return doc.is_object()&&doc.value("format",std::string())=="druta-weight-verify"&&doc.value("id",std::string())==id&&doc.contains("original")&&doc["original"].is_boolean()&&doc["original"].get<bool>()==original&&doc.contains("ok")&&doc["ok"].is_boolean()&&doc["ok"].get<bool>();}
-bool launch_power_weight_host(const PowerWeightHostRequest& request,std::string& error){try{const auto exe=full(request.executable),core=full(request.core);if(exe.empty()||_wcsicmp(exe.c_str(),own().c_str())||core.empty()||!request.parent_pid||request.parent_pid!=GetCurrentProcessId())throw std::runtime_error("Invalid weight helper target or paths");(void)active(request.receipt_id);
- {HelperLock probe;probe.handle=try_operation_lock(request.receipt_id);
-  if(probe.handle==INVALID_HANDLE_VALUE)throw std::runtime_error("A helper is already using this recovery record, or its lock cannot be opened");}
- PROCESS_INFORMATION pi{};const auto cmd=quote(exe)+L" --weight-helper "+wide(request.receipt_id)+L" "+operation(request.operation)+L" "+std::to_wstring(request.parent_pid)+L" "+quote(core);if(!spawn(exe,cmd,pi))throw std::runtime_error("Cannot start weight helper");CloseHandle(pi.hThread);CloseHandle(pi.hProcess);return true;}catch(const std::exception& e){error=e.what();return false;}}
-bool dispatch_power_weight_host(int argc,wchar_t** argv,int& exit_code){if(argc<2)return false;const bool h=!wcscmp(argv[1],L"--weight-helper"),v=!wcscmp(argv[1],L"--weight-verify-child");if(!h&&!v)return false;exit_code=1;try{if(argc!=6)return true;const auto id=narrow(argv[2]);if(!std::regex_match(id,std::regex("^[0-9a-f]{32}$")))return true;if(h){wchar_t* end=nullptr;const auto pid=wcstoul(argv[4],&end,10);if(!end||*end||!pid||pid>0xfffffffful)return true;PowerWeightHostRequest r{id,parse_op(argv[3]),static_cast<uint32_t>(pid),own(),argv[5]};exit_code=helper(r);}else{const bool original=!wcscmp(argv[3],L"original");const bool staged=!wcscmp(argv[3],L"staged");if(!original&&!staged&&wcscmp(argv[3],L"expected"))return true;exit_code=verify_main(id,original,staged,argv[4],argv[5]);}}catch(...){exit_code=1;}return true;}
+bool launch_power_weight_host(const PowerWeightHostRequest& request, std::string& error) {
+    try {
+        const auto exe = full(request.executable), core = full(request.core);
+        if (exe.empty() || _wcsicmp(exe.c_str(), own().c_str()) || core.empty() ||
+            !request.parent_pid || request.parent_pid != GetCurrentProcessId())
+            throw std::runtime_error("Invalid weight helper target or paths");
+        (void)active(request.receipt_id);
+        {
+            HelperLock probe;
+            probe.handle = try_operation_lock(request.receipt_id);
+            if (probe.handle == INVALID_HANDLE_VALUE)
+                throw std::runtime_error("A helper is already using this recovery record, or its lock cannot be opened");
+        }
+        PROCESS_INFORMATION pi{};
+        auto command = quote(exe) + L" --weight-helper " + wide(request.receipt_id) + L" " +
+            operation(request.operation) + L" " + std::to_wstring(request.parent_pid) + L" " + quote(core);
+        if (request.classic) command += L" --classic";
+        if (request.daily) command += L" --daily";
+        if (!spawn(exe, command, pi)) throw std::runtime_error("Cannot start weight helper");
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return true;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+bool dispatch_power_weight_host(int argc, wchar_t** argv, int& exit_code) {
+    if (argc < 2) return false;
+    const bool run_helper = !wcscmp(argv[1], L"--weight-helper");
+    if (!run_helper && wcscmp(argv[1], L"--weight-verify-child")) return false;
+    exit_code = 1;
+    try {
+        if (argc < 6 || argc > 8 || (!run_helper && argc != 6)) return true;
+        bool classic = false, daily = false;
+        for (int i = 6; i < argc; ++i) {
+            if (!classic && !wcscmp(argv[i], L"--classic")) classic = true;
+            else if (!daily && !wcscmp(argv[i], L"--daily")) daily = true;
+            else return true;
+        }
+        const auto id = narrow(argv[2]);
+        if (!std::regex_match(id, std::regex("^[0-9a-f]{32}$"))) return true;
+        if (run_helper) {
+            wchar_t* end = nullptr;
+            const auto pid = wcstoul(argv[4], &end, 10);
+            if (!end || *end || !pid || pid > 0xfffffffful) return true;
+            PowerWeightHostRequest request{id, parse_op(argv[3]), static_cast<uint32_t>(pid), own(), argv[5], classic, daily};
+            exit_code = helper(request);
+        } else {
+            const bool original = !wcscmp(argv[3], L"original");
+            const bool staged = !wcscmp(argv[3], L"staged");
+            if (!original && !staged && wcscmp(argv[3], L"expected")) return true;
+            exit_code = verify_main(id, original, staged, argv[4], argv[5]);
+        }
+    } catch (...) {
+        exit_code = 1;
+    }
+    return true;
+}
 }

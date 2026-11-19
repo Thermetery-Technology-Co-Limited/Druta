@@ -8,6 +8,8 @@
 #include <vector>
 namespace {
 unsigned checks=0,failures=0,calls=0,bus_id=2,device_id=3,pci_id=0x1e0210de,subsystem=0x44556677,length=512;
+uint32_t nv_architecture=0;
+bool drift_during_architecture=false;
 int mode=0;bool available=true,identity_available=true,identity_failure=false;void* selected=reinterpret_cast<void*>(0x1234);
 #define CHECK(x) do{++checks;if(!(x)){++failures;std::fprintf(stderr,"line %d: %s\n",__LINE__,#x);}}while(false)
 struct alignas(8) Descriptor {uint32_t version,size;uint64_t buffer;};
@@ -16,6 +18,13 @@ int DC_CALL enumerate(void** handles,unsigned* count){handles[0]=selected;*count
 int DC_CALL pci(void* handle,unsigned* id,unsigned* sub,unsigned* revision,unsigned* external){CHECK(handle==selected);*id=pci_id;*sub=subsystem;*revision=*external=0;return identity_failure?-5:0;}
 int DC_CALL bus(void*,unsigned* out){*out=bus_id;return identity_failure?-5:0;}
 int DC_CALL device(void*,unsigned* out){*out=device_id;return 0;}
+int DC_CALL architecture(void* handle,void* block) {
+    auto* words=static_cast<uint32_t*>(block);
+    CHECK(handle==selected&&words[0]==0x20010u);
+    words[1]=nv_architecture;
+    if(drift_during_architecture) subsystem^=1;
+    return 0;
+}
 int DC_CALL image(void* handle,void* block){++calls;auto* descriptor=static_cast<Descriptor*>(block);CHECK(handle==selected&&descriptor->version==0x20010&&descriptor->size==0xfa000&&descriptor->buffer!=0);
  auto* data=reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(descriptor->buffer));for(uint32_t i=0;i<std::min(length,DC_VBIOS_IMAGE_CAPACITY);++i)data[i]=static_cast<uint8_t>(i*17u+3u);descriptor->size=length;
  switch(mode){case 1:descriptor->version^=1;break;case 2:descriptor->buffer=0;break;case 3:descriptor->size=31;break;case 4:descriptor->size=DC_VBIOS_IMAGE_CAPACITY+1;break;
@@ -24,11 +33,47 @@ int DC_CALL image(void* handle,void* block){++calls;auto* descriptor=static_cast
  return 0;
 }
 void* DC_CALL query(unsigned id){switch(id){case 0x0150e828:return reinterpret_cast<void*>(init);case 0xe5ac921f:return reinterpret_cast<void*>(enumerate);case 0x2ddfb66e:return identity_available?reinterpret_cast<void*>(pci):nullptr;
- case 0x1be0b8e5:return identity_available?reinterpret_cast<void*>(bus):nullptr;case 0x2a0a350f:return reinterpret_cast<void*>(device);case 0xfc13ee11:return available?reinterpret_cast<void*>(image):nullptr;default:return nullptr;}}
+ case 0x1be0b8e5:return identity_available?reinterpret_cast<void*>(bus):nullptr;case 0x2a0a350f:return reinterpret_cast<void*>(device);case 0xfc13ee11:return available?reinterpret_cast<void*>(image):nullptr;
+ case 0xd8265d24:return nv_architecture?reinterpret_cast<void*>(architecture):nullptr;default:return nullptr;}}
 void* DC_CALL resolve(void*,const char* library,const char* name){if(std::strcmp(library,"nvapi"))return nullptr;if(!*name)return reinterpret_cast<void*>(1);return std::strcmp(name,"nvapi_QueryInterface")==0?reinterpret_cast<void*>(query):nullptr;}
 dc_gpu* opened(const char* slot){dc_gpu* gpu=nullptr;CHECK(dc_gpu_open(slot,&gpu)==DC_OK&&gpu);return gpu;}
+
+void test_legacy_targets() {
+    for(const uint32_t expected : {2u,3u}) {
+        nv_architecture=expected==2 ? 0xe0 : 0x110;
+        auto* gpu=opened("0000:02:03.0");
+        dc_target target{};
+        target.size=sizeof(target);
+        dc_error error{};
+        error.size=sizeof(error);
+        CHECK(dc_gpu_vbios_target_bind(gpu,&target,&error)==DC_OK&&error.kind==DC_ERR_NONE&&
+              target.architecture==expected&&target.device_id==(pci_id>>16)&&target.subsystem_id==subsystem&&
+              target.handle==reinterpret_cast<uintptr_t>(selected)&&!std::strcmp(target.slot,"0000:02:03.0"));
+        if constexpr(sizeof(void*)==8) {
+            std::vector<uint8_t> rom(length);
+            uint32_t size=0;
+            CHECK(dc_gpu_vbios_image_get(gpu,rom.data(),static_cast<uint32_t>(rom.size()),&size,&error)==DC_OK&&
+                  size==length&&rom.front()==3&&error.kind==DC_ERR_NONE);
+        }
+        auto previous=target;
+        CHECK(dc_gpu_target_bind(gpu,0,&target,&error)==DC_E_FAILED&&error.kind==DC_ERR_UNSUPPORTED&&
+              !std::memcmp(&target,&previous,sizeof(target)));
+        CHECK(dc_gpu_target_bind(gpu,1,&target,&error)==DC_E_FAILED&&error.kind==DC_ERR_UNSUPPORTED&&
+              !std::memcmp(&target,&previous,sizeof(target)));
+        drift_during_architecture=true;
+        CHECK(dc_gpu_vbios_target_bind(gpu,&target,&error)==DC_E_FAILED&&error.kind==DC_ERR_IDENTITY&&
+              !std::memcmp(&target,&previous,sizeof(target)));
+        drift_during_architecture=false;
+        subsystem^=1;
+        nv_architecture=0;
+        CHECK(dc_gpu_vbios_target_bind(gpu,&target,&error)==DC_E_FAILED&&error.kind==DC_ERR_TRANSIENT&&
+              !std::memcmp(&target,&previous,sizeof(target)));
+        dc_gpu_close(gpu);
+    }
+    calls=0;
 }
-int main(){dc_set_export_resolver(resolve,nullptr);auto* gpu=opened("0000:02:03.0");std::vector<uint8_t> bytes(DC_VBIOS_IMAGE_CAPACITY+8,0xcd);uint32_t size=0xaabbccdd;dc_error error{};error.size=sizeof(error);
+}
+int main(){dc_set_export_resolver(resolve,nullptr);test_legacy_targets();auto* gpu=opened("0000:02:03.0");std::vector<uint8_t> bytes(DC_VBIOS_IMAGE_CAPACITY+8,0xcd);uint32_t size=0xaabbccdd;dc_error error{};error.size=sizeof(error);
  CHECK(dc_gpu_vbios_image_get(nullptr,bytes.data(),DC_VBIOS_IMAGE_CAPACITY,&size,&error)==DC_E_ARGUMENT&&calls==0);
  CHECK(dc_gpu_vbios_image_get(gpu,bytes.data(),31,&size,&error)==DC_E_BUFFER&&calls==0&&size==0xaabbccdd);
  error.size=0;CHECK(dc_gpu_vbios_image_get(gpu,bytes.data(),DC_VBIOS_IMAGE_CAPACITY,&size,&error)==DC_E_ARGUMENT&&calls==0);error.size=sizeof(error);

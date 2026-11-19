@@ -548,9 +548,12 @@ void draw_mode_bar_risk(const SessionSnapshot& s, bool unlocked) {
         "The score describes enabled control modes, not measured hardware safety. Locking edits does not release an active controller request.");
 }
 void draw_clock_voltage_offsets(const SessionSnapshot& s, bool unlocked, bool verbose,
-    AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group) {
+    AdvancedViewState& state, std::vector<Command>& commands, OffsetGroup group,
+    const std::vector<uint32_t>& replaced) {
     ensure_generation(s,state);
-    const auto included = [group](const AdvancedControl& c) {
+    const auto included = [group, &replaced](const AdvancedControl& c) {
+        if (c.id.kind == AdvancedKind::clock_domain &&
+            std::find(replaced.begin(), replaced.end(), c.id.domain) != replaced.end()) return false;
         if (group == OffsetGroup::all) return true;
         if (c.id.kind != AdvancedKind::clock_domain) return false;
         return group == OffsetGroup::additional_memory ? c.id.domain == 2 : c.id.domain != 2;
@@ -688,12 +691,14 @@ PowerRequestStatus power_request_status(std::optional<double> requested, std::op
     return out;
 }
 void draw_clock_domain_controls(const SessionSnapshot& s, bool unlocked, bool classic,
-    AdvancedViewState& state, std::vector<Command>& commands, bool in_open_table) {
+    AdvancedViewState& state, std::vector<Command>& commands, bool in_open_table,
+    const std::vector<uint32_t>& replaced) {
     ensure_generation(s, state);
     const auto controls = classic_clock_domain_order(s.data);
     if (controls.empty() || (!in_open_table && !table("classic-domain-offsets", classic))) return;
     for (const auto* control : controls) {
         const auto& c = *control;
+        if (std::find(replaced.begin(), replaced.end(), c.id.domain) != replaced.end()) continue;
         Command cmd; cmd.advanced = c.id;
         const auto label = clock_domain_label(s, c);
         const ImVec4 tone = label.tone == ClockDomainLabel::Tone::warn ? classic_warn : label.tone == ClockDomainLabel::Tone::good ? classic_good

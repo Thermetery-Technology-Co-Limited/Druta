@@ -105,6 +105,23 @@ struct Bench {
  }
 };
 void tests() {
+ for (uint32_t architecture : {2u, 3u}) {
+  Bench b;
+  b.current.target.architecture = b.current.identity.architecture = architecture;
+  const auto original = test::legacy_clock_fixture(architecture);
+  b.current.image = original;
+  const auto receipt = make_pascal_clock_receipt(b.current, {{PascalClockDomain::xbar, 0, 1165, 1001}});
+  PowerWeightTransaction worker(b.api(), nullptr, b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply, receipt).ok && b.current.image != original,
+        "Cannot activate the legacy independent target");
+  const auto revised = revise_pascal_clock_receipt(b.current, b.durable, {{PascalClockDomain::xbar, 0, 1001, 1100}});
+  b.publish_replacement(revised);
+  check(worker.run(PowerWeightOperation::apply, revised).ok && b.current.image == derive_weight_receipt(revised).clock_plan.image,
+        "Cannot raise a previously reduced legacy target");
+  check(worker.run(PowerWeightOperation::remove, b.durable).ok && b.current.image == original &&
+        b.current.registry->size() == 1 && b.restarts == 3 && !b.active,
+        "Legacy restore must recover the original image and registry");
+ }
  {
   Bench b;const auto r=b.make();
   const auto copy=decode_weight_receipt(encode_weight_receipt(r));

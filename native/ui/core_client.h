@@ -23,6 +23,7 @@ struct CoreApi {
     PerfViewApi perf{};
     PowerArbitrationApi arbitration{};
     PowerWeightsApi power_weights{};
+    decltype(&dc_gpu_vbios_target_bind) clock_bind = nullptr;
     std::function<PowerWeightCapture(dc_gpu*, bool)> pascal_clock_capture;
     std::function<void(const PowerWeightReceipt&, const PowerWeightReceipt&)> replace_pascal_clock_receipt;
     PowerIntegralApi power_integral{};

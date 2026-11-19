@@ -2399,7 +2399,7 @@ public:
         if(!gpu_)throw std::runtime_error("Selected GPU is not open");
         if(clock_only && api_.pascal_clock_capture) return api_.pascal_clock_capture(gpu_,registry);
         if(!clock_only && api_.power_weights.capture) return api_.power_weights.capture(gpu_,registry);
-        PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;
+        PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.clock_bind=api_.clock_bind;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;
         return make_power_weight_capture(std::move(capture),opened_,clock_only)(gpu_,registry);
     }
     explicit Client(CoreApi api,std::unique_ptr<TimingCudaProcess> workload={}) : api_(api),timing_cuda_(std::move(workload)) {}
@@ -2444,7 +2444,7 @@ public:
         LOAD(voltage_tables.boost, dc_gpu_voltage_boost_get); LOAD(voltage_tables.interface_present, dc_nvapi_interface_present);
         LOAD(voltage_limits.interface_present, dc_nvapi_interface_present);
         api_.voltage_evidence.target=api_.voltage_policy;
-        LOAD(voltage_evidence.image, dc_gpu_vbios_image_get);
+        LOAD(voltage_evidence.image, dc_gpu_vbios_image_get); LOAD(clock_bind, dc_gpu_vbios_target_bind);
         LOAD(voltage_evidence.peers, dc_voltage_peers_read);
         LOAD(voltage_evidence.sha256, dc_sha256_hex);
         LOAD(voltage_evidence.blocks, dc_rails_blocks);
@@ -2836,6 +2836,7 @@ public:
         const auto reviewed_owner = last_.pascal_clock_active_receipt;
         last_.pascal_clock_active_receipt.clear();
         last_.pascal_clock_original_receipt.clear();
+        last_.pascal_clock_availability = Availability::transient;
         try {
             if (prepare && (!cmd.enabled || !cmd.pascal_clock_edits || cmd.pascal_clock_edits->empty()))
                 throw std::runtime_error("Unlock controls and review at least one changed clock field");
@@ -2843,11 +2844,13 @@ public:
                 throw std::runtime_error("Read the current clock table first");
 
             auto c = capture_weight_state(prepare, true);
-            if (c.identity.architecture != 4 || c.identity.slot != opened_.slot ||
+            if (!clock_override_architecture(c.identity.architecture))
+                throw VoltageEquationEvidenceError("No firmware clock override layout for this architecture", VoltagePolicyAvailability::unsupported);
+            if (c.identity.slot != opened_.slot ||
                 std::string(c.adapter.uuid) != opened_.uuid)
-                throw std::runtime_error("The selected adapter must be the paired Pascal GPU");
+                throw std::runtime_error("The clock table must belong to the selected GPU");
             if (c.image_availability != VoltagePolicyAvailability::available)
-                throw std::runtime_error(c.image_message.empty() ? "Current clock image unavailable" : c.image_message);
+                throw VoltageEquationEvidenceError(c.image_message.empty() ? "Current clock image unavailable" : c.image_message, c.image_availability);
             const auto inspection = power_weights_->inspect_receipt();
             last_.power_weights = std::make_shared<PowerWeightsData>(power_weights_->state());
             if (!inspection.ok) throw std::runtime_error(inspection.message);
@@ -2870,21 +2873,31 @@ public:
                 last_.power_weights = std::move(shared);
                 result.message = "Clock settings reviewed and recovery record saved";
             } else {
-                auto table = inspect_pascal_clocks(c.image);
-                if (!table.ok) throw std::runtime_error(table.message);
+                const bool active = saved && saved->is_pascal_clocks() && saved->phase == "active" &&
+                    !saved->uncertain && !saved->restoring && saved->identity.architecture == c.identity.architecture;
+                const bool original_image = active && saved->image == c.image;
+                const bool edited_image = active && !original_image && derive_weight_receipt(*saved).clock_plan.image == c.image;
+                std::optional<PascalClockTable> ranges;
+                if (edited_image && c.identity.architecture != 4)
+                    ranges = inspect_pascal_clocks(saved->image, c.identity.architecture);
+                auto table = inspect_pascal_clocks(c.image, c.identity.architecture, ranges ? &*ranges : nullptr);
+                if (!table.ok) throw VoltageEquationEvidenceError(table.message, VoltagePolicyAvailability::unsupported);
                 if (table.device_id != c.identity.device_id)
                     throw std::runtime_error("The clock image belongs to another PCI device");
                 displayed_clock_image_ = std::move(c.image);
                 last_.pascal_clocks = std::make_shared<const PascalClockTable>(std::move(table));
                 last_.pascal_clock_fresh = true;
-                result.message = "Read the running Pascal clock table";
-                if (saved && saved->is_pascal_clocks() && saved->phase == "active" && !saved->uncertain && !saved->restoring) {
-                    if (saved->image == displayed_clock_image_) last_.pascal_clock_original_receipt = saved->id;
-                    else if (derive_weight_receipt(*saved).clock_plan.image == displayed_clock_image_)
-                        last_.pascal_clock_active_receipt = saved->id;
-                }
+                result.message = "Read the running firmware clock table";
+                if (original_image) last_.pascal_clock_original_receipt = saved->id;
+                if (edited_image) last_.pascal_clock_active_receipt = saved->id;
             }
+            last_.pascal_clock_availability = Availability::available;
             result.ok = true;
+        } catch (const VoltageEquationEvidenceError& e) {
+            last_.pascal_clock_fresh = false;
+            last_.pascal_clock_availability = (e.kind == VoltagePolicyAvailability::unsupported || e.kind == VoltagePolicyAvailability::invalid)
+                ? Availability::unsupported : Availability::transient;
+            result.message = e.what();
         } catch (const std::exception& e) {
             last_.pascal_clock_fresh = false;
             result.message = e.what();
