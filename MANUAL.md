@@ -43,8 +43,10 @@ The editor offers **GPC**, **XBAR** and **SYS / Video** ceilings for entries it 
 selected GPU. Values are nominal MHz in 0.5 MHz steps. On the tested GTX 1050 Ti,
 SYS also governs the reported Video clock and affects H.264 decode speed.
 
-The XBAR and SYS ratios are percentages of GPC. They apply across performance
-states, including states other than the one selected. You can stage ceilings in
+The XBAR and SYS sliders each accept 1–105% of GPC in whole-percent steps.
+They apply across performance states, including states other than the one selected.
+At 105% on the tested GTX 1050 Ti, each clock ran about 4.4% faster than GPC
+in P0. The exact clock depends on the operating point. You can stage ceilings in
 several states and change a ratio in the same draft. To apply or restore, run
 Druta as administrator and enable **Unlock controls**. Choose **Review clock
 changes** to see the state and values for every edit. **Apply and refresh

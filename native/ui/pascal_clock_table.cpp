@@ -16,6 +16,8 @@ namespace druta::ui {
 namespace {
 using Bytes = std::vector<uint8_t>;
 constexpr unsigned frequency_mask = 0x3fff;
+constexpr int minimum_ratio = 1;
+constexpr int maximum_ratio = 105;
 
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -178,9 +180,9 @@ struct Programs {
                 const size_t slot = at + 13 + 3 * j;
                 if (b[slot] == i) { ++matches; ratio = slot + 1; }
             }
-            if (matches == 1 && b[ratio] >= 1 && b[ratio] <= 100)
-                out.push_back({i == 1 ? PascalClockDomain::xbar : PascalClockDomain::sys,
-                               i, le16(b, program(*dependent) + 1), ratio});
+            const auto domain = i == 1 ? PascalClockDomain::xbar : PascalClockDomain::sys;
+            if (matches == 1 && b[ratio] >= minimum_ratio && b[ratio] <= maximum_ratio)
+                out.push_back({domain, i, le16(b, program(*dependent) + 1), ratio});
         }
         return out;
     }
@@ -253,7 +255,8 @@ Decoded decode(const Bytes& b) {
     add_states(out, dir, tables, bindings);
     for (const auto& bound : bindings) {
         if (bound.ratio)
-            out.located.push_back({{bound.domain, -1, b[*bound.ratio], 1, 100}, *bound.ratio});
+            out.located.push_back({{bound.domain, -1, b[*bound.ratio], minimum_ratio, maximum_ratio},
+                                   *bound.ratio});
     }
     require(!out.located.empty(), "No qualified Pascal clock fields");
     for (const auto& l : out.located) out.table.fields.push_back(l.field);

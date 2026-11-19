@@ -451,6 +451,26 @@ showed no measurable H.264 decode response on this board. Other performance
 states are selectable wherever their table entries qualify. The physical tests
 above used P0.
 
+The native editor accepts XBAR and SYS ratio requests from 1% through 105%.
+On the same GP107, separate P0 trials held the programmed GPC clock at
+1518.5 MHz and changed one ratio at a time. The peer domain retained its
+stock ratio (98% XBAR or 90% SYS). Each reported percentage is the median
+of 32 paired physical domain and GPC clock readings.
+
+| Ratio request | Measured GPC | Measured selected clock | Selected clock / GPC |
+|---|---:|---:|---:|
+| XBAR 101% | 1521.33 MHz | 1534.19 MHz | 100.84% |
+| XBAR 105% | 1521.61 MHz | 1587.74 MHz | 104.35% |
+| SYS 101% | 1521.70 MHz | 1534.47 MHz | 100.84% |
+| SYS 105% | 1522.41 MHz | 1589.41 MHz | 104.39% |
+
+Each trial returned to the original running image. At 100% on both domains,
+the median ratios before and after the trials were within 0.02 percentage
+points of GPC parity. The highest request tested on this board was 105%.
+The release build independently applied 105% XBAR with SYS at its stock 90%.
+The measured XBAR/GPC ratio was 104.40%. Native Restore recovered the exact
+stock image, and the temporary registry entries were clear after both operations.
+
 The native Apply and Restore test on the same card independently read back a
 P0 XBAR driver ceiling of 1911, 1556.5 and 1911 MHz for the three phases.
 Every other returned P0, P5 and P8 bound stayed unchanged. The original

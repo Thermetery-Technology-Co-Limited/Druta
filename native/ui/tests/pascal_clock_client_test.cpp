@@ -47,7 +47,9 @@ int main() {
     prepare.operation = Command::Operation::pascal_clock_prepare;
     prepare.enabled = true;
     prepare.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(
-        std::vector<PascalClockEdit>{{PascalClockDomain::xbar, 0, 3600, 3000}});
+        std::vector<PascalClockEdit>{{PascalClockDomain::xbar, 0, 3600, 3000},
+                                     {PascalClockDomain::xbar, -1, 95, 105},
+                                     {PascalClockDomain::sys, -1, 90, 105}});
     CHECK(!client->execute(prepare).ok && reads == 0);
     CHECK(client->execute(read).ok && reads == 1 && registry_reads == 0);
     const auto snapshot = client->read(false);
@@ -63,6 +65,14 @@ int main() {
     const auto after = client->read(false);
     CHECK(after.power_weights && after.power_weights->receipt && after.power_weights->receipt->id == receipt->id);
     CHECK(after.pascal_clocks && snapshot.pascal_clock_fresh && writes == 0);
+    if (receipt) {
+        c.image = derive_weight_receipt(*receipt).clock_plan.image;
+        CHECK(client->execute(read).ok);
+        const auto installed = client->read(false);
+        CHECK(installed.pascal_clock_fresh && installed.pascal_clocks &&
+              std::count_if(installed.pascal_clocks->fields.begin(), installed.pascal_clocks->fields.end(),
+                            [](const auto& field) { return field.pstate == -1 && field.current == 105; }) == 2);
+    }
     c.image_availability = VoltagePolicyAvailability::transient;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
     c.image_availability = VoltagePolicyAvailability::available;

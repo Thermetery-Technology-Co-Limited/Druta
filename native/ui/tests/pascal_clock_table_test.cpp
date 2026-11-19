@@ -22,6 +22,8 @@ const PascalClockField* find(const PascalClockTable& table, Domain d, int state)
     return it == table.fields.end() ? nullptr : &*it;
 }
 void run() {
+    constexpr int ratio_max = 105;
+    constexpr size_t sys_ratio_byte = 0x200 + 8 + 21 + 14, xbar_ratio_byte = sys_ratio_byte + 3;
     const auto rom = test::pascal_clock_fixture();
     const auto t = inspect_pascal_clocks(rom);
     check(t.ok && t.fields.size() == 11 && t.device_id == 0x1bbc &&
@@ -56,11 +58,44 @@ void run() {
         values_match &= after && after->current == expected;
     }
     check(values_match, "Distinct state maxima and shared ratio apply independently");
+
+    auto stock = rom;
+    stock[xbar_ratio_byte] = stock[sys_ratio_byte] = 100;
+    const auto stock_table = inspect_pascal_clocks(stock);
+    const auto xbar_ratio = find(stock_table, Domain::xbar, -1);
+    const auto sys_ratio = find(stock_table, Domain::sys, -1);
+    check(stock_table.ok && xbar_ratio && xbar_ratio->current == 100 &&
+          xbar_ratio->minimum == 1 && xbar_ratio->maximum == ratio_max &&
+          sys_ratio && sys_ratio->current == 100 &&
+          sys_ratio->minimum == 1 && sys_ratio->maximum == ratio_max,
+          "Both stock ratios remain readable with the qualified range");
+    auto expected = stock;
+    expected[xbar_ratio_byte] = expected[sys_ratio_byte] = ratio_max;
+    const auto raised = plan_pascal_clocks(stock, {{Domain::xbar, -1, 100, ratio_max},
+                                                  {Domain::sys, -1, 100, ratio_max}});
+    check(raised.ok && raised.image == expected, "Both ratios can reach 105 percent by changing their own bytes");
+    const auto raised_table = inspect_pascal_clocks(raised.image);
+    const auto raised_xbar = find(raised_table, Domain::xbar, -1);
+    const auto raised_sys = find(raised_table, Domain::sys, -1);
+    check(raised_table.ok && raised_table.fields.size() == t.fields.size() &&
+          raised_xbar && raised_xbar->current == ratio_max && raised_sys && raised_sys->current == ratio_max,
+          "Installed ratios at the new maxima preserve each domain's state fields");
+    const auto restored = plan_pascal_clocks(raised.image, {{Domain::xbar, -1, ratio_max, 100},
+                                                           {Domain::sys, -1, ratio_max, 100}});
+    check(restored.ok && restored.image == stock, "Restore the original 100 percent ratios exactly");
+    const auto lowered = plan_pascal_clocks(raised.image, {{Domain::xbar, -1, ratio_max, 1},
+                                                          {Domain::sys, -1, ratio_max, 1}});
+    const auto lower_table = inspect_pascal_clocks(lowered.image);
+    const auto lower_xbar = find(lower_table, Domain::xbar, -1);
+    const auto lower_sys = find(lower_table, Domain::sys, -1);
+    check(lowered.ok && lower_xbar && lower_xbar->current == 1 && lower_sys && lower_sys->current == 1,
+          "Lower ratio endpoints still apply and parse after a high ratio");
     for (const auto& bad : std::vector<std::vector<PascalClockEdit>>{
              {}, {{Domain::sys, 2, 3400, 3000}}, {{Domain::gpc, -1, 95, 89}},
              {{Domain::sys, 0, 3400, 3501}}, {{Domain::sys, 0, 3400, 1249}},
              {{Domain::sys, 0, 3399, 3200}}, {{Domain::xbar, -1, 95, 0}},
-             {{Domain::xbar, -1, 95, 101}}, {{Domain::sys, 0, 3400, 3100}, {Domain::sys, 0, 3400, 3200}},
+             {{Domain::xbar, -1, 95, ratio_max + 1}}, {{Domain::sys, -1, 90, ratio_max + 1}},
+             {{Domain::sys, 0, 3400, 3100}, {Domain::sys, 0, 3400, 3200}},
              {{Domain::sys, 0, 3400, 3100}, {Domain::xbar, 8, 1201, 1100}}}) {
         const auto r = plan_pascal_clocks(rom, bad);
         check(!r.ok && r.image.empty(), "Invalid, stale or duplicate requests return no partial image");
@@ -70,6 +105,14 @@ void run() {
     auto partial = inspect_pascal_clocks(b);
     check(partial.ok && partial.fields.size() == 3 && find(partial, Domain::gpc, 5),
           "Missing and ambiguous dependent bindings leave independently qualified GPC available");
+    for (int unqualified : {0, ratio_max + 1, 255}) {
+        b = expected;
+        b[sys_ratio_byte] = static_cast<uint8_t>(unqualified);
+        partial = inspect_pascal_clocks(b);
+        check(partial.ok && !find(partial, Domain::sys, -1) &&
+              find(partial, Domain::xbar, -1) && find(partial, Domain::gpc, 0),
+              "An unqualified installed SYS ratio leaves XBAR and GPC controls available");
+    }
     b = rom;
     b[0x100 + 16 + 3] = 2; // XBAR owned by a different master
     partial = inspect_pascal_clocks(b);

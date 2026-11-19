@@ -60,7 +60,7 @@ int main() {
     table.fields = {{PascalClockDomain::gpc, 8, 280, 270, 400},
                     {PascalClockDomain::gpc, 0, 3823, 1900, 4200},
                     {PascalClockDomain::sys, 0, 3417, 1300, 3600},
-                    {PascalClockDomain::xbar, -1, 98, 1, 100}};
+                    {PascalClockDomain::xbar, -1, 98, 1, 105}};
     auto first = frame(state, &table, 10);
     check(state.selected_pstate == 0 && first.text.find("SYS / Video") != std::string::npos,
           "Select P0 by default and display shared SYS / Video");
@@ -70,19 +70,23 @@ int main() {
           pascal_clock_raw_value(table.fields[1], 1800.5) == 3601 &&
           pascal_clock_raw_value(table.fields[1], 1800.20) == 3600, "Half-MHz precision");
     check(pascal_clock_display_value(-1, 98) == 98 &&
-          pascal_clock_raw_value(table.fields[3], 97.2) == 97, "Whole-percent precision");
+          pascal_clock_raw_value(table.fields[3], 97.2) == 97 &&
+          pascal_clock_raw_value(table.fields[3], 106) == 105, "Whole-percent precision and ratio bounds");
+
+    state.stage(table.fields[3], 106);
+    check(state.drafts.empty(), "Refuse a ratio above the table's upper bound");
 
     state.stage(table.fields[1], 3601);
     state.selected_pstate = 8;
     state.stage(table.fields[0], 279);
-    state.stage(table.fields[3], 97);
+    state.stage(table.fields[3], 105);
     auto early = frame(state, &table, 10, "Apply and refresh selected GPU");
     check(early.confirmed.empty() && state.drafts.size() == 3, "Stage changes across states before review");
     auto preview = frame(state, &table, 10, "Review clock changes");
     check(preview.confirmed.empty() && state.reviewing, "Review does not apply");
     check(preview.text.find("P0  GPC maximum   1911.5 to 1800.5 MHz") != std::string::npos &&
           preview.text.find("P8  GPC maximum   140.0 to 139.5 MHz") != std::string::npos &&
-          preview.text.find("All states  XBAR ratio   98% to 97%") != std::string::npos,
+          preview.text.find("All states  XBAR ratio   98% to 105%") != std::string::npos,
           "Review includes all states, units and both values");
     auto locked = frame(state, &table, 10, "Apply and refresh selected GPU", true, false);
     check(locked.confirmed.empty() && !state.reviewing && state.drafts.size() == 3, "Locked Apply retains drafts");
@@ -92,7 +96,8 @@ int main() {
     frame(state, &table, 10, "Review clock changes");
     auto applied = frame(state, &table, 10, "Apply and refresh selected GPU");
     check(applied.confirmed.size() == 3 && applied.confirmed[0].value == 3603 &&
-          applied.confirmed[2].pstate == -1 && state.drafts.empty(), "Confirm the reviewed batch once");
+          applied.confirmed[2].pstate == -1 && applied.confirmed[2].value == 105 && state.drafts.empty(),
+          "Confirm the reviewed batch once");
 
     state.stage(table.fields[1], 3601);
     auto stale = table;

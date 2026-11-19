@@ -33,7 +33,8 @@ struct Bench {
  PowerWeightReceipt make() {
   return make_pascal_clock_receipt(current,{{PascalClockDomain::gpc,0,3800,3300},
                                              {PascalClockDomain::sys,5,1800,1600},
-                                             {PascalClockDomain::xbar,-1,95,93}});
+                                             {PascalClockDomain::xbar,-1,95,105},
+                                             {PascalClockDomain::sys,-1,90,105}});
  }
  PowerWeightTransactionApi api() {
   PowerWeightTransactionApi out;
@@ -94,7 +95,9 @@ void tests() {
  {
   Bench b;const auto r=b.make();
   const auto copy=decode_weight_receipt(encode_weight_receipt(r));
-  check(copy.is_pascal_clocks()&&copy.clocks.size()==3&&copy.info.empty(),"clock receipt roundtrip failed");
+  check(copy.is_pascal_clocks()&&copy.clocks.size()==4&&copy.info.empty(),"clock receipt roundtrip failed");
+  check(copy.clocks[2].expected==95&&copy.clocks[2].value==105&&
+        copy.clocks[3].expected==90&&copy.clocks[3].value==105,"clock receipt lost the raised ratios");
   check(!power_weight_verify_registry(r,derive_weight_receipt(r).after,false),"active verification accepted staged records");
   PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
   const auto result=worker.run(PowerWeightOperation::apply,r);
@@ -102,9 +105,23 @@ void tests() {
         "apply did not unstage verified clocks");
   check(b.staged_reads==1,"activation must verify the image before removing the staged records");
   check(b.current.image==derive_weight_receipt(r).clock_plan.image,"applied image differs");
+  const auto installed=inspect_pascal_clocks(b.current.image);
+  check(installed.ok&&std::count_if(installed.fields.begin(),installed.fields.end(),[](const auto& field) {
+   return field.pstate==-1&&field.current==105;
+  })==2,"the running table lost the raised ratios");
   check(worker.run(PowerWeightOperation::verify,b.durable).ok&&b.restarts==1,"read-only verification changed session");
   const auto cleared=worker.run(PowerWeightOperation::remove,b.durable);
   check(cleared.ok&&b.current.image==r.image&&b.restarts==2&&!b.active,"explicit restore incomplete");
+ }
+ {
+  Bench b;
+  b.current.image=derive_weight_receipt(b.make()).clock_plan.image;
+  const auto r=make_pascal_clock_receipt(b.current,{{PascalClockDomain::xbar,-1,105,100},
+                                                   {PascalClockDomain::sys,-1,105,100}});
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot lower an installed 105 percent ratio");
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.image==r.image&&!b.active,
+        "restore did not recover both previously installed 105 percent ratios");
  }
  {
   Bench b;const auto r=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
