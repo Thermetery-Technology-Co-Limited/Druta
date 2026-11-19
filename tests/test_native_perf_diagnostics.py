@@ -959,7 +959,9 @@ class DecodeTests(unittest.TestCase):
                      b"limits", ("limits",)):
             with self.subTest(name=name):
                 self.assertEqual(self.assert_same(name, info, control)[0], "ValueError")
-        self.assertEqual(self.assert_same(["limits"], info, control), ("TypeError", "unhashable type: 'list'"))
+        with self.assertRaises(TypeError) as unhashable:
+            LAYOUTS[["limits"]]  # the reference's lookup; CPython 3.14 names the dict key in its text
+        self.assertEqual(self.assert_same(["limits"], info, control), ("TypeError", str(unhashable.exception)))
         # _layout comes before the INFO conversion
         self.assertEqual(self.assert_same("nope", 1.5, None)[0], "ValueError")
         self.assertEqual(self.assert_same("limits", 1.5, None)[0], "TypeError")
@@ -1351,13 +1353,16 @@ class ReadTests(PerfCase):
         self.assertEqual(errors, {})
 
     def test_duplicate_and_unknown_names_before_any_read(self):
+        nested = [["limits"]]
+        with self.assertRaises(TypeError) as unhashable:
+            set(nested)  # the reference's duplicate check; CPython 3.14 names the set element in its text
         for groups, expected in ((["limits", "limits"], ("ValueError", "PERF groups must not be duplicated")),
                                  (["limits", "nope"], ("ValueError", "Unknown PERF diagnostic group 'nope'")),
                                  (["limits", 5], ("ValueError", "Unknown PERF diagnostic group 5")),
                                  (["é"], ("ValueError", "Unknown PERF diagnostic group 'é'")),
                                  (["x" * 1000], ("ValueError", f"Unknown PERF diagnostic group {'x' * 1000!r}")),
                                  (["\x01" * 300], ("ValueError", f"Unknown PERF diagnostic group {chr(1) * 300!r}")),
-                                 ([["limits"]], ("TypeError", "unhashable type: 'list'")),
+                                 (nested, ("TypeError", str(unhashable.exception))),
                                  ("limits", ("ValueError", "PERF groups must not be duplicated")),  # 'i' twice
                                  ("cf", ("ValueError", "Unknown PERF diagnostic group 'c'"))):
             with self.subTest(groups=groups):

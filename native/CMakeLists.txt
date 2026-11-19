@@ -39,6 +39,7 @@ option(DRUTA_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitize
 option(DRUTA_WERROR "Treat warnings as errors" ON)
 option(DRUTA_FUZZ "Build the libFuzzer targets (clang only)" OFF)
 option(DRUTA_IMPORT_AUDIT "MinGW: fail the build when a Windows binary imports a DLL or function outside tools/xp-imports.txt (documented for XP) or its PE header asks for a newer Windows" ON)
+option(DRUTA_BUILD_UI "Build the Windows native UI preview (independent of the core XP target)" OFF)
 
 add_library(druta_options INTERFACE)
 if(MSVC)
@@ -136,6 +137,7 @@ endif()
 
 # ---- core (implementation, static) -------------------------------------------------------------
 add_library(drutacore_impl STATIC
+  src/backend/i2c.cpp
   src/backend/clkdom.cpp
   src/backend/clkdom_names.cpp
   src/backend/clocks.cpp
@@ -144,6 +146,8 @@ add_library(drutacore_impl STATIC
   src/backend/client_power_controller.cpp
   src/backend/perf_diagnostics.cpp
   src/backend/clock_bios.cpp
+  src/backend/vbios_image.cpp
+  src/backend/voltage_peers.cpp
   src/backend/power_arbitration.cpp
   src/backend/rail_limits.cpp
   src/backend/rails.cpp
@@ -180,12 +184,15 @@ target_link_libraries(drutacore_impl PUBLIC druta_options)
 # ---- drutacore (the C ABI shared library) ------------------------------------------------------
 add_library(drutacore SHARED
   src/core/abi.cpp
+  src/core/abi_i2c.cpp
   src/core/abi_clkdom.cpp
   src/core/abi_current_limits.cpp
   src/core/abi_client_power.cpp
   src/core/abi_client_power_controller.cpp
   src/core/abi_perf_diagnostics.cpp
   src/core/abi_clock_bios.cpp
+  src/core/abi_vbios_image.cpp
+  src/core/abi_voltage_peers.cpp
   src/core/abi_power_arbitration.cpp
   src/core/abi_rail_limits.cpp
   src/core/abi_rails.cpp
@@ -229,6 +236,11 @@ if(MINGW)
   druta_import_audit(druta-runtime-imports-test)
 endif()
 
+# ---- optional native desktop preview (separate Windows UI requirements) ---------------------
+if(DRUTA_BUILD_UI)
+  add_subdirectory(ui)
+endif()
+
 # ---- fuzzers (clang + libFuzzer; run native/fuzz/run.sh) --------------------------------------
 if(DRUTA_FUZZ)
   add_executable(rail_transport_fuzz fuzz/rail_transport_fuzz.cpp)
@@ -240,3 +252,24 @@ if(DRUTA_FUZZ)
   target_compile_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
   target_link_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
+# Injected NVAPI packet and target checks; no driver or GPU access.
+add_executable(drutacore-i2c-test tests/i2c_test.cpp)
+target_include_directories(drutacore-i2c-test PRIVATE include src)
+target_link_libraries(drutacore-i2c-test PRIVATE drutacore drutacore_impl druta_options)
+druta_windows_binary(drutacore-i2c-test)
+add_test(NAME drutacore-i2c COMMAND drutacore-i2c-test)
+add_executable(drutacore-rails-request-packet-test tests/rails_request_packet_test.cpp)
+target_include_directories(drutacore-rails-request-packet-test PRIVATE include src)
+target_link_libraries(drutacore-rails-request-packet-test PRIVATE drutacore drutacore_impl druta_options)
+druta_windows_binary(drutacore-rails-request-packet-test)
+add_test(NAME drutacore-rails-request-packet COMMAND drutacore-rails-request-packet-test)
+add_executable(drutacore-vbios-image-test tests/vbios_image_test.cpp)
+target_include_directories(drutacore-vbios-image-test PRIVATE include src)
+target_link_libraries(drutacore-vbios-image-test PRIVATE drutacore drutacore_impl druta_options)
+druta_windows_binary(drutacore-vbios-image-test)
+add_test(NAME drutacore-vbios-image COMMAND drutacore-vbios-image-test)
+add_executable(drutacore-voltage-peers-test tests/voltage_peers_test.cpp)
+target_include_directories(drutacore-voltage-peers-test PRIVATE include src)
+target_link_libraries(drutacore-voltage-peers-test PRIVATE drutacore drutacore_impl druta_options)
+druta_windows_binary(drutacore-voltage-peers-test)
+add_test(NAME drutacore-voltage-peers COMMAND drutacore-voltage-peers-test)

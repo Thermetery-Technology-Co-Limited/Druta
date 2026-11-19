@@ -1,0 +1,127 @@
+{
+  "study": "GA104 P0 row-zero tFAW request of 24 cycles",
+  "trial_recorded_utc": "2026-11-19T15:28:47+00:00",
+  "hardware": {
+    "card": "ASUS GeForce RTX 3070 Ti",
+    "architecture": "GA104",
+    "pci_slot": "0000:02:00.0",
+    "subsystem_id": "0x880e1043",
+    "vbios": "94.04.5a.00.56",
+    "driver": "581.80"
+  },
+  "intervention": {
+    "row": 0,
+    "effective_image_bytes": 565248,
+    "effective_image_offset": "0x837b7",
+    "physical_rom_file_offset": "0x8c9b7",
+    "changed_byte_before": "0x29",
+    "changed_byte_after": "0x31",
+    "field": "CONFIG3[16:9] tFAW",
+    "request_cycles": [
+      20,
+      24,
+      20
+    ],
+    "expected_config3_in_edited_image": "0x2300314c",
+    "config3_xor_mask": "0x00001800",
+    "tcl_field_edited": false,
+    "scope": "One byte in the selected GPU’s temporary driver image, then a selected-device PnP restart for activation and restoration. The physical ROM was not flashed."
+  },
+  "sampling": {
+    "workload": "Bounded Direct3D 11 raster load bound by Windows adapter LUID and PCI slot",
+    "addresses": [
+      "0x9a0290",
+      "0x9a0294",
+      "0x9a0298",
+      "0x9a029c",
+      "0x9a02a0",
+      "0x9a02a4"
+    ],
+    "method": "Two equal six-word broadcast CONFIG0..5 READ32 samples per phase, each bracketed by P0 at 9501 MHz. Exact full-image readback from the same paired adapter. No nvtune, memory-clock setter or direct register writes.",
+    "per_phase": [
+      {
+        "phase": "A",
+        "effective_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "pstate": "P0",
+        "memory_clock_reported_mhz": 9501,
+        "image_row0_tfaw": 20,
+        "broadcast_config0_through_5": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ],
+        "controller_tfaw": 20,
+        "controller_tcl": 30
+      },
+      {
+        "phase": "B",
+        "effective_image_sha256": "2c45b09f928a9553d6bf57fdc8089443c2c72c6d823cb2aab79a1ec856e74410",
+        "pstate": "P0",
+        "memory_clock_reported_mhz": 9501,
+        "image_row0_tfaw": 24,
+        "broadcast_config0_through_5": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ],
+        "controller_tfaw": 20,
+        "controller_tcl": 30
+      },
+      {
+        "phase": "restored-A",
+        "effective_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "pstate": "P0",
+        "memory_clock_reported_mhz": 9501,
+        "image_row0_tfaw": 20,
+        "broadcast_config0_through_5": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ],
+        "controller_tfaw": 20,
+        "controller_tcl": 30
+      }
+    ],
+    "pre_stage_and_restart": {
+      "activate-pre-stage-state": [
+        "P0",
+        9501
+      ],
+      "activate-pre-restart-state": [
+        "P0",
+        9501
+      ],
+      "restore-pre-stage-state": [
+        "P0",
+        9501
+      ],
+      "restore-pre-restart-state": [
+        "P0",
+        9501
+      ]
+    }
+  },
+  "restoration": {
+    "original_image_and_all_six_words_verified": true,
+    "managed_registry_records_remaining": 0,
+    "selected_device_restarts": 2,
+    "system_reboot_required": false,
+    "driver_status": "GPU PnP restart completed and Windows reports the device started"
+  },
+  "conclusion": "The driver returned the exact image requesting 24, but all six sampled controller words retained their original values. The four-cycle-aligned request also failed to change the P0 broadcast field. The test does not identify the runtime timing source or measure physical DRAM scheduling.",
+  "provenance": {
+    "runner_sha256": "734075ebd9564409f7ca12c939f9044ce45f0e59204073cf76a4bae00c6d4702",
+    "journal_sha256": "37fad5022e5f4a7bb3f7eb5b4d01705be82105461f978a6d73f206c2b8959ce2",
+    "prior_one_cycle_trial": "firmware-tfaw-20261119.json",
+    "offline_rom_comparison": "ga104-memory-layout-20261119.json"
+  }
+}

@@ -1,0 +1,40 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#define main established_composed_catalog_fixture_entry
+#include "core_client_test.cpp"
+#undef main
+#include "python_full_profile.h"
+#include "profile_catalog.h"
+#include <map>
+namespace {
+std::map<uint32_t,uint32_t> nct_regs;int nct_writes=0,nct_fail=0;bool nct_fail_after=false;
+dc_status DC_CALL paired_identity(const dc_gpu* gpu,dc_gpu_identity* out){const auto r=identity(gpu,out);out->nvapi_ok=out->nvapi_selected=1;out->nvapi_handle=77;out->nvapi_devid=0x1234;out->nvapi_subsys=0x5566;return r;}
+dc_status DC_CALL nct_read(dc_gpu*,uint32_t port,uint32_t addr,uint32_t reg,uint32_t width,uint32_t* out,dc_error*){if(port!=1||addr!=0x15||width!=1||!nct_regs.count(reg))return DC_E_UNAVAILABLE;*out=nct_regs[reg];return DC_OK;}
+dc_status DC_CALL nct_block(dc_gpu* gpu,uint32_t port,uint32_t addr,uint32_t reg,uint8_t* out,uint32_t count,dc_error* error){uint32_t value=0;if(count!=1||nct_read(gpu,port,addr,reg,1,&value,error)!=DC_OK)return DC_E_UNAVAILABLE;*out=static_cast<uint8_t>(value);return DC_OK;}
+dc_status DC_CALL nct_write(dc_gpu*,uint32_t family,uint32_t port,uint32_t addr,uint32_t reg,const uint8_t* data,uint32_t size,dc_error*){CHECK(family==static_cast<uint32_t>(I2cFamily::nct3933)&&port==1&&addr==0x15&&reg>=1&&reg<=3&&size==1);++nct_writes;if(nct_fail==int(reg)){nct_fail=0;if(nct_fail_after)nct_regs[reg]=*data;return DC_E_FAILED;}nct_regs[reg]=*data;return DC_OK;}
+ProfileJson source(){return {{"schema",2},{"device",{{"uuid","GPU-A"},{"slot","0000:02:00.0"}}},{"incomplete",ProfileJson::array()},{"mem_off_units",80},{"mem_off_true_mhz",40},{"mem_off_scale",2},{"i2c",{{"profile","NCT3933U - three current offsets"},{"sha256","34cd0411ab79509259c3675d28213d87cb9ad3f4d8ad14a69dd5103f9683d90e"},{"port",1},{"addr7",21},{"rail","OUT1/OUT2/OUT3"},{"format","i2c.current_dac_control"},{"display_name","NCT3933U - three current offsets"},{"current_dac_control",{{"outputs",ProfileJson::array({128,5,0})},{"configuration",0}}}}}};}
+Command profile(const ProfileJson& doc,bool preflight=false){Command c;c.operation=preflight?Command::Operation::preflight_catalog_profile:Command::Operation::apply_catalog_profile;c.catalog_profile=std::make_shared<const ProfileJson>(doc);return c;}
+std::vector<std::string> order;bool disturb_noop=false,disturb_memory=false;
+dc_status DC_CALL ordered_nct(dc_gpu* gpu,uint32_t family,uint32_t port,uint32_t addr,uint32_t reg,const uint8_t* data,uint32_t count,dc_error* error){order.push_back("i2c");const auto result=nct_write(gpu,family,port,addr,reg,data,count,error);if(disturb_memory){current=42;disturb_memory=false;}return result;}
+dc_status DC_CALL ordered_rail(dc_gpu* gpu,double value,int64_t domain,int64_t rail,dc_outcome* out){order.push_back("rail");return rail_set(gpu,value,domain,rail,out);}
+dc_status DC_CALL ordered_memory(dc_gpu* gpu,uint32_t type,double value,int32_t preserve,dc_outcome* out){order.push_back("memory");const auto status=setter(gpu,type,value,preserve,out);if(disturb_noop)nct_regs[3]=9;return status;}
+#if defined(_MSC_VER)
+__declspec(noinline)
+#endif
+void run_composed(){
+ nct_regs={{0x5d,0x39},{0x5e,0x33},{5,0},{1,0},{2,2},{3,0}};nct_writes=writes=0;current=40;mode=0;auto a=api();a.identity=paired_identity;a.lock=lock_gpu;a.unlock=unlock_gpu;a.set_offset=ordered_memory;a.telemetry=memory_telemetry;a.clkdom_ok=dom_ok;a.clkdom_layout=dom_layout;a.clkdom_domains=dom_list;a.clkdom_controls=dom_controls;a.clkdom_offered=dom_offered;a.clkdom_requests=dom_read;a.clkdom_set=dom_set;a.rail_cap=rail_cap;a.rail_read=rail_read;a.rail_set=ordered_rail;a.msvdd_reset=rail_reset;a.clkdom_flags=flags_get;a.clkdom_flags_set=flags_set;a.i2c.identity=paired_identity;a.i2c.lock=lock_gpu;a.i2c.unlock=unlock_gpu;a.i2c.read=nct_read;a.i2c.read_bytes=nct_block;a.i2c.controller_write=ordered_nct;
+ auto client=create_core_backend_for_test(a);std::string error;CHECK(client->open("0000:02:00.0",error));auto doc=source();auto i2c=select_python_full_profile(doc,{"i2c:controller"});auto mem=select_python_full_profile(doc,{"clock:memory"});auto combined=compose_profiles({{"I2C",i2c},{"Memory",mem}});Command undo;undo.operation=Command::Operation::undo;
+ CHECK(!client->execute(profile(combined)).ok&&nct_writes==0&&writes==0);Command select;select.operation=Command::Operation::i2c_select;select.i2c_family=I2cFamily::nct3933;select.i2c_route=I2cRoute{1,0x15};CHECK(client->execute(select).ok);Command gate;gate.operation=Command::Operation::i2c_gate;gate.enabled=true;CHECK(client->execute(gate).ok);Command verify;verify.operation=Command::Operation::i2c_verify;CHECK(client->execute(verify).ok);
+ for(int flip=0;flip<2;++flip){combined=flip?compose_profiles({{"Memory",mem},{"I2C",i2c}}):compose_profiles({{"I2C",i2c},{"Memory",mem}});order.clear();CHECK(client->execute(profile(combined)).ok&&current==80&&nct_regs[1]==128&&nct_regs[2]==5);CHECK(order.size()==3&&order[0]=="i2c"&&order[1]=="i2c"&&order[2]=="memory");order.clear();CHECK(client->execute(undo).ok&&current==40&&nct_regs[1]==0&&nct_regs[2]==2);CHECK(order.size()==3&&order[0]=="i2c"&&order[1]=="i2c"&&order[2]=="memory");}
+ order.clear();disturb_memory=true;const auto frozen_writes=writes;auto frozen=client->execute(profile(combined));CHECK(!frozen.ok&&frozen.may_have_changed&&current==42&&writes==frozen_writes&&client->read(false).undo_available);CHECK(client->execute(undo).ok&&nct_regs[1]==0&&nct_regs[2]==2&&current==42);current=40;
+ ProfileJson daily={{"format","druta-native-daily"},{"version",2},{"target",{{"uuid","GPU-A"},{"slot","0000:02:00.0"}}},{"controls",{{"memory",{{"value",80},{"unit","MHz eff"},{"scale",2}}}}},{"advanced",ProfileJson::array({{{"kind","nvvdd"},{"domain",0},{"value",12500},{"unit","uV"}}})}};
+ auto split=compose_profiles({{"Daily mixed",daily},{"I2C",i2c}});order.clear();CHECK(client->execute(profile(split)).ok&&rail_raw[0]==12500&&current==80);CHECK(order.size()==4&&order[0]=="rail"&&order[1]=="i2c"&&order[2]=="i2c"&&order[3]=="memory");CHECK(client->execute(undo).ok&&rail_raw[0]==0&&current==40);
+ auto malformed=doc;malformed["i2c"]["current_dac_control"]["outputs"][0]=256;ProfileJson broken={{"format","druta-python-full-tune-selection"},{"version",1},{"source",malformed},{"targets",ProfileJson::array({"clock:memory"})}};const auto mw=writes,iw=nct_writes;CHECK(!client->execute(profile(broken)).ok&&writes==mw&&nct_writes==iw);
+ nct_fail=2;nct_fail_after=true;auto failed=client->execute(profile(combined));CHECK(!failed.ok&&failed.may_have_changed&&client->read(false).undo_available&&current==40);CHECK(client->execute(undo).ok&&current==40&&nct_regs[1]==0&&nct_regs[2]==2);
+ CHECK(client->execute(profile(combined)).ok);Command manual;manual.operation=Command::Operation::apply;manual.control=ControlId::memory;manual.value=10;const auto manual_before=writes;CHECK(!client->execute(manual).ok&&writes==manual_before);nct_regs[1]=7;const auto before=writes;CHECK(!client->execute(undo).ok&&writes==before&&client->read(false).undo_available);nct_regs[1]=128;
+ mode=2;CHECK(!client->execute(undo).ok&&nct_regs[1]==0&&nct_regs[2]==2&&client->read(false).undo_available);const auto after_controller=nct_writes;mode=0;nct_regs[1]=7;const auto before_retry=writes;CHECK(!client->execute(undo).ok&&writes==before_retry&&nct_writes==after_controller&&client->read(false).undo_available);nct_regs[1]=0;CHECK(client->execute(undo).ok&&current==40&&nct_writes==after_controller);
+ auto noopdoc=doc;noopdoc["i2c"]["current_dac_control"]["outputs"]=ProfileJson::array({0,2,0});auto noop_i2c=select_python_full_profile(noopdoc,{"i2c:controller"});auto noops=compose_profiles({{"Memory",mem},{"I2C",noop_i2c}});disturb_noop=true;CHECK(!client->execute(profile(noops)).ok&&client->read(false).undo_available);disturb_noop=false;nct_regs[3]=0;CHECK(client->execute(undo).ok&&current==40);
+ client->close();
+}
+}
+int main(){run_composed();std::printf("Composed I2C catalog: %d checks, %d failures\n",checks,failures);return failures?1:0;}

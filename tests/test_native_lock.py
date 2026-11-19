@@ -68,6 +68,15 @@ def require_cdll(case):
         case.fail("the core is not loaded as a ctypes.CDLL: the blocking cases would hang (GIL held)")
 
 
+def no_driver(case):
+    """Serve no driver library to handles opened from here on, until case's cleanups run: without a
+    resolver the core's platform loader opens the installed driver (on Windows), and a read on a
+    real card returns its values instead of the no-driver answers these cases check. Call it before
+    the first native.Gpu() and register that Gpu's close after it, so the close runs first."""
+    native.set_export_resolver(lambda library, name: None)
+    case.addCleanup(native.set_export_resolver, None)
+
+
 def other_thread(fn):
     """fn() on a fresh thread, joined with a timeout: its result."""
     out = []
@@ -217,8 +226,10 @@ class LockCase(BoundedCase):
     def setUp(self):
         require_cdll(self)
         self.library = native.load()
+        no_driver(self)
         self.gpu = native.Gpu()  # no driver here: both halves unavailable, every entry still locks
         self.cleanup(self._close)
+        self.assertFalse(self.gpu.available(), self.gpu.status_line())
 
     def _close(self):
         gpu, self.gpu = self.gpu, None
@@ -267,6 +278,7 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(library.dc_gpu_trylock(None, ctypes.byref(acquired)), native.DC_E_ARGUMENT)
         self.assertEqual(library.dc_gpu_lock_held(None, ctypes.byref(acquired)), native.DC_E_ARGUMENT)
         self.assertEqual(acquired.value, -1)
+        no_driver(self)
         gpu = native.Gpu()
         try:
             self.assertEqual(library.dc_gpu_lock_held(gpu._handle, None), native.DC_E_ARGUMENT)
@@ -274,6 +286,7 @@ class LoaderTests(unittest.TestCase):
             gpu.close()
 
     def test_no_threading_rlock_in_native_gpu(self):
+        no_driver(self)
         gpu = native.Gpu()
         try:
             self.assertIsInstance(gpu._lock, native._HandleLock)
@@ -324,7 +337,9 @@ class GilTests(unittest.TestCase):
     SCRIPT = textwrap.dedent("""
         import threading, time
         from druta import native
+        native.set_export_resolver(lambda library, name: None)  # no driver: as LockCase
         gpu = native.Gpu()
+        assert not gpu.available(), gpu.status_line()
         started = {name: threading.Event() for name in ("read", "vcore", "lock")}
         finished = {}
 
@@ -364,6 +379,7 @@ class GilTests(unittest.TestCase):
         late = all(finished.get(name, 0) >= released for name in started)
         print("early", early, "spun", spun > 0, "late", late, "alive", any(t.is_alive() for t in waiters))
         gpu.close()
+        native.set_export_resolver(None)
     """)
 
     def test_a_holder_blocks_other_threads_while_a_third_runs_python(self):

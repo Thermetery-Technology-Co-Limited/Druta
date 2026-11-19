@@ -466,7 +466,7 @@ class SurfaceRatchetTests(unittest.TestCase):
         self.assertEqual(sorted(line.split()[0] for line in out[1:] if not line.lstrip().startswith(("dynamic",
                                                                                                        "defined"))),
                          sorted(u.where for u in uses))
-        self.assertEqual({u.file for u in uses}, {"tuning_profiles.py"})
+        self.assertEqual({u.file for u in uses}, {"druta.py", "tuning_profiles.py"})
         definition = [line for line in out if line.lstrip().startswith("defined at nvbackend.py:")]
         self.assertEqual(len(definition), 1)
         line = int(definition[0].rsplit(":", 1)[1])
