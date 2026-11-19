@@ -255,7 +255,7 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 | `--preview` | Fixture layout; opens no GPU handle and performs no tuning or telemetry reads. |
 | `--core ABSOLUTE_DLL` | Load the explicitly selected core DLL in live mode. |
 | `--gpu PCI_SLOT` | Select by PCI slot; the live adapter picker can change it later. |
-| `--width N`, `--height N` | Initial client pixels, each 640–7680. |
+| `--width N`, `--height N` | Initial client size in physical pixels, each 640–7680. Focused scales each unspecified dimension from its 1280×800 default at 100% and fits the window to the monitor's work area. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
 | `--classic` | Start in the 1.9.1-inspired Classic composition instead of Focused. Without a size, the window opens at Python's default (1544x1300 at 100% scale, clamped to the screen). |
 | `--page daily\|curve\|advanced\|monitor\|timings` | Choose the initial page. |

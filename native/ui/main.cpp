@@ -18,6 +18,7 @@
 #include <future>
 #include "timing_capture.h"
 #include "classic_layout.h"
+#include "window_placement.h"
 #include "session.h"
 #include "curve_profile.h"
 #include "policy_annotation_profile.h"
@@ -87,8 +88,7 @@ public:
     }
 };
 struct Options {
-    int width = 1280, height = 800;
-    bool size_given = false;
+    int width = 0, height = 0;
     float scale = 0;
     std::wstring smoke_dir, capture, core_path,recovery_receipt,restart_instance;
     bool recovery_helper=false,restart_child=false;uint32_t parent_pid=0;
@@ -135,7 +135,6 @@ bool parse_options(Options& o) {
                 wchar_t* end = nullptr; const long n = wcstol(value, &end, 10);
                 valid = *value && end && !*end && n >= 640 && n <= 7680;
                 if (key == L"--width") o.width = int(n); else o.height = int(n);
-                o.size_given = true;
             } else if (key == L"--scale") {
                 wchar_t* end = nullptr; const double n = wcstod(value, &end);
                 valid = *value && end && !*end && std::isfinite(n) && n >= 1 && n <= 3;
@@ -167,7 +166,7 @@ struct App {
     std::optional<druta::ui::AppTarget> recovery_target;
     UINT width = 1280, height = 800;
     bool resize_pending = false, device_lost = false, initialized = false, quit = false;
-    float pending_scale = 0, scale = 1;
+    float pending_scale = 0, scale = 1, scale_override = 0;
     double device_retry_at = 0;
     unsigned long long frames = 0, presents = 0, fixture_sample_ticks = 0, resets = 0;
     bool i2c_save_waiting = false;
@@ -1156,10 +1155,17 @@ struct App {
             }
         }
     }
-    void client_size(int w, int h) {
-        RECT r{0, 0, w, h};
-        AdjustWindowRectEx(&r, WS_OVERLAPPEDWINDOW, FALSE, 0);
-        SetWindowPos(window, nullptr, 0, 0, r.right-r.left, r.bottom-r.top, SWP_NOMOVE | SWP_NOZORDER);
+    void client_size(int w, int h, bool fit_width = false, bool fit_height = false) {
+        RECT outer{}, client{};
+        if (!GetWindowRect(window, &outer) || !GetClientRect(window, &client)) return;
+        auto rect = druta::ui::client_window_rect(outer, {client.right, client.bottom}, {w, h});
+        if (fit_width || fit_height) {
+            MONITORINFO monitor{sizeof(monitor)};
+            if (GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
+                rect = druta::ui::fit_window_to_work_area(rect, monitor.rcWork, fit_width, fit_height);
+        }
+        SetWindowPos(window, nullptr, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
     }
     bool create_device() {
         d3d = Direct3DCreate9(D3D_SDK_VERSION);
@@ -1264,10 +1270,16 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             }
             return 0;
         case dpi_changed_message: {
-            app->pending_scale = float(HIWORD(wparam)) / 96.0f;
-            const auto* rect = reinterpret_cast<const RECT*>(lparam);
-            SetWindowPos(window, nullptr, rect->left, rect->top, rect->right-rect->left,
-                rect->bottom-rect->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            if (!app->scale_override) app->pending_scale = float(HIWORD(wparam)) / 96.0f;
+            RECT rect = *reinterpret_cast<const RECT*>(lparam);
+            if (app->view.presentation == druta::ui::Presentation::focused && !IsZoomed(window) && !IsIconic(window)) {
+                MONITORINFO monitor{sizeof(monitor)};
+                if (GetMonitorInfoW(MonitorFromRect(&rect, MONITOR_DEFAULTTONEAREST), &monitor))
+                    rect = druta::ui::fit_window_to_work_area(rect, monitor.rcWork);
+            }
+            SetWindowPos(window, nullptr, rect.left, rect.top, rect.right - rect.left,
+                rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            app->policy.note_activity(now_seconds());
             return 0;
         }
         case WM_GETMINMAXINFO: {
@@ -1464,19 +1476,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if(options.restart_child||options.parent_pid||!options.restart_instance.empty())return 2;
     ImGui_ImplWin32_EnableDpiAwareness();
     App app; active = &app;
-    app.width = UINT(options.width); app.height = UINT(options.height);
+    app.scale_override = options.scale;
+    app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, window_proc, 0, 0, instance, nullptr,
         LoadCursorW(nullptr, IDC_ARROW), nullptr, nullptr, window_class, nullptr};
     if (!RegisterClassExW(&wc)) return 3;
-    RECT rect{0, 0, options.width, options.height}; AdjustWindowRectEx(&rect, WS_OVERLAPPEDWINDOW, FALSE, 0);
     app.window = CreateWindowExW(0, window_class, options.preview ? L"Druta Native UI - Preview" : L"Druta - Native", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, rect.right-rect.left, rect.bottom-rect.top, nullptr, nullptr, instance, nullptr);
-    if (app.window && options.classic && !options.size_given) {
-        // Started in Classic with no size given: 1.9.1's default viewport, which
-        // is the outer window, so the client area matches 1.9.1's.
-        const float window_scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
-        const auto place = druta::ui::classic_default_window_placement(window_scale, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
-        SetWindowPos(app.window, nullptr, place.x, place.y, place.width, place.height, SWP_NOZORDER | SWP_NOACTIVATE);
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, instance, nullptr);
+    if (app.window) {
+        app.scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
+        if (options.classic && !options.width && !options.height) {
+            // Classic follows the released outer-window geometry.
+            const auto place = druta::ui::classic_default_window_placement(app.scale, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            SetWindowPos(app.window, nullptr, place.x, place.y, place.width, place.height, SWP_NOZORDER | SWP_NOACTIVATE);
+        } else {
+            const SIZE client = druta::ui::initial_client_pixels({options.width, options.height}, options.classic ? 1.0f : app.scale);
+            app.client_size(client.cx, client.cy,
+                            !options.classic && !options.width, !options.classic && !options.height);
+        }
         RECT client{};
         if (GetClientRect(app.window, &client) && client.right > 0 && client.bottom > 0) {
             app.width = UINT(client.right); app.height = UINT(client.bottom);
@@ -1491,7 +1508,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGuiIO& io = ImGui::GetIO(); io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr; io.LogFilename = nullptr; // no automatic state/tuning persistence
     load_font();
-    app.scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
     druta::ui::apply_theme(app.scale); ImGui::GetStyle().FontScaleDpi = app.scale;
     ImGui_ImplWin32_Init(app.window); ImGui_ImplDX9_Init(app.device); app.initialized = true;
     app.view.page = options.page;
@@ -1506,7 +1522,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             app.view.app_actions.status=receipt.message+(receipt.reboot_required?" Windows reports that a reboot is required.":"")+" A fresh session was opened; no tuning was reapplied.";
         }catch(const std::exception& e){app.view.app_actions.status=std::string("Recovery receipt unavailable: ")+e.what();}
     }
-    app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
     app.view.hotkey_available = RegisterHotKey(app.window, restore_hotkey, MOD_CONTROL | MOD_SHIFT, VK_F11) != FALSE;
     if (!options.preview) {
         if (options.core_path.empty()) {
