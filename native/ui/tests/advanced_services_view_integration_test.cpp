@@ -195,6 +195,114 @@ void classic_hierarchy(){
     state.open_clock_gating_requested=true;text=frame(state);
     check(text.find("Manual PCIe speed request")!=std::string::npos&&text.find("Power-policy feedback adjustment")==std::string::npos,"gating navigation opens Live power-saving & PCIe only");
 }
+
+void reopened_pascal_clocks(Presentation presentation) {
+    ViewState state;
+    state.preview = false;
+    state.page = Page::advanced;
+    state.presentation = presentation;
+    state.app_actions.administrator = true;
+    state.open_pascal_clocks_requested = true;
+    auto live = std::make_shared<SessionSnapshot>();
+    live->generation = 1;
+    live->selected_slot = "0000:09:00.0";
+    std::strcpy(live->data.identity.uuid, "GPU-pascal");
+    live->data.connected = true;
+    live->data.clock_architecture = 4;
+    auto table = std::make_shared<PascalClockTable>();
+    table->ok = true;
+    table->fields = {{PascalClockDomain::gpc, 0, 3601, 1900, 4200}};
+    live->data.pascal_clocks = table;
+    live->data.pascal_clock_fresh = true;
+    auto receipt = std::make_shared<PowerWeightReceipt>();
+    receipt->id = "active-clock-override";
+    receipt->uuid = live->data.identity.uuid;
+    receipt->identity.slot = live->selected_slot;
+    receipt->phase = "active";
+    receipt->clocks = {{PascalClockDomain::gpc, 0, 3823, 3601}};
+    auto weights = std::make_shared<PowerWeightsData>();
+    weights->receipt = receipt;
+    weights->receipt_from_active_pointer = true;
+    live->data.power_weights = weights;
+    state.live = live;
+
+    auto text = frame(state);
+    auto* w = advanced_window(presentation);
+    check(w != nullptr && !state.open_pascal_clocks_requested && text.find("Read clock table") != std::string::npos,
+          "The reopened Advanced page opens the Pascal clock editor");
+    if (!w) return;
+    const auto scope = presentation == Presentation::classic ? w->IDStack[0] :
+        ImHashStr("advanced-semantic-controls", 0, w->IDStack[0]);
+    const auto panel = ImHashStr("pascal-clock-panel", 0, scope);
+    const auto sliders = ImHashStr("PascalClockSliders", 0, panel);
+    const auto click = [&](const char* label, ImGuiID parent) {
+        ImGui::ActivateItemByID(ImHashStr(label, 0, parent));
+        return frame(state);
+    };
+
+    state.pascal_clock_view.stage(table->fields.front(), 3501);
+    click("Review clock changes", sliders);
+    check(!state.pascal_clock_view.reviewing && state.power_weights_intents.empty(),
+          "Unverified active clocks cannot be reviewed");
+    live->data.pascal_clock_active_receipt = "other-active-override";
+    click("Review clock changes", sliders);
+    check(!state.pascal_clock_view.reviewing && state.power_weights_intents.empty(),
+          "A different active receipt cannot authorize a second apply");
+    live->data.pascal_clock_active_receipt = receipt->id;
+    weights->receipt_from_active_pointer = false;
+    click("Review clock changes", sliders);
+    check(!state.pascal_clock_view.reviewing && state.power_weights_intents.empty(),
+          "A historical receipt cannot authorize a second apply");
+    weights->receipt_from_active_pointer = true;
+    live->data.pascal_clock_fresh = false;
+    click("Review clock changes", sliders);
+    check(!state.pascal_clock_view.reviewing && state.power_weights_intents.empty(),
+          "A stale table cannot be reviewed even with a matching receipt");
+    live->data.pascal_clock_fresh = true;
+    state.controls_unlocked = false;
+    text = click("Review clock changes", sliders);
+    check(!state.pascal_clock_view.reviewing && text.find("Unlock tuning controls to apply clock changes.") != std::string::npos,
+          "A second apply still needs unlocked tuning controls");
+    state.controls_unlocked = true;
+    state.pascal_clock_view.discard();
+    const int pstate = table->fields.front().pstate;
+    const int domain = static_cast<int>(table->fields.front().domain);
+    const auto clock_rows = ImHashStr("state_ceilings", 0, sliders);
+    const auto clock_row = ImHashData(&domain, sizeof(domain), ImHashData(&pstate, sizeof(pstate), clock_rows));
+    const auto slider = ImHashStr("##slider", 0, clock_row);
+    ImGui::ActivateItemByID(slider);
+    frame(state);
+    check(ImGui::GetActiveID() == slider, "The running P0 slider can be focused after reopen");
+    const auto rect = w->NavRectRel[ImGuiNavLayer_Main];
+    ImGui::ClearActiveID();
+    auto& io = ImGui::GetIO();
+    io.AddMousePosEvent(w->Pos.x + rect.Min.x + rect.GetWidth() * 0.5f, w->Pos.y + rect.GetCenter().y);
+    frame(state);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    frame(state);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    frame(state);
+    const auto& drafts = state.pascal_clock_view.drafts;
+    check(drafts.size() == 1 && drafts.front().expected == 3601 && drafts.front().value < 3601 &&
+          state.power_weights_intents.empty(), "Clicking the enabled slider stages a value without applying it");
+    const int reviewed_value = drafts.empty() ? 3601 : drafts.front().value;
+    text = click("Review clock changes", sliders);
+    check(state.pascal_clock_view.reviewing && text.find("1800.5 to ") != std::string::npos &&
+          text.find("Restore returns to the clocks from before the first apply.") != std::string::npos,
+          "Review starts from the running value and explains what Restore does");
+    click("Apply and refresh selected GPU", sliders);
+    const auto& intents = state.power_weights_intents;
+    check(intents.size() == 1 && intents.front().operation == PowerWeightsIntent::Operation::prepare_clocks &&
+          intents.front().clock_edits.size() == 1 && intents.front().clock_edits.front().expected == 3601 &&
+          intents.front().clock_edits.front().value == reviewed_value,
+          "The second Apply sends the reviewed change against the running table");
+    state.power_weights_intents.clear();
+    click("Restore original clocks and refresh GPU", panel);
+    check(intents.size() == 1 && intents.front().operation == PowerWeightsIntent::Operation::remove,
+          "Restore remains available for the active clock override");
+}
+
 // Released 1.9.1 build_power_policy_section and the adv_status mirror line.
 PowerPolicy policy(uint32_t id,const char* unit,double current,double low,double high,bool writable,const char* detail){
     PowerPolicy p;p.id=id;p.label="Policy "+std::to_string(id);p.binding="binding-"+std::to_string(id);p.channel=id+1;p.policy_type=5;
@@ -294,5 +402,7 @@ void section_style(){
 }
 int main(){ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.0f/60.0f;
     unsigned char* pixels=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
-    pages(Presentation::focused);pages(Presentation::classic);classic_hierarchy();classic_power_policies();section_style();ImPlot::DestroyContext();ImGui::DestroyContext();
+    pages(Presentation::focused);pages(Presentation::classic);classic_hierarchy();
+    reopened_pascal_clocks(Presentation::focused);reopened_pascal_clocks(Presentation::classic);
+    classic_power_policies();section_style();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("Advanced view integration: %d failures\n",failures);return failures?1:0;}

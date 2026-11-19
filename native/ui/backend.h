@@ -98,6 +98,7 @@ struct LiveData {
     std::string pascal_clock_status;
     bool pascal_clock_fresh = false;
     std::string pascal_clock_original_receipt;
+    std::string pascal_clock_active_receipt;
     std::shared_ptr<const PowerIntegralData> power_integral;
     std::shared_ptr<const VoltagePolicyData> voltage_policies;
     std::shared_ptr<const VoltageTablesData> voltage_tables;

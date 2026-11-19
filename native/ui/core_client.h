@@ -24,6 +24,7 @@ struct CoreApi {
     PowerArbitrationApi arbitration{};
     PowerWeightsApi power_weights{};
     std::function<PowerWeightCapture(dc_gpu*, bool)> pascal_clock_capture;
+    std::function<void(const PowerWeightReceipt&, const PowerWeightReceipt&)> replace_pascal_clock_receipt;
     PowerIntegralApi power_integral{};
     VoltagePolicyApi voltage_policy{};
     VoltageTablesApi voltage_tables{};

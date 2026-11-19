@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <utility>
 
 using namespace druta::ui;
 namespace {
@@ -36,6 +37,10 @@ struct Bench {
                                              {PascalClockDomain::xbar,-1,95,105},
                                              {PascalClockDomain::sys,-1,90,105}});
  }
+ void publish_replacement(const PowerWeightReceipt& next) {
+  check(active&&durable.phase=="active"&&next.id!=durable.id,"replacement must supersede a verified active receipt");
+  durable=decode_weight_receipt(encode_weight_receipt(next));
+ }
  PowerWeightTransactionApi api() {
   PowerWeightTransactionApi out;
   out.capture=[&](dc_gpu*,bool) { return current; };
@@ -44,7 +49,7 @@ struct Bench {
    return PowerWeightRegistryRecovery{target,*current.registry};
   };
   out.persist=[&](const PowerWeightReceipt& r,bool create) {
-   if(create)check(!active,"a second transaction acquired the device");
+   if(create)check(!active||(r.id==durable.id&&durable.phase=="prepared"),"a second transaction acquired the device");
    else check(active&&r.id==durable.id,"lost receipt ownership");
    active=true;durable=decode_weight_receipt(encode_weight_receipt(r));
   };
@@ -71,7 +76,15 @@ struct Bench {
   out.restart=[&](const auto&) {
    check(durable.refresh_requested,"missing durable refresh intent");++restarts;
    if(refuse_restart)return PowerWeightBoundaryResult{false,true,false,false,true,"reboot required"};
-   current.image=current.registry->size()==1?durable.image:derive_weight_receipt(durable).clock_plan.image;
+   current.image=durable.image;
+   for(const auto& value:*current.registry) {
+    if(value.name.rfind(L"romOverride",0)!=0)continue;
+    const auto& record=value.bytes;
+    check(record.size()>=10&&record.size()==10u+record[9],"malformed staged record");
+    const uint32_t at=uint32_t(record[5])|(uint32_t(record[6])<<8)|(uint32_t(record[7])<<16)|(uint32_t(record[8])<<24);
+    check(at<=current.image.size()&&record[9]<=current.image.size()-at,"staged record outside ROM");
+    std::copy(record.begin()+10,record.end(),current.image.begin()+at);
+   }
    return PowerWeightBoundaryResult{true};
   };
   out.fresh_verify_staged=[&](const PowerWeightReceipt& r) {
@@ -112,6 +125,70 @@ void tests() {
   check(worker.run(PowerWeightOperation::verify,b.durable).ok&&b.restarts==1,"read-only verification changed session");
   const auto cleared=worker.run(PowerWeightOperation::remove,b.durable);
   check(cleared.ok&&b.current.image==r.image&&b.restarts==2&&!b.active,"explicit restore incomplete");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for replacement test");
+  const auto first_running=b.current.image;
+  const auto replacement=revise_pascal_clock_receipt(b.current,b.durable,
+   {{PascalClockDomain::gpc,0,3300,3400},{PascalClockDomain::xbar,-1,105,95}});
+  b.publish_replacement(replacement);
+  check(worker.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==2&&b.current.registry->size()==1,
+        "replacement did not load and unstage its complete settings");
+  const auto installed=inspect_pascal_clocks(b.current.image);
+  const auto has=[&](PascalClockDomain domain,int pstate,int raw) {
+   return std::any_of(installed.fields.begin(),installed.fields.end(),[&](const auto& field) {
+    return field.domain==domain&&field.pstate==pstate&&field.current==raw;
+   });
+  };
+  check(has(PascalClockDomain::gpc,0,3400)&&has(PascalClockDomain::xbar,-1,95)&&
+        has(PascalClockDomain::sys,-1,105)&&has(PascalClockDomain::sys,5,1600),
+        "replacement lost earlier settings in other fields");
+  const auto next=revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3400,3200}});
+  b.publish_replacement(next);
+  check(worker.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==3,"cannot replace already revised settings");
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==4&&!b.active&&
+        b.current.image==initial.image&&b.current.image!=first_running,
+        "Restore did not recover the image from before the first Apply");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for return-to-original test");
+  auto edits=initial.clocks;
+  for(auto& edit:edits)std::swap(edit.expected,edit.value);
+  b.publish_replacement(revise_pascal_clock_receipt(b.current,b.durable,edits));
+  auto api=b.api();api.write={};
+  PowerWeightTransaction reset(std::move(api),nullptr,b.current.adapter);
+  const auto changes=b.changes;
+  check(reset.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==2&&b.staged_reads==2&&
+        b.changes==changes&&!b.active&&b.current.image==initial.image,
+        "returning every field to original did not refresh, verify, and retire without registry writes");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for failed replacement test");
+  const auto first_running=b.current.image;
+  b.publish_replacement(revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3300,3400}}));
+  b.fail_stage=true;b.fail_cleanup=true;
+  const auto failed=worker.run(PowerWeightOperation::apply,b.durable);
+  check(!failed.ok&&failed.cleanup_pending&&failed.recovery_required&&b.active&&b.current.image==first_running&&b.restarts==1,
+        "failed replacement did not retain the prior running clocks and recovery record");
+  b.fail_stage=false;b.fail_cleanup=false;
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==2&&!b.active&&
+        b.current.image==initial.image&&b.current.registry->size()==1,
+        "Restore after failed replacement did not clean up and recover the first original image");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for stale replacement test");
+  b.publish_replacement(revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3300,3400}}));
+  b.current.image=initial.image; // A normal restart happened after the replacement was reviewed.
+  const auto changes=b.changes;
+  const auto stale=worker.run(PowerWeightOperation::apply,b.durable);
+  check(!stale.ok&&stale.recovery_required&&b.changes==changes&&b.restarts==1,
+        "stale replacement reapplied settings after a normal restart");
+  check(worker.run(PowerWeightOperation::verify,b.durable).ok&&!b.active&&b.restarts==1,
+        "verification did not retire the stale replacement after automatic reset");
  }
  {
   Bench b;

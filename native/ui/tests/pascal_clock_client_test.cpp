@@ -29,6 +29,8 @@ int main() {
     opened_clock_id = c.adapter;
     unsigned reads = 0, registry_reads = 0;
     std::optional<PowerWeightReceipt> receipt;
+    unsigned replacements = 0;
+    bool store_available = true;
     auto a = api();
     a.identity = clock_identity;
     a.pascal_clock_capture = [&](dc_gpu*, bool registry) {
@@ -37,7 +39,15 @@ int main() {
         return c;
     };
     a.power_weights.create_receipt = [&](const PowerWeightReceipt& r) { receipt = r; };
-    a.power_weights.discover_receipt = [&](const auto&, const auto&) { return receipt; };
+    a.power_weights.discover_receipt = [&](const auto&, const auto&) {
+        if (!store_available) throw std::runtime_error("Saved session unavailable");
+        return receipt;
+    };
+    a.replace_pascal_clock_receipt = [&](const auto& previous, const auto& updated) {
+        CHECK(receipt && receipt->id == previous.id && previous.id != updated.id);
+        receipt = updated;
+        ++replacements;
+    };
     auto client = create_core_backend_for_test(a);
     std::string error;
     CHECK(client->open(c.adapter.slot, error));
@@ -66,12 +76,37 @@ int main() {
     CHECK(after.power_weights && after.power_weights->receipt && after.power_weights->receipt->id == receipt->id);
     CHECK(after.pascal_clocks && snapshot.pascal_clock_fresh && writes == 0);
     if (receipt) {
+        const auto initial_image = c.image;
         c.image = derive_weight_receipt(*receipt).clock_plan.image;
+        CHECK(client->execute(read).ok && client->read(false).pascal_clock_active_receipt.empty());
+        receipt->phase = "active";
         CHECK(client->execute(read).ok);
         const auto installed = client->read(false);
-        CHECK(installed.pascal_clock_fresh && installed.pascal_clocks &&
+        CHECK(installed.pascal_clock_active_receipt == receipt->id && installed.pascal_clock_fresh && installed.pascal_clocks &&
               std::count_if(installed.pascal_clocks->fields.begin(), installed.pascal_clocks->fields.end(),
                             [](const auto& field) { return field.pstate == -1 && field.current == 105; }) == 2);
+        prepare.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{PascalClockDomain::xbar, -1, 105, 101}});
+        const auto previous = *receipt;
+        receipt.reset(); // An existing GUI can have closed the session since Read.
+        CHECK(!client->execute(prepare).ok && !receipt && replacements == 0);
+        receipt = previous;
+        CHECK(client->execute(read).ok);
+        CHECK(client->execute(prepare).ok && replacements == 1 && receipt && receipt->image == initial_image);
+        CHECK(client->read(false).pascal_clock_active_receipt.empty());
+        const auto revised = derive_weight_receipt(*receipt);
+        CHECK(revised.clock_source_image == c.image);
+        c.image = revised.clock_plan.image;
+        receipt->phase = "active";
+        CHECK(client->execute(read).ok && client->read(false).pascal_clock_active_receipt == receipt->id);
+        c.image.back() ^= 1;
+        CHECK(client->execute(read).ok && client->read(false).pascal_clock_active_receipt.empty());
+        c.image = initial_image;
+        CHECK(client->execute(read).ok && client->read(false).pascal_clock_original_receipt == receipt->id);
+        CHECK(!client->execute(prepare).ok && replacements == 1);
+        store_available = false;
+        CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
+        store_available = true;
     }
     c.image_availability = VoltagePolicyAvailability::transient;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);

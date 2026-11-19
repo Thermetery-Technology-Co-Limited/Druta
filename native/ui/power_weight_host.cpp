@@ -47,7 +47,9 @@ int verify_main(const std::string& id,bool original,bool staged,const std::wstri
    ok=capture.image_availability==VoltagePolicyAvailability::available&&
       capture.image==(original?receipt.image:derived.clock_plan.image);
    retryable=staged&&!ok&&(capture.image_availability==VoltagePolicyAvailability::transient||
-                 (capture.image_availability==VoltagePolicyAvailability::available&&capture.image==receipt.image));
+                 (capture.image_availability==VoltagePolicyAvailability::available&&
+                  (capture.image==receipt.image||
+                   (!derived.clock_source_image.empty()&&capture.image==derived.clock_source_image))));
    message=ok?"Complete running clock image verified":staged?"Driver has not loaded the expected staged clock image":"Complete running clock image differs";
   } else {
    const auto checked=verify_power_relationship_weights(derived.plan,capture.identity,capture.layout,capture.info,&capture.image,original);
@@ -72,7 +74,7 @@ struct HelperLock {
  ~HelperLock(){if(handle!=INVALID_HANDLE_VALUE)CloseHandle(handle);}
 };
 HANDLE try_operation_lock(const std::string& id) {
- const auto path=power_weight_receipt_directory()+L"\\operation-"+wide(id)+L".lock";
+ const auto path=power_weight_operation_lock_path(power_weight_receipt_directory(),id);
  return CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_ALWAYS,
                     FILE_ATTRIBUTE_NORMAL|FILE_FLAG_DELETE_ON_CLOSE,nullptr);
 }
@@ -96,7 +98,21 @@ int helper(const PowerWeightHostRequest& request){bool parent_exited=false;Helpe
  auto receipt=active(request.receipt_id);dc_gpu_identity opened{};try{const auto initial=capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,true,receipt.is_pascal_clocks());if(!target_same(receipt,initial))throw std::runtime_error("Weight helper adapter mismatch");opened=initial.adapter;}catch(const VoltageEquationEvidenceError& e){if(request.operation!=PowerWeightOperation::remove||(e.kind!=VoltagePolicyAvailability::transient&&e.kind!=VoltagePolicyAvailability::unsupported))throw;}
  PowerWeightTransactionApi api;api.capture=[&](dc_gpu*,bool registry){return capture_power_weights_from_core(full(request.core),receipt.identity.slot,receipt.uuid,registry,receipt.is_pascal_clocks());};api.persist=[&](const auto& r,bool create){if(create){const auto existing=active(r.id);auto normalized=r;normalized.phase=existing.phase;normalized.message=existing.message;normalized.issued_names=existing.issued_names;normalized.refresh_requested=existing.refresh_requested;normalized.uncertain=existing.uncertain;if(encode_weight_receipt(normalized)!=encode_weight_receipt(existing))throw std::runtime_error("Prepared weight receipt differs");}save_weight_receipt(dir,r);};api.clear_active=[&](const auto& r){return clear_active_weight_receipt(dir,r);};api.write=[](const auto& t,const auto& before,const auto& after,const auto& journal){return write_power_weight_registry(t,before,after,journal);};api.restart=[&](const auto& t){DeviceRestartTarget wanted{t.slot,std::wstring(t.instance_id.begin(),t.instance_id.end()),L"selected GPU"};DeviceRestartApi a;a.enumerate=enumerate_restart_targets;a.started=restart_target_started;a.launch_child=[&](const auto& device,uint32_t timeout){return receipt.is_pascal_clocks()?launch_clock_restart_child(own(),device,timeout):launch_device_restart_child(own(),device,timeout);};const auto v=restart_device(wanted,a);return power_weight_restart_result(v);};api.recovery_registry=recover_registry;api.fresh_verify=[&](const auto& r,bool original){return verify_child(own(),full(request.core),r,original);};api.fresh_verify_staged=[&](const auto& r){return verify_child(own(),full(request.core),r,false,true);};api.wait_clock_ready=[](){Sleep(400);};PowerWeightTransaction transaction(api,reinterpret_cast<dc_gpu*>(1),opened);const auto result=transaction.run(request.operation,receipt,request.operation==PowerWeightOperation::verify&&receipt.restoring);
  reopen_result(full(request.core),receipt);return result.ok?0:1;
- }catch(const std::exception& error){if(parent_exited)try{auto r=active(request.receipt_id);r.message=error.what();try{save_weight_receipt(power_weight_receipt_directory(),r);}catch(...){}reopen_result(full(request.core),r);}catch(...){}return 1;}}
+ }catch(const std::exception& error){
+  if(parent_exited)try {
+   const auto dir=power_weight_receipt_directory();
+   auto prior=read_weight_receipt(dir,request.receipt_id);
+   auto current=discover_weight_receipt(dir,prior.identity.slot,prior.uuid);
+   if(current&&current->id==prior.id) {
+    current->message=error.what();
+    try{save_weight_receipt(dir,*current);}catch(...){}
+   }
+   // Another window may have advanced the session while this helper waited
+   // for its parent to exit. Reopen on the current record in that case.
+   reopen_result(full(request.core),current?*current:prior);
+  }catch(...){}
+  return 1;
+ }}
 }
 PowerWeightBoundaryResult power_weight_child_timeout(bool exit_confirmed){PowerWeightBoundaryResult out;out.timed_out=true;out.uncertain=true;out.cleanup_pending=!exit_confirmed;out.message="Fresh verification timed out";return out;}
 PowerWeightBoundaryResult power_weight_restart_result(const DeviceRestartResult& value){PowerWeightBoundaryResult out;out.ok=value.ok;out.reboot_required=value.reboot_required;out.uncertain=value.uncertain;out.message=value.message;return out;}

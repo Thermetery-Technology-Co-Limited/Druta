@@ -128,8 +128,9 @@ performance state and stage its GPC, XBAR or SYS / Video ceiling in MHz.
 The XBAR and SYS sliders each accept 1–105% of GPC and affect all states.
 Review lists all staged edits before Apply refreshes the selected adapter.
 Once the edited image is loaded, Druta removes its temporary registry records.
-Restore returns the previous image early, and Verify closes a saved clock
-session after a normal driver restart.
+The editor reads back the applied values when it reopens. Further edits keep
+the other session settings. Restore returns to the image captured before the
+first Apply, and Verify closes a saved session after a normal driver restart.
 
 ## Native I2C controller path
 

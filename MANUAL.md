@@ -52,9 +52,14 @@ Druta as administrator and enable **Unlock controls**. Choose **Review clock
 changes** to see the state and values for every edit. **Apply and refresh
 selected GPU** closes Druta, restarts the selected GPU and clears its ordinary
 tuning. Druta checks the running image before and after clearing its temporary
-registry records, then reopens. The clocks last until the next GPU restart.
+registry records, then reopens the editor with the applied values. You can adjust
+a slider again, enable **Unlock controls**, and review and apply the next change.
+Each Apply carries forward the other values in the session. The next ordinary GPU
+restart clears the session's changes.
 
-Use **Restore previous clocks and refresh GPU** to end the clock session early.
+Use **Restore original clocks and refresh GPU** to return to the clocks from
+before the first Apply. Returning every field to its original value with the
+sliders also closes the session.
 If the GPU has already restarted, **Verify clock override** checks the original
 image and closes the saved session. After an interrupted activation, use
 **Inspect saved override** on the same adapter, then choose Verify or Restore

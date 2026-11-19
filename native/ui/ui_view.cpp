@@ -2029,6 +2029,9 @@ void pascal_clock_panel(ViewState& state) {
     const auto live_record = s.data.power_weights && s.data.power_weights->receipt ?
                              s.data.power_weights : state.power_weights_saved;
     const bool owned = receipt && (receipt->phase != "removed" || live_record->receipt_from_active_pointer);
+    const bool active_clocks = owned && receipt->is_pascal_clocks() && live_record->receipt_from_active_pointer &&
+        receipt->phase == "active" && !receipt->uncertain && !receipt->restoring &&
+        !s.data.pascal_clock_active_receipt.empty() && receipt->id == s.data.pascal_clock_active_receipt;
     std::string restart_reason;
     const bool can_restart = restart_device_target(s, restart_reason, state.app_actions.administrator).has_value();
     ImGui::PushID("pascal-clock-panel");
@@ -2042,10 +2045,11 @@ void pascal_clock_panel(ViewState& state) {
     if (!s.data.pascal_clock_status.empty()) ImGui::TextWrapped("%s", s.data.pascal_clock_status.c_str());
     if (!state.power_weights_view.status.empty()) ImGui::TextWrapped("%s",state.power_weights_view.status.c_str());
 
-    const bool editable = !busy && s.data.connected && s.data.pascal_clock_fresh && !owned;
+    const bool editable = !busy && s.data.connected && s.data.pascal_clock_fresh && (!owned || active_clocks);
     std::vector<PascalClockEdit> edits;
     draw_pascal_clock_sliders(state.pascal_clock_view, s.data.pascal_clocks.get(), s.generation,
                               editable, editable && state.controls_unlocked && can_restart, edits);
+    if (editable && !state.controls_unlocked) ImGui::TextWrapped("Unlock tuning controls to apply clock changes.");
     if (!busy && !can_restart) ImGui::TextWrapped("%s", restart_reason.c_str());
     if (!edits.empty())
         state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks, {}, std::move(edits)});
@@ -2053,15 +2057,20 @@ void pascal_clock_panel(ViewState& state) {
     if (receipt && receipt->is_pascal_clocks()) {
         if (receipt->id == s.data.pascal_clock_original_receipt)
             ImGui::TextWrapped("The original clock image is running. Verify the clock override to close the previous session.");
-        else
+        else {
             ImGui::TextWrapped("Saved clock override (%s). %s",receipt->phase.c_str(),receipt->message.c_str());
+            if (active_clocks && s.data.pascal_clock_fresh)
+                ImGui::TextWrapped("You can adjust the running clocks again. Restore returns to the clocks from before the first apply.");
+            else if (owned)
+                ImGui::TextWrapped("Read the clock table before editing. If editing is still unavailable, verify the saved override or restore the original clocks.");
+        }
         if (owned) {
             ImGui::BeginDisabled(busy);
             if (ImGui::Button("Verify clock override")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::verify,{}});
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::BeginDisabled(busy || !state.controls_unlocked || !can_restart);
-            if (ImGui::Button("Restore previous clocks and refresh GPU"))
+            if (ImGui::Button("Restore original clocks and refresh GPU"))
                 state.power_weights_intents.push_back({PowerWeightsIntent::Operation::remove,{}});
             ImGui::EndDisabled();
         }
@@ -2216,7 +2225,10 @@ void live_semantic_controls(ViewState& state, bool classic) {
     if(ImGui::CollapsingHeader("Power relationship weights")) power_weights_panel(state, classic);
     if (show_pascal_clocks(state)) {
         if (policy_navigation) ImGui::SetNextItemOpen(clocks_navigation);
-        if (ImGui::CollapsingHeader("Pascal clock ceilings and ratios")) pascal_clock_panel(state);
+        if (ImGui::CollapsingHeader("Pascal clock ceilings and ratios")) {
+            if (clocks_navigation) ImGui::SetScrollHereY(0.0f);
+            pascal_clock_panel(state);
+        }
     }
     if(policy_navigation)ImGui::SetNextItemOpen(saving_navigation);
     state.open_power_saving_requested=false;

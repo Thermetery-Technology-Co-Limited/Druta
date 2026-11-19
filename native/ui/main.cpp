@@ -832,18 +832,23 @@ struct App {
         auto selected_receipt=current->data.power_weights?current->data.power_weights->receipt:std::shared_ptr<const PowerWeightReceipt>{};
         if(!selected_receipt&&view.power_weights_saved)selected_receipt=view.power_weights_saved->receipt;
         if(selected_receipt&&(selected_receipt->identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&selected_receipt->uuid!=current->data.identity.uuid)))selected_receipt.reset();
-        if(!weight_initial_receipt.empty()&&!current->opening){
+        if(!weight_initial_receipt.empty()&&!current->opening&&!current->busy){
             sync_power_weights_view(view.power_weights_view,current->data.power_weights.get(),current->generation);
             const auto id=std::move(weight_initial_receipt);weight_initial_receipt.clear();
             bool clock_result=false;
             try{auto receipt=read_weight_receipt({},id);if(receipt.identity.slot!=weight_expected_slot||receipt.uuid!=weight_expected_uuid)throw std::runtime_error("Saved override belongs to another startup target");
                 clock_result=receipt.is_pascal_clocks();
                 auto data=std::make_shared<PowerWeightsData>();
-                if(clock_result && receipt.phase=="removed"){
-                    const auto active=discover_weight_receipt({},receipt.identity.slot,receipt.uuid);
-                    data->receipt_from_active_pointer=active && active->id==receipt.id;
+                if(clock_result){
+                    auto active=discover_weight_receipt({},receipt.identity.slot,receipt.uuid);
+                    data->receipt_from_active_pointer=active.has_value();
+                    if(active) data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(*active));
+                    else if(receipt.phase=="removed") data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));
+                } else {
+                    data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));
                 }
-                data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));data->receipt_message=data->receipt->phase+": "+data->receipt->message;view.power_weights_saved=std::move(data);
+                if(data->receipt) data->receipt_message=data->receipt->phase+": "+data->receipt->message;
+                view.power_weights_saved=std::move(data);
             }catch(const std::exception& e){view.power_weights_view.status=e.what();}
             view.page=Page::advanced;view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result;
             if(clock_result && current->data.connected && !current->busy &&

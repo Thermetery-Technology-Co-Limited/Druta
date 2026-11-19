@@ -2833,6 +2833,8 @@ public:
     ActionResult pascal_clock_action(const Command& cmd) {
         ActionResult result;
         const bool prepare = cmd.operation == Command::Operation::pascal_clock_prepare;
+        const auto reviewed_owner = last_.pascal_clock_active_receipt;
+        last_.pascal_clock_active_receipt.clear();
         last_.pascal_clock_original_receipt.clear();
         try {
             if (prepare && (!cmd.enabled || !cmd.pascal_clock_edits || cmd.pascal_clock_edits->empty()))
@@ -2846,15 +2848,25 @@ public:
                 throw std::runtime_error("The selected adapter must be the paired Pascal GPU");
             if (c.image_availability != VoltagePolicyAvailability::available)
                 throw std::runtime_error(c.image_message.empty() ? "Current clock image unavailable" : c.image_message);
+            const auto inspection = power_weights_->inspect_receipt();
+            last_.power_weights = std::make_shared<PowerWeightsData>(power_weights_->state());
+            if (!inspection.ok) throw std::runtime_error(inspection.message);
+            const auto saved = last_.power_weights->receipt;
             if (prepare) {
                 if (c.image != displayed_clock_image_)
                     throw std::runtime_error("The running clock image changed. Read it again and review the new settings.");
-                auto receipt = make_pascal_clock_receipt(c, *cmd.pascal_clock_edits);
-                const auto& api = api_.power_weights;
-                if (api.create_receipt) api.create_receipt(receipt);
+                if (saved ? (reviewed_owner.empty() || reviewed_owner != saved->id) : !reviewed_owner.empty())
+                    throw std::runtime_error("The saved clock session changed. Read the clock table again.");
+                auto receipt = saved ? revise_pascal_clock_receipt(c, *saved, *cmd.pascal_clock_edits)
+                                     : make_pascal_clock_receipt(c, *cmd.pascal_clock_edits);
+                if (saved) {
+                    if (api_.replace_pascal_clock_receipt) api_.replace_pascal_clock_receipt(*saved, receipt);
+                    else replace_pascal_clock_receipt({}, *saved, receipt);
+                } else if (api_.power_weights.create_receipt) api_.power_weights.create_receipt(receipt);
                 else create_weight_receipt({},receipt);
-                auto shared = last_.power_weights ? std::make_shared<PowerWeightsData>(*last_.power_weights) : std::make_shared<PowerWeightsData>();
+                auto shared = std::make_shared<PowerWeightsData>(*last_.power_weights);
                 shared->receipt = std::make_shared<const PowerWeightReceipt>(std::move(receipt));
+                shared->receipt_from_active_pointer = true;
                 last_.power_weights = std::move(shared);
                 result.message = "Clock settings reviewed and recovery record saved";
             } else {
@@ -2866,13 +2878,10 @@ public:
                 last_.pascal_clocks = std::make_shared<const PascalClockTable>(std::move(table));
                 last_.pascal_clock_fresh = true;
                 result.message = "Read the running Pascal clock table";
-                if (power_weights_) {
-                    const auto inspection = power_weights_->inspect_receipt();
-                    last_.power_weights = std::make_shared<PowerWeightsData>(power_weights_->state());
-                    const auto& saved = last_.power_weights->receipt;
-                    if (saved && saved->is_pascal_clocks() && saved->phase == "active" &&
-                        saved->image == displayed_clock_image_) last_.pascal_clock_original_receipt = saved->id;
-                    if (!inspection.ok) result.message += ". " + inspection.message;
+                if (saved && saved->is_pascal_clocks() && saved->phase == "active" && !saved->uncertain && !saved->restoring) {
+                    if (saved->image == displayed_clock_image_) last_.pascal_clock_original_receipt = saved->id;
+                    else if (derive_weight_receipt(*saved).clock_plan.image == displayed_clock_image_)
+                        last_.pascal_clock_active_receipt = saved->id;
                 }
             }
             result.ok = true;

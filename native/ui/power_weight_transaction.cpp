@@ -31,7 +31,8 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
  PowerWeightTransactionResult result;
  const bool applying=op==PowerWeightOperation::apply;
  const bool removing=op==PowerWeightOperation::remove;
- bool published=!applying;
+ // A replacement owns the recovery pointer before the helper starts.
+ bool published=!applying||!receipt.previous_clocks.empty();
  bool cleanup_needed=false;
  PowerWeightReceiptDerived derived;
  const auto persist=[&](bool create=false) {
@@ -93,11 +94,13 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
   if(applying) {
    require(receipt.phase=="prepared"&&receipt.issued_names.empty()&&!receipt.refresh_requested&&
            !receipt.uncertain&&!receipt.restoring,"Clock Apply requires an unused preview");
+   const auto& source=derived.clock_source_image.empty()?receipt.image:derived.clock_source_image;
    const auto current=capture();
-   require(current.image_availability==VoltagePolicyAvailability::available&&current.image==receipt.image&&
+   require(current.image_availability==VoltagePolicyAvailability::available&&current.image==source&&
            equal(*current.registry,receipt.before),"The clock preview is stale. Read the current GPU and preview again");
-   require(bool(api.write)&&bool(api.restart)&&bool(api.fresh_verify_staged),"Clock activation boundaries unavailable");
-   require(derived.clock_plan.image!=receipt.image,"The selected clocks already match the running image");
+   require(derived.clock_plan.image!=source,"The selected clocks already match the running image");
+   original=derived.clock_plan.image==receipt.image;
+   require((original||bool(api.write))&&bool(api.restart)&&bool(api.fresh_verify_staged),"Clock activation boundaries unavailable");
    receipt.message="Preparing the selected clocks";persist(true);
    receipt.phase="writing";persist();
    const auto record=[&](const std::wstring& name,std::string& error) {
@@ -107,11 +110,13 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
      cleanup_needed=true;return true;
     } catch(const std::exception& e) { receipt.issued_names.resize(count);error=e.what();return false; }
    };
-   const auto written=api.write(receipt.windows,*current.registry,derived.after,record);
-   result.may_have_changed=written.may_have_changed;
-   require(written.ok,written.message.c_str());
+   if(!original) {
+    const auto written=api.write(receipt.windows,*current.registry,derived.after,record);
+    result.may_have_changed=written.may_have_changed;
+    require(written.ok,written.message.c_str());
+   }
    const auto staged=capture();
-   require(staged.image_availability==VoltagePolicyAvailability::available&&staged.image==receipt.image&&
+   require(staged.image_availability==VoltagePolicyAvailability::available&&staged.image==source&&
            equal(*staged.registry,derived.after),"Clock pre-restart image or registry differs from staged preview");
    receipt.phase="refresh_pending";receipt.refresh_requested=true;receipt.uncertain=true;persist();
    result.may_have_changed=true;
