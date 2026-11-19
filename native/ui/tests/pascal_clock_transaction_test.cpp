@@ -1,0 +1,317 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "pascal_clock_fixture.h"
+#include "power_weight_transaction.h"
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
+#include <utility>
+
+using namespace druta::ui;
+namespace {
+void check(bool ok,const char* message) { if(!ok)throw std::runtime_error(message); }
+struct Bench {
+ PowerWeightCapture current;
+ PowerWeightReceipt durable;
+ bool active=false,refuse_restart=false,fail_stage=false,fail_cleanup=false,swap_target=false,fail_clear=false;
+ unsigned restarts=0,changes=0,staged_reads=0,readiness_failures=0;
+ bool fatal_staged_failure=false;
+ Bench() {
+  auto& id=current.adapter;
+  id.size=sizeof(id);std::strcpy(id.slot,"0000:12:00.0");std::strcpy(id.uuid,"GPU-clock-test");
+  id.nvapi_ok=id.nvapi_selected=1;id.nvapi_handle=12;id.nvapi_devid=0x1bbc;id.nvapi_subsys=0x12345678;
+  auto& t=current.target;t.size=sizeof(t);std::strcpy(t.slot,id.slot);t.handle=id.nvapi_handle;
+  t.device_id=id.nvapi_devid;t.subsystem_id=id.nvapi_subsys;t.architecture=4;
+  current.identity={id.slot,t.architecture,t.device_id,t.subsystem_id};
+  current.windows=VoltageScaffoldWindowsTarget{id.slot,"PCI\\VEN_10DE&DEV_1BBC&SUBSYS_12345678\\FIXTURE",
+   "SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0028"};
+  current.image_availability=current.registry_availability=VoltagePolicyAvailability::available;
+  current.info_availability=VoltagePolicyAvailability::unsupported;
+  current.registry=PowerWeightRegistrySnapshot{{L"EnableGpuFirmware",4,{0x11,0,0,0}}};
+  current.image=test::pascal_clock_fixture();
+ }
+ PowerWeightReceipt make(int ratio = 200) {
+  return make_pascal_clock_receipt(current,{{PascalClockDomain::gpc,0,3800,3300},
+                                             {PascalClockDomain::sys,5,1800,1600},
+                                             {PascalClockDomain::xbar,-1,95,ratio},
+                                             {PascalClockDomain::sys,-1,90,ratio}});
+ }
+ void publish_replacement(const PowerWeightReceipt& next) {
+  check(active&&durable.phase=="active"&&next.id!=durable.id,"replacement must supersede a verified active receipt");
+  durable=decode_weight_receipt(encode_weight_receipt(next));
+ }
+ PowerWeightTransactionApi api() {
+  PowerWeightTransactionApi out;
+  out.capture=[&](dc_gpu*,bool) { return current; };
+  out.recovery_registry=[&](const PowerWeightReceipt&) {
+   auto target=*current.windows;if(swap_target)target.instance_id+="X";
+   return PowerWeightRegistryRecovery{target,*current.registry};
+  };
+  out.persist=[&](const PowerWeightReceipt& r,bool create) {
+   if(create)check(!active||(r.id==durable.id&&durable.phase=="prepared"),"a second transaction acquired the device");
+   else check(active&&r.id==durable.id,"lost receipt ownership");
+   active=true;durable=decode_weight_receipt(encode_weight_receipt(r));
+  };
+  out.clear_active=[&](const PowerWeightReceipt& r) {
+   check(active&&r.id==durable.id&&durable.phase=="removed","cleared an unverified receipt");if(fail_clear)return false;active=false;return true;
+  };
+  out.write=[&](const auto& target,const auto& expected,const auto& desired,const auto& before_effect) {
+   PowerWeightRegistryWriteApi writer;
+   writer.read=[&](const std::wstring&){return *current.registry;};
+   writer.write=[&](const std::wstring&,const std::wstring& name,const std::optional<PowerWeightRegistryValue>& value,std::string& error) {
+    check(active&&std::find(durable.issued_names.begin(),durable.issued_names.end(),name)!=durable.issued_names.end(),
+          "mutation missing from durable journal");
+    if(fail_cleanup&&!value){error="simulated failed cleanup";return false;}
+    auto& values=*current.registry;
+    auto it=std::find_if(values.begin(),values.end(),[&](const auto& v){return v.name==name;});
+    if(value) { if(it!=values.end())*it=*value;else values.push_back(*value); }
+    else if(it!=values.end())values.erase(it);
+    ++changes;
+    if(fail_stage&&value){error="error after accepted stage";return false;}
+    return true;
+   };
+   return write_power_weight_registry(target,expected,desired,before_effect,writer);
+  };
+  out.restart=[&](const auto&) {
+   check(durable.refresh_requested,"missing durable refresh intent");++restarts;
+   if(refuse_restart)return PowerWeightBoundaryResult{false,true,false,false,true,"reboot required"};
+   current.image=durable.image;
+   for(const auto& value:*current.registry) {
+    if(value.name.rfind(L"romOverride",0)!=0)continue;
+    const auto& record=value.bytes;
+    check(record.size()>=10&&record.size()==10u+record[9],"malformed staged record");
+    const uint32_t at=uint32_t(record[5])|(uint32_t(record[6])<<8)|(uint32_t(record[7])<<16)|(uint32_t(record[8])<<24);
+    check(at<=current.image.size()&&record[9]<=current.image.size()-at,"staged record outside ROM");
+    std::copy(record.begin()+10,record.end(),current.image.begin()+at);
+   }
+   return PowerWeightBoundaryResult{true};
+  };
+  out.fresh_verify_staged=[&](const PowerWeightReceipt& r) {
+   ++staged_reads;
+   check(r.phase=="clock_initializing"&&durable.phase==r.phase,"staged proof requires durable phase");
+   check(power_weight_verify_registry(r,*current.registry,false,true),"staged records removed before driver proof");
+   if(fatal_staged_failure)return PowerWeightBoundaryResult{false,false,false,false,false,"foreign target",false};
+   if(staged_reads<=readiness_failures)return PowerWeightBoundaryResult{false,false,false,false,false,"still initializing",true};
+   const bool expected=current.image==derive_weight_receipt(r).clock_plan.image;
+   return PowerWeightBoundaryResult{expected,false,false,false,false,expected?"exact":"image differs"};
+  };
+  out.fresh_verify=[&](const PowerWeightReceipt& r,bool original) {
+   const auto expected=original?r.image:derive_weight_receipt(r).clock_plan.image;
+   const bool ok=current.image==expected&&power_weight_verify_registry(r,*current.registry,original);
+   return PowerWeightBoundaryResult{ok,false,false,false,false,ok?"exact":"image/registry differs"};
+  };
+  return out;
+ }
+};
+void tests() {
+ {
+  Bench b;
+  const auto initial=make_pascal_clock_receipt(b.current, {{PascalClockDomain::gpc,0,3800,7800}});
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"Cannot activate a raised absolute ceiling");
+  const auto original=inspect_pascal_clocks(initial.image);
+  const auto installed=inspect_pascal_clocks(b.current.image,4,&original);
+  const auto row=std::find_if(installed.fields.begin(),installed.fields.end(),[](const auto& f) {
+   return f.domain==PascalClockDomain::gpc&&f.pstate==0;
+  });
+  check(row!=installed.fields.end()&&row->current==7800&&row->maximum==7800,
+        "Raised absolute ceiling and original range were not retained");
+  const auto replacement=revise_pascal_clock_receipt(b.current,b.durable,
+   {{PascalClockDomain::gpc,0,7800,7000}});
+  b.publish_replacement(replacement);
+  check(worker.run(PowerWeightOperation::apply,b.durable).ok&&
+        worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.image==initial.image,
+        "Revised raised ceiling did not apply and restore the original image");
+ }
+ for (uint32_t architecture : {2u, 3u}) {
+  Bench b;
+  b.current.target.architecture = b.current.identity.architecture = architecture;
+  const auto original = test::legacy_clock_fixture(architecture);
+  b.current.image = original;
+  const auto receipt = make_pascal_clock_receipt(b.current, {{PascalClockDomain::xbar, 0, 1165, 1001}});
+  PowerWeightTransaction worker(b.api(), nullptr, b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply, receipt).ok && b.current.image != original,
+        "Cannot activate the legacy independent target");
+  const auto revised = revise_pascal_clock_receipt(b.current, b.durable, {{PascalClockDomain::xbar, 0, 1001, 1100}});
+  b.publish_replacement(revised);
+  check(worker.run(PowerWeightOperation::apply, revised).ok && b.current.image == derive_weight_receipt(revised).clock_plan.image,
+        "Cannot raise a previously reduced legacy target");
+  check(worker.run(PowerWeightOperation::remove, b.durable).ok && b.current.image == original &&
+        b.current.registry->size() == 1 && b.restarts == 3 && !b.active,
+        "Legacy restore must recover the original image and registry");
+ }
+ {
+  Bench b;const auto r=b.make();
+  const auto copy=decode_weight_receipt(encode_weight_receipt(r));
+  check(copy.is_pascal_clocks()&&copy.clocks.size()==4&&copy.info.empty(),"clock receipt roundtrip failed");
+  check(copy.clocks[2].expected==95&&copy.clocks[2].value==200&&
+        copy.clocks[3].expected==90&&copy.clocks[3].value==200,"clock receipt lost the raised ratios");
+  check(!power_weight_verify_registry(r,derive_weight_receipt(r).after,false),"active verification accepted staged records");
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  const auto result=worker.run(PowerWeightOperation::apply,r);
+  check(result.ok&&b.restarts==1&&b.active&&b.durable.phase=="active"&&b.current.registry->size()==1,
+        "apply did not unstage verified clocks");
+  check(b.staged_reads==1,"activation must verify the image before removing the staged records");
+  check(b.current.image==derive_weight_receipt(r).clock_plan.image,"applied image differs");
+  const auto installed=inspect_pascal_clocks(b.current.image);
+  check(installed.ok&&std::count_if(installed.fields.begin(),installed.fields.end(),[](const auto& field) {
+   return field.pstate==-1&&field.current==200;
+  })==2,"the running table lost the raised ratios");
+  check(worker.run(PowerWeightOperation::verify,b.durable).ok&&b.restarts==1,"read-only verification changed session");
+  const auto cleared=worker.run(PowerWeightOperation::remove,b.durable);
+  check(cleared.ok&&b.current.image==r.image&&b.restarts==2&&!b.active,"explicit restore incomplete");
+ }
+ {
+  Bench b;const auto initial=b.make(105);PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for replacement test");
+  const auto first_running=b.current.image;
+  const auto replacement=revise_pascal_clock_receipt(b.current,b.durable,
+   {{PascalClockDomain::xbar,-1,105,200},{PascalClockDomain::sys,-1,105,200}});
+  b.publish_replacement(replacement);
+  check(worker.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==2&&b.current.registry->size()==1,
+        "replacement did not load and unstage its complete settings");
+  const auto installed=inspect_pascal_clocks(b.current.image);
+  const auto has=[&](PascalClockDomain domain,int pstate,int raw) {
+   return std::any_of(installed.fields.begin(),installed.fields.end(),[&](const auto& field) {
+    return field.domain==domain&&field.pstate==pstate&&field.current==raw;
+   });
+  };
+  auto expected_image=first_running;
+  constexpr size_t sys_ratio_byte=0x200+8+21+14, xbar_ratio_byte=sys_ratio_byte+3;
+  expected_image[sys_ratio_byte]=expected_image[xbar_ratio_byte]=200;
+  check(b.current.image==expected_image,"revising a 105 percent receipt altered bytes outside the two ratios");
+  check(has(PascalClockDomain::gpc,0,3300)&&has(PascalClockDomain::xbar,-1,200)&&
+        has(PascalClockDomain::sys,-1,200)&&has(PascalClockDomain::sys,5,1600),
+        "replacement lost earlier settings in other fields");
+  const auto next=revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3300,3200}});
+  b.publish_replacement(next);
+  check(worker.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==3,"cannot replace already revised settings");
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==4&&!b.active&&
+        b.current.image==initial.image&&b.current.image!=first_running,
+        "Restore did not recover the image from before the first Apply");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for return-to-original test");
+  auto edits=initial.clocks;
+  for(auto& edit:edits)std::swap(edit.expected,edit.value);
+  b.publish_replacement(revise_pascal_clock_receipt(b.current,b.durable,edits));
+  auto api=b.api();api.write={};
+  PowerWeightTransaction reset(std::move(api),nullptr,b.current.adapter);
+  const auto changes=b.changes;
+  check(reset.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==2&&b.staged_reads==2&&
+        b.changes==changes&&!b.active&&b.current.image==initial.image,
+        "returning every field to original did not refresh, verify, and retire without registry writes");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for failed replacement test");
+  const auto first_running=b.current.image;
+  b.publish_replacement(revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3300,3400}}));
+  b.fail_stage=true;b.fail_cleanup=true;
+  const auto failed=worker.run(PowerWeightOperation::apply,b.durable);
+  check(!failed.ok&&failed.cleanup_pending&&failed.recovery_required&&b.active&&b.current.image==first_running&&b.restarts==1,
+        "failed replacement did not retain the prior running clocks and recovery record");
+  b.fail_stage=false;b.fail_cleanup=false;
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==2&&!b.active&&
+        b.current.image==initial.image&&b.current.registry->size()==1,
+        "Restore after failed replacement did not clean up and recover the first original image");
+ }
+ {
+  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for stale replacement test");
+  b.publish_replacement(revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3300,3400}}));
+  b.current.image=initial.image; // A normal restart happened after the replacement was reviewed.
+  const auto changes=b.changes;
+  const auto stale=worker.run(PowerWeightOperation::apply,b.durable);
+  check(!stale.ok&&stale.recovery_required&&b.changes==changes&&b.restarts==1,
+        "stale replacement reapplied settings after a normal restart");
+  check(worker.run(PowerWeightOperation::verify,b.durable).ok&&!b.active&&b.restarts==1,
+        "verification did not retire the stale replacement after automatic reset");
+ }
+ {
+  Bench b;
+  b.current.image=derive_weight_receipt(b.make(105)).clock_plan.image;
+  const auto r=make_pascal_clock_receipt(b.current,{{PascalClockDomain::xbar,-1,105,100},
+                                                   {PascalClockDomain::sys,-1,105,100}});
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot lower an installed 105 percent ratio");
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.image==r.image&&!b.active,
+        "restore did not recover both previously installed 105 percent ratios");
+ }
+ {
+  Bench b;const auto r=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot apply clocks");
+  b.current.image=r.image; // an unrelated normal driver restart
+  check(worker.run(PowerWeightOperation::verify,b.durable).ok&&!b.active&&b.restarts==1,
+        "normal restart must retire clock session without another restart");
+ }
+ {
+  Bench b;const auto r=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot apply for pointer cleanup test");
+  b.fail_clear=true;
+  const auto pending=worker.run(PowerWeightOperation::remove,b.durable);
+  check(!pending.ok&&pending.cleanup_pending&&pending.recovery_required&&b.active&&
+        b.durable.phase=="cleanup_pending"&&b.current.image==r.image,"failed pointer clear lost recoverability");
+  b.fail_clear=false;
+  const auto n=b.restarts;
+  check(worker.run(PowerWeightOperation::verify,b.durable).ok&&!b.active&&b.restarts==n,
+        "retry of pointer cleanup restarted the GPU");
+ }
+ {
+  Bench b;const auto r=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot apply for interrupted removal test");
+  b.current.image=r.image;b.durable.phase="removed";b.durable.restoring=true;b.durable.uncertain=false;
+  check(worker.run(PowerWeightOperation::verify,b.durable).ok&&!b.active&&b.restarts==1,
+        "crash between durable removal and pointer clear stranded the receipt");
+ }
+ {
+  Bench b;const auto r=b.make();b.readiness_failures=2;PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok&&b.staged_reads==3&&b.restarts==1&&b.current.registry->size()==1,
+        "bounded readiness should re-read only, then unstage and verify");
+ }
+ {
+  Bench b;const auto r=b.make();b.readiness_failures=20;PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  const auto result=worker.run(PowerWeightOperation::apply,r);
+  check(!result.ok&&result.recovery_required&&b.staged_reads==8&&b.restarts==1&&b.current.registry->size()==1,
+        "exhausted fresh-image readiness must still remove staged records");
+ }
+ {
+  Bench b;const auto r=b.make();b.fatal_staged_failure=true;PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  const auto result=worker.run(PowerWeightOperation::apply,r);
+  check(!result.ok&&result.recovery_required&&b.staged_reads==1&&b.current.registry->size()==1,"identity failure must unstage without retry");
+ }
+ {
+  Bench b;const auto r=b.make();b.refuse_restart=true;
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);const auto v=worker.run(PowerWeightOperation::apply,r);
+  check(!v.ok&&v.reboot_required&&v.recovery_required&&b.current.registry->size()==1,"restart failure left staged clocks");
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&!b.active&&b.restarts==1,"recovered card restarted unnecessarily");
+ }
+ {
+  Bench b;const auto r=b.make();b.fail_stage=true;b.fail_cleanup=true;
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);const auto v=worker.run(PowerWeightOperation::apply,r);
+  check(!v.ok&&v.cleanup_pending&&b.active&&b.current.registry->size()==2,"partial write lost durable ownership");
+  b.fail_stage=b.fail_cleanup=false;
+  b.swap_target=true;
+  check(!worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.registry->size()==2,
+        "recovery followed a replacement Windows target");
+  b.swap_target=false;
+  (*b.current.registry)[1].bytes.back()^=0x10;
+  check(!worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.registry->size()==2,
+        "recovery deleted externally changed record");
+  (*b.current.registry)[1].bytes.back()^=0x10;
+  auto foreign=(*b.current.registry)[1];foreign.name=L"romOverride01";b.current.registry->push_back(foreign);
+  check(!worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.registry->size()==3,
+        "cleanup must not strand a later external override after a numbering gap");
+  b.current.registry->pop_back();
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&!b.active&&b.restarts==0,"failed partial stage recovery");
+ }
+ {
+  Bench b;const auto r=b.make();b.current.image.back()^=1;
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(!worker.run(PowerWeightOperation::apply,r).ok&&!b.active&&b.changes==0&&b.restarts==0,"stale clock image changed hardware");
+ }
+}
+}
+int main() { try { tests();return 0; } catch(const std::exception& e) { std::fprintf(stderr,"%s\n",e.what());return 1; } }

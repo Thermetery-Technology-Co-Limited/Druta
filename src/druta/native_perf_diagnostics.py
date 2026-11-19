@@ -355,7 +355,7 @@ def _decode(name, info, control):
 
 def _layout(name):
     """_layout(name): None, or its ValueError (an unhashable name raises TypeError, as LAYOUTS[name])."""
-    hash(name)
+    {}.get(name)  # a dict lookup, as LAYOUTS[name]: the interpreter's own unhashable-key text
     _, failure = _decode(name, b"", None)
     if isinstance(failure, ValueError):
         raise failure

@@ -1,0 +1,548 @@
+{
+  "attempts": [
+    {
+      "active_clock_ratios_preserved": null,
+      "at_b": null,
+      "attempt": "initial_idle",
+      "b_image_readback": {
+        "effective_vbios_sha256": "a0eb7c231c1f00509fed0d7b7738038ae7efb8d50db0a4a3986b4cbb7e87c53c",
+        "memory_clock_reported_mhz": 9501,
+        "pstate": "P0"
+      },
+      "before_a": {
+        "config1_raw": "0x34108389",
+        "config3_raw": "0x2200194a",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "board": "GA104",
+      "config3_field_mask": "0x0001fe00",
+      "controller_capture": {
+        "expected_operating_point": {
+          "memory_clock_reported_mhz": 405,
+          "pstate": "P8"
+        },
+        "passive_settle_budget_seconds": 16,
+        "workload": null
+      },
+      "driver_version": "581.80",
+      "expected_b_full_image_sha256": "a0eb7c231c1f00509fed0d7b7738038ae7efb8d50db0a4a3986b4cbb7e87c53c",
+      "expected_config3_at_b": "0x22001b4a",
+      "historical_non_p0": true,
+      "model": "GeForce RTX 3070 Ti",
+      "p0_evidence": false,
+      "requested_faw": 13,
+      "restoration": {
+        "after_settling": "restored-A-after-settling",
+        "complete_image_matches_initial": true,
+        "managed_registry_values_remaining": 0,
+        "matching_band_controller_words_match_initial": true,
+        "windows_device_started_without_problem": true
+      },
+      "restored_a": {
+        "config1_raw": "0x34108389",
+        "config3_raw": "0x2200194a",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "result": "controller_timing_not_measured_at_matching_operating_point",
+      "row_fingerprint": {
+        "exact_config1": true,
+        "exact_config3": true
+      },
+      "runtime_image_byte_offset": "0x8397f",
+      "selected_device_restarts": [
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        },
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        }
+      ],
+      "targeted_faw_bit_xor": "0x00000200",
+      "tested_row": 6,
+      "vbios_version": "94.04.5a.00.56"
+    },
+    {
+      "active_clock_ratios_preserved": null,
+      "at_b": {
+        "config1_raw": "0x34108389",
+        "config3_raw": "0x2200194a",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "a0eb7c231c1f00509fed0d7b7738038ae7efb8d50db0a4a3986b4cbb7e87c53c",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "attempt": "repeat_idle_after_passive_settle",
+      "b_image_readback": {
+        "effective_vbios_sha256": "a0eb7c231c1f00509fed0d7b7738038ae7efb8d50db0a4a3986b4cbb7e87c53c",
+        "memory_clock_reported_mhz": 9501,
+        "pstate": "P0"
+      },
+      "before_a": {
+        "config1_raw": "0x34108389",
+        "config3_raw": "0x2200194a",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "board": "GA104",
+      "config3_field_mask": "0x0001fe00",
+      "controller_capture": {
+        "expected_operating_point": {
+          "memory_clock_reported_mhz": 405,
+          "pstate": "P8"
+        },
+        "passive_settle_budget_seconds": 120,
+        "workload": null
+      },
+      "driver_version": "581.80",
+      "expected_b_full_image_sha256": "a0eb7c231c1f00509fed0d7b7738038ae7efb8d50db0a4a3986b4cbb7e87c53c",
+      "expected_config3_at_b": "0x22001b4a",
+      "historical_non_p0": true,
+      "model": "GeForce RTX 3070 Ti",
+      "p0_evidence": false,
+      "requested_faw": 13,
+      "restoration": {
+        "after_settling": "restored-A",
+        "complete_image_matches_initial": true,
+        "managed_registry_values_remaining": 0,
+        "matching_band_controller_words_match_initial": true,
+        "windows_device_started_without_problem": true
+      },
+      "restored_a": {
+        "config1_raw": "0x34108389",
+        "config3_raw": "0x2200194a",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "result": "programmed_faw_unchanged",
+      "row_fingerprint": {
+        "exact_config1": true,
+        "exact_config3": true
+      },
+      "runtime_image_byte_offset": "0x8397f",
+      "selected_device_restarts": [
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        },
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        }
+      ],
+      "targeted_faw_bit_xor": "0x00000200",
+      "tested_row": 6,
+      "vbios_version": "94.04.5a.00.56"
+    },
+    {
+      "active_clock_ratios_preserved": {
+        "same_native_undo_receipt": true,
+        "sys_percent": 100,
+        "xbar_percent": 100
+      },
+      "at_b": {
+        "config1_raw": "0x24310289",
+        "config3_raw": "0x22001aec",
+        "decoded_cl": 9,
+        "decoded_faw": 13,
+        "effective_vbios_sha256": "596cd942962ea9050598aa30da66851a1e40967c9cfa8e32ab8f196503de2671",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "attempt": "initial_idle",
+      "b_image_readback": {
+        "effective_vbios_sha256": "596cd942962ea9050598aa30da66851a1e40967c9cfa8e32ab8f196503de2671",
+        "memory_clock_reported_mhz": 3504,
+        "pstate": "P0"
+      },
+      "before_a": {
+        "config1_raw": "0x24310289",
+        "config3_raw": "0x220018ec",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "3024a5fed5e2426d37d1491b651821026268b758f3d54ba11a1d02cf1d214d4e",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "board": "GP107",
+      "config3_field_mask": "0x0001fe00",
+      "controller_capture": {
+        "expected_operating_point": {
+          "memory_clock_reported_mhz": 405,
+          "pstate": "P8"
+        },
+        "passive_settle_budget_seconds": 120,
+        "workload": null
+      },
+      "driver_version": "581.80",
+      "expected_b_full_image_sha256": "596cd942962ea9050598aa30da66851a1e40967c9cfa8e32ab8f196503de2671",
+      "expected_config3_at_b": "0x22001aec",
+      "historical_non_p0": true,
+      "model": "GeForce GTX 1050 Ti",
+      "p0_evidence": false,
+      "requested_faw": 13,
+      "restoration": {
+        "after_settling": "restored-A",
+        "complete_image_matches_initial": true,
+        "managed_registry_values_remaining": 0,
+        "matching_band_controller_words_match_initial": true,
+        "windows_device_started_without_problem": true
+      },
+      "restored_a": {
+        "config1_raw": "0x24310289",
+        "config3_raw": "0x220018ec",
+        "decoded_cl": 9,
+        "decoded_faw": 12,
+        "effective_vbios_sha256": "3024a5fed5e2426d37d1491b651821026268b758f3d54ba11a1d02cf1d214d4e",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P8"
+      },
+      "result": "programmed_faw_changed_and_restored",
+      "row_fingerprint": {
+        "exact_config1": true,
+        "exact_config3": true
+      },
+      "runtime_image_byte_offset": "0x2db1d",
+      "selected_device_restarts": [
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        },
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        }
+      ],
+      "targeted_faw_bit_xor": "0x00000200",
+      "tested_row": 0,
+      "vbios_version": "86.07.39.00.e9"
+    },
+    {
+      "active_clock_ratios_preserved": null,
+      "at_b": {
+        "config1_raw": "0x79e9839e",
+        "config3_raw": "0x2300294c",
+        "decoded_cl": 30,
+        "decoded_faw": 20,
+        "effective_vbios_sha256": "7031d0a2b161094e8ef4bb537a8d03b5621e7d5b0251caede670b5b7c7a40926",
+        "memory_clock_reported_mhz": 9251,
+        "pstate": "P2"
+      },
+      "attempt": "historical_high_memory_band_p2",
+      "b_image_readback": {
+        "effective_vbios_sha256": "7031d0a2b161094e8ef4bb537a8d03b5621e7d5b0251caede670b5b7c7a40926",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P0"
+      },
+      "before_a": {
+        "config1_raw": "0x79e9839e",
+        "config3_raw": "0x2300294c",
+        "decoded_cl": 30,
+        "decoded_faw": 20,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 9251,
+        "pstate": "P2"
+      },
+      "board": "GA104",
+      "config3_field_mask": "0x0001fe00",
+      "controller_capture": {
+        "expected_operating_point": {
+          "memory_clock_reported_mhz": 9251,
+          "pstate": "P2"
+        },
+        "max_seconds_per_copy_workload": 7,
+        "workload": "selected-device CUDA device-to-device copy",
+        "workload_stopped_and_joined": true
+      },
+      "driver_version": "581.80",
+      "expected_b_full_image_sha256": "7031d0a2b161094e8ef4bb537a8d03b5621e7d5b0251caede670b5b7c7a40926",
+      "expected_config3_at_b": "0x23002b4c",
+      "historical_non_p0": true,
+      "model": "GeForce RTX 3070 Ti",
+      "p0_evidence": false,
+      "requested_faw": 21,
+      "restoration": {
+        "after_settling": "restored-A",
+        "complete_image_matches_initial": true,
+        "managed_registry_values_remaining": 0,
+        "matching_band_controller_words_match_initial": true,
+        "windows_device_started_without_problem": true
+      },
+      "restored_a": {
+        "config1_raw": "0x79e9839e",
+        "config3_raw": "0x2300294c",
+        "decoded_cl": 30,
+        "decoded_faw": 20,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 9251,
+        "pstate": "P2"
+      },
+      "result": "programmed_faw_unchanged",
+      "row_fingerprint": {
+        "exact_config1": true,
+        "exact_config3": true
+      },
+      "runtime_image_byte_offset": "0x837b7",
+      "selected_device_restarts": [
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        },
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        }
+      ],
+      "targeted_faw_bit_xor": "0x00000200",
+      "tested_row": 0,
+      "vbios_version": "94.04.5a.00.56"
+    },
+    {
+      "active_clock_ratios_preserved": {
+        "same_native_undo_receipt": true,
+        "sys_percent": 100,
+        "xbar_percent": 100
+      },
+      "at_b": {
+        "config1_raw": "0x2966c296",
+        "config3_raw": "0x00003aaa",
+        "decoded_cl": 22,
+        "decoded_faw": 29,
+        "effective_vbios_sha256": "1b8b2e32eb24bae29c159003c264563cf3f5f41366ef18df6ed8f9b392b45077",
+        "memory_clock_reported_mhz": 3504,
+        "pstate": "P0"
+      },
+      "attempt": "high_memory_band_p0",
+      "b_image_readback": {
+        "effective_vbios_sha256": "1b8b2e32eb24bae29c159003c264563cf3f5f41366ef18df6ed8f9b392b45077",
+        "memory_clock_reported_mhz": 3504,
+        "pstate": "P0"
+      },
+      "before_a": {
+        "config1_raw": "0x2966c296",
+        "config3_raw": "0x000038aa",
+        "decoded_cl": 22,
+        "decoded_faw": 28,
+        "effective_vbios_sha256": "3024a5fed5e2426d37d1491b651821026268b758f3d54ba11a1d02cf1d214d4e",
+        "memory_clock_reported_mhz": 3504,
+        "pstate": "P0"
+      },
+      "board": "GP107",
+      "config3_field_mask": "0x0001fe00",
+      "controller_capture": {
+        "expected_operating_point": {
+          "memory_clock_reported_mhz": 3504,
+          "pstate": "P0"
+        },
+        "max_seconds_per_copy_workload": 7,
+        "workload": "selected-device CUDA device-to-device copy",
+        "workload_stopped_and_joined": true
+      },
+      "driver_version": "581.80",
+      "expected_b_full_image_sha256": "1b8b2e32eb24bae29c159003c264563cf3f5f41366ef18df6ed8f9b392b45077",
+      "expected_config3_at_b": "0x00003aaa",
+      "historical_non_p0": false,
+      "model": "GeForce GTX 1050 Ti",
+      "p0_evidence": true,
+      "requested_faw": 29,
+      "restoration": {
+        "after_settling": "restored-A",
+        "complete_image_matches_initial": true,
+        "managed_registry_values_remaining": 0,
+        "matching_band_controller_words_match_initial": true,
+        "windows_device_started_without_problem": true
+      },
+      "restored_a": {
+        "config1_raw": "0x2966c296",
+        "config3_raw": "0x000038aa",
+        "decoded_cl": 22,
+        "decoded_faw": 28,
+        "effective_vbios_sha256": "3024a5fed5e2426d37d1491b651821026268b758f3d54ba11a1d02cf1d214d4e",
+        "memory_clock_reported_mhz": 3504,
+        "pstate": "P0"
+      },
+      "result": "programmed_faw_changed_and_restored",
+      "row_fingerprint": {
+        "config3_mask": "0x00ffffff",
+        "exact_config1": true,
+        "exact_config3": false,
+        "note": "The upper byte differed before any write and was excluded only for row selection. Controller comparison used the full observed word.",
+        "original_rom_config3": "0x220038aa"
+      },
+      "runtime_image_byte_offset": "0x2dd81",
+      "selected_device_restarts": [
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        },
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        }
+      ],
+      "targeted_faw_bit_xor": "0x00000200",
+      "tested_row": 9,
+      "vbios_version": "86.07.39.00.e9"
+    },
+    {
+      "active_clock_ratios_preserved": null,
+      "at_b": {
+        "config1_raw": "0x79e9839e",
+        "config3_raw": "0x2300294c",
+        "decoded_cl": 30,
+        "decoded_faw": 20,
+        "effective_vbios_sha256": "7031d0a2b161094e8ef4bb537a8d03b5621e7d5b0251caede670b5b7c7a40926",
+        "memory_clock_reported_mhz": 9501,
+        "pstate": "P0"
+      },
+      "attempt": "high_memory_band_p0",
+      "b_image_readback": {
+        "effective_vbios_sha256": "7031d0a2b161094e8ef4bb537a8d03b5621e7d5b0251caede670b5b7c7a40926",
+        "memory_clock_reported_mhz": 405,
+        "pstate": "P0"
+      },
+      "before_a": {
+        "config1_raw": "0x79e9839e",
+        "config3_raw": "0x2300294c",
+        "decoded_cl": 30,
+        "decoded_faw": 20,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 9501,
+        "pstate": "P0"
+      },
+      "board": "GA104",
+      "config3_field_mask": "0x0001fe00",
+      "controller_capture": {
+        "expected_operating_point": {
+          "memory_clock_reported_mhz": 9501,
+          "pstate": "P0"
+        },
+        "max_seconds_per_read_workload": 10,
+        "require_p0_before_stage_and_restart": true,
+        "workload": "Offscreen D3D11 raster workload selected by Windows LUID and PCI address",
+        "workload_stopped_and_joined": true
+      },
+      "driver_version": "581.80",
+      "expected_b_full_image_sha256": "7031d0a2b161094e8ef4bb537a8d03b5621e7d5b0251caede670b5b7c7a40926",
+      "expected_config3_at_b": "0x23002b4c",
+      "historical_non_p0": false,
+      "model": "GeForce RTX 3070 Ti",
+      "p0_evidence": true,
+      "p0_transition_checks": {
+        "activation_before_restart": [
+          "P0",
+          9501
+        ],
+        "activation_before_staging": [
+          "P0",
+          9501
+        ],
+        "restoration_before_restart": [
+          "P0",
+          9501
+        ],
+        "restoration_before_staging": [
+          "P0",
+          9501
+        ]
+      },
+      "requested_faw": 21,
+      "restoration": {
+        "after_settling": "restored-A",
+        "complete_image_matches_initial": true,
+        "managed_registry_values_remaining": 0,
+        "matching_band_controller_words_match_initial": true,
+        "windows_device_started_without_problem": true
+      },
+      "restored_a": {
+        "config1_raw": "0x79e9839e",
+        "config3_raw": "0x2300294c",
+        "decoded_cl": 30,
+        "decoded_faw": 20,
+        "effective_vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "memory_clock_reported_mhz": 9501,
+        "pstate": "P0"
+      },
+      "result": "programmed_faw_unchanged",
+      "row_fingerprint": {
+        "exact_config1": true,
+        "exact_config3": true
+      },
+      "runtime_image_byte_offset": "0x837b7",
+      "selected_device_restarts": [
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        },
+        {
+          "method": "pnputil",
+          "reboot_required": false,
+          "succeeded": true
+        }
+      ],
+      "targeted_faw_bit_xor": "0x00000200",
+      "tested_row": 0,
+      "vbios_version": "94.04.5a.00.56"
+    }
+  ],
+  "generated_at_utc": "2026-11-19T14:55:46.704586+00:00",
+  "scope": {
+    "clock_setters_used": false,
+    "driver_override": "Selected-device temporary ROM records, removed after the driver captured each image",
+    "ga104_clock_table_mapping": {
+      "band_max_reported_mhz": 16383,
+      "band_min_reported_mhz": 8500,
+      "evidence": "Both clocks fall in the same firmware band and independently match row 0. Both possible strap columns that match idle observations select row 0 for this high band.",
+      "historical_p2_reported_mhz": 9251,
+      "p0_reported_mhz": 9501,
+      "tweak_row": 0
+    },
+    "independent_controller_read": "Two exact paired driver READ32s for CONFIG1 and CONFIG3, repeated with matching NVIDIA-SMI P-state and memory clock immediately before and after",
+    "meaning": "The readbacks measure programmed controller CONFIG words for the tested clock band. Other clock bands and physical DRAM scheduling were outside this trial.",
+    "nvflash_used": false,
+    "nvtune_used": false,
+    "one_tested_adapter_per_model": true,
+    "operating_points": "P0 evidence is GA104 at 9501 MHz using D3D11 and GP107 at 3504 MHz using CUDA. The historical P8 and P2 attempts have separate labels and figures.",
+    "read_addresses": {
+      "config1": "0x9a0294",
+      "config3": "0x9a029c"
+    },
+    "tcl_intentionally_changed": false,
+    "write_scope": "One tFAW bit at the selected memory-tweak row. GP107 stages its two existing typed clock ratios to retain the reviewed session."
+  },
+  "sources": {
+    "bios_information_table": "https://download.nvidia.com/open-gpu-doc/BIOS-Information-Table/1/BIOS-Information-Table.html",
+    "memory_clock_table": "https://download.nvidia.com/open-gpu-doc/MemoryClockTable/1/MemoryClockTable.html",
+    "memory_tweak_table": "https://download.nvidia.com/open-gpu-doc/MemoryTweakTable/1/MemoryTweakTable.html",
+    "nouveau_config_word_mapping": "https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/nouveau/nvkm/subdev/fb/ramgk104.c#L796-L803",
+    "pascal_fbpa_map": "https://github.com/NVIDIA/open-gpu-doc/blob/master/pascal/gp100-fbpa.txt"
+  },
+  "study": "Selected-device temporary VBIOS memory tFAW override"
+}

@@ -403,6 +403,20 @@ DC_API dc_status DC_CALL dc_gpu_read_telemetry(dc_gpu* handle, dc_telemetry* out
     return DC_OK;
 }
 
+DC_API dc_status DC_CALL dc_gpu_clock_offset_range_get(dc_gpu* handle, uint32_t ctype, dc_offset_range* out) {
+    if (!handle || !out || (ctype != 0 && ctype != 2)) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        const auto range = handle->telemetry.offset_range(ctype);
+        if (!range) return DC_E_UNAVAILABLE;
+        const dc_offset_range result{1, range->low, range->high, range->current};
+        *out = result;
+        return DC_OK;
+    } catch (...) {
+        return DC_E_FAILED;
+    }
+}
+
 DC_API dc_status DC_CALL dc_gpu_capabilities_get(dc_gpu* handle, dc_capabilities* out) {
     if (!handle || !out || out->size != sizeof(dc_capabilities)) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());

@@ -105,17 +105,24 @@ class RestartTests(unittest.TestCase):
 
     def test_unsupported_windows_and_missing_admin_do_not_restart(self):
         with patch.object(devicereset, "pnputil_restart_supported", return_value=False), \
+                patch.object(devicereset, "setupapi_restart_supported", return_value=False), \
+                patch.object(devicereset, "is_admin", return_value=True) as admin, \
+                patch.object(devicereset, "resolve_target", return_value=GPU) as resolve, \
                 patch.object(devicereset.subprocess, "run") as runner:
             unsupported = devicereset.restart_target(GPU)
         self.assertFalse(unsupported.ok)
         self.assertIn("2004", unsupported.message)
+        admin.assert_not_called()
+        resolve.assert_not_called()
         runner.assert_not_called()
         with patch.object(devicereset, "pnputil_restart_supported", return_value=True), \
                 patch.object(devicereset, "is_admin", return_value=False), \
+                patch.object(devicereset, "resolve_target", return_value=GPU) as resolve, \
                 patch.object(devicereset.subprocess, "run") as runner:
             denied = devicereset.restart_target(GPU)
         self.assertFalse(denied.ok)
         self.assertIn("Administrator", denied.message)
+        resolve.assert_not_called()
         runner.assert_not_called()
 
     def test_windows_build_gate_starts_at_2004(self):
