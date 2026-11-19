@@ -9,7 +9,6 @@ struct PowerWeightHostRequest {std::string receipt_id;PowerWeightOperation opera
 bool power_weight_host_gate(uint32_t,const std::function<bool(uint32_t)>& wait_parent,const std::function<void()>& admitted);
 PowerWeightBoundaryResult power_weight_child_timeout(bool exit_confirmed);
 PowerWeightBoundaryResult power_weight_restart_result(const DeviceRestartResult&);
-bool power_weight_verify_registry(const PowerWeightReceipt&,const PowerWeightRegistrySnapshot& current,bool original);
 bool power_weight_verify_result(const ProfileJson&,const std::string& receipt_id,bool original);
 // Starts an owned helper; it waits for the initiating process to exit.
 bool launch_power_weight_host(const PowerWeightHostRequest&,std::string& error);

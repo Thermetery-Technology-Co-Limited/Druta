@@ -77,14 +77,40 @@ int device_restart_child(const std::string& slot,const std::wstring& expected){t
  if(!a.set_params(list.h,&it->data,&params.ClassInstallHeader,sizeof(params))||!a.call(DIF_PROPERTYCHANGE,list.h,&it->data))return 1;
  SP_DEVINSTALL_PARAMS_W result{};result.cbSize=sizeof(result);if(!a.get_params(list.h,&it->data,&result))return 1;return (result.Flags&(DI_NEEDREBOOT|DI_NEEDRESTART))?3010:0;
  }catch(...){return 1;}}
-DeviceRestartResult launch_device_restart_child(const std::wstring& exe,const DeviceRestartTarget& target,uint32_t timeout){DeviceRestartResult r;
+namespace {
+DeviceRestartResult run_restart_process(const std::wstring& exe,const std::wstring& parameters,uint32_t timeout){DeviceRestartResult r;
  const bool absolute=exe.size()>=3 && ((exe[1]==L':' && (exe[2]==L'\\'||exe[2]==L'/')) || (exe[0]==L'\\' && exe[1]==L'\\'));
- if(!absolute||exe.find(L'"')!=std::wstring::npos||target.instance_id.empty()||!timeout||timeout>120000){r.message="Invalid restart helper arguments";return r;}
- std::wstring command=quote(exe)+L" --device-restart-child "+quote(std::wstring(target.slot.begin(),target.slot.end()))+L" "+quote(target.instance_id);std::vector<wchar_t> args(command.begin(),command.end());args.push_back(0);
+ if(!absolute||exe.find(L'"')!=std::wstring::npos||parameters.empty()||!timeout||timeout>120000){r.message="Invalid restart helper arguments";return r;}
+ std::wstring command=quote(exe)+L" "+parameters;std::vector<wchar_t> args(command.begin(),command.end());args.push_back(0);
  STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION process{};if(!CreateProcessW(exe.c_str(),args.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,nullptr,&si,&process)){r.message="Could not launch restart helper";return r;}
  const auto wait=WaitForSingleObject(process.hProcess,timeout);if(wait!=WAIT_OBJECT_0){TerminateProcess(process.hProcess,1);WaitForSingleObject(process.hProcess,5000);r.uncertain=true;r.message="Restart helper timed out or wait failed; device state is uncertain";}
  else{DWORD code=1;GetExitCodeProcess(process.hProcess,&code);r.ok=code==0;r.reboot_required=code==3010;r.uncertain=code!=0&&code!=3010;r.message=r.ok?"Restart helper completed":r.reboot_required?"Windows requires reboot to complete restart":"Restart helper failed; device state may have changed";}
  CloseHandle(process.hThread);CloseHandle(process.hProcess);return r;}
+}
+
+DeviceRestartResult launch_device_restart_child(const std::wstring& exe,const DeviceRestartTarget& target,uint32_t timeout){
+ if(target.instance_id.empty())return {false,false,false,"Missing restart device instance"};
+ return run_restart_process(exe,L"--device-restart-child "+quote(std::wstring(target.slot.begin(),target.slot.end()))+L" "+quote(target.instance_id),timeout);
+}
+
+DeviceRestartResult launch_clock_restart_child(const std::wstring& exe,const DeviceRestartTarget& target,uint32_t timeout){
+ // Same initialization boundary as the qualified Windows clock-table trials.
+ // PnPUtil acquired /restart-device in Windows 10, build 19041.
+ using VersionFn=LONG(WINAPI*)(OSVERSIONINFOW*);
+ auto version_fn=reinterpret_cast<VersionFn>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"RtlGetVersion"));
+ OSVERSIONINFOW version{};version.dwOSVersionInfoSize=sizeof(version);
+ if(!version_fn || version_fn(&version)!=0 || version.dwBuildNumber<19041)
+     return launch_device_restart_child(exe,target,timeout);
+ if(target.instance_id.empty())return {false,false,false,"Missing restart device instance"};
+
+ BOOL wow64=FALSE;
+ if(!IsWow64Process(GetCurrentProcess(),&wow64))return {false,false,false,"Cannot resolve native PnPUtil path"};
+ wchar_t directory[MAX_PATH]{};
+ const auto size=wow64 ? GetWindowsDirectoryW(directory,MAX_PATH) : GetSystemDirectoryW(directory,MAX_PATH);
+ if(!size || size>=MAX_PATH)return {false,false,false,"Windows system directory unavailable"};
+ const auto tool=std::wstring(directory,size)+(wow64?L"\\Sysnative\\pnputil.exe":L"\\pnputil.exe");
+ return run_restart_process(tool,L"/restart-device "+quote(target.instance_id),timeout);
+}
 bool restart_target_started(const DeviceRestartTarget& target,std::string& reason){try{Module cfg(L"cfgmgr32.dll");auto locate=cfg.get<decltype(&CM_Locate_DevNodeW)>("CM_Locate_DevNodeW");auto status=cfg.get<decltype(&CM_Get_DevNode_Status)>("CM_Get_DevNode_Status");DEVINST node=0;ULONG flags=0,problem=0;
  auto name=target.instance_id;if(locate(&node,name.data(),0)!=CR_SUCCESS||status(&flags,&problem,node,0)!=CR_SUCCESS){reason="Windows device status unavailable";return false;}if(!(flags&DN_STARTED)||problem){reason="Device not started or reports a problem";return false;}return true;
  }catch(const std::exception& e){reason=e.what();return false;}}

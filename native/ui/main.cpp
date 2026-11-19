@@ -184,7 +184,11 @@ struct App {
     std::optional<uint64_t> history_stage_generation;
     bool library_read_for_history=false;
     druta::ui::TimingSetupHost timing_setup;
-    std::optional<std::pair<uint64_t,uint64_t>> weight_prepare_pending;
+    struct OverridePreparation {
+        uint64_t generation, actions;
+        druta::ui::Command::Operation operation;
+    };
+    std::optional<OverridePreparation> weight_prepare_pending;
     std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
     druta::ui::PolicyAnnotationCommits annotation_commits;
     uint64_t annotation_generation=0,annotation_action_log=0;
@@ -811,6 +815,10 @@ struct App {
         const auto current=session?session->snapshot():nullptr;
         if(!current||current->busy||current->opening||view.select_slot||receipt.identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&receipt.uuid!=current->data.identity.uuid))
             throw std::runtime_error("Selected adapter changed or is busy; inspect the saved override again");
+        if(receipt.is_pascal_clocks() && operation!=PowerWeightOperation::verify){
+            std::string why;
+            if(!restart_device_target(*current,why,view.app_actions.administrator)) throw std::runtime_error(why);
+        }
         PowerWeightHostRequest request;request.receipt_id=receipt.id;request.operation=operation;
         request.parent_pid=GetCurrentProcessId();request.executable=app_executable;request.core=active_core_path;
         std::string why;if(!launch_power_weight_host(request,why))throw std::runtime_error(why);
@@ -827,17 +835,30 @@ struct App {
         if(!weight_initial_receipt.empty()&&!current->opening){
             sync_power_weights_view(view.power_weights_view,current->data.power_weights.get(),current->generation);
             const auto id=std::move(weight_initial_receipt);weight_initial_receipt.clear();
+            bool clock_result=false;
             try{auto receipt=read_weight_receipt({},id);if(receipt.identity.slot!=weight_expected_slot||receipt.uuid!=weight_expected_uuid)throw std::runtime_error("Saved override belongs to another startup target");
-                auto data=std::make_shared<PowerWeightsData>();data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));data->receipt_message=data->receipt->phase+": "+data->receipt->message;view.power_weights_saved=std::move(data);
+                clock_result=receipt.is_pascal_clocks();
+                auto data=std::make_shared<PowerWeightsData>();
+                if(clock_result && receipt.phase=="removed"){
+                    const auto active=discover_weight_receipt({},receipt.identity.slot,receipt.uuid);
+                    data->receipt_from_active_pointer=active && active->id==receipt.id;
+                }
+                data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));data->receipt_message=data->receipt->phase+": "+data->receipt->message;view.power_weights_saved=std::move(data);
             }catch(const std::exception& e){view.power_weights_view.status=e.what();}
-            view.page=Page::advanced;view.open_power_weights_requested=true;
+            view.page=Page::advanced;view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result;
+            if(clock_result && current->data.connected && !current->busy &&
+               current->selected_slot==weight_expected_slot && current->data.identity.uuid==weight_expected_uuid){
+                Command read;
+                read.operation=Command::Operation::pascal_clock_read;
+                submit_command(read,current->generation);
+            }
         }
         if(weight_prepare_pending){
             const auto pending=*weight_prepare_pending;
-            if(current->generation!=pending.first){weight_prepare_pending.reset();view.power_weights_view.status="Adapter changed; saved override was not activated";}
-            else if(!current->busy&&current->completed_actions>pending.second){
+            if(current->generation!=pending.generation){weight_prepare_pending.reset();view.power_weights_view.status="Adapter changed; saved override was not activated";}
+            else if(!current->busy&&current->completed_actions>pending.actions){
                 weight_prepare_pending.reset();
-                try{if(current->last_action_operation!=Command::Operation::power_weights_prepare||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
+                try{if(current->last_action_operation!=pending.operation||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
                     throw std::runtime_error("Activation preparation did not complete; inspect the saved override for details");
                     handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply);
                 }catch(const std::exception& e){view.power_weights_view.status=e.what();}
@@ -848,11 +869,20 @@ struct App {
             if(closing||weight_prepare_pending||current->busy||view.select_slot)throw std::runtime_error("Wait for the current operation");
             view.power_weights_view.status.clear();Command command;
             switch(intent.operation){
+            case PowerWeightsIntent::Operation::read_clocks:
+                view.power_weights_saved.reset();
+                command.operation=Command::Operation::pascal_clock_read;break;
+            case PowerWeightsIntent::Operation::prepare_clocks:{
+                std::string why;
+                if(!restart_device_target(*current,why,view.app_actions.administrator))throw std::runtime_error(why);
+                command.operation=Command::Operation::pascal_clock_prepare;
+                command.enabled=view.controls_unlocked;
+                command.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(std::move(intent.clock_edits));break;}
             case PowerWeightsIntent::Operation::read:command.operation=Command::Operation::power_weights_read;break;
             case PowerWeightsIntent::Operation::preview:command.operation=Command::Operation::power_weights_preview;command.power_weight_requests=std::make_shared<const std::vector<PowerWeightRequest>>(std::move(intent.requests));break;
             case PowerWeightsIntent::Operation::inspect:
                 if(!current->data.connected&&selected_receipt){const auto found=discover_weight_receipt({},selected_receipt->identity.slot,selected_receipt->uuid);auto data=std::make_shared<PowerWeightsData>();
-                    data->receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;data->receipt_message=found?found->phase+": "+found->message:"No active override remains";view.power_weights_view.status=data->receipt_message;view.power_weights_saved=std::move(data);continue;}
+                    data->receipt=found?std::make_shared<const PowerWeightReceipt>(*found):nullptr;data->receipt_from_active_pointer=found.has_value();data->receipt_message=found?found->phase+": "+found->message:"No active override remains";view.power_weights_view.status=data->receipt_message;view.power_weights_saved=std::move(data);continue;}
                 view.power_weights_saved.reset();command.operation=Command::Operation::power_weights_inspect;break;
             case PowerWeightsIntent::Operation::prepare:command.operation=Command::Operation::power_weights_prepare;command.enabled=view.controls_unlocked;break;
             default:
@@ -861,7 +891,8 @@ struct App {
                 handoff_power_weights(*selected_receipt,intent.operation==PowerWeightsIntent::Operation::remove?PowerWeightOperation::remove:intent.operation==PowerWeightsIntent::Operation::verify?PowerWeightOperation::verify:PowerWeightOperation::apply);continue;
             }
             if(!submit_command(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
-            if(intent.operation==PowerWeightsIntent::Operation::prepare){weight_prepare_pending={{current->generation,current->completed_actions}};view.power_weights_view.status="Saving the recovery record before activation...";}
+            if(command.operation==Command::Operation::power_weights_prepare||command.operation==Command::Operation::pascal_clock_prepare){
+                weight_prepare_pending=OverridePreparation{current->generation,current->completed_actions,command.operation};view.power_weights_view.status="Saving the recovery record before activation...";}
         }catch(const std::exception& e){view.power_weights_view.status=e.what();}
     }
     void consume_actions() {

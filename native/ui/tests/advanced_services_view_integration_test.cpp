@@ -128,7 +128,7 @@ void classic_hierarchy(){
     const char* sections[]={"Power policies","Registry / BIOS overrides","Live voltage controls","Live power-saving & PCIe","Diagnostics"};
     const std::vector<std::vector<const char*>> subs{
         {"Power-policy feedback adjustment"},
-        {"Power relationship weights","DIFR configured state"},
+        {"Pascal clock ceilings and ratios","Power relationship weights","DIFR configured state"},
         {"Runtime voltage-request control","Runtime VF policy control","Voltage policy offsets","Live voltage rail requests",
          "Live REL equation bounds","Live voltage constants","Voltage switch-delay requests","Undo, recovery and profiles"},
         {"Live engine-level power gating (ELPG)","Individual engine power gating","Live idle thresholds","Live adaptive power policy",
@@ -152,12 +152,12 @@ void classic_hierarchy(){
     check(ordered,"each subsection is drawn inside its own section, in released order");
     // registry_panel.py _section/_sub: default_open=False at every level, so an opened section
     // shows only its closed sub-bars (Power policies draws its feedback adjustment inline).
-    for(const char* body:{"Read driver policies","Read arbitration","Read relationships","Read voltage-request gate","Read offsets","Read requests",
+    for(const char* body:{"Read driver policies","Read arbitration","Read relationships","Read clock table","Read voltage-request gate","Read offsets","Read requests",
         "Read device delays","Hold disabled","Hold disable request","Request speed","Idle threshold (\xC2\xB5s)"})
         check(text.find(body)==std::string::npos,"opening a section leaves every subsection closed");
     check(text.find("This driver session only. A GPU restart returns these to the driver's values.")!=std::string::npos,"session-only scope note is shown");
     check(text.find("Read-only.")!=std::string::npos,"Diagnostics states it is read-only");
-    check(text.find("is not available in this build")!=std::string::npos&&text.find("relationship-weight override")!=std::string::npos,"registry section explains its deferral and the weight exception");
+    check(text.find("Power relationship weights persist until removed")!=std::string::npos&&text.find("Pascal clock settings last for the driver session")!=std::string::npos,"registry section describes the two override lifetimes");
     check(text.find("does not install them")!=std::string::npos,"voltage section states its offset exception");
     check(state.commands.empty()&&state.power_saving_intents.empty()&&state.clock_gating_intents.empty()&&state.voltage_tables_intents.empty()&&state.voltage_limits_intents.empty(),"opening sections dispatches nothing");
     // power_integral_panel.py: the feedback adjustment sits inline at the end of Power
@@ -186,6 +186,12 @@ void classic_hierarchy(){
     // Navigation from the Clocks menu opens the path to one panel and closes the rest.
     state.open_power_weights_requested=true;text=frame(state);
     check(!state.open_power_weights_requested&&text.find("Power relationship weights")!=std::string::npos&&text.find("Live REL equation bounds")==std::string::npos,"weights navigation opens Registry / BIOS overrides only");
+    live->data.clock_architecture=4;
+    state.open_pascal_clocks_requested=true;text=frame(state);
+    check(text.find("Read clock table")!=std::string::npos&&text.find("Run Druta as administrator")!=std::string::npos,
+          "Pascal clock navigation allows non-admin inspection and explains restart requirements");
+    live->data.clock_architecture=7;text=frame(state);
+    check(text.find("Read clock table")==std::string::npos,"another architecture does not inherit the Pascal controls");
     state.open_clock_gating_requested=true;text=frame(state);
     check(text.find("Manual PCIe speed request")!=std::string::npos&&text.find("Power-policy feedback adjustment")==std::string::npos,"gating navigation opens Live power-saving & PCIe only");
 }

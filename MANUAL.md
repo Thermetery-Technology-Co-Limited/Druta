@@ -34,6 +34,30 @@ instead of running the full telemetry scan. The window still processes restore,
 close and shutdown messages while paused. Without active maintenance or an
 in-flight operation, it issues no recurring GPU telemetry reads.
 
+## Pascal clock ceilings and ratios in the native GUI
+
+Open **Advanced → Pascal clock ceilings and ratios** in Focused. In Classic,
+open **Advanced → Registry / BIOS overrides → Pascal clock ceilings and ratios**.
+Select **Read clock table**, then choose a **Performance state**.
+The editor offers **GPC**, **XBAR** and **SYS / Video** ceilings for entries it can decode on the
+selected GPU. Values are nominal MHz in 0.5 MHz steps. On the tested GTX 1050 Ti,
+SYS also governs the reported Video clock and affects H.264 decode speed.
+
+The XBAR and SYS ratios are percentages of GPC. They apply across performance
+states, including states other than the one selected. You can stage ceilings in
+several states and change a ratio in the same draft. To apply or restore, run
+Druta as administrator and enable **Unlock controls**. Choose **Review clock
+changes** to see the state and values for every edit. **Apply and refresh
+selected GPU** closes Druta, restarts the selected GPU and clears its ordinary
+tuning. Druta checks the running image before and after clearing its temporary
+registry records, then reopens. The clocks last until the next GPU restart.
+
+Use **Restore previous clocks and refresh GPU** to end the clock session early.
+If the GPU has already restarted, **Verify clock override** checks the original
+image and closes the saved session. After an interrupted activation, use
+**Inspect saved override** on the same adapter, then choose Verify or Restore
+according to the reported state.
+
 ## Native backend preview
 
 The C++ core is opt-in while hardware validation continues. Start
@@ -559,8 +583,9 @@ use the controller's Stock/Auto action or a full power cycle as appropriate.
 
 Open **Advanced > Registry / BIOS overrides**, then **Read current fields**.
 The **Advanced** tab groups everything beyond daily tuning into **Power
-policies**, **Registry / BIOS overrides** (persistent; applying restarts the
-GPU), **Live voltage controls** and **Live power-saving & PCIe** (this driver
+policies**, **Registry / BIOS overrides** (the fields described in this
+section persist across GPU restarts; native Pascal clock edits last for one
+driver session), **Live voltage controls** and **Live power-saving & PCIe** (this driver
 session only), and read-only **Diagnostics**. Its top line repeats the newest
 log entry, so a refused write there is visible without switching tabs.
 The panel shows understood BIOS fields and sensed silicon-model inputs for the

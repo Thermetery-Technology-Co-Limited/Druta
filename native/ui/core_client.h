@@ -23,6 +23,7 @@ struct CoreApi {
     PerfViewApi perf{};
     PowerArbitrationApi arbitration{};
     PowerWeightsApi power_weights{};
+    std::function<PowerWeightCapture(dc_gpu*, bool)> pascal_clock_capture;
     PowerIntegralApi power_integral{};
     VoltagePolicyApi voltage_policy{};
     VoltageTablesApi voltage_tables{};
@@ -103,5 +104,5 @@ class TimingCudaProcess;
 std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api);
 std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api,std::unique_ptr<TimingCudaProcess> workload);
 // Fresh paired read-only capture for the explicit transaction/verification hosts.
-PowerWeightCapture capture_power_weights_from_core(const std::wstring& exact_dll_path,const std::string& slot,const std::string& uuid,bool registry);
+PowerWeightCapture capture_power_weights_from_core(const std::wstring& exact_dll_path,const std::string& slot,const std::string& uuid,bool registry,bool clock_only=false);
 }

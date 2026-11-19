@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "power_weight_capture.h"
+#include "pascal_clock_table.h"
 #include <optional>
 namespace druta::ui {
 inline constexpr size_t power_weight_receipt_max_bytes=8u*1024u*1024u;
@@ -12,15 +13,19 @@ struct PowerWeightReceipt {
  PowerRelationshipLayout layout;
  std::vector<uint8_t> image,info;
  std::vector<PowerWeightRequest> requests;
+ std::vector<PascalClockEdit> clocks;
+ bool is_pascal_clocks() const { return !clocks.empty(); }
  PowerWeightRegistrySnapshot before;
  std::vector<std::wstring> issued_names;
  bool refresh_requested=false,uncertain=false,restoring=false;
 };
 struct PowerWeightReceiptDerived {
  PowerWeightPlan plan;
+ PascalClockPlan clock_plan;
  PowerWeightRegistrySnapshot after;
 };
 PowerWeightReceipt make_weight_receipt(const PowerWeightCapture&,const std::vector<PowerWeightRequest>&);
+PowerWeightReceipt make_pascal_clock_receipt(const PowerWeightCapture&,const std::vector<PascalClockEdit>&);
 PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt&);
 std::string encode_weight_receipt(const PowerWeightReceipt&);
 PowerWeightReceipt decode_weight_receipt(const std::string&);

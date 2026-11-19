@@ -120,6 +120,17 @@ Focused shows corrected watts for uniform ratios and a capacity-weighted
 estimate for mixed ones; Classic Daily shows raw watts, with the corrected value
 in the tooltip and on Monitor. Raw driver watts are always used for power Apply.
 
+### Pascal clock ceilings and ratios
+
+In **Advanced**, open **Pascal clock ceilings and ratios**. Classic groups
+this under **Registry / BIOS overrides**. Read the running table, select a
+performance state and stage its GPC, XBAR or SYS / Video ceiling in MHz.
+The XBAR and SYS percentage sliders affect all states. Review lists all
+staged edits before Apply refreshes the selected adapter. Once the edited
+image is loaded, Druta removes its temporary registry records. Restore returns
+the previous image early, and Verify closes a saved clock session after a
+normal driver restart.
+
 ## Native I2C controller path
 
 On 64-bit processes, the core can use the NVAPI Ex I2C transport for explicit

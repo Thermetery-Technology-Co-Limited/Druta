@@ -349,8 +349,7 @@ A later 16-stop sweep over a 1468-unit range tightened both: domain 16 is
 `0.966808 × GPC` (R2 0.99993), domain 17 `0.8466 × GPC` (R2 0.9997). The reason
 that mattered is that the original 0.962–0.970 band was wide enough to contain
 **two different VBIOS fields** — the 97% slave ratio byte and the 3695/3822
-`freq_max` pair — and only the tighter number tells them apart. See *Why Pascal
-gets no per-domain knob*.
+`freq_max` pair — and only the tighter number tells them apart. See *Pascal live per-domain offsets*.
 
 **TU102's XBAR law**, measured there and nowhere else: with the clock locked at
 1800 MHz and vcore swept 912.5 → 1068.75 mV, XBAR never moved off 1725 MHz — it
@@ -424,7 +423,41 @@ refuses every mask bit above 9, and a third-party tool exposes exactly five
 controllable domains — core, memory, XBAR, SYS, video — which cannot be
 arranged as 0/1/2/4/5.
 
-### Why Pascal gets no per-domain knob
+### Pascal clock controls in the native GUI
+
+Druta reads the selected adapter's running VBIOS. For the supported Pascal HAL 2
+clock tables, it locates the GPC master program and its XBAR and SYS dependents.
+The master program contains two independently editable percentage ratios. A
+version 0x50 performance table can also supply an individual maximum per domain
+and performance state. Druta edits only the maximum bits of a selected entry.
+The editor divides the stored double-rate MHz by two for display.
+
+On the MSI GTX 1050 Ti Gaming X (GP107, driver 581.80), the following P0
+measurements used separate before, edited and restored runs. These are physical
+clock-counter readings except where the row gives throughput.
+
+| Selected change | Before | Edited | Restored |
+|---|---:|---:|---:|
+| GPC maximum, 1911.5 to 1600 MHz | 1843.7 MHz | 1671.0 MHz | 1835.5 MHz |
+| XBAR maximum, 1860 to 1500 MHz | 1681.4 MHz | 1594.7 MHz | 1681.7 MHz |
+| SYS maximum, 1708.5 to 1350 MHz | 1543.9 MHz | 1430.2 MHz | 1543.9 MHz |
+| H.264 decode under the same SYS change | 736.5 fps | 687.0 fps | 736.5 fps |
+
+The clock maxima are nominal firmware settings. A physical clock can differ
+from the selected value. During the XBAR trial, GPC and SYS stayed within
+0.4 MHz across phases. Separate trials moved the physical XBAR and SYS counters
+by editing their respective master-program ratios. The separate NVDCLK entry
+showed no measurable H.264 decode response on this board. Other performance
+states are selectable wherever their table entries qualify. The physical tests
+above used P0.
+
+The native Apply and Restore test on the same card independently read back a
+P0 XBAR driver ceiling of 1911, 1556.5 and 1911 MHz for the three phases.
+Every other returned P0, P5 and P8 bound stayed unchanged. The original
+managed registry values were present during the edited phase and after
+Restore, and the restored 256000-byte running image matched the original.
+
+### Pascal live per-domain offsets
 
 There are docuementations floating around the internet saying that values
 of XBAR/SYSCLK/etc. are "NAFLL (noise-aware frequency locked loops)"s for Pascal. 
@@ -435,7 +468,7 @@ I was inveigled by that thought and was gonna write it off, but then I
 dug into the BIOS and found that for TU102 also classified XBAR/SYS/etc. 
 as NAFLLs in the BIOS. 
 
-**Because it's hard coded by the BIOS** GP102's clock programming table
+GP102's clock programming table
 reserves four slave slots per program and populates two of them inside GPC's
 program — `dom 1 (XBAR) = 97%`, `dom 3 (SYS) = 90%`. There are no such slots for Turing.
 The same search over GP102 finds all three as a positive control. 
@@ -475,7 +508,7 @@ cannot produce an additive constant, so TU102's XBAR has its own programmed
 target that *tracks* GPC rather than being derived from it, and a per-domain
 delta lands on that target 1:1. Pascal's has nowhere to land.
 
-**Which VBIOS field is actually load-bearing.** The sweep separates two readings
+**Stock GP102 clock ratios.** The sweep compares two predictions
 that a single sample could not:
 
 | hypothesis | predicts | vs measured 0.966808 |
@@ -483,22 +516,23 @@ that a single sample could not:
 | slave ratio byte `0x61` = 97% | 0.970000 | off by 0.003192 |
 | `freq_max` pair 3695/3822 | 0.966771 | **off by 0.000037** |
 
-The `freq_max` pair wins by 86x. **The 97% slave-ratio byte is not the number
-the hardware uses.** The value XBAR is actually derived from lives at
+On the stock GP102 image the `freq_max` pair fits the measured slope 86 times
+more closely. The two fields compared in that sweep were
 
 ```
-0x08449   XBAR program 25 freq_max = 0x0E6F = 3695   <- the operative field
-0x082F7   XBAR slave ratio byte    = 0x61   = 97     <- not this one
+0x08449   XBAR program 25 freq_max = 0x0E6F = 3695
+0x082F7   XBAR slave ratio byte    = 0x61   = 97
 ```
 
 with one caveat the sweep narrows but cannot remove: 3695 looks *derived* from
 97%. This card's clock grid is 12.657 MHz — 25.314 in 2x units — and 3695 is
 exactly 146 grid steps, while 0.97 x 3822 = 3707.34 is not on the grid at all.
 So NVIDIA plausibly computed the percentage and snapped down, which makes the
-two fields related by construction. But 3695 is what is *stored*, it is what the
-runtime demonstrably uses, and nothing needs to re-derive it at init.
+two fields related by construction. The stock-image sweep alone cannot isolate
+the contribution of each field. The GP107 ratio edits above tested that question
+by changing one field at a time.
 
-**The route to that field is closed, and both ends were tested.** Every nvflash
+**Physical VBIOS flash experiments on GP102.** Every nvflash
 we can find refuses a modified image — and refuses a card's own *unmodified*
 dump as well, which says the tool wants its distribution container rather than
 merely unedited content. More decisively, an independent GP102
@@ -509,10 +543,9 @@ silicon validates its VBIOS at boot. A programmer changes who does the writing,
 not whether the card will run the result. (Recoverable by writing the stock
 image back the same way.)
 
-So the field above is where the number lives, and it is not reachable. **On
-GP102 the only lever on XBAR is GPC** — raise it and XBAR follows at 97%. The
-identification is still worth recording, because it explains what the domain
-does and why the knob reads target-only, but it is not a route to anything.
+With that stock GP102 image, changing GPC moved XBAR proportionally. The
+GP107 tests above use the driver's per-adapter image override during
+initialization. That path leaves the flashed BIOS intact.
 
 Two domains corroborate the table decode without having been looked for: private
 domain 20 sits constant at 540, which is the clocks table's `FIXED 540 MHz`
@@ -546,12 +579,12 @@ drives. GP102 has eight: GPC0-5, SYS, XBAR. **No VIDEO NAFLL and no LTC NAFLL
 exist on the part**, which is why controls 5 and 9 are refused there and why
 domains 5/6 are `FIXED 600`/`FIXED 540` instead.
 
-So on Pascal the only lever that exists is GPC — raise it and XBAR follows at
-97%. The four negative avenues stand (private control block records the offset
-and the hardware ignores it; 108k BAR0 dwords surveyed across two clock states,
-four moved, none a frequency; the propagation-ratio interface returns nothing;
-no Maxwell-style clock-states array), and the reason all four are negative is
-that on this part XBAR is not a thing you set, it is a thing that is computed.
+The GP102 tests found four unsuccessful live paths. The private control block
+stored the offset without moving XBAR. The BAR0 survey found four changing
+dwords in 108k across two clock states and none represented a frequency. The
+propagation-ratio interface returned no data, and the Maxwell-style clock-state
+array was absent. Druta keeps those live offset controls separate from the
+firmware ceilings and ratios verified on GP107.
 
 Reading BAR0 on these parts, the `0xBADF` sentinels are worth decoding rather
 than lumping together — the code is bits 31:8:
@@ -773,12 +806,11 @@ The consequence is the one that matters for this tool: VBIOS, kernel memory,
 BAR0 and the control block are all *host* surfaces, and the consumer is signed
 PMU firmware. The four closed routes failed for one reason, not four.
 
-**Druta therefore ships no per-domain clock knob on Pascal.** A knob appears
+**The live offset panel keeps Pascal XBAR and SYS read-only.** A live offset knob appears
 only where moving it was measured to move the card's *measured* clock. The
 control→domain correspondence on GP102 is real (control 1 does drive domain
 16's target, control 3 domain 17's) and is kept in `nvbackend` as
-`CLKDOM_PAIR_PASCAL_TARGET_ONLY` so nobody re-derives it — but it is not a
-shipped control. Note also that `nvmlDeviceSetGpuLockedClocks` is unsupported
+`CLKDOM_PAIR_PASCAL_TARGET_ONLY` so nobody re-derives it — but that stored offset cannot adjust the physical clock. The native GUI uses the firmware editor described above. Note also that `nvmlDeviceSetGpuLockedClocks` is unsupported
 on GP102, so stabilising that card for measurement needs the V/F point lock.
 
 The geometry self-checks: `0x124 + 32 * 0x304 = 24996`, exactly the size the

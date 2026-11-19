@@ -12,6 +12,7 @@
 #include "frequency_lock_view.h"
 #include "power_integral_view.h"
 #include "power_weights_view.h"
+#include "pascal_clock_view.h"
 #include "voltage_policy_view.h"
 #include "voltage_tables_view.h"
 #include "voltage_limits_view.h"
@@ -50,6 +51,8 @@ struct ViewState {
     FrequencyLockViewState frequency_view;
     PowerIntegralViewState power_integral_view;
     PowerWeightsViewState power_weights_view;
+    PascalClockViewState pascal_clock_view;
+    bool open_pascal_clocks_requested = false;
     std::vector<PowerWeightsIntent> power_weights_intents;
     std::shared_ptr<const PowerWeightsData> power_weights_saved;
     VoltagePolicyViewState voltage_policy_view;

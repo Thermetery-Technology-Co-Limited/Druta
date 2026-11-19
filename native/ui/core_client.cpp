@@ -1,6 +1,7 @@
 /* Druta - Copyright (C) 2026 Thermetery Technology Co Limited
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "core_client.h"
+#include "pascal_clock_table.h"
 #include "fan_profile.h"
 #include "icx_preset.h"
 #include "profile_io.h"
@@ -92,6 +93,7 @@ class Client final : public IBackend {
     std::unique_ptr<PerfViewService> perf_;
     std::unique_ptr<PowerArbitrationService> arbitration_;
     std::unique_ptr<PowerWeightsService> power_weights_;
+    std::vector<uint8_t> displayed_clock_image_;
     std::unique_ptr<PowerIntegralService> power_integral_;
     std::unique_ptr<VoltagePolicyService> voltage_policy_;
     std::unique_ptr<VoltageTablesService> voltage_tables_;
@@ -2393,11 +2395,12 @@ class Client final : public IBackend {
         publish(); return out;
     }
 public:
-    PowerWeightCapture capture_weight_state(bool registry){
+    PowerWeightCapture capture_weight_state(bool registry, bool clock_only=false){
         if(!gpu_)throw std::runtime_error("Selected GPU is not open");
-        if(api_.power_weights.capture)return api_.power_weights.capture(gpu_,registry);
+        if(clock_only && api_.pascal_clock_capture) return api_.pascal_clock_capture(gpu_,registry);
+        if(!clock_only && api_.power_weights.capture) return api_.power_weights.capture(gpu_,registry);
         PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;
-        return make_power_weight_capture(std::move(capture),opened_)(gpu_,registry);
+        return make_power_weight_capture(std::move(capture),opened_,clock_only)(gpu_,registry);
     }
     explicit Client(CoreApi api,std::unique_ptr<TimingCudaProcess> workload={}) : api_(api),timing_cuda_(std::move(workload)) {}
     void configure_timing_capture_cancellation(std::function<bool()> cancelled) override {timing_capture_cancelled_=std::move(cancelled);}
@@ -2532,9 +2535,9 @@ public:
         last_.power_arbitration = std::make_shared<PowerArbitrationModel>(arbitration_->model());
         auto weights_api=api_.power_weights;
         if(!weights_api.capture){PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;weights_api.capture=make_power_weight_capture(std::move(capture),opened_);
-            weights_api.create_receipt=[](const PowerWeightReceipt& r){create_weight_receipt({},r);};
-            weights_api.discover_receipt=[](const std::string& slot,const std::string& uuid){return discover_weight_receipt({},slot,uuid);};
-            weights_api.read_receipt=[](const std::string& id){return read_weight_receipt({},id);};}
+            if(!weights_api.create_receipt)weights_api.create_receipt=[](const PowerWeightReceipt& r){create_weight_receipt({},r);};
+            if(!weights_api.discover_receipt)weights_api.discover_receipt=[](const std::string& slot,const std::string& uuid){return discover_weight_receipt({},slot,uuid);};
+            if(!weights_api.read_receipt)weights_api.read_receipt=[](const std::string& id){return read_weight_receipt({},id);};}
         power_weights_=std::make_unique<PowerWeightsService>(std::move(weights_api),gpu_,opened_);
         last_.power_weights=std::make_shared<PowerWeightsData>(power_weights_->state());
         power_integral_ = std::make_unique<PowerIntegralService>(api_.power_integral, gpu_, opened_);
@@ -2615,6 +2618,7 @@ public:
         perf_.reset();
         arbitration_.reset();
         power_weights_.reset();
+        displayed_clock_image_.clear();
         power_integral_.reset();
         voltage_policy_.reset();
         power_saving_.reset();clock_gating_.reset();
@@ -2643,6 +2647,7 @@ public:
             clock_architecture_attempted_ = true;
             uint32_t architecture = 0;
             if (retry(api_.i2c.architecture, gpu_, &architecture) == DC_OK && architecture) clock_architecture_ = architecture;
+            last_.clock_architecture = clock_architecture_;
         }
         if (live_readouts_ && (details || !hold_architecture_attempted_)) {
             // Python hold_headroom_architecture: a generation answer from the core,
@@ -2825,6 +2830,60 @@ public:
         }
         return result;
     }
+    ActionResult pascal_clock_action(const Command& cmd) {
+        ActionResult result;
+        const bool prepare = cmd.operation == Command::Operation::pascal_clock_prepare;
+        last_.pascal_clock_original_receipt.clear();
+        try {
+            if (prepare && (!cmd.enabled || !cmd.pascal_clock_edits || cmd.pascal_clock_edits->empty()))
+                throw std::runtime_error("Unlock controls and review at least one changed clock field");
+            if (prepare && (!last_.pascal_clock_fresh || displayed_clock_image_.empty()))
+                throw std::runtime_error("Read the current clock table first");
+
+            auto c = capture_weight_state(prepare, true);
+            if (c.identity.architecture != 4 || c.identity.slot != opened_.slot ||
+                std::string(c.adapter.uuid) != opened_.uuid)
+                throw std::runtime_error("The selected adapter must be the paired Pascal GPU");
+            if (c.image_availability != VoltagePolicyAvailability::available)
+                throw std::runtime_error(c.image_message.empty() ? "Current clock image unavailable" : c.image_message);
+            if (prepare) {
+                if (c.image != displayed_clock_image_)
+                    throw std::runtime_error("The running clock image changed. Read it again and review the new settings.");
+                auto receipt = make_pascal_clock_receipt(c, *cmd.pascal_clock_edits);
+                const auto& api = api_.power_weights;
+                if (api.create_receipt) api.create_receipt(receipt);
+                else create_weight_receipt({},receipt);
+                auto shared = last_.power_weights ? std::make_shared<PowerWeightsData>(*last_.power_weights) : std::make_shared<PowerWeightsData>();
+                shared->receipt = std::make_shared<const PowerWeightReceipt>(std::move(receipt));
+                last_.power_weights = std::move(shared);
+                result.message = "Clock settings reviewed and recovery record saved";
+            } else {
+                auto table = inspect_pascal_clocks(c.image);
+                if (!table.ok) throw std::runtime_error(table.message);
+                if (table.device_id != c.identity.device_id)
+                    throw std::runtime_error("The clock image belongs to another PCI device");
+                displayed_clock_image_ = std::move(c.image);
+                last_.pascal_clocks = std::make_shared<const PascalClockTable>(std::move(table));
+                last_.pascal_clock_fresh = true;
+                result.message = "Read the running Pascal clock table";
+                if (power_weights_) {
+                    const auto inspection = power_weights_->inspect_receipt();
+                    last_.power_weights = std::make_shared<PowerWeightsData>(power_weights_->state());
+                    const auto& saved = last_.power_weights->receipt;
+                    if (saved && saved->is_pascal_clocks() && saved->phase == "active" &&
+                        saved->image == displayed_clock_image_) last_.pascal_clock_original_receipt = saved->id;
+                    if (!inspection.ok) result.message += ". " + inspection.message;
+                }
+            }
+            result.ok = true;
+        } catch (const std::exception& e) {
+            last_.pascal_clock_fresh = false;
+            result.message = e.what();
+        }
+        last_.pascal_clock_status = result.message;
+        return result;
+    }
+
     ActionResult execute_request(const Command& cmd) {
         ActionResult result{};
         if (!gpu_) { result.message = "No GPU selected"; return result; }
@@ -2880,6 +2939,8 @@ public:
             result.message = last_.power_arbitration->message;
             return result;
         }
+        if (cmd.operation == Command::Operation::pascal_clock_read || cmd.operation == Command::Operation::pascal_clock_prepare)
+            return pascal_clock_action(cmd);
         if(cmd.operation==Command::Operation::power_weights_read||cmd.operation==Command::Operation::power_weights_preview||cmd.operation==Command::Operation::power_weights_prepare||cmd.operation==Command::Operation::power_weights_inspect){
             if(!power_weights_){result.message="Power relationship service unavailable";return result;}
             if(cmd.operation==Command::Operation::power_weights_read){const auto& data=power_weights_->read();result.ok=data.info_availability==VoltagePolicyAvailability::available;result.message=data.message;}
@@ -3168,15 +3229,15 @@ std::unique_ptr<IBackend> create_core_backend(const std::wstring& path) {
     (void)path; return std::make_unique<Client>(CoreApi{});
 #endif
 }
-PowerWeightCapture capture_power_weights_from_core(const std::wstring& path,const std::string& slot,const std::string& uuid,bool registry){
+PowerWeightCapture capture_power_weights_from_core(const std::wstring& path,const std::string& slot,const std::string& uuid,bool registry,bool clock_only){
 #ifdef _WIN32
     if(slot.empty()||uuid.empty())throw VoltageEquationEvidenceError("Weight capture target is incomplete",VoltagePolicyAvailability::invalid);
     Client client(path);std::string why;if(!client.open(slot,why))throw VoltageEquationEvidenceError("Cannot open weight capture target: "+why,VoltagePolicyAvailability::transient);
-    const auto capture=client.capture_weight_state(registry);
+    const auto capture=client.capture_weight_state(registry,clock_only);
     if(std::string(capture.adapter.slot)!=slot||std::string(capture.adapter.uuid)!=uuid)throw std::runtime_error("Weight capture adapter differs from selected target");
     const auto closed=client.prepare_close();if(!closed.ok||closed.may_have_changed)throw std::runtime_error("Read-only weight capture did not close cleanly");client.close();return capture;
 #else
-    (void)path;(void)slot;(void)uuid;(void)registry;throw std::runtime_error("Weight host requires Windows");
+    (void)path;(void)slot;(void)uuid;(void)registry;(void)clock_only;throw std::runtime_error("Weight host requires Windows");
 #endif
 }
 }

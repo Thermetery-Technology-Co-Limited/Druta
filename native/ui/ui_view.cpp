@@ -2007,6 +2007,70 @@ void relationships_panel_body(ViewState& state) {
         state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read, {}});
 }
 
+const PowerWeightReceipt* selected_override(const ViewState& state) {
+    const auto& s = *state.live;
+    auto data = s.data.power_weights;
+    if (!data || !data->receipt) data = state.power_weights_saved;
+    if (!data || !data->receipt || data->receipt->identity.slot != s.selected_slot ||
+        (s.data.identity.uuid[0] && data->receipt->uuid != s.data.identity.uuid)) return nullptr;
+    return data->receipt.get();
+}
+
+bool show_pascal_clocks(const ViewState& state) {
+    const auto arch = state.live->data.clock_architecture;
+    const auto* receipt = selected_override(state);
+    return !arch || *arch == 4 || (receipt && receipt->is_pascal_clocks());
+}
+
+void pascal_clock_panel(ViewState& state) {
+    auto& s = *state.live;
+    const bool busy = s.busy || s.opening;
+    const auto* receipt = selected_override(state);
+    const auto live_record = s.data.power_weights && s.data.power_weights->receipt ?
+                             s.data.power_weights : state.power_weights_saved;
+    const bool owned = receipt && (receipt->phase != "removed" || live_record->receipt_from_active_pointer);
+    std::string restart_reason;
+    const bool can_restart = restart_device_target(s, restart_reason, state.app_actions.administrator).has_value();
+    ImGui::PushID("pascal-clock-panel");
+    ImGui::BeginDisabled(busy || !s.data.connected);
+    if (ImGui::Button("Read clock table")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read_clocks, {}});
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy);
+    if (ImGui::Button("Inspect saved override")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::inspect, {}});
+    ImGui::EndDisabled();
+    if (!s.data.pascal_clock_status.empty()) ImGui::TextWrapped("%s", s.data.pascal_clock_status.c_str());
+    if (!state.power_weights_view.status.empty()) ImGui::TextWrapped("%s",state.power_weights_view.status.c_str());
+
+    const bool editable = !busy && s.data.connected && s.data.pascal_clock_fresh && !owned;
+    std::vector<PascalClockEdit> edits;
+    draw_pascal_clock_sliders(state.pascal_clock_view, s.data.pascal_clocks.get(), s.generation,
+                              editable, editable && state.controls_unlocked && can_restart, edits);
+    if (!busy && !can_restart) ImGui::TextWrapped("%s", restart_reason.c_str());
+    if (!edits.empty())
+        state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks, {}, std::move(edits)});
+
+    if (receipt && receipt->is_pascal_clocks()) {
+        if (receipt->id == s.data.pascal_clock_original_receipt)
+            ImGui::TextWrapped("The original clock image is running. Verify the clock override to close the previous session.");
+        else
+            ImGui::TextWrapped("Saved clock override (%s). %s",receipt->phase.c_str(),receipt->message.c_str());
+        if (owned) {
+            ImGui::BeginDisabled(busy);
+            if (ImGui::Button("Verify clock override")) state.power_weights_intents.push_back({PowerWeightsIntent::Operation::verify,{}});
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(busy || !state.controls_unlocked || !can_restart);
+            if (ImGui::Button("Restore previous clocks and refresh GPU"))
+                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::remove,{}});
+            ImGui::EndDisabled();
+        }
+    } else if (owned) {
+        ImGui::TextWrapped("Resolve the saved power relationship override before applying clock changes.");
+    }
+    ImGui::PopID();
+}
+
 void power_weights_panel(ViewState& state, bool classic) {
     const auto& snapshot=*state.live;
     const auto* weights=snapshot.data.power_weights.get();PowerWeightsData with_saved_receipt;
@@ -2142,12 +2206,18 @@ void live_semantic_controls(ViewState& state, bool classic) {
     const bool saving_navigation=state.open_power_saving_requested;
     const bool gating_navigation=state.open_clock_gating_requested;
     const bool weights_navigation=state.open_power_weights_requested;
-    const bool policy_navigation=voltage_navigation||integral_navigation||tables_navigation||limits_navigation||saving_navigation||gating_navigation||weights_navigation;
+    const bool clocks_navigation=state.open_pascal_clocks_requested;
+    state.open_pascal_clocks_requested=false;
+    const bool policy_navigation=clocks_navigation||voltage_navigation||integral_navigation||tables_navigation||limits_navigation||saving_navigation||gating_navigation||weights_navigation;
     ImGui::PushID("advanced-semantic-controls");
     if (ImGui::Button("Policy workspace...")) state.policy_workspace.open=true;
     if(policy_navigation)ImGui::SetNextItemOpen(weights_navigation);
     state.open_power_weights_requested=false;
     if(ImGui::CollapsingHeader("Power relationship weights")) power_weights_panel(state, classic);
+    if (show_pascal_clocks(state)) {
+        if (policy_navigation) ImGui::SetNextItemOpen(clocks_navigation);
+        if (ImGui::CollapsingHeader("Pascal clock ceilings and ratios")) pascal_clock_panel(state);
+    }
     if(policy_navigation)ImGui::SetNextItemOpen(saving_navigation);
     state.open_power_saving_requested=false;
     if(ImGui::CollapsingHeader("Power saving")){
@@ -2218,7 +2288,9 @@ void classic_advanced_sections(ViewState& state) {
     const bool tables=state.open_voltage_tables_requested, limits=state.open_voltage_limits_requested;
     const bool saving=state.open_power_saving_requested, gating=state.open_clock_gating_requested;
     const bool weights=state.open_power_weights_requested;
-    const bool navigating=voltage||integral||tables||limits||saving||gating||weights;
+    const bool clocks=state.open_pascal_clocks_requested;
+    state.open_pascal_clocks_requested=false;
+    const bool navigating=clocks||voltage||integral||tables||limits||saving||gating||weights;
     state.open_voltage_policy_requested=state.open_power_integral_requested=false;
     state.open_voltage_tables_requested=state.open_voltage_limits_requested=false;
     state.open_power_saving_requested=state.open_clock_gating_requested=state.open_power_weights_requested=false;
@@ -2246,11 +2318,12 @@ void classic_advanced_sections(ViewState& state) {
         classic_text("Power-policy feedback adjustment");
         power_integral_panel(state, true);
     }
-    next(weights);
+    next(weights||clocks);
     if (ClassicSection section{"Registry / BIOS overrides", 0,
-        "General BIOS and registry field editing, which persists and restarts the GPU, is not available in this build. "
-        "The power relationship-weight override below is the supported exception: it loads on a GPU driver refresh "
-        "and stays until removed or changed."}) {
+        "Applying changes refreshes the selected GPU. Power relationship weights persist until removed. "
+        "Pascal clock settings last for the driver session."}) {
+        if (show_pascal_clocks(state))
+            sub("Pascal clock ceilings and ratios", clocks, true, [&]{ pascal_clock_panel(state); });
         sub("Power relationship weights", weights, true, [&]{ power_weights_panel(state, true); });
         // registry_panel.py build_registry "DIFR configured state". Its reader
         // (lpwr_runtime.read) has no native port yet, so the subsection says so

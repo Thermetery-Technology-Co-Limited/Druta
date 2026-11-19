@@ -25,6 +25,8 @@ struct PolicyAnnotationEffect;
 struct PerfViewModel;
 struct PowerArbitrationModel;
 struct PowerWeightsData;struct PowerWeightRequest;
+struct PascalClockTable;
+struct PascalClockEdit;
 struct PowerIntegralData;
 struct PowerIntegralRequest;
 struct PowerIntegralKey;
@@ -91,6 +93,11 @@ struct LiveData {
     std::shared_ptr<const PerfViewModel> perf_diagnostics;
     std::shared_ptr<const PowerArbitrationModel> power_arbitration;
     std::shared_ptr<const PowerWeightsData> power_weights;
+    std::optional<uint32_t> clock_architecture;
+    std::shared_ptr<const PascalClockTable> pascal_clocks;
+    std::string pascal_clock_status;
+    bool pascal_clock_fresh = false;
+    std::string pascal_clock_original_receipt;
     std::shared_ptr<const PowerIntegralData> power_integral;
     std::shared_ptr<const VoltagePolicyData> voltage_policies;
     std::shared_ptr<const VoltageTablesData> voltage_tables;
@@ -174,7 +181,7 @@ struct Command {
         save_full_profile,timings_forget_helper,
         // Python restore_raised_limits_now and the headroom setting turned off:
         // take this session's hold raise off; the hold stays.
-        restore_raised_limits };
+        restore_raised_limits, pascal_clock_read, pascal_clock_prepare };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -211,6 +218,7 @@ struct Command {
     uint32_t voltage_families = 3;
     std::shared_ptr<const std::vector<PowerWeightRequest>> power_weight_requests;
     std::string power_weight_receipt_id;
+    std::shared_ptr<const std::vector<PascalClockEdit>> pascal_clock_edits;
     std::shared_ptr<const std::vector<VoltageTableRequest>> voltage_table_requests;
     std::shared_ptr<const std::vector<VoltageTableKey>> voltage_table_selection;
     std::shared_ptr<const std::vector<VoltageLimitRequest>> voltage_limit_requests;
