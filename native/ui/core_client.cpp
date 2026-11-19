@@ -2891,7 +2891,7 @@ public:
                 const bool original_image = active && saved->image == c.image;
                 const bool edited_image = active && !original_image && derive_weight_receipt(*saved).clock_plan.image == c.image;
                 std::optional<PascalClockTable> ranges;
-                if (edited_image && c.identity.architecture != 4)
+                if (edited_image)
                     ranges = inspect_pascal_clocks(saved->image, c.identity.architecture);
                 auto table = inspect_pascal_clocks(c.image, c.identity.architecture, ranges ? &*ranges : nullptr);
                 if (!table.ok) throw VoltageEquationEvidenceError(table.message, VoltagePolicyAvailability::unsupported);

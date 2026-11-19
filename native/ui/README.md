@@ -124,8 +124,10 @@ in the tooltip and on Monitor. Raw driver watts are always used for power Apply.
 
 **Daily tuning** in Focused and **Control → Clock offsets** in Classic read
 the selected card’s table automatically. The editor is also in **Advanced**.
-Pascal exposes per-state GPC, XBAR and SYS / Video ceilings in MHz and shared
-XBAR and SYS ratios from 1–200% of GPC. Both rows estimate the P0 target using
+Pascal exposes per-state GPC, XBAR and SYS / Video ceilings in MHz, up to 200%
+of the original clock-program ceiling for each domain (subject to the field's
+encoding limit). The shared XBAR and SYS ratios range from 1–200% of GPC.
+Each ratio row estimates its P0 target using
 the fastest graphics V/F point at or below the selected GPU’s effective NVVDD
 limit. Staging a ratio, core offset or curve edit updates the preview. The
 performance-state selector controls the separate firmware ceilings.

@@ -431,7 +431,9 @@ The master program contains two independently editable ratio bytes. XBAR and
 SYS each accept whole-percent requests from 1% through 200% of GPC. A version
 0x50 performance table can also supply an individual maximum per domain and
 performance state. Druta edits only the maximum bits of a selected entry.
-The editor divides the stored double-rate MHz by two for display.
+The editor divides the stored double-rate MHz by two for display. For each
+qualified state, the absolute MHz sliders extend to twice the domain's
+original clock-program ceiling, up to the 14-bit encoding limit.
 
 In Daily tuning and Classic Control, the ratio rows estimate target MHz as
 `P0 GPC V/F peak MHz × ratio / 100`. Druta picks the highest GPC frequency

@@ -136,10 +136,59 @@ void run() {
           t.selector_version == 0x86070102 && t.selector_oem == 0x22,
           "Three independent domains across three states and two shared ratios");
     const auto sys = find(t, Domain::sys, 0);
-    check(sys && sys->minimum == 1250 && sys->current == 3400 && sys->maximum == 3500,
-          "State nominal, current maximum and program ceiling use the selected card");
+    check(sys && sys->minimum == 1250 && sys->current == 3400 && sys->maximum == 7000,
+          "State nominal and 200 percent program ceiling use the selected card");
     const auto p8 = find(t, Domain::xbar, 8);
     check(p8 && p8->current == 1200 && p8->minimum == 1050, "P8 is decoded by its level, independently of P0");
+    for (const auto& field : t.fields) {
+        if (field.pstate < 0) continue;
+        const auto raised = plan_pascal_clocks(rom, {{field.domain, field.pstate, field.current, field.maximum}});
+        check(raised.ok, "Every state and domain accepts its 200 percent endpoint");
+        if (!raised.ok) continue;
+        const auto installed = inspect_pascal_clocks(raised.image, 4, &t);
+        const auto* after = find(installed, field.domain, field.pstate);
+        check(after && after->current == field.maximum && after->maximum == field.maximum,
+              "Reinspection retains the original upper range and installed value");
+        const auto revised = plan_pascal_clocks(raised.image,
+            {{field.domain, field.pstate, field.maximum, field.current}}, 4, &t);
+        check(revised.ok && revised.image == rom, "A raised field can be restored exactly");
+    }
+    auto large_cap = rom;
+    large_cap[0x200 + 8 + 21 + 1] = 0xff;
+    large_cap[0x200 + 8 + 21 + 2] = 0x3f;
+    const auto bounded = inspect_pascal_clocks(large_cap);
+    const auto* bounded_gpc = find(bounded, Domain::gpc, 0);
+    check(bounded_gpc && bounded_gpc->maximum == 0x3fff &&
+          plan_pascal_clocks(large_cap, {{Domain::gpc, 0, bounded_gpc->current, 0x3fff}}).ok,
+          "Ceiling stops at the representable 14-bit maximum");
+    auto foreign = rom;
+    const size_t sys_packed = 0x300 + 10 + 2 * 57 + 3 + 3 * 6 + 2;
+    const uint32_t foreign_word = 0xb0000000u | (7500u << 14) | 1000u;
+    for (unsigned i = 0; i < 4; ++i) foreign[sys_packed + i] = uint8_t(foreign_word >> (8 * i));
+    check(!find(inspect_pascal_clocks(foreign), Domain::sys, 0) &&
+          !plan_pascal_clocks(foreign, {{Domain::sys, 0, 7500, 7250}}).ok,
+          "Unowned out-of-program capture cannot authorize an edit");
+    const auto foreign_with_original = inspect_pascal_clocks(foreign, 4, &t);
+    const auto* foreign_sys = find(foreign_with_original, Domain::sys, 0);
+    check(foreign_sys && foreign_sys->current == 7500 && foreign_sys->maximum == 7000 &&
+          !plan_pascal_clocks(foreign, {{Domain::sys, 0, 7500, 7250}}, 4, &t).ok &&
+          !plan_pascal_clocks(foreign, {{Domain::sys, 0, 7500, 6900}}, 4, &t).ok,
+          "A readback beyond the original range cannot extend or authorize it");
+    auto partial_stock = rom;
+    const uint32_t partial_word = 0xb0000000u | (3600u << 14) | 1000u;
+    for (unsigned i = 0; i < 4; ++i) partial_stock[sys_packed + i] = uint8_t(partial_word >> (8 * i));
+    const auto partial_original = inspect_pascal_clocks(partial_stock);
+    const auto partial_edit = plan_pascal_clocks(partial_stock, {{Domain::gpc, 0, 3800, 7800}});
+    check(partial_original.ok && !find(partial_original, Domain::sys, 0) && partial_edit.ok,
+          "An unqualified sibling does not prevent an independent edit");
+    if (partial_edit.ok) {
+        const auto partial_installed = inspect_pascal_clocks(partial_edit.image, 4, &partial_original);
+        const auto* gpc = find(partial_installed, Domain::gpc, 0);
+        check(partial_installed.ok && !find(partial_installed, Domain::sys, 0) && gpc &&
+              gpc->current == 7800 && gpc->maximum == 7800 &&
+              partial_installed.fields.size() == partial_original.fields.size(),
+              "Active reinspection retains qualified fields and omits the original unqualified sibling");
+    }
     const auto result = plan_pascal_clocks(rom, {{Domain::sys, 0, 3400, 2701}});
     check(result.ok && result.image.size() == rom.size(), "Plan a P0 SYS edit");
     if (result.ok) {
@@ -198,7 +247,7 @@ void run() {
           "Lower ratio endpoints still apply and parse after a high ratio");
     for (const auto& bad : std::vector<std::vector<PascalClockEdit>>{
              {}, {{Domain::sys, 2, 3400, 3000}}, {{Domain::gpc, -1, 95, 89}},
-             {{Domain::sys, 0, 3400, 3501}}, {{Domain::sys, 0, 3400, 1249}},
+             {{Domain::sys, 0, 3400, 7001}}, {{Domain::sys, 0, 3400, 1249}},
              {{Domain::sys, 0, 3399, 3200}}, {{Domain::xbar, -1, 95, 0}},
              {{Domain::xbar, -1, 95, ratio_max + 1}}, {{Domain::sys, -1, 90, ratio_max + 1}},
              {{Domain::sys, 0, 3400, 3100}, {Domain::sys, 0, 3400, 3200}},

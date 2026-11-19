@@ -105,6 +105,25 @@ struct Bench {
  }
 };
 void tests() {
+ {
+  Bench b;
+  const auto initial=make_pascal_clock_receipt(b.current, {{PascalClockDomain::gpc,0,3800,7800}});
+  PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,initial).ok,"Cannot activate a raised absolute ceiling");
+  const auto original=inspect_pascal_clocks(initial.image);
+  const auto installed=inspect_pascal_clocks(b.current.image,4,&original);
+  const auto row=std::find_if(installed.fields.begin(),installed.fields.end(),[](const auto& f) {
+   return f.domain==PascalClockDomain::gpc&&f.pstate==0;
+  });
+  check(row!=installed.fields.end()&&row->current==7800&&row->maximum==7800,
+        "Raised absolute ceiling and original range were not retained");
+  const auto replacement=revise_pascal_clock_receipt(b.current,b.durable,
+   {{PascalClockDomain::gpc,0,7800,7000}});
+  b.publish_replacement(replacement);
+  check(worker.run(PowerWeightOperation::apply,b.durable).ok&&
+        worker.run(PowerWeightOperation::remove,b.durable).ok&&b.current.image==initial.image,
+        "Revised raised ceiling did not apply and restore the original image");
+ }
  for (uint32_t architecture : {2u, 3u}) {
   Bench b;
   b.current.target.architecture = b.current.identity.architecture = architecture;

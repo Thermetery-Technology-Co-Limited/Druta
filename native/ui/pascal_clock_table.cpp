@@ -211,7 +211,7 @@ Programs read_programs(const Directory& dir) {
 }
 
 void add_states(Decoded& out, const Directory& dir, const Programs& tables,
-                const std::vector<Binding>& bindings) {
+                const std::vector<Binding>& bindings, const PascalClockTable* original) {
     const auto perf = dir.pointer('P', 0);
     if (!perf) return;
     const Bytes& b = dir.bytes;
@@ -235,9 +235,24 @@ void add_states(Decoded& out, const Directory& dir, const Programs& tables,
             const unsigned nominal = le16(b, tuple) & frequency_mask;
             const uint32_t packed = le32(b, tuple + 2);
             const unsigned floor = packed & frequency_mask, maximum = (packed >> 14) & frequency_mask;
-            if (!floor || floor > nominal || nominal > maximum || maximum > bind.program_cap) continue;
+            if (!floor || floor > nominal || nominal > maximum || !bind.program_cap) continue;
+            // An unowned image must retain the original firmware tuple qualification.
+            // Only a verified receipt can establish that a higher value is ours.
+            if (!original && maximum > bind.program_cap) continue;
+            int upper = int(std::min(frequency_mask, bind.program_cap * 2u));
+            if (original) {
+                const auto prior = std::find_if(original->fields.begin(), original->fields.end(), [&](const auto& old) {
+                    return old.domain == bind.domain && old.pstate == 15 - int(level);
+                });
+                // Do not promote a tuple that was unqualified in the original
+                // image, or hide the independently qualified sibling fields.
+                if (prior == original->fields.end()) continue;
+                upper = prior->maximum;
+            }
+            // Never expand the authorized range from an observed value. A
+            // value outside it remains readable but cannot authorize an edit.
             out.located.push_back({{bind.domain, 15 - int(level), int(maximum), int(nominal),
-                                    int(std::min(bind.program_cap, frequency_mask))}, tuple + 2});
+                                    upper}, tuple + 2});
         }
     }
 }
@@ -308,9 +323,12 @@ Decoded decode(const Bytes& b, uint32_t architecture, const PascalClockTable* or
     out.table.selector_oem = b[selector + 4];
     out.table.device_id = static_cast<uint16_t>(dir.legacy.device);
     if (architecture == 4) {
+        if (original)
+            require(original->ok && !original->state_targets && original->device_id == out.table.device_id,
+                    "Original clock ranges belong to a different layout or device");
         const auto tables = read_programs(dir);
         const auto bindings = tables.bindings();
-        add_states(out, dir, tables, bindings);
+        add_states(out, dir, tables, bindings, original);
         for (const auto& bound : bindings) {
             if (bound.ratio)
                 out.located.push_back({{bound.domain, -1, b[*bound.ratio], minimum_ratio, maximum_ratio},
@@ -335,7 +353,8 @@ std::optional<int> preview_value(const PascalClockField* field, const std::vecto
     std::optional<int> staged;
     for (const auto& edit : edits) {
         if (edit.domain != field->domain || edit.pstate != field->pstate) continue;
-        if (staged || edit.expected != field->current || edit.value < field->minimum || edit.value > field->maximum)
+        if (staged || edit.expected != field->current || field->current < field->minimum ||
+            field->current > field->maximum || edit.value < field->minimum || edit.value > field->maximum)
             return {};
         staged = edit.value;
     }
@@ -399,6 +418,7 @@ PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalC
             require(seen.insert(it->offset).second, "Clock edit selected the same field twice");
             const auto& f = it->field;
             require(edit.expected == f.current, "Captured clock field changed since inspection");
+            require(f.current >= f.minimum && f.current <= f.maximum, "Captured clock exceeds the qualified range");
             require(edit.value >= f.minimum && edit.value <= f.maximum, "Clock setting exceeds the qualified range");
             if (f.pstate == -1) {
                 patched[it->offset] = static_cast<uint8_t>(edit.value);

@@ -105,7 +105,7 @@ int main() {
     prepare.operation = Command::Operation::pascal_clock_prepare;
     prepare.enabled = true;
     prepare.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(
-        std::vector<PascalClockEdit>{{PascalClockDomain::xbar, 0, 3600, 3000},
+        std::vector<PascalClockEdit>{{PascalClockDomain::xbar, 0, 3600, 7400},
                                      {PascalClockDomain::xbar, -1, 95, 200},
                                      {PascalClockDomain::sys, -1, 90, 200}});
     CHECK(!client->execute(prepare).ok && reads == 0);
@@ -141,6 +141,9 @@ int main() {
         CHECK(installed.pascal_clock_active_receipt == receipt->id && installed.pascal_clock_fresh && installed.pascal_clocks &&
               std::count_if(installed.pascal_clocks->fields.begin(), installed.pascal_clocks->fields.end(),
                             [](const auto& field) { return field.pstate == -1 && field.current == 200; }) == 2);
+        CHECK(std::any_of(installed.pascal_clocks->fields.begin(), installed.pascal_clocks->fields.end(),
+                          [](const auto& field) { return field.domain == PascalClockDomain::xbar &&
+                              field.pstate == 0 && field.current == 7400 && field.maximum == 7400; }));
         prepare.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(
             std::vector<PascalClockEdit>{{PascalClockDomain::xbar, -1, 200, 101}});
         const auto previous = *receipt;
