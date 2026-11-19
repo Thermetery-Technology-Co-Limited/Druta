@@ -98,14 +98,14 @@ edit is not expected to survive a band transition, let alone a reboot. Use
 that. Four guards sit in front of every write; the fourth is a per-card stock
 backup keyed by the card's UUID.
 
-- **Can hang the machine and CANNOT be cleared by a reboot**: I2C voltage misapplications. However, this can be cleared by a full and clean power cycle, as in completely discharging the GPU of power. We recommend plugging the PSU and powering on the machine to bleed the capacitors. This clears all I2C writes. 
+- **Can hang the machine and CANNOT be cleared by a reboot**: I2C voltage misapplications. However, this can be cleared by a full and clean power cycle, as in completely discharging the GPU of power. We recommend unplugging the PSU and powering on the machine to bleed the capacitors. This clears all I2C writes. 
 
 - **Can degrade your hardware and accelerate its aging**: excessive rail voltages, especially for later generations. Experience tells us that Ada GPUs are extremely susceptible to degradation, especially AD102 series. 
 
 - **Can PERMANENTLY DAMAGE YOUR HARDWARE**: out of bound I2C writes, especially in the XOC mode. Druta rejects any voltage above 2V even in the XOC mode because any voltage above it is certainly a typo, but 1.8V is only conditionally workable under LN2 depending on the generations, never with a stock air cooler for your daily 3070. *You can break your GPU core/VRAM/VRM, or any combination of the above, permanently and irreversibly.*
 --- 
 # Build
-
+DEPRECATED AND WILL BE REWRITTEN SOON
 ```powershell
 python -m pip install -r requirements.txt
 .\build.ps1
