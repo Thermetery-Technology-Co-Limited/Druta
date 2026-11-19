@@ -54,7 +54,24 @@ void run() {
     check(v.minimum_mhz==450 && v.maximum_mhz==1800 && !v.dirty,"adapter generation/identity change clears old target's numeric drafts");
     check(press(v,d,c,"Read clock capabilities").size()==1,"read-only capability retry is explicit and independent of staged requests");
 }
+// Released 1.9.1 Clocks menu: the Lock max tooltip's V/F clock formula on the
+// adapter's own grid, never a fixed 15 MHz, and the note under the lock.
+void menu_text() {
+    const auto has=[](const std::string& t,const char* s){return t.find(s)!=std::string::npos;};
+    auto tip=frequency_lock_max_tooltip(2205u,15000);
+    check(has(tip,"Pins both ends to 2205 MHz - the top of the\ndriver's LOCKABLE table.\n\nThat table is not a boost ceiling")
+        &&has(tip,"(it is floor((base+delta)\n/15)*15, never checked against this list). So if\nthe card is already boosting past it")
+        &&has(tip,"frequency steady, not for going fast."),"a 15 MHz grid reads as Python's own tooltip");
+    tip=frequency_lock_max_tooltip(1911u,12657);
+    check(has(tip,"/12.66)*12.66, never checked against this list)")&&!has(tip,"/15)*15"),"another adapter's grid replaces Python's 15");
+    tip=frequency_lock_max_tooltip(std::nullopt,0);
+    check(has(tip,"LOCKABLE table (not read yet).")&&has(tip,"/step)*step, never checked against this list)")&&!has(tip,"/15)"),
+        "an unknown grid keeps the formula without a number");
+    const std::string note=frequency_lock_menu_note;
+    check(note.rfind("the result is one line in the Control tab log.\n",0)==0&&has(note,"taking one releases the\nother.")&&!has(note,"810"),
+        "the note carries 1.9.1's log sentence and leaves out the one-card memory clock");
+}
 }
 int main(){ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.0f/60;
-    unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);run();ImGui::DestroyContext();
+    unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);run();menu_text();ImGui::DestroyContext();
     std::printf("Frequency lock view: %d failures\n",failures);return failures?1:0;}

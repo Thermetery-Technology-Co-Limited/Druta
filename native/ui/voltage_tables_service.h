@@ -31,6 +31,17 @@ struct VoltageTablesData {
     std::optional<bool> gate_enabled;
     std::optional<int32_t> boost_percent;
     std::string requests_message,offsets_message,message;
+    // Display detail of the same reads (Python voltage_requests_panel / voltage_offsets_panel
+    // inventories): each present rail's independently reported policy in uV, in the order
+    // REL, ALT, OV, VMIN, effective; the active rails the requests read could not pair; and
+    // the request gate read's failure while the gate is unread.
+    std::array<std::optional<std::array<int64_t,5>>,2> request_policy_uv,offset_policy_uv;
+    std::vector<uint32_t> missing_rails;
+    std::string gate_error;
+    // The last explicit Read's failure per family, cleared by the next good capture.
+    // retained: a transient failure that kept the previous rows on display.
+    std::string requests_read_error,offsets_read_error;
+    bool requests_read_retained=false;
 };
 struct VoltageTableRequest {
     VoltageTableKey key;int64_t value=0;

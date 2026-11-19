@@ -33,11 +33,14 @@ public:
     TuningResult hold(uint32_t domain, uint32_t voltage_uv, bool headroom, double margin_mv, bool xoc);
     TuningResult maintain(); // minimal read/restore work even when the UI is paused
     TuningResult release();
+    // Python restore_raised_limits_now: takes this session's headroom raise off
+    // on the user's request, with one bounded retry; a hold stays in force.
+    TuningResult restore_raised();
     TuningState state() const { return state_; }
 private:
     bool identity_ok();
     bool record(dc_rails_hold_record& out);
-    bool restore_headroom(std::string& why);
+    bool restore_headroom(std::string& why, std::string* restored = nullptr);
     TuningApi api_; dc_gpu* gpu_; dc_gpu_identity identity_; TuningState state_{};
 };
 }

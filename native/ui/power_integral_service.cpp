@@ -6,12 +6,13 @@
 #include <cstring>
 #include <set>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 namespace druta::ui {
 namespace {
-constexpr uint32_t info_command=0x2080A618,control_command=0x2080A61A,set_command=0x2080E61B;
-constexpr uint32_t info_bytes=20512,control_bytes=13876;
+constexpr uint32_t info_command=0x2080A618,status_command=0x2080A619,control_command=0x2080A61A,set_command=0x2080E61B;
+constexpr uint32_t info_bytes=20512,status_bytes=397048,control_bytes=13876;
 struct Guard {
     PowerIntegralApi& api;dc_gpu* gpu;bool held;
     Guard(PowerIntegralApi& a,dc_gpu* g):api(a),gpu(g),held(g && a.lock && a.unlock && a.lock(g)==DC_OK){}
@@ -62,6 +63,7 @@ PowerIntegralRow decode(const std::vector<uint32_t>& info,const std::vector<uint
     row.request=control[(b+4)/4];row.lower=u16(control,b+12);row.upper=u16(control,b+14);
     row.reported_lower=u16(info,a+0x24);row.reported_upper=u16(info,a+0x26);
     row.past_samples=static_cast<uint8_t>(byte(control,b+9));row.next_samples=static_cast<uint8_t>(byte(control,b+10));
+    row.default_past_samples=static_cast<uint8_t>(byte(info,a+0x22));row.default_next_samples=static_cast<uint8_t>(byte(info,a+0x23));
     if((byte(info,a)!=0x30 && byte(info,a)!=0x40) || control[b/4]!=row.type)row.reason="Policy type or table format is not understood";
     else if(row.unit>1)row.reason="Policy unit is not understood";
     else if(byte(control,b+8)!=2 || !row.past_samples || !row.next_samples || byte(info,a+0x20)!=2
@@ -154,9 +156,36 @@ void PowerIntegralService::publish(const Snapshot& state) {
         data_.rows.push_back(std::move(row));
     }
 }
-PowerIntegralData PowerIntegralService::read() {
-    Guard guard(api_,gpu_);if(!guard.held){data_.current=false;data_.message="GPU lock unavailable";return data_;}
-    Snapshot state;if(capture(state)){publish(state);data_.message="Current feedback requests read.";}
+PowerIntegralData PowerIntegralService::read() {return read(false);}
+PowerIntegralData PowerIntegralService::read_with_status() {return read(true);}
+PowerIntegralData PowerIntegralService::read(bool status_read) {
+    Guard guard(api_,gpu_);if(!guard.held){data_.current=false;data_.message="GPU lock unavailable";data_.read_error=data_.message;return data_;}
+    Snapshot state;if(!capture(state)){data_.read_error=data_.message;return data_;}
+    // Python PowerIntegralController._report: inside Classic's explicit Read only, one
+    // read-only STATUS GET decoded as power_arbitration.decode for each row's PMU
+    // output and effective limit. A failed STATUS read or decode is not fatal; a
+    // changed adapter binding afterwards fails the Read.
+    std::map<uint32_t,std::pair<std::optional<uint32_t>,std::optional<uint32_t>>> diagnostics;
+    const uint32_t mask=state.info[1];
+    if(status_read && mask && api_.decode) {
+        std::vector<uint32_t> status(status_bytes/4);uint32_t count=0;dc_error error{};error.size=sizeof(error);
+        if(api_.rm(gpu_,status_command,nullptr,0,1,mask,0,status.data(),static_cast<uint32_t>(status.size()),&count,&error)==DC_OK && count==status.size()) {
+            const dc_arbitration_words info{state.info.data(),static_cast<uint32_t>(state.info.size()),1,1};
+            const dc_arbitration_words control{state.control.data(),static_cast<uint32_t>(state.control.size()),1,1};
+            const dc_arbitration_words words{status.data(),count,1,1};
+            auto report=std::make_unique<dc_arbitration_report>();report->size=sizeof(*report);
+            if(api_.decode(&state.layout,&info,&control,&words,report.get())==DC_OK && report->size==sizeof(*report)
+                && report->available==1 && report->policy_count<=DC_ARBITRATION_POLICIES_MAX)
+                for(uint32_t i=0;i<report->policy_count;++i){const auto& row=report->policies[i];if(row.policy>=32)continue;
+                    diagnostics[row.policy]={row.available==1?std::optional<uint32_t>(row.effective):std::nullopt,
+                        row.pmu.available==1?std::optional<uint32_t>(row.pmu.output):std::nullopt};}
+        }
+        if(!binding()){data_.current=false;data_.read_error=data_.message;return data_;}
+    }
+    publish(state);
+    for(auto& row:data_.rows){const auto found=diagnostics.find(row.policy);
+        if(found!=diagnostics.end()){row.effective=found->second.first;row.pmu_output=found->second.second;}}
+    data_.message=power_integral_read_message;data_.read_error.clear();
     return data_;
 }
 bool PowerIntegralService::dispatch(const Snapshot& state,uint32_t policy,PowerIntegralField field,uint16_t raw,Snapshot& after,const std::function<void()>& on_launch) {

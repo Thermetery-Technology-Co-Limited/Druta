@@ -240,5 +240,24 @@ int main(){
     {Fake f;PowerSavingService s(api(),f.gpu(),f.identity);s.read(8);CHECK(s.apply(request(s,PowerSavingFamily::adaptive,0,0)).ok);f.implementation=5;s.read(8);CHECK(!row(s,PowerSavingFamily::adaptive).value&&!row(s,PowerSavingFamily::adaptive).initial);}
     {Fake f;f.factor=2000;f.raw[0]=3;f.second[0]=3000000;PowerSavingService s(api(),f.gpu(),f.identity);s.read(4);CHECK(row(s,PowerSavingFamily::idle_threshold).writable&&!row(s,PowerSavingFamily::idle_threshold).initial);CHECK(s.apply(request(s,PowerSavingFamily::idle_threshold,0,1000)).ok);CHECK(!row(s,PowerSavingFamily::idle_threshold).initial&&!s.state().undo_available);CHECK(!s.restore_initial({PowerSavingFamily::idle_threshold,0}).ok);}
     {Fake f;PowerSavingService s(api(),f.gpu(),f.identity);s.read(2);CHECK(s.apply(request(s,PowerSavingFamily::individual,0,1)).ok);f.fail_set=true;CHECK(!s.apply(request(s,PowerSavingFamily::individual,4,1)).ok);f.fail_set=false;CHECK(s.release_owned().ok&&!s.has_owned_requests()&&f.reasons[0]==0&&f.reasons[4]==0);}
+    {   // Readback detail for the released panels comes from the same read: every GR controller's
+        // support and predicate, the controllers this instance's hold changed, and DIFR's two support readbacks.
+        Fake f;f.supported[3]=false;PowerSavingService s(api(),f.gpu(),f.identity);s.read();const auto sets=f.sets;
+        const auto& gr=row(s,PowerSavingFamily::gr_elpg);
+        CHECK(gr.controllers.size()==22&&gr.controllers[3].index==3&&gr.controllers[3].available&&!gr.controllers[3].supported&&gr.controllers[0].supported&&gr.controllers[0].enabled&&gr.observed.empty());
+        CHECK(row(s,PowerSavingFamily::difr).request_support==true&&row(s,PowerSavingFamily::difr).control_present==true&&f.sets==sets);
+        CHECK(s.apply(request(s,PowerSavingFamily::gr_elpg,0,1)).ok);
+        const auto& held=row(s,PowerSavingFamily::gr_elpg).observed;
+        CHECK(held.size()==21&&std::find(held.begin(),held.end(),3u)==held.end()&&held.front()==0);
+        CHECK(s.apply(request(s,PowerSavingFamily::gr_elpg,0,0)).ok&&row(s,PowerSavingFamily::gr_elpg).observed.empty());
+        f.difr_supported=false;s.read(16);
+        CHECK(row(s,PowerSavingFamily::difr).request_support==false&&row(s,PowerSavingFamily::difr).control_present==true&&!row(s,PowerSavingFamily::difr).supported);
+    }
+    {   // An idle controller's support attribute tells "unsupported" from "unavailable", as
+        // gr_idle_threshold_live.py's status does; the same read, no extra transport call.
+        Fake f;f.supported[12]=false;PowerSavingService s(api(),f.gpu(),f.identity);s.read(4);
+        CHECK(row(s,PowerSavingFamily::idle_threshold,12).control_present==false&&!row(s,PowerSavingFamily::idle_threshold,12).supported
+            &&row(s,PowerSavingFamily::idle_threshold,0).control_present==true&&!row(s,PowerSavingFamily::individual,0).control_present);
+    }
     std::printf("Power-saving service: %d checks\n",checks);return 0;
 }

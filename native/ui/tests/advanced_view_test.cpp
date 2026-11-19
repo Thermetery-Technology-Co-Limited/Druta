@@ -5,11 +5,15 @@
 // external profile file is opened. All checks execute in Release builds.
 #include "advanced_view.h"
 #include "session.h"
+#include "policy_workspace.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <memory>
+#include <vector>
+#include "clock_monitor_model.h"
 #include <stdexcept>
 #include <string>
 
@@ -526,6 +530,444 @@ void rail_sliders_keep_live_grid(bool classic) {
     check(near(h.state.drafts[3000].value,retained) && h.state.drafts[3000].dirty && h.commands.empty(),
         "transient rail reads preserve the established grid and dirty draft without implicit commands");
 }
+// Classic Rails column: Python build_volt_limits_rows summary, Link and notes.
+std::string daily_rails(Harness& h, const RailReadouts* readouts, bool classic = true) {
+    ImGui::GetIO().DisplaySize = {1280, 1000};
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1280, 1000});
+    ImGui::Begin(window_name, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+    ImGui::LogToBuffer();
+    ImGui::BeginChild("advanced-body", {0, 0});
+    draw_daily_rail_controls(h.s, h.unlocked, classic, h.state, h.commands, false, readouts);
+    ImGui::EndChild();
+    const std::string text = ImGui::GetCurrentContext()->LogBuffer.c_str();
+    ImGui::LogFinish(); ImGui::End(); ImGui::Render();
+    return text;
+}
+bool contains(const std::string& text, const char* value) { return text.find(value) != std::string::npos; }
+void classic_rail_summary_and_link() {
+    Harness h; h.unlocked = true;
+    h.s.data.advanced_controls.clear(); h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
+    // Alternate adapter: each field has its own estimated base, not one board's constants.
+    const double bases[4] = {1001.5, 1012.25, 990.0, 700.125};
+    const double deltas[4] = {-10, 2.5, 30, 0.375};
+    for (uint32_t field = 0; field < 4; ++field)
+        h.s.data.rail_controls.push_back({{0, field}, control(deltas[field], "mV"), bases[field], "nvvdd-field-" + std::to_string(field)});
+    RailReadouts readouts{};
+    readouts[0].listed = true; readouts[0].boost_mv = 6.25;
+    dc_rails_state_row live{}; live.live = 887.5; live.effective = 997.75; readouts[0].state = live;
+    auto text = daily_rails(h, &readouts);
+    check(contains(text, "NVVDD estimated limits") && contains(text, "rel 991.5 / alt 1014.75")
+        && contains(text, "ov 1020 / vmin 700.5 mV"), "summary shows each field as its own base plus the stored request");
+    check(contains(text, "estimated cap 997.75"), "cap is min(rel + reported boost, alt, ov)");
+    check(contains(text, "live 887.5 mV") && contains(text, "eff 997.75"), "live and effective come from the rail state read");
+    check(contains(text, "Ceilings") && contains(text, "Link reliability + alt-reliability") && contains(text, "Reference")
+        && contains(text, "first stable driver reading"), "writable rails show the Link and Reference rows");
+    check(contains(text, "Driver reports NVVDD only"), "an NVVDD-only adapter shows the NVVDD note");
+    check(!contains(text, "MSVDD estimated limits") && !contains(text, "MSVDD (read-only)"), "an absent rail gets no summary row");
+    check(h.state.rail_link && h.commands.empty(), "Link defaults on and drawing writes nothing");
+
+    // MSVDD listed without a usable reference: Python's read-only row, no cap, no NVVDD-only note.
+    readouts[1].listed = true; dc_rails_state_row msvdd{}; msvdd.live = 0; msvdd.reliability = 850; msvdd.alt_reliability = 860;
+    msvdd.overvoltage = 870; msvdd.vmin = 600; readouts[1].state = msvdd;
+    text = daily_rails(h, &readouts);
+    check(contains(text, "MSVDD (read-only)") && contains(text, "rel 850 / alt 860") && contains(text, "live --")
+        && !contains(text, "Driver reports NVVDD only"), "a listed rail without reference shows driver absolutes read-only");
+
+    // A failed read keeps the last reading, marked stale; the cap waits for a fresh read.
+    readouts[0].stale = true; text = daily_rails(h, &readouts);
+    check(contains(text, "NVVDD estimated limits") && !contains(text, "estimated cap") && contains(text, "live 887.5 mV (stale)")
+        && contains(text, "eff 997.75 (stale)"), "a stale readout keeps live and effective marked stale and hides the cap");
+    // Missing readouts show unknown, never an invented reading or cap.
+    text = daily_rails(h, nullptr);
+    check(contains(text, "rel 991.5 / alt 1014.75") && contains(text, "live --") && !contains(text, "estimated cap"),
+        "without readouts the summary keeps the request fields and reads live as unknown");
+    check(!contains(text, "Driver reports NVVDD only"),
+        "without readouts which rails the driver lists is unknown, so the NVVDD-only note is not claimed");
+    readouts[0].stale = false;
+    // A listed rail missing from the state read: the core's boost default is 0.0, as Python's.
+    readouts[0].boost_mv = 0; text = daily_rails(h, &readouts);
+    check(contains(text, "estimated cap 991.5"), "a zero reported boost still gives Python's cap, min(rel, alt, ov)");
+    readouts[0].boost_mv = 6.25;
+
+    // Link on: Apply on reliability stages both reliability fields at one absolute voltage.
+    daily_rails(h, &readouts);
+    auto* body = h.body_window(); check(body != nullptr, "daily rails body exists"); if (!body) return;
+    const auto apply = [&](int key) {
+        const auto seed = ImHashData(&key, sizeof(key), body->GetID("daily-rail-controls"));
+        ImGui::ActivateItemByID(ImHashStr("Apply", 0, seed)); daily_rails(h, &readouts);
+    };
+    h.state.drafts[3001].value = 1015; h.state.drafts[3001].dirty = true; // a stale alt edit
+    h.state.drafts[3000].value = 1040.5; h.state.drafts[3000].dirty = true;
+    apply(3000);
+    check(h.commands.size() == 1 && h.commands[0].rail && h.commands[0].rail->field == 0 && near(h.commands[0].value, 39)
+        && h.commands[0].expected_binding == "nvvdd-field-0" && h.commands[0].operation == Command::Operation::apply
+        && h.commands[0].rail_partner && h.commands[0].rail_partner->id.rail == 0 && h.commands[0].rail_partner->id.field == 1
+        && near(h.commands[0].rail_partner->value, 28.25) && h.commands[0].rail_partner->expected_binding == "nvvdd-field-1",
+        "linked Apply stages one command naming alt-reliability at the same absolute voltage through its own base and binding");
+    check(!h.state.drafts[3001].dirty, "the linked partner's draft follows its readback");
+    h.commands.clear();
+    h.state.drafts[3002].value = 1030; h.state.drafts[3002].dirty = true; apply(3002);
+    check(h.commands.size() == 1 && h.commands[0].rail->field == 2 && !h.commands[0].rail_partner, "overvoltage is never linked");
+    h.commands.clear();
+    h.state.drafts[3003].value = 705; h.state.drafts[3003].dirty = true; apply(3003);
+    check(h.commands.size() == 1 && h.commands[0].rail->field == 3 && !h.commands[0].rail_partner, "vmin is never linked");
+    h.commands.clear();
+
+    // Unlinked: each field moves independently.
+    h.state.rail_link = false;
+    h.state.drafts[3001].value = 1020.25; h.state.drafts[3001].dirty = true; apply(3001);
+    check(h.commands.size() == 1 && h.commands[0].rail->field == 1 && near(h.commands[0].value, 8) && !h.commands[0].rail_partner,
+        "unlinked Apply stages one field");
+    h.commands.clear();
+    ++h.s.generation; daily_rails(h, &readouts);
+    check(!h.state.rail_link, "an adapter reopen keeps the Link choice as Python keeps it across rebuild");
+    h.state.rail_link = true;
+
+    const auto link_id = ImHashStr("Link reliability + alt-reliability", 0, body->GetID("daily-rail-controls"));
+    h.state.log_notes.clear();
+    ImGui::ActivateItemByID(link_id); daily_rails(h, &readouts);
+    check(!h.state.rail_link && h.commands.empty(), "the Link checkbox toggles staging only and writes nothing");
+    // Python's checkbox callback log line, lower-case, one per accepted change.
+    check(h.state.log_notes.size() == 1 && h.state.log_notes[0]
+        == "rail ceilings unlinked: each field moves independently; watch the cap and effective limit",
+        "unticking Link queues Python's unlinked log line");
+    ImGui::ActivateItemByID(link_id); daily_rails(h, &readouts);
+    check(h.state.rail_link && h.state.log_notes.size() == 2 && h.state.log_notes[1]
+        == "rail ceilings linked: both fields move together, which leaves the voltage boost slider with no range to work in",
+        "ticking Link queues Python's linked log line");
+    daily_rails(h, &readouts);
+    check(h.state.log_notes.size() == 2, "drawing without a change queues no log line");
+    h.state.log_notes.clear();
+    // Rail limits mode off: Link is shown but disabled, and Apply stays gated.
+    h.s.data.rail_mode_enabled = false; daily_rails(h, &readouts);
+    ImGui::ActivateItemByID(link_id); daily_rails(h, &readouts);
+    check(h.state.rail_link && h.commands.empty() && h.state.log_notes.empty(), "Link cannot change while Rail limits is off, and nothing is logged");
+    h.s.data.rail_mode_enabled = true;
+    // Not writable: no Ceilings or Reference rows, as Python returns before them.
+    h.s.data.rail_writable = false; text = daily_rails(h, &readouts);
+    check(contains(text, "NVVDD estimated limits") && !contains(text, "Ceilings") && !contains(text, "Reference"),
+        "a non-writable block shows only the summary");
+    // Without the Ceilings row Python has no vlim_link, so nothing is linked.
+    h.state.drafts[3000].value = 1040.5; h.state.drafts[3000].dirty = true; apply(3000);
+    check(h.commands.size() == 1 && h.commands[0].rail->field == 0 && !h.commands[0].rail_partner,
+        "a block without the Link row never stages the partner field");
+    h.commands.clear();
+    h.s.data.rail_writable = true;
+    // Link ticked but the pair cannot be completed: the Apply is refused, never sent as one field, and the row says why.
+    const auto saved_controls = h.s.data.rail_controls;
+    h.s.data.rail_controls.erase(h.s.data.rail_controls.begin() + 1); // alt-reliability missing from this read
+    text = daily_rails(h, &readouts);
+    check(contains(text, "NVVDD: reliability and alt-reliability are not both readable"), "an incomplete linked pair is explained");
+    h.state.drafts[3000].value = 1040.5; h.state.drafts[3000].dirty = true; apply(3000);
+    check(h.commands.empty(), "linked Apply with the partner missing stages nothing");
+    h.s.data.rail_controls = saved_controls; h.s.data.rail_controls[1].estimated_base_mv.reset(); // partner without a reference
+    h.state.drafts[3000].value = 1040.5; h.state.drafts[3000].dirty = true; apply(3000);
+    check(h.commands.empty(), "linked Apply with the partner's base unknown stages nothing");
+    h.state.rail_link = false; h.state.drafts[3000].dirty = true; apply(3000);
+    check(h.commands.size() == 1 && h.commands[0].rail->field == 0 && !h.commands[0].rail_partner, "unlinked, the same field applies alone");
+    h.commands.clear(); h.state.rail_link = true; h.s.data.rail_controls = saved_controls;
+    text = daily_rails(h, &readouts);
+    check(!contains(text, "are not both readable"), "a complete pair shows no Link warning");
+    // Focused presentation is unchanged: no summary and no linking.
+    text = daily_rails(h, &readouts, false);
+    check(!contains(text, "estimated limits") && !contains(text, "Link reliability"), "Focused rails draw no Classic summary");
+}
+// Python domain_knob_label / DOMAIN_KNOBS: names and grades come from the
+// pairing and the Monitor's classified rows, never from one adapter's table.
+void classic_clock_domain_labels_and_order() {
+    SessionSnapshot s = snapshot();
+    // Adapter order differs from Python's knob order; control 7 is one Python does not list.
+    s.data.advanced_controls = {
+        {{AdvancedKind::clock_domain, 1}, "Crossbar", control(0, "MHz"), "c1"},
+        {{AdvancedKind::clock_domain, 2}, "Additional memory offset", control(0, "MHz"), "c2"},
+        {{AdvancedKind::clock_domain, 3}, "SYS", control(0, "MHz"), "c3"},
+        {{AdvancedKind::nvvdd, 0}, "NVVDD offset", control(0, "mV"), "n0"},
+        {{AdvancedKind::clock_domain, 5}, "Video", control(0, "MHz"), "c5"},
+        {{AdvancedKind::clock_domain, 7}, "domain 7", control(0, "MHz"), "c7"},
+        {{AdvancedKind::clock_domain, 9}, "LTC", control(0, "MHz"), "c9"},
+    };
+    std::vector<uint32_t> order;
+    for (const auto* c : classic_clock_domain_order(s.data)) order.push_back(c->id.domain);
+    check(order == std::vector<uint32_t>({1, 3, 5, 9, 7, 2}), "Classic domain rows follow Python's knob order with additional memory last");
+    // An alternate pairing: names from the classified rows, one hedged, one unpaired.
+    s.data.clock_domain_pairs = {{1, 11}, {3, 12}, {9, 13}, {2, 14}, {7, 15}};
+    auto monitor = std::make_shared<ClockMonitorData>(); monitor->available = true;
+    const auto add_row = [&](uint32_t domain, const char* name, const char* grade) {
+        ClockDomainViewRow row; row.raw.domain = domain;
+        std::snprintf(row.raw.name, sizeof(row.raw.name), "%s", name); std::snprintf(row.raw.grade, sizeof(row.raw.grade), "%s", grade);
+        monitor->rows.push_back(row);
+    };
+    add_row(11, "XBARX", "confirmed"); add_row(12, "SYSX", "confirmed"); add_row(13, "L2X", "likely"); add_row(14, "MEMX", "confirmed");
+    s.data.clock_monitor = monitor;
+    const auto label = [&](uint32_t domain) {
+        for (const auto& c : s.data.advanced_controls) if (c.id.kind == AdvancedKind::clock_domain && c.id.domain == domain) return clock_domain_label(s, c);
+        throw std::runtime_error("missing control");
+    };
+    using Tone = ClockDomainLabel::Tone;
+    check(label(1).text == "XBARX clock offset (MHz)" && label(1).tone == Tone::text, "a confirmed paired name is plain text");
+    check(label(9).text == "L2X? clock offset (MHz)" && label(9).tone == Tone::warn, "a likely name carries '?' in WARN");
+    check(label(5).text == "control domain 5 offset (MHz)" && label(5).tone == Tone::dim, "an unpaired control reads as a bare index in DIM");
+    check(label(7).text == "domain 15 clock offset (MHz)" && label(7).tone == Tone::dim, "a paired domain with no classified row is unnamed and DIM");
+    check(label(2).text == "Additional Memory Clock Offset (MHz)" && label(2).tone == Tone::text, "additional memory keeps its own label, coloured by its pairing");
+    s.data.clock_domain_pairs.clear();
+    check(label(1).text == "crossbar offset (MHz)" && label(1).tone == Tone::dim, "unpaired control 1 uses Python's crossbar fallback");
+    s.data.clock_domain_requests_only = true;
+    check(label(3).text == "SYS requested offset (MHz)" && label(3).tone == Tone::good, "Blackwell names the control block's own label in GOOD");
+}
+std::string classic_rails(Harness& h) {
+    ImGui::GetIO().DisplaySize = {1600, 1000};
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1600, 1000});
+    ImGui::Begin(window_name, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+    ImGui::LogToBuffer();
+    ImGui::BeginChild("advanced-body", {0, 0});
+    draw_daily_rail_controls(h.s, h.unlocked, true, h.state, h.commands, true, nullptr);
+    ImGui::EndChild();
+    const std::string text = ImGui::GetCurrentContext()->LogBuffer.c_str();
+    ImGui::LogFinish(); ImGui::End(); ImGui::Render();
+    return text;
+}
+// Python build_volt_limits_rows and sync_risk_ui: labels, the MSVDD note, live
+// rail-limit widgets that refuse Apply while Rail limits is off, and an Initial
+// that stays available as the recovery action.
+void classic_rail_labels_and_soft_gate() {
+    Harness h; h.unlocked = true;
+    h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
+    h.s.data.advanced_controls = {
+        {{AdvancedKind::nvvdd, 0}, "NVVDD offset", control(0, "mV"), "n0"},
+        {{AdvancedKind::msvdd, 4}, "MSVDD offset", control(0, "mV"), "m4"},
+    };
+    for (uint32_t field = 0; field < 4; ++field) h.s.data.rail_controls.push_back({{0, field}, control(field, "mV"), 1000.0 + field, "nv-" + std::to_string(field)});
+    auto text = classic_rails(h);
+    check(contains(text, "NVVDD vmin (~mV)") && contains(text, "NVVDD offset (mV)") && contains(text, "MSVDD requested offset (mV)"),
+        "Classic rail rows use Python's labels");
+    check(!contains(text, "Driver-reported rail; physical effect"), "an NVVDD-only adapter shows no MSVDD note");
+    h.s.data.rail_controls.push_back({{1, 0}, control(0, "mV"), 800.0, "ms-0"});
+    text = classic_rails(h);
+    const auto note = text.find("Driver-reported rail; physical effect"), row = text.find("MSVDD reliability (~mV)");
+    check(note != std::string::npos && row != std::string::npos && note < row, "the MSVDD note sits ahead of the rail-1 rows");
+    h.s.data.rail_controls.pop_back();
+    // Rail limits off on a writable block: Apply flashes the gate and writes nothing; Initial still restores.
+    h.s.data.rail_mode_enabled = false;
+    for (auto& r : h.s.data.rail_controls) r.state.writable = false; // the adapter's writable flag includes the mode
+    classic_rails(h);
+    auto* body = h.body_window(); check(body != nullptr, "classic rails body exists"); if (!body) return;
+    const auto activate = [&](int key, const char* label) {
+        const auto seed = ImHashData(&key, sizeof(key), body->GetID("daily-rail-controls"));
+        ImGui::ActivateItemByID(ImHashStr(label, 0, seed)); classic_rails(h);
+    };
+    h.state.drafts[3000].value = 1001; h.state.drafts[3000].dirty = true;
+    activate(3000, "Apply");
+    check(h.commands.empty() && h.state.rail_gate_flash_until > ImGui::GetTime(), "Apply with Rail limits off flashes the gate and writes nothing");
+    activate(3001, "Initial");
+    check(h.commands.size() == 1 && h.commands[0].operation == Command::Operation::stock && h.commands[0].rail && h.commands[0].rail->field == 1,
+        "Initial stays available with Rail limits off");
+    h.commands.clear();
+    // Python flashes the gate only from Apply: clicking the live slider, the
+    // input or Initial edits or restores without claiming a refusal.
+    const auto click = [&](int key, const char* label) {
+        const auto seed = ImHashData(&key, sizeof(key), body->GetID("daily-rail-controls"));
+        ImGui::ActivateItemByID(ImHashStr(label, 0, seed)); classic_rails(h);
+        const auto rect = body->NavRectRel[ImGuiNavLayer_Main]; ImGui::ClearActiveID(); classic_rails(h);
+        h.commands.clear(); h.state.rail_gate_flash_until = 0; h.state.drafts[key].dirty = false;
+        auto& io = ImGui::GetIO();
+        io.AddMousePosEvent(body->Pos.x + rect.GetCenter().x, body->Pos.y + rect.GetCenter().y);
+        io.AddMouseButtonEvent(0, true); classic_rails(h);
+        io.AddMouseButtonEvent(0, false); classic_rails(h);
+    };
+    h.state.drafts[3002] = {};
+    click(3002, "##slider");
+    check(h.state.drafts[3002].dirty && h.commands.empty() && h.state.rail_gate_flash_until == 0,
+        "a click on a live rail-limit slider edits the draft without flashing the gate");
+    click(3002, "##value");
+    check(h.commands.empty() && h.state.rail_gate_flash_until == 0, "a click on a live rail-limit input does not flash the gate");
+    click(3002, "Initial");
+    check(h.commands.size() == 1 && h.commands[0].operation == Command::Operation::stock && h.state.rail_gate_flash_until == 0,
+        "Initial restores with Rail limits off without flashing the gate");
+    click(3002, "Apply");
+    check(h.commands.empty() && h.state.rail_gate_flash_until > ImGui::GetTime(), "a mouse click on Apply still flashes the gate");
+    ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX); classic_rails(h);
+    h.commands.clear();
+    // XOC off: the MSVDD offset Apply stays refused, its Zero escape remains.
+    h.s.data.xoc_enabled = false; h.state.rail_gate_flash_until = 0; h.state.xoc_gate_flash_until = 0;
+    activate(1204, "Apply");
+    check(h.commands.empty(), "MSVDD Apply stays XOC-gated");
+    activate(1204, "Zero");
+    check(h.commands.size() == 1 && h.commands[0].operation == Command::Operation::stock, "MSVDD Zero stays available without XOC");
+}
+size_t text_colour_vertices() {
+    const ImU32 text = IM_COL32(230, 232, 236, 255);
+    size_t n = 0; const auto* data = ImGui::GetDrawData();
+    for (int i = 0; i < data->CmdListsCount; ++i) for (const auto& vertex : data->CmdLists[i]->VtxBuffer) n += vertex.col == text;
+    return n;
+}
+// Python slider_row: a knob label is TEXT (230,232,236) unless its row passes a
+// colour of its own; refresh_control draws a present live reading in TEXT. The
+// theme's text stays white for widgets, and Focused rows keep it.
+void classic_knob_text_colour() {
+    Harness h; h.unlocked = true; h.s.data.power_policies.clear(); h.s.data.advanced_controls.clear();
+    h.s.data.rail_controls = {{{0, 0}, control(0, "mV"), 1000.0, "nv-0"}};
+    classic_rails(h); const auto nvvdd = text_colour_vertices();
+    h.s.data.rail_controls = {{{1, 0}, control(0, "mV"), 800.0, "ms-0"}};
+    classic_rails(h);
+    check(nvvdd > text_colour_vertices(), "a Classic rail-limit label is drawn in TEXT; an MSVDD row keeps its WARN label");
+    h.s.data.rail_controls.clear();
+    h.s.data.advanced_controls = {{{AdvancedKind::nvvdd, 0}, "NVVDD offset", control(0, "mV"), "n0"}};
+    classic_rails(h); const auto unread = text_colour_vertices();
+    h.s.data.telemetry.present = DC_T_VCORE_MV; h.s.data.telemetry.vcore_mv = 912.5;
+    classic_rails(h);
+    check(text_colour_vertices() > unread, "a present live reading is drawn in TEXT");
+    ImGui::GetIO().DisplaySize = {1600, 1000};
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1600, 1000});
+    ImGui::Begin(window_name, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+    draw_daily_rail_controls(h.s, h.unlocked, false, h.state, h.commands, true, nullptr);
+    ImGui::End(); ImGui::Render();
+    check(text_colour_vertices() == 0, "Focused rows keep the theme's text colour");
+    check(h.commands.empty(), "colouring writes nothing");
+}
+void power_request_status_sentences() {
+    auto status = power_request_status(900.0, 900.0, 972.07);
+    check(status.text == "Configured request: 900 W. NVML-reported enforced limit: 900 W. Native effective limit: 972.07 W." && !status.warn,
+        "agreeing limits read as Python's DIM sentence");
+    status = power_request_status(450.5, 400.0, std::nullopt);
+    check(status.text == "Configured request: 450.5 W. NVML-reported enforced limit: 400 W. Below configured request; downstream limits may apply."
+        " Native effective limit unavailable; NVML readback does not verify it." && status.warn, "an enforced limit below the request warns");
+    status = power_request_status(300.0, 320.0, 250.0);
+    check(contains(status.text, "Differs from configured request.") && contains(status.text, "Native limit is below configured request") && status.warn,
+        "a differing enforced limit and a lower native limit are both named");
+    status = power_request_status(std::nullopt, std::nullopt, std::nullopt);
+    check(status.text == "Configured power request unverified: readback unavailable. NVML enforced limit unavailable."
+        " Native effective limit unavailable; NVML readback does not verify it." && status.warn, "unknown readbacks stay unknown and warn");
+}
+}
+
+// Released 1.9.1 power_policy_row reasons and refresh_power_policies' live cell.
+void power_policy_reasons_and_live() {
+    PowerPolicy p; p.id = 3; p.state.availability = Availability::available; p.state.unit = "A";
+    p.state.current = 30; p.state.low = 10; p.state.high = 40; p.state.writable = true; p.state.detail = "Configured policy request";
+    check(power_policy_readonly_reason(p).empty(), "a writable ordinary policy keeps its slider");
+    p.core_current = true;
+    check(power_policy_readonly_reason(p) == "set with its current-limit slider on the Control tab", "the core current limit points to the Control tab");
+    p.core_current = false; p.state.writable = false; p.state.detail = "Board request is controlled separately";
+    check(power_policy_readonly_reason(p) == "set with Power limit (W) on the Control tab", "the board policy points to Power limit");
+    p.state.detail = "Policy record is inconsistent"; p.state.low = 40;
+    check(power_policy_readonly_reason(p) == "no range to write (40 A .. 40 A)", "an empty range is named with both ends");
+    p.state.low = 10;
+    check(power_policy_readonly_reason(p) == "read-only: Policy record is inconsistent", "any other read-only row gives its reason");
+    p.state.writable = true;
+    check(!power_policy_live(p, "").known && power_policy_live(p, "").text == "--", "no reading in this read shows --, never the request");
+    p.observed_amps = 24.6; p.limit_amps = 39;
+    check(power_policy_live(p, "").text == "24.6 A\n\xE2\x89\xA4" "39 A", "a plain current row shows reading over effective limit");
+    const auto wire = power_policy_live(p, "12VHPWR/12V-2x6");
+    check(wire.text == "24.6 A (4.10/wire)\n\xE2\x89\xA4" "39 A (6.50/wire)" && wire.band == 0, "a connector row shows per-wire figures and their band");
+    p.observed_amps = 6.6;
+    const auto slot = power_policy_live(p, "PCIE");
+    check(slot.text == "6.6 A\n\xE2\x89\xA4" "39 A" && slot.band == 2, "the slot is judged as a whole against its own bands");
+    p.state.availability = Availability::transient;
+    check(!power_policy_live(p, "").known, "a failed read does not present the last reading as live");
+    PowerPolicy watts; watts.state.unit = "W"; watts.state.availability = Availability::available; watts.observed_amps = 1;
+    check(!power_policy_live(watts, "").known && power_policy_live(watts, "").text == "--", "a power row shows no current reading as its live value");
+    watts.observed_watts = 312.25; watts.limit_watts = 450;
+    const auto power_row = power_policy_live(watts, "12VHPWR/12V-2x6");
+    check(power_row.known && power_row.text == "312.25 W\n\xE2\x89\xA4" "450 W" && power_row.band == -1,
+        "a power row shows its reading over its effective limit in plain text, never per wire");
+    watts.limit_watts.reset();
+    check(!power_policy_live(watts, "").known, "a power row without its effective limit stays unknown");
+    watts.limit_watts = 450; watts.state.availability = Availability::transient;
+    check(!power_policy_live(watts, "").known, "a failed read does not present the last power reading as live");
+    check(power_policy_live(watts, "").text == "unavailable", "a row the latest read did not return reads Python's 'unavailable'");
+    // Python refresh_power_policies' held mark: the card still holds this session's pin.
+    PowerPolicy held; held.id = 5; held.state.availability = Availability::available; held.state.unit = "A";
+    held.state.current = 30; held.observed_amps = 24.6; held.limit_amps = 39; held.pinned = 30;
+    const auto plain_held = power_policy_live(held, "");
+    check(plain_held.held && plain_held.text == "24.6 A\n\xE2\x89\xA4" "39 A *" && plain_held.band == -1, "an unscaled held row ends its limit with ' *'");
+    const auto wire_held = power_policy_live(held, "12VHPWR/12V-2x6");
+    check(wire_held.held && wire_held.text == "24.6 A (4.10/wire)\n\xE2\x89\xA4" "39 A (6.50/wire) *" && wire_held.band == 0, "a per-wire held row keeps its band and ends with ' *'");
+    held.observed_amps = 6.6;
+    const auto slot_held = power_policy_live(held, "PCIE");
+    check(slot_held.held && slot_held.text == "6.6 A\n\xE2\x89\xA4" "39 A *" && slot_held.band == 2, "a slot row judged as a whole is marked too");
+    held.pinned = 28;
+    check(!power_policy_live(held, "").held && power_policy_live(held, "").text.find('*') == std::string::npos, "a pin the card no longer holds is not marked");
+    held.pinned.reset();
+    check(!power_policy_live(held, "").held, "an unpinned request is not marked");
+    watts.state.availability = Availability::available; watts.state.current = 450; watts.pinned = 450;
+    const auto watts_held = power_policy_live(watts, "");
+    check(watts_held.held && watts_held.text == "312.25 W\n\xE2\x89\xA4" "450 W *", "a held power row is marked");
+    // build_power_policies: "Power policies unavailable: {error}".
+    SessionSnapshot none; none.data.connected = false;
+    check(power_policies_unavailable_text(none) == "Power policies unavailable: no GPU session is connected.", "no session is named");
+    SessionSnapshot failed; failed.data.connected = true;
+    auto& power = failed.data.controls[static_cast<size_t>(ControlId::power)];
+    power.availability = Availability::transient; power.detail = "Power policy interfaces or lock unavailable";
+    check(power_policies_unavailable_text(failed) == "Power policies unavailable: Power policy interfaces or lock unavailable", "a failed read gives its own reason");
+    power.availability = Availability::available; power.detail = "Configured request";
+    check(power_policies_unavailable_text(failed) == "Power policies unavailable: the driver's power-policy table was not read.", "an unread table says so");
+}
+// Vertices drawn in `colour` by the Power policies section alone.
+size_t policy_section_vertices(Harness& h, ImU32 colour) {
+    ImGui::GetIO().DisplaySize = {1600, 1000};
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1600, 1000});
+    ImGui::Begin(window_name, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+    draw_power_policy_controls(h.s, h.unlocked, h.state, h.commands, nullptr);
+    ImGui::End(); ImGui::Render();
+    size_t count = 0; const auto* data = ImGui::GetDrawData();
+    for (int i = 0; i < data->CmdListsCount; ++i) for (const auto& vertex : data->CmdLists[i]->VtxBuffer) if (vertex.col == colour) ++count;
+    return count;
+}
+// Python refresh_power_policies colours every live reading TEXT (or its band),
+// a read-only row's as a writable row's: the board W row is not drawn DIM.
+void power_policy_readonly_reading_colour() {
+    Harness h;
+    PowerPolicy board; board.id = 0; board.label = "Policy 0"; board.state = control(450, "W");
+    board.state.writable = board.state.stock_writable = false; board.state.detail = "Board request is controlled separately";
+    h.s.data.power_policies = {board};
+    const ImU32 text = IM_COL32(230, 232, 236, 255);
+    check(policy_section_vertices(h, text) == 0, "a read-only row without a reading draws nothing in TEXT");
+    h.s.data.power_policies[0].observed_watts = 301; h.s.data.power_policies[0].limit_watts = 480;
+    check(policy_section_vertices(h, text) > 0, "a read-only row's known reading is drawn in TEXT, not DIM");
+    // Python: an unscaled held row is drawn GOOD instead of TEXT.
+    const ImU32 good = IM_COL32(70, 209, 122, 255);
+    check(policy_section_vertices(h, good) == 0, "a row without a held pin draws nothing in GOOD");
+    h.s.data.power_policies[0].pinned = 450;
+    check(policy_section_vertices(h, good) > 0, "a held unscaled row's reading is drawn GOOD");
+    PowerPolicy writable; writable.id = 6; writable.label = "Policy 6"; writable.state = control(30, "A");
+    writable.state.low = 0; writable.state.high = 60; writable.observed_amps = 20; writable.limit_amps = 30;
+    h.s.data.power_policies = {writable};
+    check(policy_section_vertices(h, good) == 0, "a writable row that is not held is not GOOD");
+    h.s.data.power_policies[0].pinned = 30;
+    check(policy_section_vertices(h, good) > 0, "a held writable row's reading is drawn GOOD");
+}
+// Python refresh_power_policies binds the band of the staged value to a connector
+// current row's value box: 72 A over a 12VHPWR's six wires is 12 A a wire, red.
+void power_policy_staged_band() {
+    const ImU32 red = IM_COL32(255, 120, 120, 255), crimson = IM_COL32(220, 20, 60, 255);
+    const auto vertices = [](double request, const char* unit, const char* note, ImU32 colour) {
+        Harness h; h.s.selected_slot = "0000:01:00.0"; std::snprintf(h.s.data.identity.uuid, sizeof(h.s.data.identity.uuid), "GPU-staged-band");
+        PowerPolicy p; p.id = 4; p.label = "Policy 4"; p.state = control(request, unit); p.state.low = 0; p.state.high = 120;
+        p.binding = "policy-four"; p.channel = 1; p.policy_type = 2;
+        h.s.data.power_policies = {p};
+        PolicyAnnotations notes;
+        ScopedCurrent row; row.key = ScopedKey::policy_request(p.id); row.binding = p.binding; row.channel = p.channel; row.policy_type = p.policy_type; row.fresh = true;
+        if (note) notes.set({h.s.data.identity.uuid, h.s.selected_slot}, row, note);
+        ImGui::GetIO().DisplaySize = {1600, 1000};
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos({0, 0}); ImGui::SetNextWindowSize({1600, 1000});
+        ImGui::Begin(window_name, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
+        draw_power_policy_controls(h.s, h.unlocked, h.state, h.commands, &notes);
+        ImGui::End(); ImGui::Render();
+        size_t count = 0; const auto* data = ImGui::GetDrawData();
+        for (int i = 0; i < data->CmdListsCount; ++i) for (const auto& vertex : data->CmdLists[i]->VtxBuffer) if (vertex.col == colour) ++count;
+        return count;
+    };
+    check(vertices(72, "A", "12VHPWR/12V-2x6", red) > 0, "a staged 12 A a wire draws the value box red");
+    check(vertices(24, "A", "12VHPWR/12V-2x6", red) == 0 && vertices(24, "A", "12VHPWR/12V-2x6", crimson) == 0, "a staged 4 A a wire stays in the plain band");
+    check(vertices(90, "A", "12VHPWR/12V-2x6", crimson) > 0, "a staged 15 A a wire draws the value box crimson");
+    check(vertices(6.6, "A", "PCIE", red) > 0, "the slot judges the staged value as a whole");
+    check(vertices(72, "A", nullptr, red) == 0, "a current row without a connector note keeps the default colour");
+    check(vertices(72, "W", "12VHPWR/12V-2x6", red) == 0, "a power row is never banded");
 }
 
 int main() {
@@ -553,6 +995,14 @@ int main() {
         xoc_gate_blocks_and_flashes();
         rail_sliders_keep_live_grid(false);
         rail_sliders_keep_live_grid(true);
+        classic_rail_summary_and_link();
+        classic_clock_domain_labels_and_order();
+        classic_rail_labels_and_soft_gate();
+        classic_knob_text_colour();
+        power_request_status_sentences();
+        power_policy_reasons_and_live();
+        power_policy_readonly_reading_colour();
+        power_policy_staged_band();
     } catch (const std::exception& error) { check(false, error.what()); }
     ImGui::DestroyContext();
     std::printf("%u advanced view checks, %u failures\n", checks, failures);

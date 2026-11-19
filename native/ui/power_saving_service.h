@@ -18,6 +18,15 @@ struct PowerSavingRow {
     std::optional<uint32_t> value,initial;std::optional<bool> aggregate_enabled;
     uint32_t reason_a=0,reason_b=0,raw_first=0,raw_second=0,scaled_first=0,scaled_second=0;
     uint32_t scale=0,maximum_us=0;
+    // Read-only detail of the same read, for the released 1.9.1 readback lines.
+    // GR ELPG: every LPWR controller's support readback and latest enabled predicate,
+    // and the controllers whose reason changed when this instance's request was held.
+    struct LpwrController {uint32_t index=0;bool available=false,supported=false,enabled=false;};
+    std::vector<LpwrController> controllers;std::vector<uint32_t> observed;
+    // DIFR: the support reply (request_support). DIFR and idle threshold: the
+    // controller's 0x39 support attribute (control_present; nullopt when the attribute
+    // itself is unavailable). For DIFR the two together make supported.
+    std::optional<bool> request_support,control_present;
 };
 struct PowerSavingData {
     uint64_t revision=0;dc_gpu_identity identity{};std::vector<PowerSavingRow> rows;

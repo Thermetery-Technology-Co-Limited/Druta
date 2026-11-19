@@ -31,6 +31,11 @@ struct PowerIntegralViewState {
 void stage_power_integral_document(PowerIntegralViewState&,const ProfileJson&,const PowerIntegralData&);
 // Shared dialog for both skins. Drafts survive refresh and page changes, but
 // never adapter/generation changes. This view invokes no driver functions.
+// classic: released 1.9.1 PowerIntegralPanel (Read, policy list, Upper and Lower
+// adjustment rows, status and readback); the native Undo, Restore and profile
+// actions move into a closed "Undo, recovery and profiles" subsection.
 std::vector<PowerIntegralIntent> draw_power_integral(PowerIntegralViewState& state,
-    const PowerIntegralData& data,const PowerIntegralViewContext& context,bool inline_panel=false);
+    const PowerIntegralData& data,const PowerIntegralViewContext& context,bool inline_panel=false,bool classic=false);
+// Python PowerIntegralPanel._format for one row; values this read does not carry read "--".
+std::string power_integral_readback_text(const PowerIntegralRow& row);
 }

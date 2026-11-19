@@ -20,5 +20,6 @@ DeviceRestartResult restart_device(const DeviceRestartTarget&,const DeviceRestar
 int device_restart_child(const std::string& slot,const std::wstring& instance_id);
 std::vector<DeviceRestartTarget> enumerate_restart_targets();
 DeviceRestartResult launch_device_restart_child(const std::wstring& executable,const DeviceRestartTarget&,uint32_t timeout_ms);
+DeviceRestartResult launch_clock_restart_child(const std::wstring& executable,const DeviceRestartTarget&,uint32_t timeout_ms);
 bool restart_target_started(const DeviceRestartTarget&,std::string& reason);
 }

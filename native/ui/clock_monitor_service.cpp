@@ -19,7 +19,9 @@ struct Evidence {
 struct Key {
     std::optional<uint32_t> domain;bool loaded=false;std::string band;double hold=0;
     std::optional<double> last_time;unsigned n=0;std::deque<unsigned> a_changes;std::vector<double> window;
-    void break_continuity(){window.clear();loaded=false;band.clear();hold=0;}
+    // Python _Key.window keeps each reading's load beside its delta, for Reading.window_util.
+    std::vector<double> loads;
+    void break_continuity(){window.clear();loads.clear();loaded=false;band.clear();hold=0;}
 };
 bool valid_rows(const dc_clock_domains& rows){
     if(rows.count>DC_PRIV_DOMAINS)return false;std::set<uint32_t> domains;
@@ -76,12 +78,15 @@ struct ClockMonitorService::Impl {
         else r.state="window";
         if(r.state=="window"){
             k.window.push_back(r.delta_mhz);if(k.window.size()>15)k.window.erase(k.window.begin());
+            k.loads.push_back(*util);if(k.loads.size()>15)k.loads.erase(k.loads.begin());
             r.state=k.window.size()>=5?"judged":moving?"moving":"settling";
-        }else {k.window.clear();k.band.clear();k.hold=0;}
+        }else {k.window.clear();k.loads.clear();k.band.clear();k.hold=0;}
         k.loaded=loaded;
         if(r.state=="judged"){
             double hold=clock_median_hold(k.window);if(k.band=="warn"||k.band=="bad")hold=std::max(hold,k.hold);
             r.verdict=clock_window_verdict(k.window,bin,k.band,hold);r.hold_mhz=hold;r.window=k.window;
+            if(!k.loads.empty()){const auto span=std::minmax_element(k.loads.begin(),k.loads.end());
+                r.window_util=std::make_pair(*span.first,*span.second);}
             if(r.verdict=="ok"||r.verdict=="warn"||r.verdict=="bad"){
                 r.held=r.verdict!=clock_window_verdict(k.window,bin);k.hold=r.verdict==k.band?hold:clock_median_hold(k.window);k.band=r.verdict;
             }
@@ -107,7 +112,7 @@ const ClockMonitorData& ClockMonitorService::update(ClockClassifier classify,con
         // failed snapshot cannot bridge a qualified judgment window. Python
         // 1.9.1 retained short-gap continuity; this deliberately strengthens it.
         p.break_samples();
-        for(auto& r:p.data.readings){r.stale=r.available;r.verdict.clear();r.window.clear();r.held=false;r.hold_mhz.reset();}
+        for(auto& r:p.data.readings){r.stale=r.available;r.verdict.clear();r.window.clear();r.window_util.reset();r.held=false;r.hold_mhz.reset();}
         if(!p.last_good || in.now_seconds-*p.last_good>3)for(size_t i=0;i<3;++i)p.miss(i);
         return p.data;
     }

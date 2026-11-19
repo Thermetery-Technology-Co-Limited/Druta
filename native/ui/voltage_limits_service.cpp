@@ -104,6 +104,7 @@ struct VoltageLimitsService::Impl {
  }
  std::vector<VoltageLimitRow> decode(const Capture& c){std::vector<VoltageLimitRow> rows;
   if(c.device){const auto mask=u32(c.info,4);data.device_count=0;for(uint32_t i=0;i<32;++i)if(mask&(1u<<i)){++data.device_count;VoltageLimitRow row;row.key={VoltageLimitKind::switch_delay,0,i};row.label="PWM device "+std::to_string(i)+" switch delay";const size_t at=8+i*56,ct=8+i*12;
+    row.device_type=c.info[at];
     try{if(c.info[at]!=c.info[at+1]||c.info[at]!=c.control[ct]||c.info[at]!=c.control[ct+1])fail("Device type/duplicate type disagrees");if(c.info[at]!=3)fail("Only PWM type3 switch-delay semantics are qualified",Availability::unsupported);
      row.voltage_domain=c.info[at+2];row.i2c_device_index=c.info[at+3];row.operation_type=c.info[at+4];if(row.voltage_domain<1||row.voltage_domain>3||row.operation_type<1||row.operation_type>4)fail("Voltage domain or operation type is not understood",Availability::unsupported);
      if(u32(c.info,at+8)>u32(c.info,at+12)||!u32(c.control,ct+4))fail("Device voltage range or loaded positive delay is malformed");row.value=u32(c.control,ct+4);
@@ -141,6 +142,8 @@ struct VoltageLimitsService::Impl {
   }
   row.stored_lower=rel?std::optional<int64_t>(role.stored_lower):std::nullopt;row.stored_value=role.stored_value;
   row.reported=ev.rails[key.rail].policy[key.kind==VoltageLimitKind::rel?0:key.kind==VoltageLimitKind::alt?1:key.kind==VoltageLimitKind::ov?2:3];
+  {const auto& rail=ev.rails[key.rail];for(size_t i=0;i<rail.policy.size();++i)row.rail_policy[i]=rail.policy[i];
+   if(key.kind==VoltageLimitKind::vmin)row.vmin_maximum=std::min({rail.policy[0],rail.policy[1],rail.policy[2],rail.policy[4]})-rail.offsets[3];}
   row.binding="equation:"+ev.image_sha256+":"+role_token(role);
  }
  void publish(const Capture& c){auto rows=decode(c);data.target=c.target;bool retained=false;for(auto& row:rows){const auto old=std::find_if(data.rows.begin(),data.rows.end(),[&](const auto& r){return r.key==row.key;});
@@ -153,6 +156,14 @@ struct VoltageLimitsService::Impl {
   if(c.device)data.devices_message="Read "+std::to_string(data.device_count)+" voltage devices; only qualified PWM delays are writable";
   else {data.definitions_stale=false;if(c.evidence)data.equations_message="Read "+std::to_string(data.equation_count)+" loaded equations with current ROM role evidence";}
   if(retained){if(c.device)data.devices_message+="; unavailable established readings retained stale";else data.equations_message+="; unavailable established readings retained stale";}
+  if(c.device){data.devices_read_error.clear();data.devices_read_retained=false;}else{data.equations_read_error.clear();data.equations_read_retained=false;}
+ }
+ // registry_panel.py refresh_*: a failed explicit Read keeps its reason, and whether a
+ // transient failure kept the established rows of that family (stale) on display.
+ void read_failed(bool device,Availability availability,const std::string& message){
+  const bool kept=availability==Availability::transient&&std::any_of(data.rows.begin(),data.rows.end(),[&](const auto& r){return (r.key.kind==VoltageLimitKind::switch_delay)==device&&r.value;});
+  (device?data.devices_read_error:data.equations_read_error)=message.empty()?std::string("Voltage read failed"):message;
+  (device?data.devices_read_retained:data.equations_read_retained)=kept;
  }
  void unavailable(bool device,Availability availability,const std::string& message){for(auto& row:data.rows)if((row.key.kind==VoltageLimitKind::switch_delay)==device){row.stale=true;row.availability=availability;row.message=message;if(availability!=Availability::transient)row.writable=false;}
   if(device)data.devices_message=message;else {data.equations_message=message;data.definitions_stale=!data.definitions.empty();}
@@ -242,7 +253,8 @@ VoltageEquationPackets VoltageLimitsService::capture_equations(){auto& p=*impl_;
  catch(const Error& error){throw VoltageEquationEvidenceError(error.what(),error.kind);}
 }
 const VoltageLimitsData& VoltageLimitsService::read(uint32_t families){auto& p=*impl_;Guard guard(p.api.transport,p.gpu);if(!families||(families&~3u)){p.data.message="Select understood voltage families";p.flags();return p.data;}
- for(bool device:{false,true})if(families&(device?2u:1u)){try{if(!guard.held)fail("GPU lock unavailable",Availability::transient);p.publish(p.fresh(device));}catch(const Error& e){p.unavailable(device,e.kind,e.what());}catch(const std::exception& e){p.unavailable(device,Availability::transient,e.what());}}
+ for(bool device:{false,true})if(families&(device?2u:1u)){try{if(!guard.held)fail("GPU lock unavailable",Availability::transient);p.publish(p.fresh(device));}
+  catch(const Error& e){p.unavailable(device,e.kind,e.what());p.read_failed(device,e.kind,e.what());}catch(const std::exception& e){p.unavailable(device,Availability::transient,e.what());p.read_failed(device,Availability::transient,e.what());}}
  p.data.message="Voltage inspection refreshed; evaluate each family's independent status";p.flags();return p.data;
 }
 VoltageLimitsResult VoltageLimitsService::apply(const std::vector<VoltageLimitRequest>& requests){return impl_->apply(requests);}

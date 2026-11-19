@@ -23,6 +23,9 @@ struct CoreApi {
     PerfViewApi perf{};
     PowerArbitrationApi arbitration{};
     PowerWeightsApi power_weights{};
+    decltype(&dc_gpu_vbios_target_bind) clock_bind = nullptr;
+    std::function<PowerWeightCapture(dc_gpu*, bool)> pascal_clock_capture;
+    std::function<void(const PowerWeightReceipt&, const PowerWeightReceipt&)> replace_pascal_clock_receipt;
     PowerIntegralApi power_integral{};
     VoltagePolicyApi voltage_policy{};
     VoltageTablesApi voltage_tables{};
@@ -31,6 +34,8 @@ struct CoreApi {
     PowerSavingApi power_saving{};
     ClockGatingApi clock_gating{};
     TuningApi tuning{};
+    // Optional: Python hold_headroom_architecture, read for the Clocks menu only.
+    decltype(&dc_rails_hold_architecture) hold_architecture = nullptr;
     decltype(&dc_gpu_reset_all) reset_all = nullptr;
     I2cApi i2c{};
     PlannerApi planner{};
@@ -69,6 +74,8 @@ struct CoreApi {
     decltype(&dc_gpu_clkdom_control_label) clkdom_label = nullptr;
     decltype(&dc_gpu_clkdom_requests) clkdom_requests = nullptr;
     decltype(&dc_gpu_clkdom_offset_set) clkdom_set = nullptr;
+    decltype(&dc_gpu_clkdom_is_blackwell) clkdom_blackwell = nullptr;
+    decltype(&dc_gpu_clkdom_pairing) clkdom_pairing = nullptr;
     decltype(&dc_gpu_rail_offset_capability) rail_cap = nullptr;
     decltype(&dc_gpu_rail_offset_read) rail_read = nullptr;
     decltype(&dc_gpu_rail_offset_set) rail_set = nullptr;
@@ -92,10 +99,12 @@ struct CoreApi {
     decltype(&dc_cl_pins_set) pins_set = nullptr;
     decltype(&dc_pl_read) power = nullptr;
     decltype(&dc_pl_enforced_read) enforced_power = nullptr;
+    // Python native_power_limit_for_ui: read-only, Classic polls only.
+    decltype(&dc_pl_native_power_limit) native_power = nullptr;
 };
 class TimingCudaProcess;
 std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api);
 std::unique_ptr<IBackend> create_core_backend_for_test(CoreApi api,std::unique_ptr<TimingCudaProcess> workload);
 // Fresh paired read-only capture for the explicit transaction/verification hosts.
-PowerWeightCapture capture_power_weights_from_core(const std::wstring& exact_dll_path,const std::string& slot,const std::string& uuid,bool registry);
+PowerWeightCapture capture_power_weights_from_core(const std::wstring& exact_dll_path,const std::string& slot,const std::string& uuid,bool registry,bool clock_only=false);
 }

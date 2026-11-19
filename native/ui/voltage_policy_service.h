@@ -35,6 +35,11 @@ struct VoltagePolicyData {
     bool undo_available=false,recovery_pending=false,recovery_prior_unknown=false;
     uint32_t undo_selection=0,recovery_selection=0;
     std::string message;
+    // The last explicit Read's failure for the gate and for the VF checks, each
+    // cleared by that transaction's next good capture.
+    std::string gate_read_error,vf_read_error;
+    // The last read()'s own summary; message differs from it once another operation ran.
+    std::string read_message;
 };
 struct VoltagePolicyRequest {
     // Admission is its own transaction; VF may select one or both known flags.

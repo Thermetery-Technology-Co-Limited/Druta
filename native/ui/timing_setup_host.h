@@ -20,6 +20,9 @@ struct TimingSetupApi {
  std::function<TestSigningStatus()> probe;
  std::function<TestSigningResult(bool)> execute;
  std::function<std::string()> reboot;
+ // Read-only driver service query for Classic's setup screen, with discovery,
+ // Locate and Forget; Focused never calls it. Default real.
+ std::function<TimingDriverState()> driver;
 };
 class TimingSetupHost {
 public:

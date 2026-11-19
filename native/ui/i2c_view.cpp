@@ -341,9 +341,16 @@ void draw_i2c_panel(ViewState& state) {
     const bool owned=status.owned || status.recovery_pending || data.clock_owned || data.controller.owned || data.controller.recovery;
     const bool can=ready(state) && data.available;
     if (!data.available) ImGui::TextDisabled("I2C transport unavailable");
+    // Python i2c_scan_status: the amber instruction until a scan has produced anything.
+    const bool classic=state.presentation==Presentation::classic;
+    if (classic && data.available && !data.selected && data.candidates.empty() && !data.discovery.running
+        && !data.discovery.cancelled && !data.discovery.total) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(ImVec4(1.0f,203/255.0f,71/255.0f,1.0f),"Enable I2C rail, choose an IC, then press Connect / Scan.");
+    }
     ImGui::BeginDisabled(!can || owned);
     state.i2c_scan_scope=std::clamp(state.i2c_scan_scope,0,int(i2c_family_names.size())-1);
-    ImGui::SetNextItemWidth(225);
+    ImGui::SetNextItemWidth(classic ? classic_px(260) : 225);
     ImGui::Combo("IC to scan",&state.i2c_scan_scope,i2c_family_names.data(),int(i2c_family_names.size()));
     ImGui::SameLine();
     if (ImGui::Button("Connect / Scan")) { auto c=command(state,Command::Operation::i2c_scan); c.i2c_family=static_cast<I2cFamily>(state.i2c_scan_scope); state.commands.push_back(c); }

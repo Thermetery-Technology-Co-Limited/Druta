@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 cmake_policy(SET CMP0091 NEW)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  project(druta_ui LANGUAGES CXX)
+  project(druta_ui LANGUAGES C CXX)
   enable_testing()
 endif()
 if(NOT WIN32)
@@ -20,13 +20,27 @@ if(MSVC)
   target_compile_options(druta_ui_options INTERFACE /utf-8 /permissive-)
 endif()
 
+# FreeType rasterises the Classic presentation's text, as it does in released
+# 1.9.1. Only the modules TrueType faces need are built (freetype_config).
+add_library(druta_ui_freetype STATIC
+  vendor/freetype/src/base/ftsystem.c vendor/freetype/src/base/ftinit.c
+  vendor/freetype/src/base/ftdebug.c vendor/freetype/src/base/ftbase.c
+  vendor/freetype/src/base/ftbitmap.c vendor/freetype/src/base/ftglyph.c
+  vendor/freetype/src/base/ftsynth.c vendor/freetype/src/base/ftbbox.c
+  vendor/freetype/src/base/ftmm.c vendor/freetype/src/autofit/autofit.c vendor/freetype/src/truetype/truetype.c
+  vendor/freetype/src/sfnt/sfnt.c vendor/freetype/src/psnames/psnames.c
+  vendor/freetype/src/smooth/smooth.c vendor/freetype/src/gzip/ftgzip.c)
+target_include_directories(druta_ui_freetype PUBLIC vendor/freetype/include PRIVATE freetype_config)
+target_compile_definitions(druta_ui_freetype PRIVATE FT2_BUILD_LIBRARY "FT_CONFIG_MODULES_H=<druta_ftmodule.h>")
+
 add_library(druta_ui_vendor STATIC
   vendor/imgui/imgui.cpp vendor/imgui/imgui_draw.cpp
   vendor/imgui/imgui_widgets.cpp vendor/imgui/imgui_tables.cpp
   vendor/imgui/backends/imgui_impl_win32.cpp vendor/imgui/backends/imgui_impl_dx9.cpp
+  vendor/imgui/misc/freetype/imgui_freetype.cpp
   vendor/implot/implot.cpp vendor/implot/implot_items.cpp)
-target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/implot)
-target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options)
+target_include_directories(druta_ui_vendor PUBLIC vendor/imgui vendor/imgui/backends vendor/imgui/misc/freetype vendor/implot)
+target_link_libraries(druta_ui_vendor PUBLIC druta_ui_options PRIVATE druta_ui_freetype)
 
 add_library(druta_ui_cuda STATIC cuda_driver.cpp timing_cuda_process.cpp)
 target_link_libraries(druta_ui_cuda PUBLIC druta_ui_options advapi32)
@@ -46,7 +60,7 @@ add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp p
   power_arbitration_service.cpp power_integral_service.cpp voltage_policy_service.cpp voltage_tables_service.cpp voltage_limits_service.cpp voltage_evidence_provider.cpp vbios_voltage_graph.cpp
   installed_voltage_scaffold.cpp voltage_variable_capture.cpp voltage_scaffold_receipt.cpp voltage_scaffold_provider.cpp
   voltage_offsets_service.cpp voltage_offsets_capture.cpp voltage_offsets_profile.cpp
-  power_relationships.cpp power_weight_registry.cpp power_weight_registry_host.cpp power_weight_capture.cpp power_weights_service.cpp
+  pascal_clock_table.cpp power_relationships.cpp power_weight_registry.cpp power_weight_registry_host.cpp power_weight_capture.cpp power_weights_service.cpp
   power_weight_receipt.cpp power_weight_registry_write.cpp power_weight_transaction.cpp power_weight_host.cpp
   power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
 add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
@@ -69,7 +83,7 @@ target_link_libraries(druta_ui_shunt PUBLIC druta_ui_session druta_ui_vendor)
 add_library(druta_ui_monitor STATIC monitor_model.cpp monitor_view.cpp clock_monitor_view.cpp)
 target_link_libraries(druta_ui_monitor PUBLIC druta_ui_shunt)
 add_library(druta_ui_app_actions STATIC app_actions.cpp app_actions_view.cpp perf_diagnostics_view.cpp frequency_lock_view.cpp
-  power_arbitration_view.cpp power_integral_view.cpp power_weights_view.cpp voltage_policy_view.cpp voltage_tables_view.cpp voltage_limits_view.cpp power_saving_view.cpp clock_gating_view.cpp)
+  power_arbitration_view.cpp power_integral_view.cpp power_weights_view.cpp pascal_clock_view.cpp voltage_policy_view.cpp voltage_tables_view.cpp voltage_limits_view.cpp power_saving_view.cpp clock_gating_view.cpp)
 target_link_libraries(druta_ui_app_actions PUBLIC druta_ui_monitor druta_ui_vendor)
 add_library(druta_ui_scoped_profile_view STATIC scoped_profile_view.cpp profile_catalog_view.cpp profile_capture_request.cpp policy_workspace_view.cpp)
 target_link_libraries(druta_ui_scoped_profile_view PUBLIC druta_ui_session druta_ui_vendor)
@@ -80,6 +94,9 @@ if(MSVC)
   target_compile_options(druta_ui_scoped_profile_view PRIVATE /W4 /WX)
 endif()
 add_executable(druta-ui WIN32 main.cpp ui_view.cpp advanced_view.cpp i2c_view.cpp timings_view.cpp timing_setup_host.cpp test_signing_view.cpp)
+# Keep the GUI, worker and core DLL together for single- and multi-config builds.
+set_target_properties(druta-ui druta-ui-timing-cuda PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
 add_dependencies(druta-ui druta-ui-timing-cuda)
 foreach(cuda_test process worker)
   add_executable(druta-ui-timing-cuda-${cuda_test}-test tests/timing_cuda_${cuda_test}_test.cpp)
@@ -97,6 +114,10 @@ file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImGui-LICENSE.txt
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/imgui/LICENSE.txt)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImPlot-LICENSE.txt
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/implot/LICENSE)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/FreeType-LICENSE.txt
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/freetype/LICENSE.TXT)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/FreeType-FTL.txt
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/vendor/freetype/docs/FTL.TXT)
 if(MSVC)
   target_compile_options(druta_ui_session PRIVATE /W4 /WX)
   target_compile_options(druta-ui PRIVATE /W4 /WX)
@@ -122,6 +143,12 @@ elseif(DRUTA_UI_CORE_LIBRARY)
 endif()
 
 add_executable(druta-ui-client-test tests/core_client_test.cpp)
+# The monolithic fake-client fixture keeps multiple full snapshots on the stack.
+if(MSVC)
+  target_link_options(druta-ui-client-test PRIVATE /STACK:8388608)
+elseif(MINGW)
+  target_link_options(druta-ui-client-test PRIVATE -Wl,--stack,8388608)
+endif()
 target_link_libraries(druta-ui-client-test PRIVATE druta_ui_session)
 add_test(NAME druta-ui-client COMMAND druta-ui-client-test)
 foreach(profile_setup_test IN ITEMS profile_library timing_helper_config test_signing full_tune_capture i2c_full_capture core_history i2c_history)
@@ -138,11 +165,14 @@ add_test(NAME druta-ui-test-signing-view COMMAND druta-ui-test-signing-view-test
 add_executable(druta-ui-timing-setup-host-test tests/timing_setup_host_test.cpp timing_setup_host.cpp timings_view.cpp test_signing_view.cpp)
 target_link_libraries(druta-ui-timing-setup-host-test PRIVATE druta_ui_session druta_ui_vendor druta_ui_shunt comdlg32)
 add_test(NAME druta-ui-timing-setup-host COMMAND druta-ui-timing-setup-host-test)
-foreach(weight_test IN ITEMS power_relationships power_weight_registry power_weight_registry_host power_weight_capture power_weights_service power_weights_client power_weight_receipt power_weight_registry_write power_weight_transaction power_weight_host power_weights_activation_client)
+foreach(weight_test IN ITEMS pascal_clock_table pascal_clock_transaction pascal_clock_client power_relationships power_weight_registry power_weight_registry_host power_weight_capture power_weights_service power_weights_client power_weight_receipt power_weight_registry_write power_weight_transaction power_weight_host power_weights_activation_client)
   add_executable(druta-ui-${weight_test}-test tests/${weight_test}_test.cpp)
   target_link_libraries(druta-ui-${weight_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${weight_test} COMMAND druta-ui-${weight_test}-test)
 endforeach()
+add_executable(druta-ui-pascal-clock-view-test tests/pascal_clock_view_test.cpp)
+target_link_libraries(druta-ui-pascal-clock-view-test PRIVATE druta_ui_app_actions)
+add_test(NAME druta-ui-pascal-clock-view COMMAND druta-ui-pascal-clock-view-test)
 add_executable(druta-ui-power-weights-view-test tests/power_weights_view_test.cpp)
 target_link_libraries(druta-ui-power-weights-view-test PRIVATE druta_ui_app_actions)
 add_test(NAME druta-ui-power-weights-view COMMAND druta-ui-power-weights-view-test)

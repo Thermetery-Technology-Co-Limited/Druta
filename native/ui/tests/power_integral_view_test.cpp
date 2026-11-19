@@ -10,21 +10,84 @@ using namespace druta::ui;
 namespace {
 int failures=0;
 void check(bool ok,const char* why){if(!ok){++failures;std::printf("FAIL: %s\n",why);}}
-std::vector<PowerIntegralIntent> frame(PowerIntegralViewState& view,PowerIntegralData& data,PowerIntegralViewContext& context,bool inlined=false,std::string* text=nullptr) {
+std::vector<PowerIntegralIntent> frame(PowerIntegralViewState& view,PowerIntegralData& data,PowerIntegralViewContext& context,bool inlined=false,std::string* text=nullptr,bool classic=false) {
     ImGui::GetIO().DisplaySize={1400,1200};ImGui::NewFrame();ImGui::LogToBuffer(0);
     if(inlined){ImGui::SetNextWindowSize({1100,1100});ImGui::Begin("Inline host");}
     else ImGui::SetNextWindowSize({1100,1100});
-    auto intents=draw_power_integral(view,data,context,inlined);
+    auto intents=draw_power_integral(view,data,context,inlined,classic);
     if(text)*text=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();
     if(inlined)ImGui::End();ImGui::Render();return intents;
 }
-std::vector<PowerIntegralIntent> press(PowerIntegralViewState& v,PowerIntegralData& d,PowerIntegralViewContext& c,const char* label,int field=-1,bool inlined=false) {
+std::vector<PowerIntegralIntent> press(PowerIntegralViewState& v,PowerIntegralData& d,PowerIntegralViewContext& c,const char* label,int field=-1,bool inlined=false,bool classic=false) {
     auto* window=ImGui::FindWindowByName(inlined?"Inline host":"Power feedback ratios###druta_power_integral");
     check(window!=nullptr,"feedback surface exists");
     if(window){ImGuiID id=ImHashStr("power_integral_panel",0,window->ID);
         if(field>=0){const int policy=v.selected_policy;id=ImHashData(&policy,sizeof(policy),id);id=ImHashData(&field,sizeof(field),id);}
         ImGui::ActivateItemByID(ImHashStr(label,0,id));}
-    return frame(v,d,c,inlined);
+    return frame(v,d,c,inlined,nullptr,classic);
+}
+// Released 1.9.1 PowerIntegralPanel: Read, the policy list, Upper then Lower rows,
+// the status line and the readback; the native recovery stays in a subsection.
+void classic(){
+    PowerIntegralViewState v;PowerIntegralData d;d.current=true;
+    PowerIntegralRow row;row.policy=2;row.available=true;row.type=4;row.channel=1;row.unit=0;row.request=320500;row.lower=1;row.upper=4096;
+    row.reported_lower=2048;row.reported_upper=4915;row.past_samples=3;row.next_samples=6;row.default_past_samples=2;row.default_next_samples=5;d.rows={row};
+    PowerIntegralViewContext c;c.generation=4;c.slot="0000:03:00.0";c.uuid="GPU-classic";c.connected=c.unlocked=true;
+    std::string text;frame(v,d,c,true,&text,true);
+    check(text.find("100% is a 1x bound relative to the policy limit.")!=std::string::npos,"classic panel opens with the released paragraph");
+    const auto upper=text.find("Upper adjustment (%)"),lower=text.find("Lower adjustment (%)");
+    check(upper!=std::string::npos&&lower!=std::string::npos&&upper<lower,"Upper adjustment precedes Lower adjustment");
+    check(text.find("Policy 2 (type 4, channel 1)")!=std::string::npos,"the policy list uses the released label");
+    const auto readback=power_integral_readback_text(row);
+    check(readback.find("Current lower: 0.0244140625%")!=std::string::npos&&readback.find("Reported default upper: 119.9951171875%")!=std::string::npos,"readback prints the exact released percentages");
+    check(readback.find("Requested: 320.5 W  |  PMU output: --  |  Effective limit: --")!=std::string::npos,"values a failed or absent STATUS read lacks stay unknown");
+    {
+        // Python _format: the Read's STATUS values in the row's own unit.
+        PowerIntegralRow status=row;status.pmu_output=298250;status.effective=350000;
+        check(power_integral_readback_text(status).find("Requested: 320.5 W  |  PMU output: 298.25 W  |  Effective limit: 350 W")!=std::string::npos,"STATUS values print as Python's amount()");
+        status.unit=1;status.pmu_output.reset();
+        check(power_integral_readback_text(status).find("Requested: 320.5 A  |  PMU output: --  |  Effective limit: 350 A")!=std::string::npos,"a current row prints amps and an unknown PMU output stays --");
+    }
+    check(readback.find("Past samples: 3 (default 2)  |  Next samples: 6 (default 5)")!=std::string::npos,"the reported default sample counts are shown");
+    {
+        PowerIntegralData done=d;done.message=power_integral_read_message;PowerIntegralViewState z;std::string shown;frame(z,done,c,true,&shown,true);
+        check(shown.find("Read complete.")!=std::string::npos&&shown.find(power_integral_read_message)==std::string::npos,"a completed read shows Python's status in Classic");
+        PowerIntegralViewState f;f.open=true;frame(f,done,c,true,&shown);
+        check(shown.find(power_integral_read_message)!=std::string::npos&&shown.find("Read complete.")==std::string::npos,"Focused keeps the service's own read message");
+        done.message="Selected feedback ratio applied and exact packet readback verified";PowerIntegralViewState g;frame(g,done,c,true,&shown,true);
+        check(shown.find("Selected feedback ratio applied")!=std::string::npos&&shown.find("Read complete.")==std::string::npos,"a later operation's message replaces the read status");
+    }
+    // PowerIntegralPanel._failed("read"): Python's sentence, stale only once a
+    // read has published values; Focused keeps the service's own text.
+    {
+        PowerIntegralData failed;failed.current=false;failed.message="Selected adapter identity could not be verified";failed.read_error=failed.message;
+        const std::string sentence="Feedback adjustment read failed: Selected adapter identity could not be verified. Read again before applying.";
+        PowerIntegralViewState z;std::string shown;frame(z,failed,c,true,&shown,true);
+        check(shown.find(sentence)!=std::string::npos&&shown.find("Displayed values are stale.")==std::string::npos,"a failed first read reads as Python's read failure with nothing stale");
+        failed.rows=d.rows;failed.target=dc_target{};frame(z,failed,c,true,&shown,true);
+        check(shown.find(sentence+" Displayed values are stale.")!=std::string::npos,"a failed read after a published one says the shown values are stale");
+        PowerIntegralViewState f;f.open=true;frame(f,failed,c,true,&shown);
+        check(shown.find("Feedback adjustment read failed")==std::string::npos&&shown.find("Selected adapter identity could not be verified")!=std::string::npos,"Focused keeps the service's raw read message");
+        failed.message="Policy INFO or CONTROL did not read back exactly";PowerIntegralViewState y;frame(y,failed,c,true,&shown,true);
+        check(shown.find("Feedback adjustment read failed")==std::string::npos&&shown.find("Policy INFO or CONTROL did not read back exactly")!=std::string::npos,"a later operation's failure is not presented as a read failure");
+    }
+    check(text.find("Undo previous edit")==std::string::npos,"native recovery is closed by default");
+    auto intents=press(v,d,c,"Read",-1,true,true);
+    check(intents.size()==1&&intents[0].action==PowerIntegralAction::refresh,"classic Read emits one refresh");
+    v.percent[2][1]=125;v.dirty[2][1]=true;intents=press(v,d,c,"Apply now",1,true,true);
+    check(intents.size()==1&&intents[0].action==PowerIntegralAction::apply&&intents[0].raw==5120&&intents[0].expected==4096&&intents[0].field==PowerIntegralField::upper,"classic Upper Apply now sends the same request as Focused");
+    c.unlocked=false;check(press(v,d,c,"Apply now",1,true,true).empty(),"classic Apply respects the unlock gate");
+    // PowerIntegralPanel._show: only available policies are listed, and a read
+    // with none says so instead of asking for another read.
+    {
+        PowerIntegralViewState w;PowerIntegralData e;e.current=true;PowerIntegralRow off=row;off.policy=1;off.available=false;off.reason="Unit not understood";
+        e.rows={off,row};c.unlocked=true;std::string shown;frame(w,e,c,true,&shown,true);
+        check(w.selected_policy==2&&shown.find("Policy 2 (type 4, channel 1)")!=std::string::npos&&shown.find("(unavailable)")==std::string::npos,"classic selects the first available policy and lists no unavailable one");
+        e.rows={off};PowerIntegralViewState x;frame(x,e,c,true,&shown,true);
+        check(shown.find("No feedback adjustments are available on this adapter.")!=std::string::npos&&shown.find("Policy 1")==std::string::npos,"a read with no available policy says so");
+        PowerIntegralData unread;PowerIntegralViewState y;frame(y,unread,c,true,&shown,true);
+        check(shown.find("Read to select an available policy.")!=std::string::npos,"before a read the status asks for one");
+    }
 }
 void run(){
     PowerIntegralViewState v;v.open=true;PowerIntegralData d;d.current=true;
@@ -78,5 +141,5 @@ void run(){
 }
 }
 int main(){ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.0f/60;
-    unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);run();ImGui::DestroyContext();
+    unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);run();classic();ImGui::DestroyContext();
     std::printf("Power integral view: %d failures\n",failures);return failures?1:0;}

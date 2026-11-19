@@ -32,5 +32,33 @@ int main(){
     CHECK(!requested && text.find("last successful read; stale")!=std::string::npos && text.find("STATUS packet")!=std::string::npos);
     CHECK(text.find("Requested 200 W")!=std::string::npos && text.find("Client 12: 180 W")!=std::string::npos && text.find("Firmware: unavailable")!=std::string::npos);
     ImGui::ActivateItemByID(ImHashStr("Refresh power arbitration",0,seed));frame(m,&requested);CHECK(requested);
+    // Classic (registry_panel.py "Power/current arbitration"): paragraph, Read arbitration and
+    // arbitration_lines' text in one framed read-only box instead of per-policy headers.
+    {
+        CHECK(power_arbitration_text(PowerArbitrationModel{}).empty());  // Python's box is empty before a read
+        // An unavailable policy prints only its reason in arbitration_lines; its observations are native detail.
+        report->policy_count=2;auto& off=report->policies[1];off.policy=9;off.type=1;off.channel=2;std::strcpy(off.reason,"Policy row is not decoded");
+        off.observation_count=1;std::strcpy(off.observations[0],"Raw words retained");
+        row.host.initial_value=150000;row.host.has_computed_output=1;row.host.computed_output=180000;row.host.consistent=1;
+        const auto t=power_arbitration_text(m,"0000:41:00.0");
+        CHECK(t.find("Arbitration read unavailable: STATUS missing\nPrevious successful read follows; these values are historical.\nAdapter: 0000:41:00.0\nRead sequentially;")==0);
+        CHECK(t.find("Policy 7: type 3, channel 4\n  Requested 200 W; effective 180 W; adjustment -20 W\n  Host: minimum -> 180 W; client 12: 180 W\n  Firmware: unavailable (missing)\n"
+            "Policy 9: type 1, channel 2\n  Unavailable: Policy row is not decoded\n\nAdditional native readback:\n")!=std::string::npos);
+        // The native extras (value, initial / computed vote, STATUS packet, unavailable observations) only follow Python's lines.
+        const auto native=t.find("Additional native readback:");
+        CHECK(t.find("; value")==std::string::npos&&t.find("initial")>native&&t.find("STATUS packet was not returned.")>native
+            &&t.find("Policy 7: value 190 W")>native&&t.find("  Host: initial 150 W; computed 180 W")>native&&t.find("Policy 9: Raw words retained")>native);
+        report->policy_count=1;
+        PowerArbitrationModel current;current.freshness=ArbitrationFreshness::current;current.message="Read complete; policy packets were acquired sequentially";
+        auto none=std::make_shared<dc_arbitration_report>();current.report=none;
+        const auto u=power_arbitration_text(current);
+        CHECK(u.find("Adapter: unknown\nRead sequentially;")==0&&u.find("No registered power/current policies.")!=std::string::npos&&u.find("Read complete")==std::string::npos&&u.find("Additional native")==std::string::npos);
+        const auto draw=[&](bool* r){ImGui::NewFrame();ImGui::SetNextWindowSize({1200,900});ImGui::Begin("Arbitration classic");ImGui::LogToBuffer();
+            *r=draw_power_arbitration(m,true);std::string s=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();ImGui::End();ImGui::Render();return s;};
+        bool r=false;const auto shown=draw(&r);
+        CHECK(!r&&shown.find("Compare each request with host votes")!=std::string::npos&&shown.find("Read arbitration")!=std::string::npos&&shown.find("Policy 7 | type 3")==std::string::npos);
+        auto* classic=ImGui::FindWindowByName("Arbitration classic");
+        ImGui::ActivateItemByID(ImHashStr("Read arbitration",0,classic->GetID("power-arbitration")));draw(&r);CHECK(r);
+    }
     ImGui::DestroyContext();std::printf("power_arbitration_view_test: %u checks passed\n",checks);
 }

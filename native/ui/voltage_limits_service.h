@@ -61,6 +61,13 @@ struct VoltageLimitRow {
     bool writable=false,stale=false;
     std::optional<int64_t> lower,value,initial_lower,initial_value,stored_lower,stored_value,reported;
     uint32_t voltage_domain=0,operation_type=0,i2c_device_index=0;
+    // Read-only detail of the same read, for the released 1.9.1 inventory lines.
+    // Equation rows: the independently reported policy of the row's rail (REL, ALT, OV,
+    // VMIN, effective). VMIN: the largest constant that keeps the reported VMIN at or
+    // below every other reported bound, given the retained VMIN offset.
+    std::array<std::optional<int64_t>,5> rail_policy;std::optional<int64_t> vmin_maximum;
+    // Devices: the type the device's INFO row reports.
+    std::optional<uint32_t> device_type;
 };
 struct VoltageLimitsData {
     uint64_t revision=0;dc_gpu_identity identity{};std::vector<VoltageLimitRow> rows;
@@ -68,6 +75,10 @@ struct VoltageLimitsData {
     uint32_t equation_count=0,device_count=0;bool definitions_stale=false;
     bool undo_available=false,recovery_pending=false;
     std::string message,equations_message,devices_message;
+    // The last explicit Read's failure per family, cleared by its next good capture.
+    // retained: a transient failure that kept the established rows (stale) on display.
+    std::string equations_read_error,devices_read_error;
+    bool equations_read_retained=false,devices_read_retained=false;
     struct Definition {uint32_t index=0,type=0,next=0,variable=0;std::optional<int64_t> lower,value;std::string message;};
     std::vector<Definition> definitions; // read-only ordinals; no inferred ROM role
 };

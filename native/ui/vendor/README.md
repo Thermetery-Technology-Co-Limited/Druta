@@ -9,12 +9,16 @@ not in the vendored configuration header.
 | --- | --- | --- | --- |
 | `imgui/` | Dear ImGui v1.93.0 | [`c1aaac65e896a45f81f47a4d68f9959e0f86c859`](https://github.com/ocornut/imgui/tree/c1aaac65e896a45f81f47a4d68f9959e0f86c859) | [MIT](imgui/LICENSE.txt) |
 | `implot/` | ImPlot v1.1 | [`819f200639455a58b6b3d4156b70e4271aeb2d00`](https://github.com/epezent/implot/tree/819f200639455a58b6b3d4156b70e4271aeb2d00) | [MIT](implot/LICENSE) |
+| `freetype/` | FreeType 2.15.0 (`VER-2-15-0`) | [`37515cf56ba3349656049edbed89ffc6f6466f2d`](https://gitlab.freedesktop.org/freetype/freetype/-/tree/VER-2-15-0) | [FTL](freetype/docs/FTL.TXT) (dual-licensed with [GPLv2](freetype/docs/GPLv2.TXT), see [LICENSE.TXT](freetype/LICENSE.TXT)) |
 
-Imported on 2026-11-11 from `raw.githubusercontent.com` at the commits above.
-All 20 imported files were checked against the corresponding Git blob IDs from
-the upstream commit trees. [SHA256SUMS.txt](SHA256SUMS.txt) records their byte
-hashes with paths relative to this directory; it excludes this provenance note
-and the checksum file itself.
+Dear ImGui and ImPlot were imported on 2026-11-11 from `raw.githubusercontent.com`
+at the commits above. FreeType and Dear ImGui's `misc/freetype` files were
+imported on 2026-11-16 the same way, from the `freetype/freetype` GitHub mirror;
+the tag's commit matches the one on FreeType's own GitLab. All 306 imported
+files were checked against the corresponding Git blob IDs from the upstream
+commit trees. [SHA256SUMS.txt](SHA256SUMS.txt) records their byte hashes with
+paths relative to this directory; it excludes this provenance note and the
+checksum file itself.
 
 ## Included upstream paths
 
@@ -28,6 +32,12 @@ and the checksum file itself.
 - Dear ImGui license: `LICENSE.txt`.
 - ImPlot: `implot.cpp`, `implot_items.cpp`, `implot.h`, `implot_internal.h`,
   `LICENSE`.
+- Dear ImGui FreeType loader: `misc/freetype/imgui_freetype.cpp`,
+  `misc/freetype/imgui_freetype.h`.
+- FreeType: `LICENSE.TXT`, `docs/FTL.TXT`, `docs/GPLv2.TXT`, all of `include/`,
+  and the `src/` directories `base`, `truetype`, `sfnt`, `psnames`, `autofit`,
+  `smooth` and `gzip` (with its bundled zlib). The UI builds the modules listed
+  in `../freetype_config/druta_ftmodule.h`.
 
 Demos, example applications, additional renderers, SDKs and prebuilt binaries
 are not included. Selecting these source revisions does not itself qualify

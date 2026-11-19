@@ -3,6 +3,8 @@
 #include "curve_planner.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <limits>
 #include <unordered_set>
 
@@ -65,6 +67,7 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
             value > req.max_abs_delta_khz || value < INT32_MIN || value > INT32_MAX) return false;
         selected[pos] = true; desired[pos] = value; return true;
     };
+    std::string note;
     if (req.kind == CurvePlanKind::rephase) {
         std::vector<dc_vfp_num> raw; raw.reserve(points.size());
         for (const auto& p : points) raw.push_back(integer(p.delta_khz));
@@ -102,6 +105,8 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
             if (!std::isfinite(raw) || std::trunc(raw) != raw || raw < INT32_MIN || raw > INT32_MAX ||
                 !changed(edit.pos, static_cast<int64_t>(raw))) return failure("Planned delta is unrepresentable or outside its envelope");
         }
+        if (req.kind == CurvePlanKind::ramp) note = curve_ramp_note(ramp, *req.max_rise_khz);
+        else if (req.kind == CurvePlanKind::hard_deflatten) note = curve_hard_note(hard, *req.max_rise_khz);
     }
     std::vector<dc_vfp_num> khz; khz.reserve(points.size());
     for (size_t i = 0; i < points.size(); ++i) {
@@ -128,6 +133,106 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
             points[i].delta_khz, static_cast<int32_t>(desired[i])});
     }
     result.message = result.changes.empty() ? "Planner found no changes" : "Plan ready for review";
+    if (!result.changes.empty()) result.note = std::move(note);
     return result;
+}
+
+namespace {
+template <typename... Args> std::string note_text(const char* pattern, Args... args) {
+    const int size = std::snprintf(nullptr, 0, pattern, args...);
+    if (size <= 0) return {};
+    std::string out(static_cast<size_t>(size) + 1, '\0');
+    std::snprintf(out.data(), out.size(), pattern, args...);
+    out.resize(static_cast<size_t>(size));
+    return out;
+}
+constexpr const char* kArrow = "\xE2\x86\x92"; // U+2192
+}
+
+// Written tight, like 1.9.1's: the banner grows with this text, and a note long
+// enough to push Apply off screen defeats the banner.
+std::string curve_ramp_note(const dc_vfp_ramp& m, std::int64_t max_rise_khz) {
+    if (!m.has_band) return {};
+    std::string band = note_text("%u rungs %s %u distinct operating points, %.2f %s %.2f mV, top %.0f MHz",
+        m.rungs, kArrow, m.delivered, m.lo_mv, kArrow, m.cap_mv, m.top_mhz);
+    if (m.dropped_rungs) {
+        const std::string reason(m.dropped_reason, strnlen(m.dropped_reason, sizeof(m.dropped_reason)));
+        band += note_text("\n%u lower rung(s) dropped - %s. They keep their stock values, which are already increasing.",
+            m.dropped_rungs, reason.c_str());
+    }
+    std::string floor;
+    if (m.floor_cost_mhz > 0) {
+        floor = note_text("Top clipped at the %.0f MHz hw max, so the floor pays: %.2f mV drops %.0f %s %.0f MHz (-%.0f)",
+            m.top_mhz, m.lo_mv, m.floor_before_mhz, kArrow, m.floor_after_mhz, m.floor_cost_mhz);
+        if (m.shadowed) {
+            const std::string under = m.has_under_band ? note_text("%.0f", m.under_band_mhz) : std::string("unknown");
+            floor += note_text(" - below the untouched point under the band (%s MHz), so the driver raises the bottom %u "
+                "rung(s) onto it and they arrive as ONE flat", under.c_str(), m.shadowed);
+        }
+    } else {
+        floor = note_text("The floor keeps its %.0f MHz at %.2f mV", m.floor_after_mhz, m.lo_mv);
+    }
+    if (m.lifted_below) floor += note_text(". %u point(s) BELOW the floor get dragged up too (max +%.0f MHz): the driver "
+        "allows at most %.4g MHz between neighbouring points, so the curve under the band is pulled up to meet it - more "
+        "clock at LOWER voltages than the band asked for", m.lifted_below, m.lift_max_mhz, max_rise_khz / 1000.0);
+    return "RAMP - " + band + ". " + floor + ". Every rung asks more clock at its voltage than stock did - the granularity "
+        "fix and the overclock are one edit, so each rung has to be stable.";
+}
+
+std::string curve_hard_note(const dc_vfp_hard& m, std::int64_t max_rise_khz) {
+    if (!m.has_band) return "HARD DE-FLATTEN - NEEDS THE EXTERNAL VOLTAGE MOD: without it this crashes the driver.";
+    std::string park = note_text("the card parks at idx %u @ %.2f mV / %.0f MHz", m.park_idx, m.park_mv, m.park_mhz);
+    if (!m.parks_at_floor) park += note_text(", NOT at the %.2f mV floor - the target is too low, a point below the "
+        "floor still holds the peak. Raise the target", m.floor_mv);
+    std::string cascade;
+    if (m.lifted_below) {
+        const std::string lowest = m.has_lift_lowest ? note_text("%.2f", m.lift_lowest_mv) : std::string("unknown");
+        cascade = note_text(" The driver then drags %u point(s) BELOW the floor up with it, as far down as %s mV, worst "
+            "case +%.0f MHz - no delta is written to any of them (%.4g MHz max step, shape law), so this asks the rail for "
+            "high clocks well under the floor.", m.lifted_below, lowest.c_str(), m.lift_max_mhz, max_rise_khz / 1000.0);
+    }
+    return note_text("HARD DE-FLATTEN - %u point(s) at or above %.2f mV flattened onto ONE frequency, %.0f MHz, so ",
+               m.n_flat, m.floor_mv, m.target_mhz)
+        + park + note_text(". NEEDS THE EXTERNAL VOLTAGE MOD: the GPU will believe it is at %.2f mV and compute low power "
+            "from that belief, which is the entire point - without the mod it really IS at %.2f mV and this crashes it.",
+            m.floor_mv, m.floor_mv)
+        + cascade;
+}
+
+std::string curve_stage_note(std::string note, bool hard, bool hard_underneath) {
+    if (!hard && hard_underneath) note += " A HARD DE-FLATTEN IS STILL STAGED UNDERNEATH THIS and Apply writes both: "
+        "'Revert edits' is what drops it.";
+    return note;
+}
+BelowFloorEstimate estimate_below_floor(const PlannerApi& api, const std::vector<dc_vf_point>& baseline,
+    const std::vector<dc_vf_point>& draft, double floor_mv, std::int64_t max_rise_khz) {
+    BelowFloorEstimate estimate;
+    auto prediction = [&](const std::vector<dc_vf_point>& input, std::vector<std::int64_t>& by_point) {
+        if (!api.predict || !max_rise_khz || input.empty()) return false;
+        std::vector<dc_vfp_num> khz(input.size());
+        for (size_t i = 0; i < input.size(); ++i) {
+            const double value = input[i].freq_mhz * 1000.0;
+            if (!std::isfinite(value) || value <= 0 || value > 9007199254740992.0) return false;
+            khz[i] = integer(static_cast<std::int64_t>(std::nearbyint(value)));
+        }
+        const dc_vfp_num rise = integer(max_rise_khz);
+        std::vector<std::int64_t> values(input.size()); std::vector<std::uint32_t> order(input.size());
+        if (api.predict(input.data(), input.size(), khz.data(), &rise, values.data(), order.data(), input.size()) != DC_OK) return false;
+        by_point.resize(input.size()); std::vector<bool> seen(input.size());
+        for (size_t i = 0; i < input.size(); ++i) {
+            if (order[i] >= input.size() || seen[order[i]]) return false;
+            seen[order[i]] = true; by_point[order[i]] = values[i];
+        }
+        return true;
+    };
+    std::vector<std::int64_t> before, after;
+    if (baseline.size() != draft.size() || !prediction(baseline, before) || !prediction(draft, after)) return estimate;
+    estimate.available = true;
+    for (size_t i = 0; i < draft.size(); ++i) if (draft[i].idx == baseline[i].idx && draft[i].volt_mv < floor_mv && after[i] > before[i]) {
+        const double lift = static_cast<double>(after[i] - before[i]) / 1000.0;
+        if (!estimate.raised || draft[i].volt_mv < estimate.lowest_mv) estimate.lowest_mv = draft[i].volt_mv;
+        ++estimate.raised; estimate.largest_rise_mhz = std::max(estimate.largest_rise_mhz, lift);
+    }
+    return estimate;
 }
 }

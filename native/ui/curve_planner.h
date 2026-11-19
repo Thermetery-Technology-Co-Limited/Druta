@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include <drutacore/vfplan.h>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -37,6 +38,25 @@ struct CurvePlan {
     std::vector<dc_vf_delta> changes;
     std::vector<CurvePlannedPoint> points;
     std::vector<std::int64_t> predicted_khz; // caller point order, physical kHz
+    // Released 1.9.1 plan note for the banner (ramp and hard de-flatten only;
+    // the other planners leave the staged note alone, as 1.9.1 does).
+    std::string note;
 };
 CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& request);
+// 1.9.1 vf_deflatten / vf_hard_deflatten notes from the core planner's own
+// metadata. max_rise_khz is the prediction model's neighbour bound the text names.
+std::string curve_ramp_note(const dc_vfp_ramp& meta, std::int64_t max_rise_khz);
+std::string curve_hard_note(const dc_vfp_hard& meta, std::int64_t max_rise_khz);
+// 1.9.1 stage_note: a tamer plan staged over a hard de-flatten keeps saying so.
+std::string curve_stage_note(std::string note, bool hard, bool hard_underneath);
+// Core's software-model estimate of what a staged hard de-flatten does below
+// its floor: draft versus baseline, point by point. Not a measurement.
+// available is false when the model, its bound or a consistent geometry is missing.
+struct BelowFloorEstimate {
+    bool available = false;
+    std::size_t raised = 0;
+    double lowest_mv = 0, largest_rise_mhz = 0;
+};
+BelowFloorEstimate estimate_below_floor(const PlannerApi& api, const std::vector<dc_vf_point>& baseline,
+    const std::vector<dc_vf_point>& draft, double floor_mv, std::int64_t max_rise_khz);
 }

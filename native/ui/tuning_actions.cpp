@@ -20,7 +20,7 @@ TuningActions::TuningActions(TuningApi api, dc_gpu* gpu, const dc_gpu_identity& 
 CurvePlan TuningActions::prepare_max(const PlannerApi& api, CurvePlanRequest request) const { request.kind = CurvePlanKind::ramp; return plan_curve(api, request); }
 bool TuningActions::identity_ok() { dc_gpu_identity id{}; id.size = sizeof(id); return api_.identity && api_.identity(gpu_, &id) == DC_OK && same(identity_, id); }
 bool TuningActions::record(dc_rails_hold_record& out) { out = {}; out.size = sizeof(out); return api_.headroom_record && api_.headroom_record(gpu_, &out) == DC_OK; }
-bool TuningActions::restore_headroom(std::string& why) {
+bool TuningActions::restore_headroom(std::string& why, std::string* restored) {
     if (!api_.headroom_record && !state_.headroom) return true;
     dc_rails_hold_record before{}; if (!record(before)) { why = "Headroom record unreadable"; return false; }
     if (!before.present) { state_.headroom = false; return true; }
@@ -29,7 +29,23 @@ bool TuningActions::restore_headroom(std::string& why) {
     const auto status = api_.headroom_restore(gpu_, 0, &result, &writes);
     dc_rails_hold_record after{};
     if (status != DC_OK || result.ok != DC_RAILS_HOLD_OK || !record(after) || after.present) { why = result.message[0] ? result.message : "Headroom restoration unverified"; return false; }
+    if (restored) *restored = result.message[0] ? result.message : "headroom restored";
     state_.headroom = false; return true;
+}
+TuningResult TuningActions::restore_raised() {
+    TuningResult result{};
+    if (!state_.headroom) { result.ok = true; result.message = "no raised limits to restore"; return result; }
+    if (!gpu_ || !api_.lock || !api_.unlock || !api_.headroom_record || !api_.headroom_restore) { result.message = "Headroom restore interfaces unavailable"; return result; }
+    if (api_.lock(gpu_) != DC_OK) { result.message = "GPU lock unavailable"; return result; } Unlock unlock{api_, gpu_};
+    if (!identity_ok()) { result.message = "GPU identity unreadable or changed"; return result; }
+    std::string restored;
+    // A failed restore keeps the record, the flag and the hold; it is tried once more at once.
+    if (!restore_headroom(result.message, &restored)) {
+        result.may_have_changed = true; result.message.clear();
+        if (!restore_headroom(result.message, &restored)) return result;
+    }
+    result.may_have_changed |= !restored.empty();
+    result.ok = true; result.message = restored.empty() ? "no raised limits to restore" : restored; return result;
 }
 TuningResult TuningActions::hold(uint32_t domain, uint32_t voltage_uv, bool headroom, double margin_mv, bool xoc) {
     TuningResult result{};

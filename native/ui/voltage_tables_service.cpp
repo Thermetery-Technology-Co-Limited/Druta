@@ -65,6 +65,9 @@ struct VoltageTablesService::Impl {
         std::array<std::vector<uint8_t>,2> public_rows;
         std::array<uint32_t,2> policy_type{},control_type{};
         std::array<std::string,2> issues;
+        // The independently reported policy of each present rail (REL, ALT, OV, VMIN,
+        // effective) in uV: display only, never compared or written.
+        std::array<std::array<int64_t,5>,2> policy_uv{};
         uint32_t active=0,present=0;int32_t boost=0;
         bool complete()const{return active && active==present;}
     };
@@ -130,6 +133,8 @@ struct VoltageTablesService::Impl {
             const auto& row=state.rails[rail];const auto& delta=deltas.rails[rail];const uint32_t policy=s.info[info_at+0x33];
             if(policy<1||policy>8||row.type!=policy||delta.type<0||static_cast<uint32_t>(delta.type)!=type||s.info[info_at]!=native_type||raw[8]!=s.boost)fail("Independent native/public rail identities or boost disagree");
             for(double value:{row.reliability,row.alt_reliability,row.overvoltage,row.effective,row.vmin})microvolts(value,true);
+            s.policy_uv[rail]={std::llround(row.reliability*1000),std::llround(row.alt_reliability*1000),std::llround(row.overvoltage*1000),
+                std::llround(row.vmin*1000),std::llround(row.effective*1000)};
             const double boost_uv=row.boost_mv*1000;
             if(!std::isfinite(boost_uv)||boost_uv<0||boost_uv>UINT32_MAX||std::abs(boost_uv-std::nearbyint(boost_uv))>0.000001)fail("Independent reported boost metadata has unknown units");
             const double request_offsets[]={delta.reliability,delta.alt_reliability,delta.overvoltage,delta.vmin};
@@ -170,12 +175,19 @@ struct VoltageTablesService::Impl {
             if(r.value_uv)row.value=static_cast<int32_t>(*r.value_uv);if(r.initial_uv)row.initial=static_cast<int32_t>(*r.initial_uv);row.reported=r.reported_uv;
             data.offsets_recognized|=!r.stale&&r.availability==VoltagePolicyAvailability::available;
             data.rows.push_back(std::move(row));}
-        if(source.target)data.target=source.target;data.offsets_message=source.message;
+        if(source.target)data.target=source.target;data.offsets_message=source.message;data.offset_policy_uv=source.rail_policy_uv;
         data.offset_undo_available=source.undo_available;data.offset_recovery_pending=source.recovery_pending;flags();
     }
     VoltageTablesResult offset_result(const VoltageOffsetsResult& result){publish_offsets();data.message=result.message;data.offsets_message=result.message;return table_result(result);}
+    // Python voltage_requests_panel.refresh: a failed explicit Read keeps the previous
+    // display only for a transient failure of an established read.
+    void requests_read_failed(VoltagePolicyAvailability kind,const std::string& message){
+        data.requests_read_error=message.empty()?std::string("Voltage request read failed"):message;
+        data.requests_read_retained=kind==VoltagePolicyAvailability::transient&&std::any_of(data.rows.begin(),data.rows.end(),
+            [](const auto& row){return row.key.family==VoltageTableFamily::requests&&row.value;});
+    }
     void read_offsets(){
-        if(offsets){offsets->read();publish_offsets();return;}
+        if(offsets){offsets->read();publish_offsets();data.offsets_read_error=offsets->state().read_error;return;}
         if(!api.scaffold_read)fail("Installed scaffold receipt reader unavailable",VoltagePolicyAvailability::unsupported);
         bind();const auto captured=api.scaffold_read(gpu);bind();const auto& current=*bound_target;
         if(captured.target.size!=sizeof(captured.target)||!text(captured.target.slot)||std::strcmp(captured.target.slot,current.slot)
@@ -197,11 +209,15 @@ struct VoltageTablesService::Impl {
         }
         data.rows.erase(std::remove_if(data.rows.begin(),data.rows.end(),[](const auto& row){return row.key.family==VoltageTableFamily::offsets;}),data.rows.end());
         data.rows.insert(data.rows.end(),fresh.begin(),fresh.end());data.offsets_recognized=true;
-        data.offsets_message=captured.message;data.target=bound_target;
+        data.offsets_message=captured.message;data.target=bound_target;data.offsets_read_error.clear();
     }
     void publish(const Snapshot& s){data.target=bound_target;
         const auto& g=gate.read(voltage_admission);data.gate_enabled=g.rows[0].availability==VoltagePolicyAvailability::available?g.rows[0].current:std::optional<bool>{};
         data.boost_percent=s.boost;data.requests_complete=s.complete();
+        data.gate_error=data.gate_enabled?std::string():g.rows[0].message;
+        data.missing_rails.clear();for(uint32_t rail=0;rail<32;++rail)if((s.active&(1u<<rail))&&!(s.present&(1u<<rail)))data.missing_rails.push_back(rail);
+        for(uint32_t rail=0;rail<2;++rail)data.request_policy_uv[rail]=s.present&(1u<<rail)?std::optional<std::array<int64_t,5>>(s.policy_uv[rail]):std::nullopt;
+        data.requests_read_error.clear();data.requests_read_retained=false;
         for(uint32_t rail=0;rail<2;++rail)for(uint32_t field=0;field<6;++field){VoltageTableKey key{VoltageTableFamily::requests,rail,field};
             auto found=std::find_if(data.rows.begin(),data.rows.end(),[&](const auto& row){return row.key==key;});
             if(!(s.active&(1u<<rail))&&found==data.rows.end())continue;
@@ -291,12 +307,14 @@ void VoltageTablesService::set_history_callback(std::function<void()> callback){
 const VoltageTablesData& VoltageTablesService::state()const{return impl_->data;}
 const VoltageTablesData& VoltageTablesService::read(uint32_t families){auto& p=*impl_;Guard guard(p.api.transport,p.gpu);
     if(!families||(families&~3u)){p.data.message="Select understood voltage families";p.flags();return p.data;}
-    if(!guard.held){if(families&1)p.stale(VoltagePolicyAvailability::transient,"GPU lock unavailable");if(families&2)p.stale_offsets(VoltagePolicyAvailability::transient,"GPU lock unavailable");p.data.message="GPU lock unavailable";return p.data;}
-    if(families&1)try{p.publish(p.capture());}catch(const Failure& error){p.stale(error.kind,error.what());}catch(const std::exception& error){p.stale(VoltagePolicyAvailability::transient,error.what());}
+    if(!guard.held){if(families&1){p.stale(VoltagePolicyAvailability::transient,"GPU lock unavailable");p.requests_read_failed(VoltagePolicyAvailability::transient,"GPU lock unavailable");}
+        if(families&2){p.stale_offsets(VoltagePolicyAvailability::transient,"GPU lock unavailable");p.data.offsets_read_error="GPU lock unavailable";}p.data.message="GPU lock unavailable";return p.data;}
+    if(families&1)try{p.publish(p.capture());}catch(const Failure& error){p.stale(error.kind,error.what());p.requests_read_failed(error.kind,error.what());}
+        catch(const std::exception& error){p.stale(VoltagePolicyAvailability::transient,error.what());p.requests_read_failed(VoltagePolicyAvailability::transient,error.what());}
     if(families&2)try{p.read_offsets();}
-        catch(const VoltageEquationEvidenceError& error){p.stale_offsets(error.kind,error.what());}
-        catch(const Failure& error){p.stale_offsets(error.kind,error.what());}
-        catch(const std::exception& error){p.stale_offsets(VoltagePolicyAvailability::invalid,error.what());}
+        catch(const VoltageEquationEvidenceError& error){p.stale_offsets(error.kind,error.what());p.data.offsets_read_error=error.what();}
+        catch(const Failure& error){p.stale_offsets(error.kind,error.what());p.data.offsets_read_error=error.what();}
+        catch(const std::exception& error){p.stale_offsets(VoltagePolicyAvailability::invalid,error.what());p.data.offsets_read_error=error.what();}
     p.data.message=families==3?p.data.requests_message+"; "+p.data.offsets_message:(families&1)?p.data.requests_message:p.data.offsets_message;p.flags();return p.data;
 }
 VoltageTablesPlan VoltageTablesService::preview(const std::vector<VoltageTableRequest>& requests,std::optional<bool> projected){auto& p=*impl_;VoltageTablesPlan plan;Guard guard(p.api.transport,p.gpu);
