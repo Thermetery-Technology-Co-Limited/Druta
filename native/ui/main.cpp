@@ -1377,10 +1377,12 @@ struct Smoke {
             const auto clock_reads = static_cast<uint64_t>(std::count_if(snapshot->log.begin(), snapshot->log.end(), [](const auto& log) {
                 return log.automatic && log.operation == druta::ui::Command::Operation::pascal_clock_read;
             }));
-            const auto other_actions = snapshot->completed_actions - std::min(clock_reads, snapshot->completed_actions);
-            const bool read_only_setup = phase >= 15 && other_actions == 1 &&
-                snapshot->last_action_operation == druta::ui::Command::Operation::timings_select_helper && snapshot->last_action_ok;
-            ok = ok && snapshot->data.connected && clock_reads <= 2 && (other_actions == 0 || read_only_setup);
+            // Classic discovers its helper on entry, even on the Control page.
+            const auto helper_selections = static_cast<uint64_t>(std::count_if(snapshot->log.begin(), snapshot->log.end(), [](const auto& log) {
+                return log.automatic && log.ok && log.operation == druta::ui::Command::Operation::timings_select_helper;
+            }));
+            ok = ok && snapshot->data.connected && clock_reads <= 2 && helper_selections <= 1 &&
+                snapshot->completed_actions == clock_reads + helper_selections;
         }
         if (live && phase == 2) ok = ok && t > 0;
         if (phase >= 7) {
@@ -1389,9 +1391,17 @@ struct Smoke {
         }
         if (phase == 10) ok = ok && app.width == 1024 && app.height == 768 && app.resets > 0;
         if (phase == 11) ok = ok && app.view.shunt.open && !app.view.shunt.dirty && !app.view.shunt.save_requested;
-        if (phase == 12 || phase == 13) ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok && app.view.profile_catalog_intents.empty();
+        if (phase == 12 || phase == 13) {
+            const auto& intents = app.view.profile_catalog_intents;
+            // Opening the fixture catalog queues a read; only a live session consumes it.
+            const bool pending_read = !live && intents.size() == 1 &&
+                intents.front().operation == druta::ui::ProfileCatalogIntent::Operation::refresh_library;
+            ok = ok && app.view.profile_catalog_view.open && !app.view.profile_catalog_view.preflight_ok &&
+                (intents.empty() || pending_read);
+        }
         if (phase == 14) ok = ok && app.view.policy_workspace.open && !app.view.save_policy_annotations && !app.view.policy_workspace.preview;
-        if (phase == 15) ok = ok && !app.view.timings_view.auto_capture && app.view.commands.empty();
+        if (phase == 15) ok = ok && !app.view.timings_view.auto_capture &&
+            !app.view.timings_view.classic_auto_capture && app.view.commands.empty();
         if(phase==16)ok=ok&&app.view.power_saving_intents.empty()&&!app.view.open_power_saving_requested;
         if(phase==17)ok=ok&&app.view.clock_gating_intents.empty()&&!app.view.open_clock_gating_requested;
         if(phase==18)ok=ok&&app.view.voltage_policy_profile_intents.empty()&&!app.view.open_voltage_policy_requested;
@@ -1405,7 +1415,14 @@ struct Smoke {
             names[phase], f, p, live ? "telemetry_reads" : "fixture_ticks", t, process_seconds()-cpu, ok ? "true" : "false", phase == phase_count-1 ? "" : ",");
         report += row;
         if (++phase == phase_count) {
-            report += "  ],\n  \"completed_worker_actions\": " + std::to_string(live ? app.session->snapshot()->completed_actions : 0)
+            const auto snapshot = live ? app.session->snapshot() : nullptr;
+            auto actions = druta::ui::ProfileJson::array();
+            if (snapshot) for (const auto& entry : snapshot->log) {
+                if (entry.operation) actions.push_back({{"operation", static_cast<int>(*entry.operation)},
+                    {"automatic", entry.automatic}, {"ok", entry.ok}, {"message", entry.message}});
+            }
+            report += "  ],\n  \"completed_worker_actions\": " + std::to_string(snapshot ? snapshot->completed_actions : 0)
+                + ",\n  \"worker_actions\": " + actions.dump(-1, ' ', false, druta::ui::ProfileJson::error_handler_t::replace)
                 + ",\n  \"device_resets\": " + std::to_string(app.resets)
                 + ",\n  \"hotkey_registered\": " + (app.view.hotkey_available ? "true" : "false")
                 + ",\n  \"passed\": " + (passed ? "true" : "false") + "\n}\n";
@@ -1440,13 +1457,14 @@ struct Smoke {
         }
         if (phase == 14) {app.view.profile_catalog_view.open=false;app.view.policy_workspace.open=true;app.view.presentation=druta::ui::Presentation::focused;}
         if (phase == 15) {app.view.policy_workspace.open=false;app.view.page=druta::ui::Page::timings;app.view.presentation=druta::ui::Presentation::classic;}
-        if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=true;}
-        if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=true;}
-        if(phase==18){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_policy_requested=true;}
-        if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=true;}
-        if(phase==20){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_tables_requested=true;}
-        if(phase==21){app.view.presentation=druta::ui::Presentation::classic;app.view.open_voltage_limits_requested=true;}
-        if(phase==22){app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_weights_requested=true;}
+        // Advanced has a static preview. Its individual hardware panels exist only in live sessions.
+        if(phase==16){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_saving_requested=live;}
+        if(phase==17){app.view.page=druta::ui::Page::advanced;app.view.presentation=druta::ui::Presentation::classic;app.view.open_clock_gating_requested=live;}
+        if(phase==18){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_policy_requested=live;}
+        if(phase==19){app.view.presentation=druta::ui::Presentation::classic;app.view.open_power_integral_requested=live;}
+        if(phase==20){app.view.presentation=druta::ui::Presentation::focused;app.view.open_voltage_tables_requested=live;}
+        if(phase==21){app.view.presentation=druta::ui::Presentation::classic;app.view.open_voltage_limits_requested=live;}
+        if(phase==22){app.view.presentation=druta::ui::Presentation::focused;app.view.open_power_weights_requested=live;}
         begin(app);
     }
 };
@@ -1546,6 +1564,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     app.weight_initial_receipt=options.weight_result;app.weight_expected_slot=options.slot;app.weight_expected_uuid=options.expected_uuid;
     app.weight_reopen_page=options.page;
     Smoke smoke(app); MessageWait waiter; const bool testing = !options.smoke_dir.empty();
+    if (testing) app.view.timings_view.classic_auto_capture = false;
     bool success = true, captured_output = false; unsigned settled_frames = 0;
     const double started = now_seconds();
     while (!app.quit) {
@@ -1574,7 +1593,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         app.consume_timing_profile_save();
         if (!testing) app.consume_timing_startup_read();
         app.consume_timing_captures();
-        app.consume_timing_auto();
+        // Smoke renders Timings but does not execute the helper or capture registers.
+        if (!testing) app.consume_timing_auto();
         if(app.view.advanced_view.rail_gate_flash_until>ImGui::GetTime() || app.view.advanced_view.xoc_gate_flash_until>ImGui::GetTime() || app.view.i2c_gate_flash_until>ImGui::GetTime())
             app.policy.note_activity(now);
         if (app.policy.telemetry_due(now)) {
