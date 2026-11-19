@@ -94,6 +94,8 @@ function Get-SourceSnapshot {
         'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md', 'ADA-VALIDATION.md',
         'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
+        'experiments/native-3070ti-live-validation-20261111.md',
+        'experiments/native-3070ti-live-evidence-20261111.json',
         'experiments/current-limits-titan-20260908.json',
         'experiments/current-limits-titan-61088-20260908.json',
         'experiments/current-limits-titan-47212-20260908.json',

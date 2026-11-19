@@ -1,0 +1,30 @@
+{
+  "live_mode": true,
+  "phases": [
+    {"phase": "visible_default", "frames": 44, "presents": 44, "telemetry_reads": 2, "cpu_seconds": 0.140625, "passed": true},
+    {"phase": "always_visible", "frames": 112, "presents": 112, "telemetry_reads": 2, "cpu_seconds": 0.140625, "passed": true},
+    {"phase": "always_minimized", "frames": 113, "presents": 113, "telemetry_reads": 2, "cpu_seconds": 0.156250, "passed": true},
+    {"phase": "explicit_pause", "frames": 0, "presents": 0, "telemetry_reads": 0, "cpu_seconds": 0.000000, "passed": true},
+    {"phase": "hotkey_restore", "frames": 114, "presents": 114, "telemetry_reads": 3, "cpu_seconds": 0.312500, "passed": true},
+    {"phase": "default_minimized", "frames": 0, "presents": 0, "telemetry_reads": 0, "cpu_seconds": 0.000000, "passed": true},
+    {"phase": "default_restored", "frames": 53, "presents": 53, "telemetry_reads": 3, "cpu_seconds": 0.250000, "passed": true},
+    {"phase": "classic", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.156250, "passed": true},
+    {"phase": "advanced", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.140625, "passed": true},
+    {"phase": "monitor", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.156250, "passed": true},
+    {"phase": "resize_1024x768", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.140625, "passed": true},
+    {"phase": "shunt_editor", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.125000, "passed": true},
+    {"phase": "catalog_focused", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.140625, "passed": true},
+    {"phase": "catalog_classic", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.062500, "passed": true},
+    {"phase": "policy_workspace", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.093750, "passed": true},
+    {"phase": "timing_capture_controls", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.078125, "passed": true},
+    {"phase": "power_saving_controls", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.109375, "passed": true},
+    {"phase": "clock_gating_controls", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.125000, "passed": true},
+    {"phase": "policy_profile_controls", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.093750, "passed": true},
+    {"phase": "integral_profile_controls", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.125000, "passed": true},
+    {"phase": "voltage_request_controls", "frames": 19, "presents": 19, "telemetry_reads": 2, "cpu_seconds": 0.109375, "passed": true},
+    {"phase": "voltage_delay_controls", "frames": 18, "presents": 18, "telemetry_reads": 2, "cpu_seconds": 0.125000, "passed": true}
+  ],
+  "device_resets": 4,
+  "hotkey_registered": true,
+  "passed": true
+}

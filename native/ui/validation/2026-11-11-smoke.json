@@ -1,0 +1,101 @@
+{
+  "backend_connected": false,
+  "sample_ticks_are_fixture_only": true,
+  "phases": [
+    {
+      "phase": "visible_default",
+      "frames": 44,
+      "presents": 44,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.015625,
+      "passed": true
+    },
+    {
+      "phase": "always_visible",
+      "frames": 115,
+      "presents": 115,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "always_minimized",
+      "frames": 115,
+      "presents": 115,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "explicit_pause",
+      "frames": 0,
+      "presents": 0,
+      "fixture_ticks": 0,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "hotkey_restore",
+      "frames": 115,
+      "presents": 115,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "default_minimized",
+      "frames": 0,
+      "presents": 0,
+      "fixture_ticks": 0,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "default_restored",
+      "frames": 53,
+      "presents": 53,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0625,
+      "passed": true
+    },
+    {
+      "phase": "classic",
+      "frames": 18,
+      "presents": 18,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "advanced",
+      "frames": 19,
+      "presents": 19,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.015625,
+      "passed": true
+    },
+    {
+      "phase": "monitor",
+      "frames": 18,
+      "presents": 18,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0,
+      "passed": true
+    },
+    {
+      "phase": "resize_1024x768",
+      "frames": 19,
+      "presents": 19,
+      "fixture_ticks": 2,
+      "cpu_seconds": 0.0,
+      "passed": true
+    }
+  ],
+  "device_resets": 4,
+  "hotkey_registered": true,
+  "passed": true,
+  "executable_sha256": "6cd828f3d99814ec29fef3233c66dd49c00c6952b865945f9c81ff1a2de954c0",
+  "environment": "Windows 10 x64 19045; MSVC 19.44.35230; SDK 10.0.26100.0; RTX 3070 Ti; fixture rendering only",
+  "phase_duration_seconds": 2,
+  "hotkey_evidence": "WM_HOTKEY delivery injected; physical keys not tested"
+}

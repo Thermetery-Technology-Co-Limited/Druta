@@ -1,0 +1,150 @@
+{
+  "date": "2026-11-12",
+  "branch": "codex/native-ui-controls",
+  "source_base": "f569356e29c759225fc4450736aa515b7a98fe38",
+  "adapter": "NVIDIA GeForce RTX 3070 Ti / 0000:01:00.0",
+  "scope": "Read-only live renderer; headless control interactions; no GPU writes or global display-config save",
+  "exe_sha256": "4454E1A084AE2A677D384705502BACF05210C6ADC8F609B26BD58EFA48CDFB7D",
+  "core_sha256": "687DFF65557C785388D01887FF36FCC20E6C43FB2FF3D0E1D426D03F25012F64",
+  "release_build_passed": true,
+  "bounded_pe_import_audit_passed": true,
+  "ctest": {
+    "passed": 29,
+    "total": 29,
+    "ui_checks": 903,
+    "advanced_view_checks": 307,
+    "risk_policy_checks": 30,
+    "shunt_view_checks": 65
+  },
+  "risk_weights": {
+    "xoc": 1,
+    "rail_limits": 2,
+    "i2c": 3
+  },
+  "risk_colors": {
+    "green": "0 unlocked",
+    "yellow": 1,
+    "amber": 2,
+    "red": 3,
+    "crimson": "4+"
+  },
+  "live_window_report": {
+    "live_mode": true,
+    "phases": [
+      {
+        "phase": "visible_default",
+        "frames": 43,
+        "presents": 43,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.1875,
+        "passed": true
+      },
+      {
+        "phase": "always_visible",
+        "frames": 115,
+        "presents": 115,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.09375,
+        "passed": true
+      },
+      {
+        "phase": "always_minimized",
+        "frames": 112,
+        "presents": 112,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.140625,
+        "passed": true
+      },
+      {
+        "phase": "explicit_pause",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "hotkey_restore",
+        "frames": 113,
+        "presents": 113,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.328125,
+        "passed": true
+      },
+      {
+        "phase": "default_minimized",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "default_restored",
+        "frames": 46,
+        "presents": 46,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.28125,
+        "passed": true
+      },
+      {
+        "phase": "classic",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.15625,
+        "passed": true
+      },
+      {
+        "phase": "advanced",
+        "frames": 54,
+        "presents": 54,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      },
+      {
+        "phase": "monitor",
+        "frames": 101,
+        "presents": 101,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.171875,
+        "passed": true
+      },
+      {
+        "phase": "resize_1024x768",
+        "frames": 106,
+        "presents": 106,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.171875,
+        "passed": true
+      },
+      {
+        "phase": "shunt_editor",
+        "frames": 110,
+        "presents": 110,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.1875,
+        "passed": true
+      }
+    ],
+    "device_resets": 3,
+    "hotkey_registered": true,
+    "passed": true
+  },
+  "desktop_capture": {
+    "attempts": 2,
+    "error": "window capture timed out: timed out waiting on channel",
+    "physical_input_issued": false
+  },
+  "captures_reviewed": [
+    "01-focused.png",
+    "08-classic.png",
+    "12-shunt.png"
+  ],
+  "limitations": [
+    "No independent shunt calibration",
+    "No physical UI input delivered",
+    "No Vista/7 execution qualification"
+  ]
+}

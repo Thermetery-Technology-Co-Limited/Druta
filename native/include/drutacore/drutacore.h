@@ -284,20 +284,43 @@ typedef struct dc_typed_value {
     int64_t s;
 } dc_typed_value;
 
-/* Bits of dc_telemetry.present, in the order of the fields. */
-enum {
-    DC_T_CORE = 1ull << 0, DC_T_MEM = 1ull << 1, DC_T_VIDEO = 1ull << 2, DC_T_XBAR = 1ull << 3,
-    DC_T_CORE_OFF = 1ull << 4, DC_T_MEM_OFF = 1ull << 5, DC_T_PRIV_CLOCKS = 1ull << 6,
-    DC_T_TEMP_EDGE = 1ull << 7, DC_T_TEMP_HOTSPOT = 1ull << 8, DC_T_TEMP_DELTA = 1ull << 9,
-    DC_T_PL_REQUESTED = 1ull << 10, DC_T_POWER_W = 1ull << 11, DC_T_PL_NOW = 1ull << 12,
-    DC_T_PWR_GPU_PCT = 1ull << 13, DC_T_PWR_BOARD_PCT = 1ull << 14, DC_T_PL_TARGET_PCT = 1ull << 15,
-    DC_T_VCORE_MV = 1ull << 16, DC_T_NUM_FANS = 1ull << 17,
-    DC_T_UTIL_GPU = 1ull << 18, DC_T_UTIL_FB = 1ull << 19, DC_T_UTIL_VID = 1ull << 20, DC_T_UTIL_BUS = 1ull << 21,
-    DC_T_EVENT_MASK = 1ull << 22, DC_T_PERF_DECREASE = 1ull << 23,
-    DC_T_PCIE_GEN = 1ull << 24, DC_T_PCIE_WIDTH = 1ull << 25, DC_T_PCIE_ERR = 1ull << 26,
-    DC_T_PSTATE = 1ull << 27, DC_T_VBOOST = 1ull << 28, DC_T_CORE_P0MAX = 1ull << 29, DC_T_MEM_P0MAX = 1ull << 30,
-    DC_T_ENERGY_J = 1ull << 31, DC_T_VF_LOCKED = 1ull << 32, DC_T_VF_LOCK_MV = 1ull << 33, DC_T_CLK_LOCK = 1ull << 34,
-};
+/* Bits of dc_telemetry.present, in the order of the fields. Use unsigned
+ * 64-bit constants: C-compatible enums cannot portably hold bits 31..34. */
+#define DC_T_CORE          (UINT64_C(1) << 0)
+#define DC_T_MEM           (UINT64_C(1) << 1)
+#define DC_T_VIDEO         (UINT64_C(1) << 2)
+#define DC_T_XBAR          (UINT64_C(1) << 3)
+#define DC_T_CORE_OFF      (UINT64_C(1) << 4)
+#define DC_T_MEM_OFF       (UINT64_C(1) << 5)
+#define DC_T_PRIV_CLOCKS   (UINT64_C(1) << 6)
+#define DC_T_TEMP_EDGE     (UINT64_C(1) << 7)
+#define DC_T_TEMP_HOTSPOT  (UINT64_C(1) << 8)
+#define DC_T_TEMP_DELTA    (UINT64_C(1) << 9)
+#define DC_T_PL_REQUESTED  (UINT64_C(1) << 10)
+#define DC_T_POWER_W       (UINT64_C(1) << 11)
+#define DC_T_PL_NOW        (UINT64_C(1) << 12)
+#define DC_T_PWR_GPU_PCT   (UINT64_C(1) << 13)
+#define DC_T_PWR_BOARD_PCT (UINT64_C(1) << 14)
+#define DC_T_PL_TARGET_PCT (UINT64_C(1) << 15)
+#define DC_T_VCORE_MV      (UINT64_C(1) << 16)
+#define DC_T_NUM_FANS      (UINT64_C(1) << 17)
+#define DC_T_UTIL_GPU     (UINT64_C(1) << 18)
+#define DC_T_UTIL_FB      (UINT64_C(1) << 19)
+#define DC_T_UTIL_VID     (UINT64_C(1) << 20)
+#define DC_T_UTIL_BUS     (UINT64_C(1) << 21)
+#define DC_T_EVENT_MASK   (UINT64_C(1) << 22)
+#define DC_T_PERF_DECREASE (UINT64_C(1) << 23)
+#define DC_T_PCIE_GEN     (UINT64_C(1) << 24)
+#define DC_T_PCIE_WIDTH   (UINT64_C(1) << 25)
+#define DC_T_PCIE_ERR     (UINT64_C(1) << 26)
+#define DC_T_PSTATE       (UINT64_C(1) << 27)
+#define DC_T_VBOOST       (UINT64_C(1) << 28)
+#define DC_T_CORE_P0MAX   (UINT64_C(1) << 29)
+#define DC_T_MEM_P0MAX    (UINT64_C(1) << 30)
+#define DC_T_ENERGY_J     (UINT64_C(1) << 31)
+#define DC_T_VF_LOCKED    (UINT64_C(1) << 32)
+#define DC_T_VF_LOCK_MV   (UINT64_C(1) << 33)
+#define DC_T_CLK_LOCK     (UINT64_C(1) << 34)
 
 typedef struct dc_telemetry {
     uint32_t size;          /* sizeof(dc_telemetry), set by the caller */
@@ -345,6 +368,13 @@ typedef struct dc_offset_range {
     int32_t present;
     int32_t low, high, current;
 } dc_offset_range;
+
+/* Read the current offset range without using cached capabilities. Core values
+ * are MHz; divide memory values by dc_gpu_mem_offset_scale().scale to obtain
+ * that interface's labelled memory units (including MHz true where supported).
+ * ctype is 0 for core or 2 for memory. DC_E_UNAVAILABLE means the range could
+ * not be read; all failures leave out unchanged. On success present is 1. */
+DC_API dc_status DC_CALL dc_gpu_clock_offset_range_get(dc_gpu* gpu, uint32_t ctype, dc_offset_range* out);
 
 enum {
     DC_C_PL_MIN = 1u << 0, DC_C_PL_MAX = 1u << 1, DC_C_PL_DEF = 1u << 2, DC_C_GFX_MIN = 1u << 3, DC_C_GFX_MAX = 1u << 4,
@@ -1155,6 +1185,7 @@ DC_API dc_status DC_CALL dc_hook_thunk(uint64_t address, uint64_t target, uint32
 }
 #endif
 
+#include "drutacore/i2c.h"            /* dc_i2c_read/write: selected GPU transport */
 #include "drutacore/clkdom.h"         /* private clock-domain rows and names */
 #include "drutacore/power_limit.h"    /* dc_pl_*: the board power limit (needs dc_cl_statics) */
 #include "drutacore/vfplan.h"  /* the pure V/F planners */

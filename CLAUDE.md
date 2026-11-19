@@ -8,6 +8,11 @@ newer standing instruction, bring the other one up to date.
 
 ## Session-only tuning
 
+The current session is for released Python 1.9.1 UI/behavior parity and the
+user's explicit layout differences. Follow AGENTS.md: no purely theoretical
+issues, improvements beyond that scope, or closed GitHub issues. Check issue
+state before issue-linked work; keep broader research/qualification deferred.
+
 Undo and manual saved-profile integration for qualified controls are now in
 scope, as recorded in AGENTS.md. Unresolved control research remains separate.
 
@@ -19,6 +24,11 @@ The user authorizes a narrow exception for power relationship-weight overrides
 through registry/VBIOS configuration. These overrides require a GPU driver
 refresh to load and persist until removed or changed. Ordinary tuning controls
 remain session-only.
+
+## Hardware memory-timing tests
+
+Run hardware memory-timing tests only at verified P0. Check the selected card's
+P-state and memory clock immediately before and after each timing sample.
 
 ## Driver versions
 

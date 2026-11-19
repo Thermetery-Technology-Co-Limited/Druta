@@ -7,6 +7,10 @@ Windows builds bundle an architecture-matched `drutacore.dll`. This is an
 opt-in implementation awaiting the hardware checks in `DESIGN-FRONTEND.md`
 section (f), item 7, not a completed hardware qualification or release.
 
+The [2026-11-11 RTX 3070 Ti live record](../experiments/native-3070ti-live-validation-20261111.md)
+documents the first Windows hardware pass, the fixes it found, request/restoration
+results, driver refusals and remaining qualification scope.
+
 - `include/drutacore/drutacore.h`: the C ABI. Python (`ctypes`) and the
   future native front end both call this; nothing else crosses the boundary.
 - `src/core/`: the pure core (packet layouts, validation, identities). It has

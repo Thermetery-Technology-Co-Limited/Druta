@@ -38,7 +38,11 @@ public:
         if (file_) std::fclose(file_);
     }
     void open(const std::wstring& path) {
+#ifdef _MSC_VER
+        _wfopen_s(&file_, path.c_str(), L"w");
+#else
         file_ = _wfopen(path.c_str(), L"w");
+#endif
         path_ = path;
     }
     bool is_open() const { return file_ != nullptr; }
@@ -658,7 +662,10 @@ void report_nvapi(Report& out) {
     out.line("NvAPI_EnumPhysicalGPUs: status %d %s, %u GPU(s)", status, describe(status).c_str(), count);
     for (unsigned i = 0; i < count && i < 64; ++i) {
         char name_buffer[64] = "";
-        if (full_name && full_name(handles[i], name_buffer) != 0) std::strcpy(name_buffer, "?");
+        if (full_name && full_name(handles[i], name_buffer) != 0) {
+            name_buffer[0] = '?';
+            name_buffer[1] = '\0';
+        }
         unsigned device_id = 0, subsystem = 0, revision = 0, external = 0;
         bool have_ids = pci_ids && pci_ids(handles[i], &device_id, &subsystem, &revision, &external) == 0;
         unsigned bus = 0, slot = 0;

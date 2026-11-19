@@ -2,6 +2,84 @@ How to use Druta:
 
 Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can also denote a “rapid shift (of expressions)", which is perfect for what this project is. 
 
+## Display refresh and pausing
+
+**Always refresh** is off by default each time Druta starts. While visible,
+the window renders normally during interaction, then drops to a target of
+10 FPS after 0.75 seconds without activity. Telemetry keeps its usual cadence.
+Routine panel updates follow visible pages, including detached pages; hidden
+panels do not trigger their extra diagnostic reads. Clock evidence and an
+explicitly armed timing capture still process incoming telemetry.
+
+Turn **Always refresh** on to keep normal rendering and telemetry running
+at all times, including while minimized. This is a per-window display option,
+not a saved tuning setting. **Pause display + monitoring** overrides it.
+
+Click **Pause display + monitoring**, or minimize with **Always refresh** off, to stop
+rendering, panel/layout updates, routine GPU telemetry and capability retries.
+Restore the existing window from the taskbar or press **Ctrl+Shift+F11** to
+resume. The shortcut restores only; holding it does not toggle the pause.
+If another application owns the shortcut, Druta reports that it is unavailable
+and taskbar restoration remains available.
+
+The last readings remain marked stale after restoration until a fresh read
+arrives. An in-flight read may finish when pause begins, but its old result
+cannot overwrite the resumed session's readings. Pause does not apply, undo,
+save or replay tuning settings.
+
+Work already in progress, including verification and its restoration, finishes
+through its existing lifecycle. Required maintenance for an active hold also
+continues: Hold Headroom reads only its live rail and checks its owned lock,
+instead of running the full telemetry scan. The window still processes restore,
+close and shutdown messages while paused. Without active maintenance or an
+in-flight operation, it issues no recurring GPU telemetry reads.
+
+## Firmware clock controls in the native GUI
+
+Open **Daily tuning** in Focused or **Control → Clock offsets** in Classic.
+Druta reads the selected card’s clock table and shows the sliders it supports.
+Choose a **Performance state** to edit that state's entries. The same editor is
+available in **Advanced**, under **Registry / BIOS overrides** in Classic.
+
+On Pascal, the state sliders set independent **GPC**, **XBAR** and
+**SYS / Video** ceilings in 0.5 MHz steps. For the shared XBAR and SYS ratios,
+**Est. target** finds the highest GPC frequency on the P0 voltage/frequency
+(V/F) curve whose voltage is at or below the reported effective NVVDD limit.
+It multiplies that frequency by the selected ratio. Staged core offset and
+V/F curve edits update the preview before they are applied. The estimate stays
+tied to the P0 curve even while the GPU idles or you select another performance
+state. It needs a current curve and voltage limit. GPU Boost and the state's
+independent ceiling can affect the clock you actually measure.
+On the tested GTX 1050 Ti, SYS also governs the reported Video clock and
+affects H.264 decode speed.
+
+On Kepler and Maxwell cards with a supported nine-clock performance table,
+**GPC**, **XBAR** and **SYS** have independent MHz targets for each state.
+Each slider spans the targets already programmed for that domain on the card.
+Moving the GPC slider leaves the independent XBAR and SYS targets as set.
+
+The Pascal XBAR and SYS ratio sliders each accept 1–200% of GPC in whole-percent steps.
+They apply across performance states, including states other than the one selected.
+The highest ratio tested on the GTX 1050 Ti was 105%. At that setting, each
+clock ran about 4.4% faster than GPC in P0. You can stage ceilings in
+several states and change a ratio in the same draft. To apply or restore, run
+Druta as administrator and enable **Unlock controls**. Choose **Review clock
+changes** to see the state and values for every edit. **Apply and refresh
+selected GPU** closes Druta, restarts the selected GPU and clears its ordinary
+tuning. Druta checks the running image before and after clearing its temporary
+registry records, then reopens the editor with the applied values. You can adjust
+a slider again, enable **Unlock controls**, and review and apply the next change.
+Each Apply carries forward the other values in the session. The next ordinary GPU
+restart clears the session's changes.
+
+Use **Restore original clocks and refresh GPU** to return to the clocks from
+before the first Apply. Returning every field to its original value with the
+sliders also closes the session.
+If the GPU has already restarted, **Verify clock override** checks the original
+image and closes the saved session. After an interrupted activation, use
+**Inspect saved override** on the same adapter, then choose Verify or Restore
+according to the reported state.
+
 ## Native backend preview
 
 The C++ core is opt-in while hardware validation continues. Start
@@ -369,13 +447,11 @@ The GTX 690 shares one blower between its two GPU cores.
 releases the hold but leaves fan duty as set. Clock, power and voltage settings
 are not changed by this button.
 
-## 4. What about XBAR? 
+## 4. What about XBAR?
 
-On 10, I have found no manipulable software knobs to tune XBAR. To help you cope and seethe, you can read the the 1000 series XBAR frequence inside the monitor tab of Druta but not change it, because NVIDIA simply doesn't expose any way to change it. The good news:
-
-### For 10 and 20 series, XBAR strictly scales with CORE FREQUENCY, NOT NVVDD VOTLAGE. 
-
-That means you should just overclock the crap out of your core like everyone else instead of worrying about NVVDD. 
+Monitor shows the reported XBAR clock. The native GUI offers an XBAR firmware
+ratio and per-state ceilings on supported Pascal cards. See
+[Firmware clock controls in the native GUI](#firmware-clock-controls-in-the-native-gui).
 
 ## 5. Shunt mod corrected power
 
@@ -527,8 +603,9 @@ use the controller's Stock/Auto action or a full power cycle as appropriate.
 
 Open **Advanced > Registry / BIOS overrides**, then **Read current fields**.
 The **Advanced** tab groups everything beyond daily tuning into **Power
-policies**, **Registry / BIOS overrides** (persistent; applying restarts the
-GPU), **Live voltage controls** and **Live power-saving & PCIe** (this driver
+policies**, **Registry / BIOS overrides** (the fields described in this
+section persist across GPU restarts; native Pascal clock edits last for one
+driver session), **Live voltage controls** and **Live power-saving & PCIe** (this driver
 session only), and read-only **Diagnostics**. Its top line repeats the newest
 log entry, so a refused write there is visible without switching tabs.
 The panel shows understood BIOS fields and sensed silicon-model inputs for the

@@ -1,0 +1,297 @@
+{
+  "capture": {
+    "may_have_changed": false,
+    "message": "Full tune saved; no settings applied",
+    "ok": true
+  },
+  "close": {
+    "may_have_changed": false,
+    "message": "",
+    "ok": true
+  },
+  "enumerated_matches": 1,
+  "hardware_write_requested": false,
+  "incomplete": [],
+  "inspection": {
+    "error": "",
+    "scope": "Python full tune",
+    "slot": "0000:01:00.0",
+    "summary": "Python full tune: 16 selected targets; fresh preflight required; indexed curve lacks historical voltages",
+    "targets": [
+      "clock:core",
+      "clock:memory",
+      "voltage:boost",
+      "voltage:nvvdd-offset",
+      "clock:domain:1",
+      "clock:domain:2",
+      "clock:domain:3",
+      "clock:domain:5",
+      "clock:domain:9",
+      "voltage:msvdd-offset:0",
+      "rail:0:1",
+      "rail:0:2",
+      "rail:0:0",
+      "rail:0:3",
+      "power:*",
+      "fan:policy"
+    ],
+    "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1",
+    "valid": true
+  },
+  "ok": true,
+  "profile": {
+    "clock_domain_offsets_mhz": {
+      "1": 41.0,
+      "2": 0.0,
+      "3": 0.0,
+      "5": 0.0,
+      "9": 0.0
+    },
+    "core_off_mhz": 0,
+    "current_limits_ma": {
+      "13": 471399
+    },
+    "device": {
+      "driver": "595.97",
+      "mem_type_id": 15,
+      "name": "NVIDIA GeForce RTX 3070 Ti",
+      "slot": "0000:01:00.0",
+      "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1",
+      "vbios": "94.04.5a.00.56"
+    },
+    "fan_control_state": {
+      "fans": [
+        {
+          "id": 0,
+          "level": 100,
+          "manual": true,
+          "policy": 1
+        },
+        {
+          "id": 1,
+          "level": 100,
+          "manual": true,
+          "policy": 1
+        }
+      ],
+      "source": "nvml"
+    },
+    "fan_manual": true,
+    "fan_pct": 100,
+    "i2c": null,
+    "incomplete": [],
+    "mem_off_scale": 16,
+    "mem_off_true_mhz": 22.0,
+    "mem_off_units": 352,
+    "msvdd_offsets_mv": {
+      "0": 0.0
+    },
+    "nvvdd_offset_mv": 0.0,
+    "power_limit_mw": 1917260,
+    "power_policies": {
+      "0": {
+        "channel": 11,
+        "type": 16,
+        "value": 5001000
+      },
+      "1": {
+        "channel": 12,
+        "type": 3,
+        "value": 1001000
+      },
+      "11": {
+        "channel": 7,
+        "type": 3,
+        "value": 150000
+      },
+      "12": {
+        "channel": 19,
+        "type": 16,
+        "value": 5001000
+      },
+      "14": {
+        "channel": 11,
+        "type": 16,
+        "value": 5001000
+      },
+      "15": {
+        "channel": 11,
+        "type": 16,
+        "value": 5001000
+      },
+      "18": {
+        "channel": 19,
+        "type": 15,
+        "value": 5001000
+      },
+      "3": {
+        "channel": 11,
+        "type": 15,
+        "value": 5001000
+      },
+      "4": {
+        "channel": 11,
+        "type": 15,
+        "value": 5001000
+      },
+      "8": {
+        "channel": 15,
+        "type": 4,
+        "value": 36250
+      }
+    },
+    "rail_limits_mv": {
+      "0": {
+        "alt_reliability": 1100.0,
+        "overvoltage": 1100.0,
+        "reliability": 1081.25,
+        "vmin": 662.5
+      }
+    },
+    "rail_limits_uv": {
+      "0": {
+        "alt_reliability": 0,
+        "overvoltage": 0,
+        "reliability": 0,
+        "vmin": 0
+      }
+    },
+    "saved_at": "2026-11-13 19:56:18",
+    "saved_ts": 1794570978.0738976,
+    "schema": 2,
+    "vf_applicable": true,
+    "vf_deltas": {
+      "0": 0,
+      "1": 0,
+      "10": 0,
+      "100": 105000,
+      "101": 120000,
+      "102": 135000,
+      "103": 150000,
+      "104": 0,
+      "105": 0,
+      "106": 0,
+      "107": 0,
+      "108": 0,
+      "109": 0,
+      "11": 0,
+      "110": 0,
+      "111": 0,
+      "112": 0,
+      "113": 0,
+      "114": 0,
+      "115": 0,
+      "116": 0,
+      "117": 0,
+      "118": 0,
+      "119": 0,
+      "12": 0,
+      "120": 0,
+      "121": 0,
+      "122": 0,
+      "123": 0,
+      "124": 0,
+      "125": 0,
+      "126": 0,
+      "13": 0,
+      "14": 0,
+      "15": 0,
+      "16": 0,
+      "17": 0,
+      "18": 0,
+      "19": 0,
+      "2": 0,
+      "20": 0,
+      "21": 0,
+      "22": 0,
+      "23": 0,
+      "24": 0,
+      "25": 0,
+      "26": 0,
+      "27": 0,
+      "28": 0,
+      "29": 0,
+      "3": 0,
+      "30": 0,
+      "31": 0,
+      "32": 0,
+      "33": 0,
+      "34": 0,
+      "35": 0,
+      "36": 0,
+      "37": 0,
+      "38": 0,
+      "39": 0,
+      "4": 0,
+      "40": 0,
+      "41": 0,
+      "42": 0,
+      "43": 0,
+      "44": 0,
+      "45": 0,
+      "46": 0,
+      "47": 0,
+      "48": 0,
+      "49": 0,
+      "5": 0,
+      "50": 0,
+      "51": 0,
+      "52": 0,
+      "53": 0,
+      "54": 0,
+      "55": 0,
+      "56": 0,
+      "57": 0,
+      "58": 0,
+      "59": 0,
+      "6": 0,
+      "60": 0,
+      "61": 0,
+      "62": 0,
+      "63": 0,
+      "64": 0,
+      "65": 0,
+      "66": 0,
+      "67": 0,
+      "68": 0,
+      "69": 0,
+      "7": 0,
+      "70": 0,
+      "71": 0,
+      "72": 0,
+      "73": 0,
+      "74": 0,
+      "75": 0,
+      "76": 0,
+      "77": 0,
+      "78": 0,
+      "79": 0,
+      "8": 0,
+      "80": 0,
+      "81": 0,
+      "82": 0,
+      "83": 0,
+      "84": 0,
+      "85": 0,
+      "86": 0,
+      "87": 0,
+      "88": 0,
+      "89": 15000,
+      "9": 0,
+      "90": 15000,
+      "91": 30000,
+      "92": 30000,
+      "93": 45000,
+      "94": 45000,
+      "95": 60000,
+      "96": 75000,
+      "97": 75000,
+      "98": 90000,
+      "99": 105000
+    },
+    "volt_boost_pct": 100,
+    "xoc": true
+  },
+  "slot": "0000:01:00.0",
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

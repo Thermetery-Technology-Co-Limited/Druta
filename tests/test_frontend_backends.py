@@ -195,13 +195,22 @@ def test_profile_captures_msvdd_requests_written_this_session(kind):
 def test_one_poll_iteration_publishes_real_telemetry(kind):
     def flow(session):
         app = session.app
-        class OneTick:
-            stopped = False
+        class Stop:
+            stopped, checks = False, 0
             def is_set(self):
+                # A correct tick checks twice before parking and once after.
+                # Fail instead of looping forever if the loop stops parking on
+                # app._poll_wake.
+                self.checks += 1
+                if self.checks > 8:
+                    raise AssertionError("poll_loop did not park on app._poll_wake")
                 return self.stopped
+        class OneTick:
+            def clear(self):
+                pass
             def wait(self, unused):
-                self.stopped = True
-        app._stop = OneTick()
+                app._stop.stopped = True
+        app._stop, app._poll_wake = Stop(), OneTick()
         app.poll_loop()
         assert app._snap_err is None
         assert app._snap is not None
