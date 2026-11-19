@@ -103,16 +103,20 @@ def _delay_imports(reader, image, optional):
     raise pe.MalformedError("too many delay-import descriptors")
 
 
-def audit_bytes(data: bytes) -> dict:
-    """Return a serializable result; malformed or unaudited input fails closed."""
+def audit_bytes(data: bytes, subsystem: str = "gui") -> dict:
+    """Audit the requested GUI or console subsystem; malformed input fails closed."""
+    if subsystem not in ("gui", "console"):
+        raise ValueError("subsystem must be gui or console")
+    expected_subsystem = 2 if subsystem == "gui" else 3
+    expected_label = "GUI" if subsystem == "gui" else "console"
     image = pe.Image()
     reader = pe._Reader(data)
     delay = []
-    subsystem = None
+    actual_subsystem = None
     try:
         pe._read(reader, image)
         optional = reader.unpack("<I", 0x3C)[0] + 24
-        subsystem = reader.unpack("<H", optional + 68)[0]
+        actual_subsystem = reader.unpack("<H", optional + 68)[0]
         delay = _delay_imports(reader, image, optional)
         # The core deliberately refuses all delay imports. Remove only that
         # diagnostic after our own parser has successfully audited the table.
@@ -127,8 +131,8 @@ def audit_bytes(data: bytes) -> dict:
                           ("subsystem", image.subsystem_version)):
         if version is not None and version > (6, 0):
             violations.append(f"{name} header {version[0]}.{version[1]} exceeds Windows 6.0")
-    if subsystem is not None and subsystem != 2:
-        violations.append(f"PE subsystem {subsystem} is not Windows GUI (2)")
+    if actual_subsystem is not None and actual_subsystem != expected_subsystem:
+        violations.append(f"PE subsystem {actual_subsystem} is not Windows {expected_label} ({expected_subsystem})")
     for dependency in imports:
         dll = dependency["dll"]
         if dll.lower() not in SYSTEM_DLLS:
@@ -140,7 +144,7 @@ def audit_bytes(data: bytes) -> dict:
     return {
         "format": 1, "sha256": hashlib.sha256(data).hexdigest(),
         "machine": image.machine, "os_version": image.os_version,
-        "subsystem_version": image.subsystem_version, "subsystem": subsystem,
+        "subsystem_version": image.subsystem_version, "subsystem": actual_subsystem,
         "imports": imports, "passed": not violations, "violations": violations,
         "limitation": LIMITATION,
     }
@@ -149,10 +153,12 @@ def audit_bytes(data: bytes) -> dict:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path)
+    parser.add_argument("--subsystem", choices=("gui", "console"), default="gui",
+                        help="expected Windows subsystem (default: gui)")
     parser.add_argument("--report", type=Path, help="write the full audited import inventory as JSON")
     args = parser.parse_args(argv)
     try:
-        result = audit_bytes(args.executable.read_bytes())
+        result = audit_bytes(args.executable.read_bytes(), subsystem=args.subsystem)
         result["executable"] = str(args.executable.resolve())
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)

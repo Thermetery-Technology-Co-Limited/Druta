@@ -59,7 +59,40 @@ void print_data(const LiveData& d) {
             optional_value("memory.high", c.high); optional_value("memory.step", c.step);
         }
     }
-    std::cout << "curve.points=" << d.curve.size() << "\ncurve.error=" << d.curve_error
+    std::cout << "advanced.count=" << d.advanced_controls.size() << '\n';
+    for (size_t i = 0; i < d.advanced_controls.size(); ++i) {
+        const auto& a = d.advanced_controls[i]; const std::string key = "advanced." + std::to_string(i);
+        const char* kind = a.id.kind == AdvancedKind::clock_domain ? "clock_domain" :
+                           a.id.kind == AdvancedKind::nvvdd ? "nvvdd" : "msvdd";
+        std::cout << key << ".kind=" << kind << '\n' << key << ".domain=" << a.id.domain
+                  << '\n' << key << ".label=" << a.label << '\n' << key << ".availability=" << availability(a.state.availability)
+                  << '\n' << key << ".writable=" << a.state.writable << '\n' << key << ".unit=" << a.state.unit
+                  << '\n' << key << ".detail=" << a.state.detail << '\n';
+        optional_value((key + ".current").c_str(), a.state.current);
+        optional_value((key + ".low").c_str(), a.state.low); optional_value((key + ".high").c_str(), a.state.high);
+    }
+    std::cout << "policy.count=" << d.power_policies.size() << '\n';
+    for (size_t i = 0; i < d.power_policies.size(); ++i) {
+        const auto& p = d.power_policies[i]; const std::string key = "policy." + std::to_string(i);
+        std::cout << key << ".id=" << p.id << '\n' << key << ".label=" << p.label
+                  << '\n' << key << ".availability=" << availability(p.state.availability)
+                  << '\n' << key << ".writable=" << p.state.writable << '\n' << key << ".unit=" << p.state.unit
+                  << '\n' << key << ".detail=" << p.state.detail << '\n';
+        optional_value((key + ".current").c_str(), p.state.current);
+        optional_value((key + ".low").c_str(), p.state.low); optional_value((key + ".high").c_str(), p.state.high);
+    }    std::cout << "rail.mode_known=" << d.rail_mode_known << "\nrail.mode_enabled=" << d.rail_mode_enabled
+              << "\nrail.writable_known=" << d.rail_writable_known << "\nrail.writable=" << d.rail_writable
+              << "\nrail.count=" << d.rail_controls.size() << '\n';
+    for (size_t i = 0; i < d.rail_controls.size(); ++i) {
+        const auto& r = d.rail_controls[i]; const std::string key = "rail." + std::to_string(i);
+        std::cout << key << ".index=" << r.id.rail << '\n' << key << ".field=" << r.id.field
+                  << '\n' << key << ".availability=" << availability(r.state.availability)
+                  << '\n' << key << ".writable=" << r.state.writable << '\n' << key << ".unit=" << r.state.unit
+                  << '\n' << key << ".detail=" << r.state.detail << '\n';
+        optional_value((key + ".current").c_str(), r.state.current);
+        optional_value((key + ".initial").c_str(), r.state.stock);
+        optional_value((key + ".estimated_base_mv").c_str(), r.estimated_base_mv);
+    }    std::cout << "curve.points=" << d.curve.size() << "\ncurve.error=" << d.curve_error
               << "\ncurve.freq_div=" << d.curve_freq_div << "\ncurve.step_khz=" << d.curve_step_khz
               << "\nlocks.clock.present=" << !!(d.telemetry.present & DC_T_CLK_LOCK)
               << "\nlocks.clock.min_mhz=" << d.telemetry.clk_lock_min_mhz
@@ -304,6 +337,73 @@ int control_roundtrip(IBackend& backend, const LiveData& initial, ControlId cont
         *restored.controls[index].current == *c.current && same_curve(before, restored);
     std::cout << "restore.verified=" << verified << '\n';
     return !threw && applied.ok && applied_verified && undo_needed && undo_ok && verified ? 0 : 1;
+}using AdvancedKey = std::pair<int, uint32_t>;
+bool advanced_requests(const LiveData& data, std::map<AdvancedKey, double>& out) {
+    for (const auto& row : data.advanced_controls) {
+        if (row.state.availability != Availability::available || !row.state.current || !std::isfinite(*row.state.current)) return false;
+        const AdvancedKey key{static_cast<int>(row.id.kind), row.id.domain};
+        if (!out.emplace(key, *row.state.current).second) return false;
+    }
+    return true;
+}
+bool rail_requests(const LiveData& data, std::map<std::pair<uint32_t, uint32_t>, double>& out) {
+    for (const auto& row : data.rail_controls) {
+        if (row.state.availability != Availability::available || !row.state.current || !std::isfinite(*row.state.current)) return false;
+        if (!out.emplace(std::make_pair(row.id.rail, row.id.field), *row.state.current).second) return false;
+    }
+    return true;
+}int domain_roundtrip(IBackend& backend, const LiveData& initial, uint32_t index) {
+    if (index == 2) { std::cout << "domain.error=XOC-only domain is not eligible\n"; return 1; }
+    const auto before = backend.read(true);
+    std::map<uint32_t, CurveRow> geometry; std::map<AdvancedKey, double> original;
+    std::map<std::pair<uint32_t, uint32_t>, double> original_rails;
+    const AdvancedKey selected{static_cast<int>(AdvancedKind::clock_domain), index};
+    const auto row = std::find_if(before.advanced_controls.begin(), before.advanced_controls.end(), [&](const auto& v) {
+        return v.id.kind == AdvancedKind::clock_domain && v.id.domain == index;
+    });
+    if (!before.connected || !before.telemetry_valid || !same_identity(initial.identity, before.identity) || before.undo_available ||
+        row == before.advanced_controls.end() || row->state.availability != Availability::available || !row->state.writable ||
+        !row->state.current || !std::isfinite(*row->state.current) || std::trunc(*row->state.current) != *row->state.current ||
+        row->state.unit != "MHz" || !curve_signature(before, geometry) || !advanced_requests(before, original) || !rail_requests(before, original_rails)) {
+        std::cout << "domain.error=Fresh identity, complete surfaced requests, curve, or selected writable request unavailable\n"; return 1;
+    }
+    const double target = *row->state.current - 1.0;
+    if (!std::isfinite(target) || target * 1000.0 < INT32_MIN || target * 1000.0 > INT32_MAX ||
+        (row->state.low && target < *row->state.low) || (row->state.high && target > *row->state.high)) {
+        std::cout << "domain.error=One-MHz reduction is not representable or within reported bounds\n"; return 1;
+    }
+    std::cout << "domain.index=" << index << "\ndomain.before_mhz=" << *row->state.current << "\ndomain.requested_mhz=" << target
+              << "\ndomain.scope=all surfaced advanced and rail requests and complete V/F curve\n";
+    Command cmd; cmd.operation = Command::Operation::apply; cmd.advanced = AdvancedId{AdvancedKind::clock_domain, index}; cmd.value = target;
+    ActionResult applied; bool threw = false;
+    try { applied = backend.execute(cmd); }
+    catch (...) { threw = true; applied.may_have_changed = true; applied.message = "Action threw; state is uncertain"; }
+    print_result("apply", applied);
+    LiveData after; bool got_after = false;
+    try { after = backend.read(true); got_after = true; } catch (...) { std::cout << "apply_read.error=Read threw\n"; }
+    std::map<AdvancedKey, double> changed; auto expected = original; expected[selected] = target;
+    std::map<std::pair<uint32_t, uint32_t>, double> after_rails;
+    const bool after_readable = got_after && advanced_requests(after, changed) && rail_requests(after, after_rails);
+    if (after_readable && changed.count(selected)) std::cout << "domain.readback_mhz=" << changed.at(selected) << '\n';
+    const bool applied_verified = after_readable && after.connected && same_identity(before.identity, after.identity) &&
+        changed == expected && after_rails == original_rails && same_curve(before, after);
+    std::cout << "apply.verified=" << applied_verified << '\n';
+    const bool undo_needed = applied.may_have_changed || (got_after && after.undo_available);
+    bool undo_ok = false;
+    if (undo_needed) {
+        Command undo; undo.operation = Command::Operation::undo;
+        try { const auto result = backend.execute(undo); print_result("undo", result); undo_ok = result.ok; }
+        catch (...) { std::cout << "undo.error=Undo threw\n"; }
+    } else std::cout << "undo.attempted=0\n";
+    LiveData restored; bool got_restored = false;
+    try { restored = backend.read(true); got_restored = true; } catch (...) { std::cout << "restore_read.error=Read threw\n"; }
+    std::map<AdvancedKey, double> final_values; std::map<std::pair<uint32_t, uint32_t>, double> final_rails;
+    const bool final_readable = got_restored && advanced_requests(restored, final_values) && rail_requests(restored, final_rails);
+    if (final_readable && final_values.count(selected)) std::cout << "domain.restored_mhz=" << final_values.at(selected) << '\n';
+    const bool verified = final_readable && restored.connected && same_identity(before.identity, restored.identity) &&
+        final_values == original && final_rails == original_rails && same_curve(before, restored);
+    std::cout << "restore.verified=" << verified << '\n';
+    return !threw && applied.ok && applied_verified && undo_needed && undo_ok && verified ? 0 : 1;
 }int profile_roundtrip(IBackend& backend, const LiveData& initial, const std::wstring& path) {
     const auto before = backend.read(true);
     const auto& c = before.controls[static_cast<size_t>(ControlId::memory)];
@@ -323,7 +423,7 @@ int control_roundtrip(IBackend& backend, const LiveData& initial, ControlId cont
     if (!saved.ok) return 1;
     auto doc = read_profile(path);
     if (!doc.is_object() || !doc.contains("format") || doc["format"] != "druta-native-daily" ||
-        !doc.contains("version") || doc["version"] != 1 || !doc.contains("controls") ||
+        !doc.contains("version") || (doc["version"] != 1 && doc["version"] != 2) || !doc.contains("controls") ||
         !doc["controls"].is_object() || !doc["controls"].contains("memory")) {
         std::cout << "profile.error=Saved memory settings unavailable\n"; return 1;
     }
@@ -346,6 +446,7 @@ int control_roundtrip(IBackend& backend, const LiveData& initial, ControlId cont
     }
     memory["value"] = current + scale;
     doc["controls"] = ProfileJson::object(); doc["controls"]["memory"] = memory;
+    doc.erase("advanced"); doc["version"] = 1;
     write_profile(path, doc);
     std::cout << "profile.before_raw=" << current << "\nprofile.requested_raw=" << current + scale
               << "\nprofile.scale=" << scale << '\n';
@@ -355,8 +456,8 @@ int control_roundtrip(IBackend& backend, const LiveData& initial, ControlId cont
 }
 int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
-    std::wstring core, gpu, profile_path, control_name; enum class Mode { read, memory, curve, profile, control } mode = Mode::read;
-    const auto usage = [] { std::cerr << "usage: live_check --core ABSOLUTE_DLL --gpu SLOT [--memory-roundtrip | --curve-roundtrip | --profile-roundtrip --profile-path ABSOLUTE_FILE | --control-roundtrip core|power|fan|boost]\n"; };
+    std::wstring core, gpu, profile_path, control_name, domain_index; enum class Mode { read, memory, curve, profile, control, domain } mode = Mode::read;
+    const auto usage = [] { std::cerr << "usage: live_check --core ABSOLUTE_DLL --gpu SLOT [--memory-roundtrip | --curve-roundtrip | --profile-roundtrip --profile-path ABSOLUTE_FILE | --control-roundtrip core|power|fan|boost | --domain-roundtrip INDEX]\n"; };
     for (int i = 1; i < argc; ++i) {
         const std::wstring arg(argv[i]);
         if (arg == L"--core" && i + 1 < argc && core.empty()) core = argv[++i];
@@ -366,12 +467,22 @@ int wmain(int argc, wchar_t** argv) {
         else if (arg == L"--curve-roundtrip" && mode == Mode::read) mode = Mode::curve;
         else if (arg == L"--profile-roundtrip" && mode == Mode::read) mode = Mode::profile;
         else if (arg == L"--control-roundtrip" && mode == Mode::read && i + 1 < argc) { mode = Mode::control; control_name = argv[++i]; }
+        else if (arg == L"--domain-roundtrip" && mode == Mode::read && i + 1 < argc) { mode = Mode::domain; domain_index = argv[++i]; }
         else { usage(); return 1; }
     }
     if (!absolute_path(core) || gpu.empty() ||
         (mode == Mode::profile ? !absolute_path(profile_path) : !profile_path.empty()) ||
         (mode == Mode::control && control_name != L"core" && control_name != L"power" && control_name != L"fan" && control_name != L"boost")) { usage(); return 1; }
     try {
+        uint32_t domain = 0;
+        if (mode == Mode::domain) {
+            if (domain_index.empty()) { usage(); return 1; }
+            for (wchar_t c : domain_index) {
+                if (c < L'0' || c > L'9' || domain > (DC_CLKDOM_SLOTS - 1) / 10) { usage(); return 1; }
+                domain = domain * 10 + static_cast<uint32_t>(c - L'0');
+                if (domain >= DC_CLKDOM_SLOTS) { usage(); return 1; }
+            }
+        }
         const std::string slot = utf8(gpu.c_str());
         if (slot.empty()) { std::cerr << "Invalid GPU slot encoding\n"; return 1; }
         auto backend = create_core_backend(core); if (!backend) { std::cerr << "Backend unavailable\n"; return 1; }
@@ -386,6 +497,7 @@ int wmain(int argc, wchar_t** argv) {
         if (!initial.connected || !initial.telemetry_valid) return 1;
         if (mode == Mode::memory) return roundtrip(*backend, initial);
         if (mode == Mode::curve) return curve_roundtrip(*backend, initial);
+        if (mode == Mode::domain) return domain_roundtrip(*backend, initial, domain);
         if (mode == Mode::profile) return profile_roundtrip(*backend, initial, profile_path);
         if (mode == Mode::control) {
             const auto id = control_name == L"core" ? ControlId::core : control_name == L"power" ? ControlId::power :

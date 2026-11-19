@@ -163,6 +163,7 @@ void size_bounds(const TestDirectory& directory) {
         "read accepts an object exactly at the 1 MiB bound");
     raw_write(path, exact + "\n");
     expect_failure([&] { (void)read_profile(path); }, "1 MiB", "read rejects oversized files before parsing");
+    expect_failure([&] { (void)read_profile(path,64*1024); }, "65536 byte", "iCX read uses its stricter size limit");
     const ProfileJson original = {{"original", true}};
     write_profile(path, original);
     const ProfileJson large = {{"payload", std::string(profile_max_bytes, 'a')}};

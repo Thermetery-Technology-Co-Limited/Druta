@@ -103,7 +103,7 @@ void require_finite(const ProfileJson& document) {
 }
 } // namespace
 
-ProfileJson read_profile(const std::wstring& path) {
+ProfileJson read_profile(const std::wstring& path, std::size_t maximum_bytes) {
     const auto full_path = absolute_path(path);
     std::string bytes;
     {
@@ -112,8 +112,8 @@ ProfileJson read_profile(const std::wstring& path) {
         if (file.handle == INVALID_HANDLE_VALUE) failure("Open profile", full_path, GetLastError());
         LARGE_INTEGER size{};
         if (!GetFileSizeEx(file.handle, &size)) failure("Read profile size", full_path, GetLastError());
-        if (size.QuadPart < 0 || size.QuadPart > static_cast<LONGLONG>(profile_max_bytes))
-            throw std::runtime_error("Profile exceeds the 1 MiB limit: '" + utf8(full_path) + "'");
+        if (size.QuadPart < 0 || size.QuadPart > static_cast<LONGLONG>(std::min(maximum_bytes, profile_max_bytes)))
+            throw std::runtime_error("Profile exceeds the " + (maximum_bytes>=profile_max_bytes?std::string("1 MiB"):std::to_string(maximum_bytes)+" byte") + " limit: '" + utf8(full_path) + "'");
         bytes.resize(static_cast<size_t>(size.QuadPart));
         size_t offset = 0;
         while (offset < bytes.size()) {

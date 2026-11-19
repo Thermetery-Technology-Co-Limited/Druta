@@ -305,8 +305,10 @@ class StockPolicyRigTests(PolicyCase):
         # Python's pins.pop hashes the policy only when a pin exists
         run = self.both(stock([4]))
         self.assertEqual(run[0], ("ok", (False, "policy [4] is not in the driver's table")))
+        with self.assertRaises(TypeError) as unhashable:
+            {5: 150000}.pop([4], None)  # Python's pins.pop; CPython 3.14 names the dict key in its text
         run = self.both(stock([4]), setup=pins({5: 150000}))
-        self.assertEqual(run[0], ("TypeError", "unhashable type: 'list'"))
+        self.assertEqual(run[0], ("TypeError", str(unhashable.exception)))
         self.assertEqual(run[2]["pins"], {5: 150000})
 
     def test_names_with_a_nul_or_a_lone_surrogate_come_back_whole(self):

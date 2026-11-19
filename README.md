@@ -81,7 +81,9 @@ a few seconds and writes no register.
 - **Reversible, needs admin, cleared by a reboot:** clock offsets, power limit,
 voltage boost, fan, both lock mechanisms, and every V/F curve edit. A V/F edit
 can crash the display driver and hang the machine; a reboot clears the settings
-either way. Registry overrides are a separate persistent path described below.
+either way. The native Pascal clock editor also lasts one driver session.
+Druta uses temporary registry records to load the edited clock table and then
+clears them.
 
 - **Persistent registry overrides, needs admin:** selected VBIOS-field and driver-policy
 changes activate after restarting the selected GPU and survive driver/Windows
@@ -305,7 +307,7 @@ For example:
 
 **GP102 domain 16** first surfaces when it consistently help 0.962–0.970 of `GPC2CLK` across the whole top half of the curve, and a +60 MHz
 core offset moved it by twice the core's move while changing that ratio by
-0.0006. So it is a 2× domain dependent on the core freq. Additionally, the XBar offset mentioned later would attempt to change this value (to no avail, irrelevant here). See *Why Pascal gets no per-domain advanced clock controls*.
+0.0006. So it is a 2× domain dependent on the core freq. Additionally, the XBar offset mentioned later would attempt to change this value (to no avail, irrelevant here). See [Pascal clock controls](#pascal-clock-controls).
 
 **TU102's XBAR law**, deduced and corroboated by the later BIOS analysis:
 
@@ -449,7 +451,16 @@ mapping verdict.  Large requests scale the minimum effect threshold (up to
 25 MHz) so ordinary core/counter jitter is not mistaken for a mapping; the JSON
 retains `median_shift_candidates` and reverse-direction observations for review.
 
-### Why Pascal gets no per-domain advanced frequency control? **Because it's hard coded by the BIOS**
+### Pascal clock controls
+
+The native GUI offers GPC, XBAR and SYS ceilings for each supported Pascal
+performance-state entry, plus XBAR and SYS ratios to GPC across all states.
+On the GTX 1050 Ti, changing the SYS ceiling also changed H.264 decode
+throughput. Apply reloads the selected GPU for one driver session. See the
+[manual](MANUAL.md#pascal-clock-ceilings-and-ratios-in-the-native-gui) and
+[GP107 measurements](TECHNICALDOCUMENTATION.md#pascal-clock-controls-in-the-native-gui).
+
+#### Earlier GP102 live-offset tests
 
 There are docuementations floating around the internet saying that values
 of XBAR/SYSCLK/etc. are "NAFLL (noise-aware frequency locked loops)"s for Pascal. 
@@ -471,7 +482,7 @@ reserves four dependent slots per program and populates two of them inside GPC's
 program — `dom 1 (XBAR) = 97%`, `dom 3 (SYS) = 90%`. There are no such slots for Turing.
 The same search over GP102 finds all three as a positive control. 
 
-That is to say, on Pascal XBAR's target is *computed* from GPC in hard-coded manner.
+On the stock GP102 image, XBAR's target follows GPC.
 
 #### The definitive mechanism for Pascal/Turing XBAR frequencies: 
 
@@ -499,17 +510,16 @@ The sweep also inspired the a further BIOS investigation, because the data above
 | dependent ratio byte `0x61` = 97% | 0.970000 | off by 0.003192 |
 | `freq_max` pair 3695/3822 | 0.966771 | **off by 0.000037** |
 
-The `freq_max` pair wins by 86x. The value XBAR is actually derived from lives at
+The `freq_max` pair fits the stock GP102 measurements 86 times more closely. The corresponding fields were
 
 ```
-0x08449   XBAR program 25 freq_max = 0x0E6F = 3695   <- the operative field
-0x082F7   XBAR dependent ratio byte    = 0x61   = 97     <- not this one
+0x08449   XBAR program 25 freq_max = 0x0E6F = 3695
+0x082F7   XBAR dependent ratio byte    = 0x61   = 97
 ```
 
-However, with BIOS modification out of the question for Pascal, this path is completetly closed. The identification is still worth recording, because it explains what the domain does and why the knob reads target-only, but it is not a route to anything.
-
-So on Pascal the only lever that exists is GPC — raise it and XBAR follows at
-97%. 
+The stock sweep establishes the clock relationship. The GP107 tests changed the
+firmware fields independently through the driver's image override and measured
+the resulting clocks. The physical BIOS stayed intact.
 
 A very deep swipe in the BAR0 also resulted in no relevant result. Furthermore, according to NVIDIA's published RM-to-PMU interface, every per-domain frequency operation exists **only** as a clk-3.5 entry point:
 
@@ -525,7 +535,8 @@ There is no 3X or 3.0 equivalent of any of them:
 domain.
 
 
-**Druta therefore ships no per-domain clock knobs for XBAR/SYS/etc. on Pascal because we failed to find any public or legitimate and private means to ship them.** 
+The live offset panel therefore keeps Pascal XBAR and SYS read-only. The
+native firmware clock editor is available under **Advanced**.
 
 ## Shunt-mod corrected power
 

@@ -1269,12 +1269,14 @@ class CrashMarkerTests(AppTestCase):
         self.assertTrue(nxt._closing)
         self.assertIsNotNone(vfheadroom.active_record(self.UUID))
 
-    def show_stale_dialog(self, nxt, version, others=0):
-        """check_stale_headroom on a given Windows build, with the dialog's
-        widgets present; returns the restart button's settings and the text."""
+    def show_stale_dialog(self, nxt, version, others=0, setupapi=False):
+        """check_stale_headroom on a given Windows build and SetupAPI restart
+        capability, with the dialog's widgets present; returns the restart
+        button's settings and the text."""
         configured, texts = [], []
         with patch("druta.devicereset.platform.system", return_value="Windows"), \
                 patch("druta.devicereset.platform.version", return_value=version), \
+                patch("druta.devicereset.setupapi_restart_supported", return_value=setupapi), \
                 patch("druta.vfheadroom.other_instances", return_value=others), \
                 patch("druta.druta.dpg.does_item_exist", return_value=True), \
                 patch("druta.druta.dpg.configure_item",
@@ -1304,6 +1306,7 @@ class CrashMarkerTests(AppTestCase):
         nxt.gpu.slot = lambda: "0000:03:00.0"
         with patch("druta.devicereset.platform.system", return_value="Windows"), \
                 patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.devicereset.setupapi_restart_supported", return_value=False), \
                 patch("druta.vfheadroom.other_instances", return_value=0), \
                 patch("druta.druta.is_admin", return_value=True), \
                 patch("druta.devicereset.resolve_target", return_value=Mock()) as resolve, \
@@ -1319,11 +1322,39 @@ class CrashMarkerTests(AppTestCase):
         self.assertIsNotNone(vfheadroom.active_record(self.UUID))
         nxt.begin_profile_load = Mock()
         with patch("druta.devicereset.platform.system", return_value="Windows"), \
-                patch("druta.devicereset.platform.version", return_value="6.1.7601"):
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.devicereset.setupapi_restart_supported", return_value=False):
             nxt.stale_headroom_dismiss()
         nxt.begin_profile_load.assert_called_once_with("p", {}, automatic=True)
         self.assertTrue(self.logged_by(nxt, "Druta cannot restart the GPU device"))
         self.assertFalse(self.logged_by(nxt, "Device menu"))
+
+    def test_windows_without_pnputil_but_with_setupapi_restart_offers_the_restart(self):
+        nxt = self.crash()
+        nxt._held_startup_request = {"name": "p", "profile": {}}
+        configured, text = self.show_stale_dialog(nxt, "6.1.7601", others=1, setupapi=True)
+        self.assertEqual(configured, [("hrs_restart", {"enabled": True}),
+                                      ("hrs_admin_hint", {"show": True})])
+        self.assertIn("Druta will close", text)
+        self.assertIn("does not run again this boot", text)
+        self.assertNotIn("Druta cannot restart the GPU device", text)
+        from druta import devicerecovery
+        nxt._closing, nxt._stop = False, Mock()
+        nxt.gpu.slot = lambda: "0000:03:00.0"
+        target = Mock()
+        with patch("druta.devicereset.platform.system", return_value="Windows"), \
+                patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.devicereset.setupapi_restart_supported", return_value=True), \
+                patch("druta.vfheadroom.other_instances", return_value=0), \
+                patch("druta.druta.is_admin", return_value=True), \
+                patch("druta.devicereset.resolve_target", return_value=target), \
+                patch.object(devicerecovery, "launch_helper") as helper, \
+                patch("druta.druta.dpg.stop_dearpygui") as stop:
+            nxt.stale_headroom_restart()
+        helper.assert_called_once_with(target)
+        stop.assert_called_once()
+        self.assertTrue(nxt._closing)
+        self.assertIsNotNone(vfheadroom.active_record(self.UUID))
 
     def test_startup_profile_held_after_the_dialog_is_drawn_is_shown_in_it(self):
         # run() checks the card first and holds the startup profile after,
@@ -1332,6 +1363,7 @@ class CrashMarkerTests(AppTestCase):
         texts = []
         with patch("druta.devicereset.platform.system", return_value="Windows"), \
                 patch("druta.devicereset.platform.version", return_value="6.1.7601"), \
+                patch("druta.devicereset.setupapi_restart_supported", return_value=False), \
                 patch("druta.druta.dpg.does_item_exist", return_value=True), \
                 patch("druta.druta.dpg.configure_item"), \
                 patch("druta.druta.dpg.set_value",

@@ -19,7 +19,7 @@ spec.loader.exec_module(audit)
 
 
 def image(*, machine="x86_64", imports=None, delayed=None, delay_attributes=1,
-          os_version=(6, 0), subsystem_version=(6, 0)):
+          os_version=(6, 0), subsystem_version=(6, 0), subsystem=2):
     directories = {}
     blob = b""
     if delayed:
@@ -40,7 +40,7 @@ def image(*, machine="x86_64", imports=None, delayed=None, delay_attributes=1,
                                             _dll("D3D9.dll", ["Direct3DCreate9"])],
         os_version=os_version, subsystem_version=subsystem_version,
         directories=directories, other_tail=blob))
-    struct.pack_into("<H", data, 0x58 + 68, 2)  # Windows GUI.
+    struct.pack_into("<H", data, 0x58 + 68, subsystem)
     return bytes(data)
 
 
@@ -102,3 +102,16 @@ def test_cli_report_contains_exact_image_hash_and_qualification_limit(tmp_path):
     executable.write_bytes(b"invalid")
     assert audit.main([str(executable), "--report", str(report)]) == 1
     assert json.loads(report.read_text(encoding="utf-8"))["passed"] is False
+
+
+def test_console_requires_explicit_matching_subsystem(tmp_path):
+    console = image(subsystem=3)
+    assert audit.audit_bytes(console, subsystem="console")["passed"]
+    assert not audit.audit_bytes(console)["passed"]
+    assert not audit.audit_bytes(console, subsystem="gui")["passed"]
+    assert not audit.audit_bytes(image(), subsystem="console")["passed"]
+    executable = tmp_path / "worker.exe"
+    executable.write_bytes(console)
+    assert audit.main([str(executable), "--subsystem", "console"]) == 0
+    assert audit.main([str(executable)]) == 1
+    assert audit.main([str(executable), "--subsystem", "gui"]) == 1
