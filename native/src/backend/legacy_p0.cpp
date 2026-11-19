@@ -41,8 +41,8 @@ Outcome LegacyP0::hold() {
             owned_ = true;
             int status = force(0, 2);
             if (status != 0) {
-                owned_ = false;
-                return {false, "P0 request failed (NVAPI status " + std::to_string(status) + ")"};
+                return {false, "P0 request failed (NVAPI status " + std::to_string(status) +
+                               "); possible ownership retained for explicit release"};
             }
         }
     }

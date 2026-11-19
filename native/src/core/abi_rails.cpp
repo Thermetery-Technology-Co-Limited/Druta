@@ -4,6 +4,9 @@
 //
 // The C ABI of drutacore/rails.h.
 #include <cstring>
+#include <array>
+#include <algorithm>
+#include "core/slot.h"
 #include <limits>
 #include <optional>
 
@@ -533,6 +536,50 @@ DC_API dc_status DC_CALL dc_rails_limits_mv(dc_gpu* handle, dc_rails_limits_mv_s
             out->present |= 1u << r;
             put_fields(out->mv[r], *(*rows)[r]);
         }
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_request_packet_set(dc_gpu* handle, const uint8_t* packet, size_t size,
+                                                    int32_t* nvapi_status, dc_error* error) {
+    if (!handle || !packet || !nvapi_status || size != DC_RAILS_REQUEST_PACKET_BYTES ||
+        (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
+    uint32_t version=0; std::memcpy(&version,packet,sizeof(version));
+    if (version != DC_RAILS_CONTROL_VERSION) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        auto& gpu=handle->gpu;const auto& api=gpu.nvapi;
+        auto unavailable=[&](int kind,const char* message) {
+            if(error){dc_error e{};e.size=sizeof(e);e.kind=kind;DC_COPY(e.message,message);*error=e;}
+            return DC_E_UNAVAILABLE;
+        };
+        const auto actual=druta::parse_slot(gpu.slot());
+        const auto selected=api.selected ? druta::parse_slot(api.selected->slot) : std::nullopt;
+        auto same=[](const druta::PciSlot& a,const druta::PciSlot& b){return a.domain==b.domain && a.bus==b.bus && a.device==b.device && a.function==b.function;};
+        if(!api.ok || !api.gpu || !api.selected || api.gpu!=api.selected->handle || !gpu.pairing_error.empty() ||
+           !actual || !selected || actual->domain!=0 || !same(*actual,*selected))
+            return unavailable(DC_ERR_IDENTITY,"Paired NVAPI target unavailable");
+        if(gpu.nvml.selected) {
+            const auto other=druta::parse_slot(gpu.nvml.selected->slot);
+            if(!other || !same(*actual,*other) || (gpu.nvml.selected->devid && *gpu.nvml.selected->devid!=api.selected->devid) ||
+               (gpu.nvml.selected->subsys && *gpu.nvml.selected->subsys!=api.selected->subsys))
+                return unavailable(DC_ERR_IDENTITY,"NVAPI and NVML targets disagree");
+        }
+        using Setter=int(DRUTA_CDECL*)(void*,void*);
+        const auto set=api.get<Setter>(0x87C55C8Au);
+        if(!set)return unavailable(DC_ERR_UNSUPPORTED,"Voltage request setter unavailable");
+        constexpr size_t guard_words=16;
+        std::array<uint32_t,DC_RAILS_REQUEST_PACKET_BYTES/sizeof(uint32_t)+2*guard_words> storage{};
+        storage.fill(0xA5A5A5A5u);auto* copy=reinterpret_cast<uint8_t*>(storage.data()+guard_words);
+        std::memcpy(copy,packet,size);
+        *nvapi_status=set(api.gpu,copy);
+        const bool guards_ok=std::all_of(storage.begin(),storage.begin()+guard_words,[](uint32_t v){return v==0xA5A5A5A5u;}) &&
+            std::all_of(storage.end()-guard_words,storage.end(),[](uint32_t v){return v==0xA5A5A5A5u;});
+        if(!guards_ok || std::memcmp(copy,packet,size)!=0) {
+            if(error){dc_error e{};e.size=sizeof(e);e.kind=DC_ERR_READBACK;DC_COPY(e.message,"NvAPI changed the submitted request packet; dispatch outcome is uncertain");*error=e;}
+            return DC_E_FAILED;
+        }
+        if(error){dc_error e{};e.size=sizeof(e);*error=e;}
         return DC_OK;
     });
 }

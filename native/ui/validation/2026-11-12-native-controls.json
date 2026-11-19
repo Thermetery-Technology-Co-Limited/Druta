@@ -1,0 +1,164 @@
+{
+  "date": "2026-11-12",
+  "adapter": {
+    "name": "NVIDIA GeForce RTX 3070 Ti",
+    "pci_slot": "0000:01:00.0",
+    "driver": "595.97",
+    "vbios": "94.04.5a.00.56",
+    "os": "Windows 10 x64",
+    "scope": "Observed test configuration, not a compatibility gate"
+  },
+  "final_release_sha256": {
+    "druta-ui.exe": "0465CA697D7208B8286061DDF3BEAD05A15FCB1968AAB755B08AFB44643F262E",
+    "drutacore.dll": "1D5CCFF3C415F95C4CF2F33F82F86023784390A974246EFABDE66D3D4EA0E481",
+    "druta-ui-actions-live-check.exe": "6EEC89C4B9588DE4AAF2E463172604C4DB80760A14BE4A367B477AE10BD7220B"
+  },
+  "reset_undo_tested_helper_sha256": "201AA39D3AC70471C74AB4CD90D5F48140F1183B4CBE751AEAEE1BC14D877E7E",
+  "window_tested_ui_sha256": "30FA0650CE7D03F75A2D3E99895C83EDF014859EE7C26F48B8C69975C2BD00BB",
+  "timing_helper_sha256": "AF4E5FB9D975509F908046AC37F47D1CC752C397362A6AB6FB9AC232DCDA4E21",
+  "ctest": {
+    "suites": 18,
+    "passed": 18,
+    "failures": 0
+  },
+  "power_round_trip": [
+    {
+      "board_w": 1999,
+      "current_request_a": 483.014
+    },
+    {
+      "board_w": 500,
+      "current_request_a": 270
+    },
+    {
+      "board_w": 1999,
+      "current_request_a": 483.014
+    }
+  ],
+  "reset_undo": {
+    "curve_voltage_delta_entries_restored": 127,
+    "policy_requests_restored": 19,
+    "undo_remaining": 0,
+    "hold_owned": false,
+    "headroom_owned": false,
+    "recovery_pending": false
+  },
+  "i2c": {
+    "port": 1,
+    "address": "0x20",
+    "verify_passed": true,
+    "controller_restored": true,
+    "clock_released": true,
+    "final_controller_vout_mv": 676,
+    "new_multimeter_measurement": false
+  },
+  "timing": {
+    "captured": true,
+    "preview": "RC 96 -> 255 cycles",
+    "register_write_issued": false,
+    "write_undo_coverage": "mock only"
+  },
+  "window_check": {
+    "live_mode": true,
+    "phases": [
+      {
+        "phase": "visible_default",
+        "frames": 42,
+        "presents": 42,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.1875,
+        "passed": true
+      },
+      {
+        "phase": "always_visible",
+        "frames": 114,
+        "presents": 114,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.078125,
+        "passed": true
+      },
+      {
+        "phase": "always_minimized",
+        "frames": 113,
+        "presents": 113,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      },
+      {
+        "phase": "explicit_pause",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "hotkey_restore",
+        "frames": 113,
+        "presents": 113,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.25,
+        "passed": true
+      },
+      {
+        "phase": "default_minimized",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "default_restored",
+        "frames": 52,
+        "presents": 52,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.28125,
+        "passed": true
+      },
+      {
+        "phase": "classic",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.09375,
+        "passed": true
+      },
+      {
+        "phase": "advanced",
+        "frames": 19,
+        "presents": 19,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.21875,
+        "passed": true
+      },
+      {
+        "phase": "monitor",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.15625,
+        "passed": true
+      },
+      {
+        "phase": "resize_1024x768",
+        "frames": 19,
+        "presents": 19,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.15625,
+        "passed": true
+      }
+    ],
+    "device_resets": 4,
+    "hotkey_registered": true,
+    "passed": true
+  },
+  "scope_notes": [
+    "Live results apply only to this adapter and operating points.",
+    "Window test ran without an owned hold; maintenance during Pause has mock coverage.",
+    "Final rebuild followed only whitespace/test-INI cleanup and CLI help-text addition after Reset/Undo and window tests.",
+    "Max it and I2C checks preceded the curve-geometry correction; I2C controller write/restoration protocol was unchanged.",
+    "Other I2C controller families, timing writes and actual Vista/7 execution remain unqualified."
+  ]
+}

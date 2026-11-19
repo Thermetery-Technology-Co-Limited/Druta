@@ -1,0 +1,34 @@
+{
+  "cleanup": {
+    "cleanup_pending": false,
+    "finished": true,
+    "message": "CUDA workload stopped and owned resources cleaned",
+    "ok": true,
+    "pending": false
+  },
+  "close": {
+    "may_have_changed": false,
+    "message": "",
+    "ok": true
+  },
+  "elapsed_ms": 985,
+  "hardware_set_requested": false,
+  "ok": true,
+  "samples": [
+    {
+      "memory_mhz": 9427,
+      "pstate": 8
+    },
+    {
+      "memory_mhz": 9427,
+      "pstate": 2
+    },
+    {
+      "memory_mhz": 9427,
+      "pstate": 2
+    }
+  ],
+  "slot": "0000:01:00.0",
+  "started": true,
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

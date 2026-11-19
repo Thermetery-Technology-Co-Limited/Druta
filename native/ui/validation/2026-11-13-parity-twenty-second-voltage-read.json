@@ -1,0 +1,104 @@
+{
+  "close_ok": true,
+  "devices": {
+    "may_have_changed": false,
+    "message": "Voltage inspection refreshed; evaluate each family's independent status",
+    "ok": true,
+    "rows": [
+      {
+        "availability": 1,
+        "available": true,
+        "index": 0,
+        "kind": 4,
+        "message": "",
+        "rail": 0,
+        "stale": false,
+        "value": 128,
+        "writable": true
+      },
+      {
+        "availability": 1,
+        "available": true,
+        "index": 1,
+        "kind": 4,
+        "message": "",
+        "rail": 0,
+        "stale": false,
+        "value": 128,
+        "writable": true
+      }
+    ]
+  },
+  "equations": {
+    "count": 203,
+    "definitions_stale": false,
+    "message": "VFE definitions captured; Current ROM voltage inspection failed: Unrecognized rail selector layout",
+    "rows": []
+  },
+  "hardware_write_requested": false,
+  "installed_offsets": {
+    "may_have_changed": false,
+    "message": "Installed scaffold receipt unavailable",
+    "ok": false,
+    "recognized": false,
+    "rows": []
+  },
+  "requests": {
+    "complete": true,
+    "may_have_changed": false,
+    "message": "Complete current request inventory captured",
+    "ok": true,
+    "rows": [
+      {
+        "available": true,
+        "field": 0,
+        "message": "Stored request, not measured voltage",
+        "rail": 0,
+        "stale": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "field": 1,
+        "message": "Stored request, not measured voltage",
+        "rail": 0,
+        "stale": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "field": 2,
+        "message": "Stored request, not measured voltage",
+        "rail": 0,
+        "stale": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "field": 3,
+        "message": "Stored request, not measured voltage",
+        "rail": 0,
+        "stale": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "field": 4,
+        "message": "Stored VCRIT request; effective threshold unverified",
+        "rail": 0,
+        "stale": false,
+        "writable": true
+      },
+      {
+        "available": true,
+        "field": 5,
+        "message": "Stored VCRIT request; effective threshold unverified",
+        "rail": 0,
+        "stale": false,
+        "writable": true
+      }
+    ]
+  },
+  "slot": "0000:01:00.0",
+  "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1"
+}

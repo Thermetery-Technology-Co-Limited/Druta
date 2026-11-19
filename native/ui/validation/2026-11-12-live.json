@@ -1,0 +1,277 @@
+{
+  "date": "2026-11-12",
+  "platform": "Windows 10 x64 build 19045",
+  "adapter": "NVIDIA GeForce RTX 3070 Ti",
+  "scope": "This adapter/configuration only. Configured request readback and restoration, not physical rail effects or a driver restart test.",
+  "build": {
+    "toolchain": "MSVC 19.44.35230 / Windows SDK 10.0.26100.0",
+    "configuration": "Release",
+    "sha256": {
+      "druta-ui.exe": "9b22508d5cc15258ccae6f9e4da71fc6f44a55461b562947551a43ff0638768a",
+      "drutacore.dll": "184d6dfc25046dfcfd401523b5928573824951f1cbc6c613bad2d22c5ebc3753",
+      "druta-ui-live-check.exe": "0dc444844ea5334b6c9ada4130ee71151de74345dafa56df1163231d04b1675c"
+    }
+  },
+  "checks": {
+    "native_ctest_suites": 7,
+    "client_checks": 171,
+    "session_checks": 61,
+    "view_checks": 203,
+    "curve_model_checks": 92,
+    "profile_io_checks": 36,
+    "refresh_policy_checks": 48,
+    "pe_policy_tests": 16,
+    "targeted_python_tests": 57,
+    "all_passed": true
+  },
+  "live_roundtrips": {
+    "memory": {
+      "roundtrip.before": "32",
+      "roundtrip.target": "33",
+      "roundtrip.unit": "MHz true",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "mem offset set to +33 MHz true",
+      "apply.requested": "33",
+      "apply.readback": "33",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "mem offset set to +32 MHz true",
+      "undo.requested": "32",
+      "undo.readback": "32",
+      "restore.verified": "1",
+      "apply.verified": "1"
+    },
+    "core": {
+      "control.step_physical_khz": "15000",
+      "control.before": "0",
+      "control.requested": "15",
+      "control.unit": "MHz",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "core offset set to +15 MHz",
+      "apply.requested": "15",
+      "apply.readback": "15",
+      "control.readback": "15",
+      "apply.verified": "1",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "core offset set to +0 MHz",
+      "undo.requested": "0",
+      "undo.readback": "0",
+      "control.restored": "0",
+      "restore.verified": "1"
+    },
+    "power": {
+      "control.before": "310",
+      "control.requested": "309",
+      "control.unit": "W",
+      "control.verification_scope": "board request and V/F curve; peer policies verified by backend Undo",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "power limit configured to 309 W",
+      "apply.requested": "309",
+      "apply.readback": "309",
+      "control.readback": "309",
+      "apply.verified": "1",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "Board power and peer policy requests restored",
+      "undo.requested": "unavailable",
+      "undo.readback": "unavailable",
+      "control.restored": "310",
+      "restore.verified": "1"
+    },
+    "fan": {
+      "control.before": "30",
+      "control.requested": "31",
+      "control.unit": "%",
+      "control.verification_scope": "reported level and V/F curve; backend Undo restores captured fan policies",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "fans set to manual 31%",
+      "apply.requested": "unavailable",
+      "apply.readback": "unavailable",
+      "control.readback": "31",
+      "apply.verified": "1",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "fan control state restored",
+      "undo.requested": "unavailable",
+      "undo.readback": "unavailable",
+      "control.restored": "30",
+      "restore.verified": "1"
+    },
+    "boost": {
+      "control.before": "0",
+      "control.requested": "1",
+      "control.unit": "%",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "core voltage boost set to 1% (ceiling unlock)",
+      "apply.requested": "1",
+      "apply.readback": "1",
+      "control.readback": "1",
+      "apply.verified": "1",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "core voltage boost set to 0% (ceiling unlock)",
+      "undo.requested": "0",
+      "undo.readback": "0",
+      "control.restored": "0",
+      "restore.verified": "1"
+    },
+    "curve": {
+      "curve.point": "0",
+      "curve.before_raw_khz": "0",
+      "curve.requested_raw_khz": "-15000",
+      "curve.step_physical_khz": "15000",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "VF delta table written (1 points changed)",
+      "apply.requested": "unavailable",
+      "apply.readback": "unavailable",
+      "apply.verified": "1",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "VF delta table written (1 points changed)",
+      "undo.requested": "unavailable",
+      "undo.readback": "unavailable",
+      "restore.verified": "1"
+    },
+    "profile": {
+      "profile.save.ok": "1",
+      "profile.save.may_have_changed": "0",
+      "profile.save.message": "Native daily profile saved. Included: power, memory, boost, fan, core. Core curve is not saved.",
+      "profile.save.requested": "unavailable",
+      "profile.save.readback": "unavailable",
+      "profile.before_raw": "512",
+      "profile.requested_raw": "528",
+      "profile.scale": "16",
+      "apply.ok": "1",
+      "apply.may_have_changed": "1",
+      "apply.message": "Native daily profile applied; core curve is not saved",
+      "apply.requested": "unavailable",
+      "apply.readback": "unavailable",
+      "apply.verified": "1",
+      "undo.ok": "1",
+      "undo.may_have_changed": "1",
+      "undo.message": "Profile requests restored",
+      "undo.requested": "unavailable",
+      "undo.readback": "unavailable",
+      "restore.verified": "1"
+    }
+  },
+  "roundtrip_build_note": "Live round trips ran across incremental Release builds of this change. Final build hashes below identify the renderer smoke/handback binaries; not every earlier hardware run used that exact helper hash.",
+  "renderer_smoke": {
+    "live_mode": true,
+    "phases": [
+      {
+        "phase": "visible_default",
+        "frames": 42,
+        "presents": 42,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      },
+      {
+        "phase": "always_visible",
+        "frames": 115,
+        "presents": 115,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.078125,
+        "passed": true
+      },
+      {
+        "phase": "always_minimized",
+        "frames": 115,
+        "presents": 115,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      },
+      {
+        "phase": "explicit_pause",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "hotkey_restore",
+        "frames": 114,
+        "presents": 114,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.203125,
+        "passed": true
+      },
+      {
+        "phase": "default_minimized",
+        "frames": 0,
+        "presents": 0,
+        "telemetry_reads": 0,
+        "cpu_seconds": 0.0,
+        "passed": true
+      },
+      {
+        "phase": "default_restored",
+        "frames": 54,
+        "presents": 54,
+        "telemetry_reads": 3,
+        "cpu_seconds": 0.1875,
+        "passed": true
+      },
+      {
+        "phase": "classic",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.109375,
+        "passed": true
+      },
+      {
+        "phase": "advanced",
+        "frames": 19,
+        "presents": 19,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.078125,
+        "passed": true
+      },
+      {
+        "phase": "monitor",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.125,
+        "passed": true
+      },
+      {
+        "phase": "resize_1024x768",
+        "frames": 18,
+        "presents": 18,
+        "telemetry_reads": 2,
+        "cpu_seconds": 0.078125,
+        "passed": true
+      }
+    ],
+    "device_resets": 4,
+    "hotkey_registered": true,
+    "passed": true
+  },
+  "renderer_notes": [
+    "Two-second phases; process CPU times have Windows accounting granularity, not a GPU-utilization benchmark.",
+    "Read-only live smoke issued zero tuning commands and preserved a local memory draft through presentations/pages.",
+    "Hotkey delivery was injected; D3D9 resets are not GPU driver restarts."
+  ],
+  "visual_review": [
+    "Live Focused Daily and curve captures reviewed at 1280x800 with system 150% scale; all five Daily rows and curve plot/actions fit.",
+    "Headless layout checks cover 1024x768 Daily and 1280x800/150% curve panel in both presentations."
+  ],
+  "limitations": [
+    "Computer Use capture failed twice: window capture timed out: timed out waiting on channel. No physical inputs were issued.",
+    "Vista/7 launch, DPI, device-loss and shutdown remain unqualified; XP/x86 UI not promised.",
+    "Holds/headroom/planners, advanced workflows, XOC/Max it/reset-all, broader profiles and configurable monitoring remain pending.",
+    "I2C physical effects remain parked for the owner multimeter check."
+  ]
+}
