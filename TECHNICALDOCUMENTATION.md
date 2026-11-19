@@ -1348,8 +1348,19 @@ stock` zeroes the table, which is not the same as putting a previous state back.
 
 # Timings
 
-Decodes and edits the framebuffer-partition memory timing registers through
-`nvtune`.
+The register editor reads and edits framebuffer-partition timing registers
+through `nvtune`. The native GUI also offers **Timings → BIOS memory timing**
+on Pascal. This path changes tFAW in the P0 memory-clock band's firmware row
+and checks the programmed controller values through the NVIDIA driver. It
+uses the existing temporary ROM override and selected-device refresh.
+
+The firmware editor matches the current memory band and two controller
+readings to a unique Memory Tweak Table row. Each sample must begin and end
+at P0 at the same memory clock. It preserves all bits outside CONFIG3[16:9].
+After the running image matches, Druta removes the temporary registry records
+and checks the entire observed CONFIG1 and CONFIG3 against the requested
+result. If P0 evidence is missing, verification stays pending. The Ampere
+measurements below explain why that generation has no firmware tFAW editor.
 
 ## Session firmware override experiment for tFAW
 

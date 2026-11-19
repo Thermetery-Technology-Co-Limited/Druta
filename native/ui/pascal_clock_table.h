@@ -8,7 +8,22 @@
 
 namespace druta::ui {
 
-enum class PascalClockDomain { gpc, xbar, sys };
+enum class PascalClockDomain { gpc, xbar, sys, tfaw };
+
+// Both sides of this controller sample must have reported P0 at the same memory clock.
+struct PascalTimingSample {
+    int memory_mhz = 0;
+    uint32_t config1 = 0, config3 = 0;
+    bool operator==(const PascalTimingSample& rhs) const {
+        return memory_mhz == rhs.memory_mhz && config1 == rhs.config1 && config3 == rhs.config3;
+    }
+    bool operator!=(const PascalTimingSample& rhs) const { return !(*this == rhs); }
+};
+inline constexpr uint32_t pascal_tfaw_mask = 0x1fe00;
+inline PascalTimingSample with_tfaw(PascalTimingSample sample, int cycles) {
+    sample.config3 = (sample.config3 & ~pascal_tfaw_mask) | ((uint32_t(cycles) << 9) & pascal_tfaw_mask);
+    return sample;
+}
 
 // pstate -1 denotes the shared master-program ratio in percent.
 // State fields use doubled MHz: HAL 2 maxima or v0x40 independent targets.
@@ -25,11 +40,14 @@ struct PascalClockTable {
     uint8_t selector_oem = 0;
     uint16_t device_id = 0;
     bool state_targets = false;
+    std::optional<PascalTimingSample> timing_sample;
+    std::string timing_message;
 };
 
 struct PascalClockEdit {
     PascalClockDomain domain;
     int pstate, expected, value;
+    std::optional<PascalTimingSample> timing_sample = {};
 };
 
 struct PascalClockPlan {
@@ -37,6 +55,10 @@ struct PascalClockPlan {
     std::string message;
     std::vector<uint8_t> image;
 };
+
+// Annotate a clock inspection with the selected GPU's independently observed P0 timing.
+void inspect_pascal_tfaw(PascalClockTable&, const std::vector<uint8_t>& image,
+                         uint32_t architecture, const PascalTimingSample& sample);
 
 struct PascalClockPreview {
     std::optional<double> nominal_mhz;

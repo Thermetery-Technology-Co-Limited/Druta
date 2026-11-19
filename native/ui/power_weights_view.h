@@ -7,11 +7,12 @@ namespace druta::ui {
 struct PowerWeightDraft {uint32_t index=0;double multiplier=1;std::optional<uint16_t> expected;bool dirty=false,include=false;};
 struct PowerWeightsViewState {uint64_t generation=0;bool initialized=false;std::vector<PowerWeightDraft> drafts;std::string status;};
 struct PowerWeightsIntent {
-    enum class Operation {read,preview,prepare,inspect,activate_saved,verify,remove,read_clocks,prepare_clocks};
+    enum class Operation {read,preview,prepare,inspect,activate_saved,verify,remove,read_clocks,prepare_clocks,read_tfaw};
     Operation operation = Operation::read;
     std::vector<PowerWeightRequest> requests;
     std::vector<PascalClockEdit> clock_edits{};
     bool clock_front = false;
+    bool arm_safe_mode = false;
 };
 void sync_power_weights_view(PowerWeightsViewState&,const PowerWeightsData*,uint64_t generation);
 // Released 1.9.1 registry_panel relationship_lines: the read-only text Classic

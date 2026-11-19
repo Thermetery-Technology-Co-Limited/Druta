@@ -4,6 +4,7 @@
 #include "power_weights_service_test.cpp"
 #undef main
 #include "power_weight_receipt.h"
+#include "power_weight_host.h"
 #include "pascal_clock_fixture.h"
 #include "profile_io.h"
 #include <windows.h>
@@ -97,7 +98,48 @@ void clock_revision_receipt_tests() {
                read_weight_receipt(dir.path,active.id).message==stale.message,
                "Replacement publishes the new receipt while retaining the complete previous journal");
  receipt_reject([&]{replace_pascal_clock_receipt(dir.path,stale,reset);},"An older predecessor cannot replace the current revision");
+ const auto slot_clocks=active_clock_receipts(dir.path,successor.identity.slot);
+ receipt_check(slot_clocks.size()==1&&slot_clocks.front().id==successor.id,"Rescue discovery followed a retired receipt");
+ receipt_check(active_clock_receipts(dir.path).size()==1&&active_clock_receipts(dir.path,"0000:ff:00.0").empty(),
+               "Rescue discovery did not filter PCI slots");
  receipt_reject([&]{save_weight_receipt(dir.path,stale);},"An older helper cannot write after replacement");
+ auto started=successor;started.phase="writing";
+ save_weight_receipt(dir.path,started);
+ receipt_reject([&]{abandon_prepared_clock_receipt(dir.path,successor);},"A stale cancel cannot retire a running trial");
+ save_weight_receipt(dir.path,successor);
+ abandon_prepared_clock_receipt(dir.path,successor);
+ receipt_check(still_active()&&read_weight_receipt(dir.path,active.id).message==stale.message,
+               "Canceling a revision returns to the verified predecessor");
+ Temp first_dir;
+ auto unused=active;unused.phase="prepared";unused.refresh_requested=false;
+ create_weight_receipt(first_dir.path,unused);
+ abandon_prepared_clock_receipt(first_dir.path,unused);
+ receipt_check(!discover_weight_receipt(first_dir.path,unused.identity.slot,unused.uuid),
+               "Canceling first Apply releases the sliders without a restart");
+
+ // The supervised helper may lose P0 before its first hardware effect. Simulate
+ // the actual timing receipt and the same operation lock held by a concurrent worker.
+ Temp timing_dir;
+ c.image=test::pascal_timing_fixture();
+ c.timing_sample=PascalTimingSample{3504,0x2966c296,0x38aa};
+ const auto timing=make_pascal_clock_receipt(c,{{D::tfaw,0,28,29,c.timing_sample}});
+ create_weight_receipt(timing_dir.path,timing);
+ with_clock_operation_lock(timing_dir.path,timing.id,[&]{
+  receipt_reject([&]{cancel_unused_clock_preparation(timing,timing_dir.path);},"A losing launcher cannot cancel another worker's timing edit");
+ });
+ receipt_check(discover_weight_receipt(timing_dir.path,timing.identity.slot,timing.uuid).has_value(),
+               "The writer keeps its timing receipt on contention");
+ auto writing=timing;writing.phase="writing";
+ save_weight_receipt(timing_dir.path,writing);
+ auto at_risk=writing;at_risk.uncertain=true;
+ at_risk.issued_names.push_back(derive_weight_receipt(writing).after.back().name);
+ save_weight_receipt(timing_dir.path,at_risk);
+ receipt_reject([&]{cancel_unused_clock_preparation(timing,timing_dir.path);},"An issued timing effect keeps the recovery journal");
+ save_weight_receipt(timing_dir.path,writing);
+ cancel_unused_clock_preparation(timing,timing_dir.path);
+ cancel_unused_clock_preparation(timing,timing_dir.path);
+ receipt_check(!discover_weight_receipt(timing_dir.path,timing.identity.slot,timing.uuid),
+               "An unused first timing trial can be retired twice without a driver restart");
 }
 }
 int main(){receipt_tests();clock_revision_receipt_tests();std::printf("Power weight receipt: %u checks\n",receipt_checks);return 0;}

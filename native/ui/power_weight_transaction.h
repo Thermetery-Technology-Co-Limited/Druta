@@ -9,6 +9,7 @@ struct PowerWeightBoundaryResult {
  bool ok=false,reboot_required=false,timed_out=false,cleanup_pending=false,uncertain=false;
  std::string message;
  bool retryable=false; // freshly opened clock driver is still initializing
+ bool image_matches_timing_pending=false; // the image is correct but fresh physical P0 verification is unavailable
 };
 struct PowerWeightRegistryRecovery {VoltageScaffoldWindowsTarget windows;PowerWeightRegistrySnapshot registry;};
 struct PowerWeightTransactionApi {
@@ -34,6 +35,9 @@ struct PowerWeightTransactionResult {
  bool ok=false,no_change=false,may_have_changed=false,reboot_required=false,timed_out=false,cleanup_pending=false,recovery_required=false;
  std::string message;std::shared_ptr<const PowerWeightReceipt> receipt;
 };
+// Clock-only registry cleanup for a failed or interrupted helper. The caller
+// holds the active receipt's operation lock. No live GPU API or restart is used.
+PowerWeightTransactionResult recover_staged_clocks(PowerWeightTransactionApi&, PowerWeightReceipt);
 bool power_weight_verify_registry(const PowerWeightReceipt&,const PowerWeightRegistrySnapshot& current,bool original,bool staged=false);
 class PowerWeightTransaction {
 public:

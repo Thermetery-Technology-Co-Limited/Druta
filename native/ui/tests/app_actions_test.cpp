@@ -103,6 +103,8 @@ void quoting() {
     check(parsed.size()==8 && parsed[0]==exe && parsed[1]==L"--gpu" && parsed[2]==L"0000:03:00.0"
         && parsed[3]==L"--expect-uuid" && parsed[4]==L"GPU-alternate-identity" && parsed[5]==L"--core" && parsed[7]==L"--classic",
         "second process receives explicit slot, expected UUID, exact core and presentation only");
+    parsed=arguments(second_window_command(exe,L"core.dll",target,false));
+    check(parsed.size()==8 && parsed[7]==L"--focused","a second Focused window keeps its skin");
     bool refused=false;try{second_window_command(exe,L"core",{9,"slot",""},false);}catch(...){refused=true;}
     check(refused,"launch builder refuses an absent target UUID");
 }
@@ -111,7 +113,7 @@ std::string frame(ViewState& v) {
     std::string text=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();ImGui::Render();return text;
 }
 void rendering() {
-    auto live=std::make_shared<SessionSnapshot>(fixture());ViewState v;v.preview=false;v.live=live;v.page=Page::monitor;
+    auto live=std::make_shared<SessionSnapshot>(fixture());ViewState v;v.presentation=Presentation::focused;v.preview=false;v.live=live;v.page=Page::monitor;
     frame(v);v.drafts[0].value=37.5;v.drafts[0].dirty=true;
     auto* root=ImGui::FindWindowByName("Druta workspace");
     ImGui::ActivateItemByID(ImHashStr("Device",0,root->GetID("##MenuBar")));frame(v);
@@ -222,11 +224,19 @@ void classic_menus(){
     live->data.curve.push_back({0,750,1400,0});live->data.curve.push_back({1,900,1890,0});
     live->curve_revision=1;live->data.curve_freq_div=1;live->data.curve_step_khz=15000;
     live->data.curve_max_abs_delta_khz=1000000;live->data.curve_model_max_rise_khz=45000;live->data.curve_writable=true;
-    ViewState v;v.preview=false;v.live=live;v.presentation=Presentation::classic;v.controls_unlocked=false;
+    ViewState v;v.preview=false;v.live=live;v.controls_unlocked=false;
+    check(v.presentation==Presentation::classic,"a new view starts in Verbose");
     v.planner_api.deflatten=menu_deflatten;v.planner_api.predict=menu_predict;
     auto text=frame(v);
-    check(has(text,"Profiles")&&!has(text,"Save profile...")&&!has(text,"Always refresh")&&!has(text,"Session-only tuning"),
-        "Classic has no header profile/refresh row and no footer; the menu bar names Profiles");
+    check(has(text,"Skin")&&has(text,"Profiles")&&!has(text,"Save profile...")&&!has(text,"Always refresh")&&!has(text,"Session-only tuning"),
+        "Verbose has a top-level Skin menu beside its regular menus");
+    v.drafts[0].value=37.5;v.drafts[0].dirty=true;
+    auto* skin=open_menu(v,"Skin");
+    check(skin!=nullptr,"the Skin menu opens directly from the Verbose bar");
+    if(skin){ImGui::ActivateItemByID(skin->GetID("Focused"));frame(v);}
+    check(v.presentation==Presentation::focused&&v.drafts[0].dirty&&v.drafts[0].value==37.5
+        &&v.commands.empty()&&!v.select_slot,"the Skin menu changes layout and preserves the session and edits");
+    close_menus(v);v.presentation=Presentation::classic;
     ViewState focused;focused.preview=false;focused.live=live;focused.presentation=Presentation::focused;
     const auto focused_text=frame(focused);
     check(has(focused_text,"Save profile...")&&has(focused_text,"Always refresh")&&has(focused_text,"Session-only tuning")&&!has(focused_text,"Profiles"),
@@ -458,8 +468,8 @@ void classic_device_and_help_menus(){
     check(v.commands.empty()&&focused.commands.empty(),"menus queue no hardware command");
 }
 // Released 1.9.1 header details line and card selector label, and the File /
-// Profiles split: File keeps Exit (plus the native refresh, pause and
-// presentation controls), the profile windows sit under Profiles, and the Undo
+// Profiles split: File keeps Exit, refresh and pause. The profile windows
+// sit under Profiles, and the Undo
 // note carries 1.9.1's wording without its "takes one too" line, which native
 // Undo does not do. Fixture identity strings are arbitrary.
 void classic_header_and_profile_wording(){
@@ -475,7 +485,7 @@ void classic_header_and_profile_wording(){
     live->data.identity.admin=0;text=frame(v);
     check(has(text,"vbios fixture-vbios  \xE2\x80\xA2  NOT admin"),"a non-administrator session says NOT admin");
     auto* file=open_menu(v,"File");text=frame(v);
-    check(file!=nullptr&&has(text,"Exit")&&has(text,"Always refresh")&&has(text,"Presentation")
+    check(file!=nullptr&&has(text,"Exit")&&has(text,"Always refresh")&&!has(text,"Presentation")
         &&!has(text,"Profile catalog...")&&!has(text,"Undo from history...")&&!has(text,"Rail / power profiles..."),
         "Classic File keeps Exit and the native view controls; profile windows are not in it");
     close_menus(v);

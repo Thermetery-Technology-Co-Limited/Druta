@@ -61,15 +61,55 @@ struct Provider {
  VoltageScaffoldWindowsTarget windows(dc_gpu* gpu,const dc_target& target){bound(gpu,target);auto result=api.resolve_windows?api.resolve_windows(opened,target):resolve_voltage_scaffold_windows_target(opened,target);bound(gpu,target);
   if(result.slot!=target.slot)throw IdentityError("Windows relationship target names another adapter");require(!result.instance_id.empty()&&!result.driver_key.empty()&&result.instance_id.find('\0')==std::string::npos&&result.driver_key.find('\0')==std::string::npos,"Windows relationship target malformed");return result;}
  template<class F>void component(A& availability,std::string& message,F&& work){try{work();availability=A::available;}catch(const IdentityError&){throw;}catch(const VoltageEquationEvidenceError& error){availability=error.kind;message=error.what();}catch(const std::exception& error){availability=A::invalid;message=error.what();}}
+ int p0_memory_clock(dc_gpu* gpu) {
+  dc_telemetry t{};t.size=sizeof(t);
+  if(!api.telemetry||api.telemetry(gpu,&t)!=DC_OK||t.size!=sizeof(t)||
+     (t.present&(DC_T_PSTATE|DC_T_MEM))!=(DC_T_PSTATE|DC_T_MEM))
+   fail("Cannot read the current GPU performance state and memory clock",A::transient);
+  if(t.pstate!=0||!t.mem||t.mem>INT32_MAX)
+   fail("Read firmware tFAW while the selected GPU is in P0 at a stable memory clock",A::transient);
+  return static_cast<int>(t.mem);
+ }
+ PascalTimingSample timings(dc_gpu* gpu, const dc_target& target) {
+  if(target.architecture!=4)fail("Firmware tFAW verification is available on Pascal",A::unsupported);
+  if(!api.telemetry)fail("The core does not supply a performance-state and memory-clock read",A::unsupported);
+  const auto sample=[&] {
+   bound(gpu,target);
+   const int before=p0_memory_clock(gpu);
+   const auto words=api.timing_config(gpu);
+   const int after=p0_memory_clock(gpu);
+   bound(gpu,target);
+   if(before!=after)fail("The memory clock changed during the timing read",A::transient);
+   return PascalTimingSample{before,words[0],words[1]};
+  };
+  const auto first=sample(),second=sample();
+  if(first.memory_mhz!=second.memory_mhz||first.config1!=second.config1||first.config3!=second.config3)
+   fail("The two P0 controller timing readings differ",A::transient);
+  return second;
+ }
  PowerWeightCapture read(dc_gpu* gpu,bool registry_requested){auto& a=api.evidence.target;if(!a.lock||!a.unlock)fail("Relationship capture lock interface unavailable",A::unsupported);if(a.lock(gpu)!=DC_OK)fail("Relationship capture lock unavailable",A::transient);struct Unlock{VoltagePolicyApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}}unlock{a,gpu};
   PowerWeightCapture result;result.target=bind(gpu,&result.adapter);result.identity={result.target.slot,result.target.architecture,result.target.device_id,result.target.subsystem_id};
   component(result.image_availability,result.image_message,[&]{result.image=image(gpu,result.target);result.image_message="Matching current ROM reads captured";});
   if(!clock_only)component(result.info_availability,result.info_message,[&]{const auto captured=info(gpu,result.target);result.info=captured.bytes;result.layout=captured.layout;result.info_message="Matching configured relationship INFO captured";});
   if(registry_requested)component(result.registry_availability,result.registry_message,[&]{const auto first=windows(gpu,result.target);bound(gpu,result.target);auto registry=api.registry_read?api.registry_read(first):read_power_weight_registry(first);bound(gpu,result.target);const auto last=windows(gpu,result.target);if(!windows_equal(first,last))throw IdentityError("Windows instance/driver key changed during registry read");result.windows=last;result.registry=std::move(registry);result.registry_message="Current managed registry snapshot captured read-only";});
   else result.registry_message="Registry capture not requested";
+  if(clock_only&&api.timing_config)
+   component(result.timing_availability,result.timing_sample_message,[&]{
+    result.timing_sample=timings(gpu,result.target);
+    result.timing_sample_message="Two matching controller reads at P0 and the same memory clock";
+   });
   const auto final=bind(gpu,&result.adapter);if(!target_equal(final,result.target))throw IdentityError("Relationship final adapter binding changed");return result;
  }
 };
 }
 std::function<PowerWeightCapture(dc_gpu*,bool)> make_power_weight_capture(PowerWeightCaptureApi api,const dc_gpu_identity& identity,bool clock_only){auto provider=std::make_shared<Provider>(std::move(api),identity,clock_only);return [provider](dc_gpu* gpu,bool registry){return provider->read(gpu,registry);};}
+void verify_pascal_timing_sample(const PowerWeightCapture& capture,const PascalTimingSample& expected) {
+ if(!capture.timing_sample)
+  fail("P0 controller verification pending. "+capture.timing_sample_message,capture.timing_availability);
+ const auto& actual=*capture.timing_sample;
+ if(actual.memory_mhz!=expected.memory_mhz)
+  fail("Verify firmware tFAW again at the reviewed P0 memory clock ("+std::to_string(expected.memory_mhz)+" MHz)",A::transient);
+ if(actual.config1!=expected.config1||actual.config3!=expected.config3)
+  fail("The running firmware image matched, but the controller timing words differ from the reviewed values");
+}
 }

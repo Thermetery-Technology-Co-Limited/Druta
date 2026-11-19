@@ -16,9 +16,9 @@ records the existing Python-interface/C++-backend integration.
 - Keep Windows Vista and Windows 7 in the first-version target, alongside
   modern Windows. Legacy compatibility is an acceptance requirement, not yet
   a demonstrated result for the new executable.
-- Default to **Focused**: Daily, V/F curve, Advanced and Monitor. **Classic**
-  uses a Druta 1.9.1-style composition, with the same application state and
-  retained V/F editor popup; it is not merely a verbose-text setting.
+- Default to **Verbose (Classic)**, the Druta 1.9.1-style composition. The
+  **Skin** menu on the main bar switches to **Focused**. Both layouts share
+  application state and the V/F editor popup.
 - Preserve standalone Python experiments through the existing C ABI and Python
   compatibility facade. Attaching Python to the running UI session is undecided.
 - Preserve the performance policy shipped in PR #83: adaptive visible rendering;

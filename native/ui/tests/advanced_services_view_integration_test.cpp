@@ -303,6 +303,43 @@ void reopened_pascal_clocks(Presentation presentation) {
           "Restore remains available for the active clock override");
 }
 
+void firmware_timing_page(Presentation presentation) {
+    ViewState state;
+    state.presentation=presentation; state.page=Page::timings; state.preview=false;
+    state.controls_unlocked=true;state.app_actions.administrator=true;
+    auto live=std::make_shared<SessionSnapshot>();
+    live->generation=6;live->selected_slot="0000:15:00.0";live->data.connected=true;
+    std::strcpy(live->data.identity.slot,"0000:15:00.0");
+    std::strcpy(live->data.identity.uuid,"GPU-TEST");
+    state.live=live;
+    live->data.clock_architecture=7;
+    auto text=frame(state);
+    check(text.find("Read P0 BIOS tFAW")==std::string::npos,"Unqualified generations have no firmware timing request");
+    live->data.clock_architecture=4;
+    auto table=std::make_shared<PascalClockTable>();table->ok=true;
+    table->timing_sample=PascalTimingSample{3504,0x2966c296,0x38aa};
+    live->data.pascal_clocks=table;live->data.pascal_clock_fresh=true;
+    text=frame(state);
+    check(text.find("Read P0 BIOS tFAW")!=std::string::npos && text.find("tFAW 28 cycles")!=std::string::npos &&
+          state.power_weights_intents.empty(),"A qualified Pascal P0 sample appears without nvtune or automatic requests");
+    auto* w=advanced_window(Presentation::focused);
+    if(!w){check(false,"Timing page workspace missing");return;}
+    const auto click=[&](const char* label){ImGui::ActivateItemByID(w->GetID(label));return frame(state);};
+    click("Read P0 BIOS tFAW");
+    check(state.power_weights_intents.size()==1&&state.power_weights_intents.front().operation==PowerWeightsIntent::Operation::read_tfaw,
+          "Both timing pages explicitly request P0 firmware capture");
+    state.power_weights_intents.clear();
+    state.tfaw.value=29;
+    text=click("Review BIOS timing change");
+    check(state.tfaw.reviewing&&text.find("28 to 29 cycles")!=std::string::npos,"Review identifies the P0 firmware edit in cycles");
+    click("Apply tFAW and refresh selected GPU");
+    const auto& intents=state.power_weights_intents;
+    check(intents.size()==1 && intents[0].operation==PowerWeightsIntent::Operation::prepare_clocks &&
+          !intents[0].arm_safe_mode&&intents[0].clock_edits.size()==1&&
+          intents[0].clock_edits[0].domain==PascalClockDomain::tfaw &&
+          intents[0].clock_edits[0].timing_sample==table->timing_sample,"Explicit timing Apply carries only the observed P0 tFAW");
+}
+
 void front_page_clocks(Presentation presentation) {
     ViewState state;
     state.preview = false;
@@ -440,11 +477,16 @@ void front_page_clocks(Presentation presentation) {
     ImGui::ActivateItemByID(ImHashStr("Review clock changes", 0, sliders));
     frame(state);
     check(state.pascal_clock_view.reviewing && state.power_weights_intents.empty(), "Front-page Review stages no write");
+    if (classic) {
+        ImGui::ActivateItemByID(ImHashStr("Use recovery boot for this Apply", 0, sliders));
+        frame(state);
+    }
     ImGui::ActivateItemByID(ImHashStr("Apply and refresh selected GPU", 0, sliders));
     frame(state);
     check(state.power_weights_intents.size() == 1 &&
           state.power_weights_intents.front().operation == PowerWeightsIntent::Operation::prepare_clocks &&
           state.power_weights_intents.front().clock_front &&
+          state.power_weights_intents.front().arm_safe_mode == classic &&
           state.power_weights_intents.front().clock_edits.size() == 1 &&
           state.power_weights_intents.front().clock_edits.front().value == 95,
           "Front-page Apply sends the reviewed ratio through the qualified override path");
@@ -551,6 +593,7 @@ int main(){ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO(
     unsigned char* pixels=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
     pages(Presentation::focused);pages(Presentation::classic);classic_hierarchy();
     reopened_pascal_clocks(Presentation::focused);reopened_pascal_clocks(Presentation::classic);
+    firmware_timing_page(Presentation::focused);firmware_timing_page(Presentation::classic);
     front_page_clocks(Presentation::focused);front_page_clocks(Presentation::classic);
     classic_power_policies();section_style();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("Advanced view integration: %d failures\n",failures);return failures?1:0;}

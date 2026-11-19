@@ -26,6 +26,43 @@ const PascalClockField* find(const PascalClockTable& table, Domain d, int state)
 bool near(std::optional<double> actual, double expected) {
     return actual && std::abs(*actual - expected) < 1e-8;
 }
+void timing() {
+    const auto image=test::pascal_timing_fixture();
+    const PascalTimingSample sample{3504,0x2966c296,0x38aa};
+    const PascalClockEdit edit{Domain::tfaw,0,28,29,sample};
+    auto table=inspect_pascal_clocks(image,4);
+    inspect_pascal_tfaw(table,image,4,sample);
+    check(table.ok && table.timing_sample==sample,"Resolve the P0 memory band and controller fingerprint");
+    const auto plan=plan_pascal_clocks(image,{edit});
+    auto expected=image;
+    expected[0x755]^=2;
+    check(plan.ok&&plan.image==expected,"Only one tFAW bit changes, with tCL, reserved CONFIG3 bits and all other rows preserved");
+    const auto changed=with_tfaw(sample,29);
+    check(plan.ok && plan_pascal_clocks(plan.image,{{Domain::tfaw,0,29,28,changed}}).image==image,"tFAW restores the exact source image");
+    auto contradicts=sample;
+    contradicts.config3|=0x31000000u;
+    check(!plan_pascal_clocks(image,{{Domain::tfaw,0,28,29,contradicts}}).ok,
+          "A reported nonzero CONFIG3 high byte must match the ROM");
+    auto full=sample;
+    full.config3|=0x22000000u;
+    check(plan_pascal_clocks(image,{{Domain::tfaw,0,28,29,full}}).image==expected,
+          "A complete matching controller word qualifies");
+    auto other=image;
+    other[0x60c]=2;
+    check(!plan_pascal_clocks(other,{edit}).ok,"A row shared with another memory band cannot be changed here");
+    other=image;
+    std::copy_n(other.begin()+0x748,24,other.begin()+0x728);
+    other[0x728+15]=0; // exact upper-byte match vs GP107's known masked counterpart
+    check(!plan_pascal_clocks(other,{edit}).ok,"Indistinguishable strap rows are ambiguous");
+    other=image;other[0x616]=5;
+    check(!plan_pascal_clocks(other,{edit}).ok,"Malformed row indexes block timing changes without affecting normal clocks");
+    check(!plan_pascal_clocks(image,{{Domain::tfaw,5,28,29,sample}}).ok &&
+          !plan_pascal_clocks(image,{{Domain::tfaw,0,28,29}}).ok &&
+          !plan_pascal_clocks(image,{{Domain::tfaw,0,28,256,sample}}).ok &&
+          !plan_pascal_clocks(image,{{Domain::tfaw,0,28,0,sample}}).ok &&
+          !plan_pascal_clocks(image,{edit},7).ok,"Only qualified Pascal P0 and nonzero field encodings proceed");
+}
+
 void run_legacy_targets() {
     for (uint32_t architecture : {2u, 3u}) {
         const auto rom = test::legacy_clock_fixture(architecture);
@@ -310,7 +347,38 @@ void run() {
 }
 
 int main(int argc, char** argv) {
+    timing();
     run();
+    // Validate saved effective images with previously recorded hardware samples.
+    if (argc == 4 && std::string(argv[1]) == "--timing-evidence") {
+        const auto read=[](const char* path) {
+            std::ifstream f(path,std::ios::binary);
+            std::vector<uint8_t> b{std::istreambuf_iterator<char>(f),{}};
+            for(size_t at=0;at+26<=b.size();at+=512) {
+                if(b[at]!=0x55 || b[at+1]!=0xaa)continue;
+                const size_t pci=at+b[at+24]+size_t(b[at+25])*256;
+                if(pci+24<=b.size() && b[pci]=='P' && b[pci+1]=='C' && b[pci+2]=='I' && b[pci+3]=='R'
+                   && b[pci+4]==0xde && b[pci+5]==0x10 && b[pci+20]==0)
+                    return std::vector<uint8_t>(b.begin()+at,b.end());
+            }
+            return std::vector<uint8_t>{};
+        };
+        const auto gp=read(argv[2]),ga=read(argv[3]);
+        const PascalTimingSample sample{3504,0x2966c296,0x38aa};
+        const auto plan=plan_pascal_clocks(gp,{{Domain::tfaw,0,28,29,sample}},4);
+        auto expected=gp;
+        if(expected.size()>0x2dd81)expected[0x2dd81]^=2;
+        check(plan.ok && gp!=expected && plan.image==expected, "GP107: reproduce the recorded row 9 one-bit edit");
+        check(plan.ok && plan_pascal_clocks(plan.image,{{Domain::tfaw,0,29,28,with_tfaw(sample,29)}}).image==gp,
+              "GP107: exact full-image restore");
+        const PascalTimingSample ampere{9501,0x79e9839e,0x2300294c};
+        PascalClockTable unsupported;
+        inspect_pascal_tfaw(unsupported,ga,7,ampere);
+        check(!ga.empty() && !plan_pascal_clocks(ga,{{Domain::tfaw,0,20,21,ampere}},7).ok && !unsupported.timing_sample &&
+              unsupported.timing_message.find("only on Pascal")!=std::string::npos,
+              "GA104: no BIOS tFAW write path");
+        if(!plan.ok)std::fprintf(stderr,"GP107 parser: %s\n",plan.message.c_str());
+    }
     // Optional, strictly offline capture check. Do not bundle a board ROM.
     if (argc == 2) {
         std::ifstream file(argv[1], std::ios::binary);

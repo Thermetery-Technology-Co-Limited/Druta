@@ -3,7 +3,9 @@
 The native Win32/D3D9 application now has a live Session, Daily tuning, a V/F
 point editor and owned holds, Monitor, qualified Advanced controls, native I2C
 manual commands and a Timings helper workflow. **Focused** and
-**Classic** share drafts, snapshots, command queue and Undo. Classic uses a
+**Classic / Verbose** share drafts, snapshots, command queue and Undo. Druta
+opens in Verbose by default. Choose **Skin → Focused** on the Verbose
+menu bar, or use the layout selector in Focused to switch back. Classic uses a
 composition based on Druta 1.9.1; it is more than a verbose-text option. Both
 presentations retain the resizable V/F editor popup; Classic also embeds the
 editable curve below the tuning controls, as in the Python interface. Opening
@@ -138,6 +140,44 @@ Once the edited image is loaded, Druta removes its temporary registry records.
 The editor reads back the applied values when it reopens. Further edits keep
 the other session settings. Restore returns to the image captured before the
 first Apply, and Verify closes a saved session after a normal driver restart.
+
+On Vista and later, the Pascal XBAR/SYS ratio review offers **Use recovery
+boot for this Apply**, initially unchecked. **View recovery script** opens
+`Druta-Recovery-Boot.cmd` in Notepad. Leave the Apply warning open and run
+the script yourself as administrator to arm it. Confirm the GPU shown.
+Windows selects a one-time Safe Mode entry and Druta registers recovery for
+that account at sign-in. Setup preserves the normal default loader and does
+not write boot code. Keep the account password and any BitLocker recovery key
+available. Following a freeze, sign in as the original user and approve
+cleanup before restarting normally. XP Professional x64 uses manual Safe Mode
+recovery.
+
+If a clock edit leaves the display black, a separate helper can clean up the
+staged registry records while Windows is responsive. After a hard freeze, use
+the same Windows account in Safe Mode. From an administrator command prompt
+in the Druta folder, run `druta-ui.exe --recover-clock-overrides` to find the
+saved PCI slot, then run `druta-ui.exe --recover-clock-overrides <PCI-slot>`.
+Once cleanup is confirmed, boot normally. The command uses exact recorded
+values and the Windows device binding, and requires no working NVIDIA display.
+
+### Pascal firmware memory timing
+
+In either skin, open **Timings → BIOS memory timing → Read P0 BIOS tFAW**.
+Keep the selected GPU at P0 and a stable memory clock for the reading. Enter
+**tFAW (cycles)**, choose **Review BIOS timing change**, then **Apply tFAW and
+refresh selected GPU**. This route edits the matching firmware timing row using
+temporary driver records. It needs no nvtune or Python. Druta reads CONFIG1
+and CONFIG3 twice at P0 to identify the row and checks them after the driver
+refresh. It rejects an ambiguous row or one reused in another memory-clock
+band. CONFIG1, including tCL, stays unchanged.
+
+If the GPU idles after the refresh, return it to the reviewed P0 memory clock
+and choose **Verify P0 timing override**. **Restore original firmware settings
+and refresh GPU** restores the original image. In the recorded GTX 1050 Ti
+trial the controller measured 28 → 29 → 28 cycles at 3504 MHz. The matching
+RTX 3070 Ti trial loaded the edited image but measured 20 cycles throughout.
+The firmware control is available on Pascal when the adapter supplies the
+matching ROM layout and a verifiable P0 controller reading.
 
 ## Native I2C controller path
 
@@ -289,7 +329,7 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 & ./native/build/ui-integrated/ui/Release/druta-ui.exe --page curve
 & ./native/build/ui-integrated/ui/Release/druta-ui.exe --classic --page monitor --width 1366 --height 768
 & ./native/build/ui-msvc-x64/Release/druta-ui.exe --core C:/absolute/path/drutacore.dll
-& ./native/build/ui-msvc-x64/Release/druta-ui.exe --preview --scale 1.5 --capture C:/existing-folder/focused.bmp
+& ./native/build/ui-msvc-x64/Release/druta-ui.exe --preview --focused --scale 1.5 --capture C:/existing-folder/focused.bmp
 ```
 
 | Option | Behavior |
@@ -299,7 +339,8 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 | `--gpu PCI_SLOT` | Select by PCI slot; the live adapter picker can change it later. |
 | `--width N`, `--height N` | Initial client size in physical pixels, each 640–7680. Focused scales each unspecified dimension from its 1280×800 default at 100% and fits the window to the monitor's work area. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
-| `--classic` | Start in the 1.9.1-inspired Classic composition instead of Focused. Without a size, the window opens at Python's default (1544x1300 at 100% scale, clamped to the screen). |
+| `--verbose`, `--classic` | Start in the default Verbose (Classic) layout. Without an explicit size it opens at 1544×1300 at 100% scale, clamped to the screen. |
+| `--focused` | Start in the Focused layout. |
 | `--page daily\|curve\|advanced\|monitor\|timings` | Choose the initial page. |
 | `--capture FILE.bmp` | Save the rendered view and exit; parent directory must exist. Live mode reads the GPU. |
 | `--smoke-test EXISTING_DIRECTORY` | Fixture renderer smoke, BMPs and `smoke.json`, then exit. |

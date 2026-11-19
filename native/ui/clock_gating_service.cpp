@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "clock_gating_service.h"
+#include "voltage_limits_service.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -238,6 +239,18 @@ struct ClockGatingService::Impl {
 };
 ClockGatingService::ClockGatingService(ClockGatingApi api,dc_gpu* gpu,const dc_gpu_identity& identity):impl_(std::make_unique<Impl>(std::move(api),gpu,identity)){}
 ClockGatingService::~ClockGatingService()=default;
+std::array<uint32_t,2> ClockGatingService::read_pascal_memory_config() try {
+ auto& p=*impl_;
+ Guard guard(p.api.transport,p.gpu);
+ if(!guard.held)fail("Cannot lock the GPU for the timing read",A::transient);
+ if(p.bind().architecture!=4)fail("The firmware timing read requires Pascal",A::unsupported);
+ // Pascal FBPA broadcast CONFIG1 and CONFIG3. Reuse the paired, read-only
+ // RM operation and its checks for poison, per-operation status and bounds.
+ const auto rows=p.registers({{0x009A0294,0},{0x009A029C,0}},false);
+ return {rows[0].value,rows[1].value};
+} catch(const Error& error) {
+ throw VoltageEquationEvidenceError(error.what(),error.kind);
+}
 void ClockGatingService::set_history_callback(std::function<void()> callback){impl_->history_callback=std::move(callback);}
 bool ClockGatingService::needs_cleanup()const{return impl_->data.needs_cleanup;}
 const ClockGatingData& ClockGatingService::state()const{return impl_->data;}

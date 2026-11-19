@@ -32,6 +32,51 @@ PowerWeightCaptureApi api(){PowerWeightCaptureApi a;a.evidence.target.identity=i
  a.registry_read=[](const VoltageScaffoldWindowsTarget&){++registries;if(mode==12)throw VoltageEquationEvidenceError("Registry unavailable",VoltagePolicyAvailability::transient);return PowerWeightRegistrySnapshot{{L"EnableGpuFirmware",4,{1,0,0,0}},{L"romOverride00",3,{1,2,3}}};};return a;}
 void fresh(){images=infos=abis=windows=registries=locks=mode=resets=clock_binds=perf_binds=0;generation=7;adapter={};adapter.size=sizeof(adapter);std::strcpy(adapter.slot,"0000:7b:01.1");std::strcpy(adapter.uuid,"GPU-read-alt");adapter.nvapi_ok=adapter.nvapi_selected=1;adapter.nvapi_handle=42;adapter.nvapi_devid=0x6789;adapter.nvapi_subsys=0xaabbccdd;}
 
+int tick_count=0,timing_mode=0;
+dc_status DC_CALL p0_tick(dc_gpu*,dc_telemetry* tick) {
+    ++tick_count;
+    tick->present=DC_T_PSTATE|DC_T_MEM;
+    tick->mem=(timing_mode==3&&tick_count>=2)?3725:3724;
+    tick->pstate=(timing_mode==1||(timing_mode==2&&tick_count==2))?8:0;
+    return DC_OK;
+}
+void run_timing_capture() {
+    auto* gpu=reinterpret_cast<dc_gpu*>(1);
+    for(timing_mode=0;timing_mode<=5;++timing_mode) {
+        fresh();tick_count=0;
+        generation=timing_mode==5?3:4;
+        auto a=api();a.telemetry=p0_tick;
+        int reads=0;
+        a.timing_config=[&](dc_gpu*) {
+            ++reads;
+            return std::array<uint32_t,2>{0x2966c296,
+                (timing_mode==4&&reads==2)?0x22003b4au:0x2200394au};
+        };
+        const auto state=make_power_weight_capture(a,adapter,true)(gpu,false);
+        CHECK(state.image_availability==VoltagePolicyAvailability::available&&locks==0);
+        CHECK(state.timing_sample.has_value()==(timing_mode==0));
+        if(timing_mode==0) {
+            CHECK(reads==2&&tick_count==4);
+            const auto sample=*state.timing_sample;
+            CHECK(sample.memory_mhz==3724&&sample.config1==0x2966c296&&sample.config3==0x2200394a);
+            verify_pascal_timing_sample(state,sample);
+            for(int mismatch=0;mismatch<3;++mismatch) {
+                auto other=sample;
+                if(mismatch==0)++other.memory_mhz;
+                if(mismatch==1)++other.config1;
+                if(mismatch==2)other.config3^=1u<<9;
+                bool refused=false;
+                try {verify_pascal_timing_sample(state,other);} catch(const VoltageEquationEvidenceError&){refused=true;}
+                CHECK(refused);
+            }
+        } else if(timing_mode==5) {
+            CHECK(state.timing_availability==VoltagePolicyAvailability::unsupported&&reads==0&&tick_count==0);
+        } else {
+            CHECK(state.timing_availability==VoltagePolicyAvailability::transient);
+            CHECK(reads==(timing_mode==1?0:timing_mode==4?2:1));
+        }
+    }
+}
 void run_legacy_capture() {
     auto* gpu=reinterpret_cast<dc_gpu*>(1);
     for (const uint32_t architecture : {2u,3u}) {
@@ -97,4 +142,4 @@ void run(){fresh();auto capture=make_power_weight_capture(api(),adapter);CHECK(i
  fresh();auto missing_api=api();missing_api.evidence.image=nullptr;missing_api.abi=nullptr;auto missing=make_power_weight_capture(missing_api,adapter);read=missing(gpu,false);CHECK(read.image_availability==VoltagePolicyAvailability::unsupported&&read.info_availability==VoltagePolicyAvailability::unsupported&&images==0&&infos==0&&registries==0);
 }
 }
-int main(){run();run_legacy_capture();std::printf("Power weight capture: %u checks passed\n",checks);return 0;}
+int main(){run();run_legacy_capture();run_timing_capture();std::printf("Power weight capture: %u checks passed\n",checks);return 0;}

@@ -38,7 +38,7 @@ void bound(const Command& c,const I2cViewData& data,const char* message) {
 int main() {
     IMGUI_CHECKVERSION(); ImGui::CreateContext(); auto& io=ImGui::GetIO(); io.IniFilename=nullptr;
     unsigned char* pixels; int width,height; io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);
-    ViewState state; auto live=std::make_shared<SessionSnapshot>(); state.live=live;
+    ViewState state; state.presentation = Presentation::focused; auto live=std::make_shared<SessionSnapshot>(); state.live=live;
     live->generation=4; live->data.connected=true; auto& data=live->data.i2c; data.available=true;
     frame(state);
     activate(state,ImGui::FindWindowByName("I2C test")->GetID("I2C rail"));

@@ -69,6 +69,7 @@ add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp p
   voltage_offsets_service.cpp voltage_offsets_capture.cpp voltage_offsets_profile.cpp
   pascal_clock_table.cpp power_relationships.cpp power_weight_registry.cpp power_weight_registry_host.cpp power_weight_capture.cpp power_weights_service.cpp
   power_weight_receipt.cpp power_weight_registry_write.cpp power_weight_transaction.cpp power_weight_host.cpp
+  clock_recovery_boot_bcd.cpp clock_recovery_logon.cpp
   power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
 add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
 add_library(druta_ui_clock_monitor STATIC clock_monitor_model.cpp clock_monitor_service.cpp)
@@ -115,6 +116,8 @@ target_link_libraries(druta-ui PRIVATE druta_ui_vendor d3d9 user32 gdi32 dwmapi 
 target_link_libraries(druta-ui PRIVATE druta_ui_app_actions druta_ui_scoped_profile_view)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/Native-README.md
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/README.md)
+file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/Druta-Recovery-Boot.cmd
+  INPUT ${CMAKE_CURRENT_SOURCE_DIR}/Druta-Recovery-Boot.cmd)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/COPYING
   INPUT ${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING)
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ImGui-LICENSE.txt
@@ -178,11 +181,13 @@ add_test(NAME druta-ui-test-signing-view COMMAND druta-ui-test-signing-view-test
 add_executable(druta-ui-timing-setup-host-test tests/timing_setup_host_test.cpp timing_setup_host.cpp timings_view.cpp test_signing_view.cpp)
 target_link_libraries(druta-ui-timing-setup-host-test PRIVATE druta_ui_session druta_ui_vendor druta_ui_shunt comdlg32)
 add_test(NAME druta-ui-timing-setup-host COMMAND druta-ui-timing-setup-host-test)
-foreach(weight_test IN ITEMS pascal_clock_table pascal_clock_transaction pascal_clock_client power_relationships power_weight_registry power_weight_registry_host power_weight_capture power_weights_service power_weights_client power_weight_receipt power_weight_registry_write power_weight_transaction power_weight_host power_weights_activation_client)
+foreach(weight_test IN ITEMS pascal_clock_table pascal_clock_transaction pascal_clock_client power_relationships power_weight_registry power_weight_registry_host power_weight_capture power_weights_service power_weights_client power_weight_receipt power_weight_registry_write power_weight_transaction power_weight_host clock_recovery_boot_bcd clock_recovery_logon power_weights_activation_client)
   add_executable(druta-ui-${weight_test}-test tests/${weight_test}_test.cpp)
   target_link_libraries(druta-ui-${weight_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${weight_test} COMMAND druta-ui-${weight_test}-test)
 endforeach()
+set_tests_properties(druta-ui-clock_recovery_boot_bcd druta-ui-clock_recovery_logon
+  PROPERTIES SKIP_RETURN_CODE 77)
 add_executable(druta-ui-pascal-clock-view-test tests/pascal_clock_view_test.cpp)
 target_link_libraries(druta-ui-pascal-clock-view-test PRIVATE druta_ui_app_actions)
 add_test(NAME druta-ui-pascal-clock-view COMMAND druta-ui-pascal-clock-view-test)
@@ -446,7 +451,7 @@ if(DRUTA_LEGACY_X64)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:druta-probe> "${package_dir}/druta-probe.exe"
     COMMAND ${CMAKE_COMMAND} -E tar cf "${CMAKE_BINARY_DIR}/Druta-native-legacy-x64-$<CONFIG>.zip" --format=zip
       druta-ui.exe drutacore.dll druta-probe.exe druta-ui-timing-cuda.exe
-      imports.json core-imports.json probe-imports.json cuda-imports.json Native-README.md COPYING
+      imports.json core-imports.json probe-imports.json cuda-imports.json Native-README.md Druta-Recovery-Boot.cmd COPYING
       ImGui-LICENSE.txt ImPlot-LICENSE.txt FreeType-LICENSE.txt FreeType-FTL.txt JSON-LICENSE.txt YY-Thunks-LICENSE.txt
     DEPENDS druta-ui-import-audit druta-ui-cuda-import-audit druta-core-legacy-import-audit druta-probe-legacy-import-audit
     WORKING_DIRECTORY "${package_dir}" VERBATIM)

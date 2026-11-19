@@ -21,6 +21,9 @@ struct PowerWeightReceipt {
  std::vector<std::wstring> issued_names;
  bool refresh_requested=false,uncertain=false,restoring=false;
 };
+enum class PascalTimingPhase {original, previous, applied};
+// Before, pre-revision, or requested physical P0 controller words.
+std::optional<PascalTimingSample> receipt_timing_sample(const PowerWeightReceipt&, PascalTimingPhase);
 struct PowerWeightReceiptDerived {
  PowerWeightPlan plan;
  PascalClockPlan clock_plan;
@@ -44,8 +47,12 @@ std::wstring power_weight_operation_lock_path(const std::wstring& directory,cons
 void create_weight_receipt(const std::wstring& directory,const PowerWeightReceipt&);
 void replace_pascal_clock_receipt(const std::wstring& directory,const PowerWeightReceipt& active,
                                   const PowerWeightReceipt& replacement);
+// Caller holds the receipt operation lock. A canceled preview cannot retire a started trial.
+bool unused_clock_preparation(const PowerWeightReceipt&);
+void abandon_prepared_clock_receipt(const std::wstring& directory,const PowerWeightReceipt& prepared);
 void save_weight_receipt(const std::wstring& directory,const PowerWeightReceipt&);
 PowerWeightReceipt read_weight_receipt(const std::wstring& directory,const std::string& id);
 std::optional<PowerWeightReceipt> discover_weight_receipt(const std::wstring& directory,const std::string& slot,const std::string& uuid);
+std::vector<PowerWeightReceipt> active_clock_receipts(const std::wstring& directory, const std::string& slot = {});
 bool clear_active_weight_receipt(const std::wstring& directory,const PowerWeightReceipt&);
 }

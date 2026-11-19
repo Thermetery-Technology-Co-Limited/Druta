@@ -5,18 +5,26 @@
 
 namespace druta::ui {
 
+struct PascalClockApply {
+    std::vector<PascalClockEdit> edits;
+    bool arm_safe_mode = false;
+};
+
 struct PascalClockViewState {
     uint64_t generation = 0;
     int selected_pstate = 0;
     std::vector<PascalClockEdit> drafts;
     bool reviewing = false;
+    bool arm_safe_mode = false;
+    bool view_recovery_script_requested = false;
     unsigned automatic_reads = 0;
 
     void sync(uint64_t next_generation);
     void stage(const PascalClockField& field, int raw_value);
     void discard();
     bool current(const PascalClockTable* table) const;
-    bool confirm(const PascalClockTable* table, bool enabled, std::vector<PascalClockEdit>& output);
+    bool has_ratio_edit() const;
+    PascalClockApply confirm(const PascalClockTable* table, bool enabled);
 };
 
 bool has_writable_pascal_clock(const PascalClockTable* table, PascalClockDomain domain);
@@ -30,8 +38,7 @@ struct PascalClockReference {
 double pascal_clock_display_value(int pstate, int raw);
 int pascal_clock_raw_value(const PascalClockField& field, double displayed);
 
-void draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTable* table,
-                               uint64_t generation, bool edit_enabled, bool apply_enabled,
-                               std::vector<PascalClockEdit>& confirmed,
-                               const std::optional<PascalClockReference>& reference = {});
+PascalClockApply draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTable* table,
+                                          uint64_t generation, bool edit_enabled, bool apply_enabled,
+                                          const std::optional<PascalClockReference>& reference = {});
 }

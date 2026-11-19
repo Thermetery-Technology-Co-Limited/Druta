@@ -94,8 +94,7 @@ void classic_menu_hint(const char* text){
     if(ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)){ImGui::BeginTooltip();ImGui::PushTextWrapPos(classic_px(420));
         ImGui::TextUnformatted(text);ImGui::PopTextWrapPos();ImGui::EndTooltip();}
 }
-// Released 1.9.1 keeps File to Exit. The native-only refresh, pause and
-// presentation controls sit above it rather than on a header row of their own.
+// The native refresh and pause controls share the File menu with Exit.
 void classic_file_menu(ViewState& state){
     auto& actions=state.app_actions;
     if(!ImGui::BeginMenu("File"))return;
@@ -105,12 +104,6 @@ void classic_file_menu(ViewState& state){
     classic_menu_hint(state.hotkey_available
         ? "Pause rendering and telemetry. Restore from the taskbar or Ctrl+Shift+F11."
         : "Pause rendering and telemetry. Restore from the taskbar; the shortcut is unavailable.");
-    if(ImGui::BeginMenu("Presentation")){
-        if(ImGui::MenuItem("Focused",nullptr,state.presentation==Presentation::focused))state.presentation=Presentation::focused;
-        if(ImGui::MenuItem("Classic / Verbose",nullptr,state.presentation==Presentation::classic))state.presentation=Presentation::classic;
-        ImGui::EndMenu();
-    }
-    classic_menu_hint("Change presentation without changing your draft or GPU settings.");
     ImGui::Separator();
     if(ImGui::MenuItem("Exit"))actions.exit_requested=true;
     ImGui::EndMenu();
@@ -341,6 +334,11 @@ void draw_app_actions_menu(ViewState& state) {
         if(ImGui::MenuItem("Power saving...")){state.page=Page::advanced;state.open_power_saving_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
         if(ImGui::MenuItem("Clock gating / PCIe...")){state.page=Page::advanced;state.open_clock_gating_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
         ImGui::EndDisabled();
+        ImGui::EndMenu();
+    }
+    if (classic && ImGui::BeginMenu("Skin")) {
+        ImGui::MenuItem("Verbose (Classic)", nullptr, true);
+        if (ImGui::MenuItem("Focused")) state.presentation = Presentation::focused;
         ImGui::EndMenu();
     }
     if(ImGui::BeginMenu("Help")) {

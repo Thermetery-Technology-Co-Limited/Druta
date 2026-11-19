@@ -167,6 +167,37 @@ int main() {
         CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
         store_available = true;
     }
+    {
+        using Domain=PascalClockDomain;
+        receipt.reset();
+        c.image=druta::ui::test::pascal_timing_fixture();
+        c.timing_sample=PascalTimingSample{3504,0x2966c296,0x38aa};
+        CHECK(client->execute(read).ok && !client->read(false).pascal_clocks->timing_sample);
+        Command inspect;
+        inspect.operation=Command::Operation::pascal_tfaw_read;
+        CHECK(client->execute(inspect).ok && client->read(false).pascal_clocks->timing_sample==c.timing_sample);
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::tfaw,0,28,29,c.timing_sample}});
+        c.timing_sample->memory_mhz++;
+        CHECK(!client->execute(prepare).ok&&!receipt);
+        c.timing_sample->memory_mhz--;
+        CHECK(client->execute(inspect).ok&&client->execute(prepare).ok&&receipt&&writes==0);
+        CHECK(receipt_timing_sample(*receipt,PascalTimingPhase::applied)==with_tfaw(*c.timing_sample,29));
+        c.image=derive_weight_receipt(*receipt).clock_plan.image;
+        receipt->phase="active";
+        CHECK(client->execute(read).ok);
+        const auto previous_id=receipt->id;
+        const auto previous_count=replacements;
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::xbar,-1,95,96}});
+        const auto programmed=with_tfaw(*c.timing_sample,29);
+        c.timing_sample.reset(); // Card is at P8 when the user requests only a clock change.
+        CHECK(!client->execute(prepare).ok && replacements==previous_count && receipt->id==previous_id && receipt->phase=="active");
+        c.timing_sample=programmed;
+        CHECK(client->execute(read).ok&&client->execute(prepare).ok&&replacements==previous_count+1);
+        CHECK(receipt_timing_sample(*receipt,PascalTimingPhase::applied)==programmed);
+        receipt.reset();
+    }
     c.image_availability = VoltagePolicyAvailability::transient;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
     CHECK(client->read(false).pascal_clock_availability == Availability::transient && client->read(false).pascal_clocks);

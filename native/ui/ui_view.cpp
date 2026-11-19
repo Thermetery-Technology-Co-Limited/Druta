@@ -133,7 +133,7 @@ void top_bar(ViewState& state) {
     ImGui::SameLine(0, u(12));
     ImGui::SetNextItemWidth(u(164));
     int presentation = state.presentation == Presentation::focused ? 0 : 1;
-    if (ImGui::Combo("##presentation", &presentation, "Focused\0Classic / Verbose\0"))
+    if (ImGui::Combo("##presentation", &presentation, "Focused\0Verbose (Classic)\0"))
         state.presentation = presentation == 0 ? Presentation::focused : Presentation::classic;
     hint("Change presentation without changing your draft or GPU settings.");
     if (!state.preview) {
@@ -2101,6 +2101,77 @@ std::optional<PascalClockReference> clock_preview_reference(const ViewState& sta
     return PascalClockReference{peak->peak_mhz, peak->park_mv, *cap, staged_curve || draft.dirty};
 }
 
+void firmware_timing_panel(ViewState& state) {
+    const auto& s=*state.live;
+    ImGui::SeparatorText("BIOS memory timing");
+    if(s.data.clock_architecture!=4u) {
+        ImGui::TextWrapped("P0 BIOS tFAW control requires a Pascal GPU with a supported memory table.");
+        return;
+    }
+    const bool busy=s.busy||s.opening||!s.data.connected;
+    const auto table=s.data.pascal_clocks;
+    const auto sample=table&&s.data.pascal_clock_fresh?table->timing_sample:std::nullopt;
+    auto& draft=state.tfaw;
+    if(draft.generation!=s.generation || draft.source!=table) {
+        draft={};
+        draft.generation=s.generation;
+        draft.source=table;
+        if(sample)draft.value=int((sample->config3 & pascal_tfaw_mask)>>9);
+    }
+    ImGui::TextWrapped("Read the selected GPU at P0 to locate its memory timing row. "
+                       "This path uses the NVIDIA driver and works without nvtune.");
+    ImGui::BeginDisabled(busy);
+    if(ImGui::Button("Read P0 BIOS tFAW"))state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read_tfaw,{}});
+    ImGui::EndDisabled();
+    if(table&&!table->timing_message.empty())ImGui::TextWrapped("%s",table->timing_message.c_str());
+    if(!s.data.pascal_clock_fresh&&!s.data.pascal_clock_status.empty())ImGui::TextWrapped("%s",s.data.pascal_clock_status.c_str());
+    if(!state.power_weights_view.status.empty())ImGui::TextWrapped("%s",state.power_weights_view.status.c_str());
+    const auto* receipt=selected_override(state);
+    const bool owned=receipt&&receipt->phase!="removed";
+    const bool ready=!owned || (receipt->is_pascal_clocks() && receipt->phase=="active" && !receipt->uncertain
+                              && !receipt->restoring && s.data.pascal_clock_active_receipt==receipt->id);
+    std::string why;
+    const bool restart=restart_device_target(s,why,state.app_actions.administrator).has_value();
+    if(sample) {
+        const int current=int((sample->config3 & pascal_tfaw_mask)>>9);
+        ImGui::Text("Controller at P0, %d MHz memory: tFAW %d cycles",sample->memory_mhz,current);
+        ImGui::BeginDisabled(busy||!ready);
+        ImGui::SetNextItemWidth(ImGui::GetFontSize()*9);
+        if(ImGui::InputInt("tFAW (cycles)",&draft.value))draft.reviewing=false;
+        ImGui::EndDisabled();
+        const bool valid=draft.value>=1&&draft.value<=255&&draft.value!=current;
+        ImGui::BeginDisabled(busy||!ready||!valid||!restart||!state.controls_unlocked);
+        if(ImGui::Button("Review BIOS timing change"))draft.reviewing=true;
+        if(draft.reviewing && valid) {
+            ImGui::TextWrapped("Change the P0 memory-band row from %d to %d cycles and restart the selected GPU. "
+                               "Verification needs the same P0 memory clock after restart.",current,draft.value);
+            if(ImGui::Button("Apply tFAW and refresh selected GPU")) {
+                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks,{},
+                    {{PascalClockDomain::tfaw,0,current,draft.value,sample}}});
+                draft.reviewing=false;
+            }
+        }
+        ImGui::EndDisabled();
+        if(!restart)ImGui::TextWrapped("%s",why.c_str());
+        if(!state.controls_unlocked)ImGui::TextWrapped("Unlock controls to apply a BIOS timing edit.");
+        if(!valid && draft.value!=current)ImGui::TextWrapped("Enter 1 to 255 cycles.");
+    }
+    if(owned && receipt->is_pascal_clocks() && receipt_timing_sample(*receipt,PascalTimingPhase::applied)) {
+        ImGui::TextWrapped("Saved timing override (%s). %s",receipt->phase.c_str(),receipt->message.c_str());
+        ImGui::BeginDisabled(busy);
+        if(ImGui::Button("Verify P0 timing override"))state.power_weights_intents.push_back({PowerWeightsIntent::Operation::verify,{}});
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(busy||!state.controls_unlocked||!restart);
+        if(ImGui::Button("Restore original firmware settings and refresh GPU"))
+            state.power_weights_intents.push_back({PowerWeightsIntent::Operation::remove,{}});
+        ImGui::EndDisabled();
+    } else if(owned&&!ready) {
+        ImGui::TextWrapped("Verify or restore the existing override before editing BIOS timings.");
+    }
+    ImGui::SeparatorText("nvtune timings");
+}
+
 void pascal_clock_panel(ViewState& state, bool front = false) {
     auto& s = *state.live;
     const bool busy = s.busy || s.opening;
@@ -2130,16 +2201,16 @@ void pascal_clock_panel(ViewState& state, bool front = false) {
     if (!state.power_weights_view.status.empty()) ImGui::TextWrapped("%s",state.power_weights_view.status.c_str());
 
     const bool editable = !busy && s.data.connected && s.data.pascal_clock_fresh && (!owned || active_clocks);
-    std::vector<PascalClockEdit> edits;
     const auto* table = front ? front_clock_table(s) : s.data.pascal_clocks.get();
-    draw_pascal_clock_sliders(state.pascal_clock_view, table, s.generation,
-                              editable, editable && state.controls_unlocked && can_restart, edits,
-                              clock_preview_reference(state));
+    auto apply = draw_pascal_clock_sliders(state.pascal_clock_view, table, s.generation,
+                                           editable, editable && state.controls_unlocked && can_restart,
+                                           clock_preview_reference(state));
     if (editable && !state.controls_unlocked) ImGui::TextWrapped("Unlock tuning controls to apply clock changes.");
     if (!busy && !can_restart && (!front || front_clock_fields(s) || (receipt && receipt->is_pascal_clocks())))
         ImGui::TextWrapped("%s", restart_reason.c_str());
-    if (!edits.empty())
-        state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks, {}, std::move(edits), front});
+    if (!apply.edits.empty())
+        state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks, {},
+                                              std::move(apply.edits), front, apply.arm_safe_mode});
 
     if (receipt && receipt->is_pascal_clocks()) {
         if (receipt->id == s.data.pascal_clock_original_receipt)
@@ -3088,6 +3159,7 @@ void classic_page_content(ViewState& state, Page page) {
         if (fresh(DC_T_MEM)) clock.memory_mhz = s.data.telemetry.mem;
         if (fresh(DC_T_PSTATE)) clock.pstate = s.data.telemetry.pstate;
         clock.top_memory_mhz = s.data.timing_top_memory_mhz; clock.divisor = s.data.memory_divisor;
+        firmware_timing_panel(state);
         auto output = draw_timings(state.timings_view, s.data.timings.get(), s.generation,
             s.busy, state.controls_unlocked, s.data.connected, true, &clock);
         state.timing_capture_cancel_requested |= output.cancel_capture;
@@ -3549,6 +3621,7 @@ void draw(ViewState& state) {
         else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
         else if (state.page == Page::timings) {
             const auto& s=*state.live;
+            firmware_timing_panel(state);
             auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy,state.controls_unlocked,s.data.connected);
             state.timing_capture_cancel_requested|=output.cancel_capture;
             state.timing_helper_requested|=output.choose_helper;

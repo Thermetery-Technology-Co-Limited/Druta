@@ -25,6 +25,7 @@ namespace druta::ui {
 
 enum class Page { daily, advanced, monitor, curve, timings, rails, i2c };
 enum class Presentation { focused, classic };
+inline constexpr Presentation default_presentation = Presentation::classic;
 struct SessionSnapshot;
 
 struct ControlDraft {
@@ -40,7 +41,7 @@ struct ControlDraft {
 // share drafts, so presentation changes cannot lose edits or change ownership.
 struct ViewState {
     Page page = Page::daily;
-    Presentation presentation = Presentation::focused;
+    Presentation presentation = default_presentation;
     bool always_refresh = false;
     bool pause_requested = false;
     bool hotkey_available = true;
@@ -52,6 +53,12 @@ struct ViewState {
     PowerIntegralViewState power_integral_view;
     PowerWeightsViewState power_weights_view;
     PascalClockViewState pascal_clock_view;
+    struct {
+        uint64_t generation = 0;
+        std::shared_ptr<const PascalClockTable> source;
+        int value = 0;
+        bool reviewing = false;
+    } tfaw;
     bool open_pascal_clocks_requested = false;
     std::optional<uint64_t> automatic_clock_read;
     std::vector<PowerWeightsIntent> power_weights_intents;

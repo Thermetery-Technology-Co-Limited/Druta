@@ -107,6 +107,94 @@ struct Bench {
 void tests() {
  {
   Bench b;
+  b.current.image=test::pascal_timing_fixture();
+  const PascalTimingSample p0{3504,0x2966c296,0x38aa};
+  b.current.timing_sample=p0;
+  const auto r=make_pascal_clock_receipt(b.current,{{PascalClockDomain::tfaw,0,28,29,p0}});
+  const auto saved=decode_weight_receipt(encode_weight_receipt(r));
+  check(receipt_timing_sample(saved,PascalTimingPhase::previous)==p0 &&
+        receipt_timing_sample(saved,PascalTimingPhase::applied)==with_tfaw(p0,29),"Receipt must retain both physical P0 expectations");
+  b.current.timing_sample.reset();
+  auto api=b.api();
+  auto run=[&](PowerWeightOperation op, const auto& receipt) {
+   return PowerWeightTransaction(api,reinterpret_cast<dc_gpu*>(1),b.current.adapter).run(op,receipt);
+  };
+  check(!run(PowerWeightOperation::apply,saved).ok && !b.changes && !b.restarts,"A return to idle blocks any timing write");
+  {
+   Bench drift;
+   drift.current.image=saved.image;
+   drift.current.timing_sample=p0;
+   auto drift_api=drift.api();
+   const auto capture=drift_api.capture;
+   drift_api.capture=[&](dc_gpu* gpu,bool registry) {
+    auto observed=capture(gpu,registry);
+    if(drift.changes)observed.timing_sample.reset();
+    return observed;
+   };
+   const auto stopped=PowerWeightTransaction(drift_api,nullptr,drift.current.adapter).run(PowerWeightOperation::apply,saved);
+   check(!stopped.ok&&drift.changes>0&&drift.restarts==0&&!drift.durable.refresh_requested&&
+         power_weight_verify_registry(saved,*drift.current.registry,false),
+         "P0 loss during staging must unstage the records before any restart");
+  }
+  b.current.timing_sample=p0;
+  const auto image_verify=api.fresh_verify;
+  api.fresh_verify=[&](const PowerWeightReceipt& receipt,bool original) {
+   auto result=image_verify(receipt,original);
+   if(result.ok && receipt_timing_sample(receipt,original?PascalTimingPhase::original:PascalTimingPhase::applied)!=b.current.timing_sample) {
+    result.ok=false;result.message="P0 controller timing differs";
+    result.image_matches_timing_pending=!b.current.timing_sample;
+   }
+   return result;
+  };
+  check(!run(PowerWeightOperation::apply,saved).ok && b.active && b.current.registry->size()==saved.before.size(),
+        "An edited running image without a corresponding P0 controller change is not success; staging is already clear");
+  b.current.timing_sample=with_tfaw(p0,29);
+  check(run(PowerWeightOperation::verify,b.durable).ok,"Allow an explicit independent P0 verification later");
+  const auto next=revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::tfaw,0,29,28,b.current.timing_sample}});
+  check(receipt_timing_sample(next,PascalTimingPhase::original)==p0 &&
+        receipt_timing_sample(next,PascalTimingPhase::previous)==b.current.timing_sample &&
+        derive_weight_receipt(next).clock_plan.image==saved.image,"Revisions keep the original image, P0 sample and clocks");
+  b.current.image=saved.image;
+  b.current.timing_sample.reset();
+  const auto restarts=b.restarts;
+  check(!run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==restarts&&b.active&&b.durable.restoring,
+        "A correct stock image with P0 evidence pending must preserve the receipt without a second restart");
+  b.current.timing_sample=p0;
+  check(run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==restarts&&!b.active,
+        "Returning to P0 completes the stock proof without restarting");
+ }
+ for(const char* phase:{"writing","refresh_pending","clock_initializing"}) {
+  Bench b;
+  b.active=true;b.durable=b.make();b.durable.phase=phase;b.durable.uncertain=true;
+  const auto plan=derive_weight_receipt(b.durable);
+  for(size_t i=b.durable.before.size();i<plan.after.size();++i)b.durable.issued_names.push_back(plan.after[i].name);
+  b.current.registry=plan.after;
+  if (std::string(phase)=="writing") b.current.registry->pop_back(); // interrupted after journal, before dispatch
+  auto api=b.api();api.capture={};api.restart={};api.fresh_verify={};api.fresh_verify_staged={};
+  b.swap_target=true;
+  check(!recover_staged_clocks(api,b.durable).ok&&b.changes==0,"rescue followed a changed Windows target");
+  b.swap_target=false;
+  b.current.registry->back().bytes.back()^=1;
+  check(!recover_staged_clocks(api,b.durable).ok&&b.changes==0,"rescue removed a changed value");
+  b.current.registry->back().bytes.back()^=1;
+  const auto recovered=recover_staged_clocks(api,b.durable);
+  check(recovered.ok&&b.durable.phase=="clock_unstaged"&&b.durable.restoring&&b.active&&b.restarts==0&&
+        b.current.registry->size()==b.durable.before.size(),"rescue must unstage without the GPU and retain live verification");
+  const auto changes=b.changes;
+  check(recover_staged_clocks(api,b.durable).ok&&b.changes==changes,"repeat registry rescue issued another write");
+ }
+ {
+  Bench b;
+  b.active=true;b.durable=b.make();b.durable.phase="clock_initializing";
+  const auto projected=derive_weight_receipt(b.durable);
+  for(size_t i=b.durable.before.size();i<projected.after.size();++i)b.durable.issued_names.push_back(projected.after[i].name);
+  auto api=b.api();api.write={};api.capture={};api.restart={};api.fresh_verify={};
+  check(recover_staged_clocks(api,b.durable).ok&&b.changes==0&&b.active&&b.durable.uncertain,
+        "post-DDU already-clean key must need no driver or registry writes");
+ }
+
+ {
+  Bench b;
   const auto initial=make_pascal_clock_receipt(b.current, {{PascalClockDomain::gpc,0,3800,7800}});
   PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
   check(worker.run(PowerWeightOperation::apply,initial).ok,"Cannot activate a raised absolute ceiling");

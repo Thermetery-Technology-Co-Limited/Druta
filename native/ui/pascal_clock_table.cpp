@@ -341,6 +341,79 @@ Decoded decode(const Bytes& b, uint32_t architecture, const PascalClockTable* or
     return out;
 }
 
+// BIT P+4 maps each memory frequency band and strap column to a BIT P+8
+// tweak row. A controller fingerprint must resolve one row in the P0 band.
+size_t tfaw_word(const Directory& dir, uint32_t architecture, const PascalTimingSample& sample) {
+    require(architecture == 4, "BIOS tFAW override is supported only on Pascal");
+    require(sample.memory_mhz > 0 && sample.memory_mhz <= 0x3fff && sample.config1 && sample.config3,
+            "Missing P0 memory clock or controller fingerprint");
+    require((sample.config3 & pascal_tfaw_mask) != 0, "P0 controller reports a zero tFAW encoding");
+    const auto& b = dir.bytes;
+    struct Rows { Span extent; size_t first; unsigned base, sub, columns, count, stride; };
+    const auto rows = [&](unsigned pointer, unsigned version, unsigned minimum_base) {
+        const auto pos = dir.pointer('P', pointer);
+        require(pos.has_value(), "Missing memory table pointer");
+        dir.own({*pos, 6});
+        const unsigned header=b[*pos+1], base=b[*pos+2], sub=b[*pos+3], columns=b[*pos+4], count=b[*pos+5];
+        require(b[*pos] == version && header >= 6 && base >= minimum_base && count && (!columns || sub),
+                "Unrecognized memory table geometry");
+        const unsigned stride = base + sub * columns;
+        const Span extent{*pos, header + stride * count};
+        dir.own(extent);
+        return Rows{extent, *pos + header, base, sub, columns, count, stride};
+    };
+    const auto bands = rows(4, 0x11, 4), timings = rows(8, 0x20, 24);
+    require(bands.columns && !bands.extent.overlaps(timings.extent), "Invalid memory band and timing table layout");
+    // Ignore unrecognized tables elsewhere in the image, but keep the parsed
+    // memory tables disjoint from the clock structures patched by this planner.
+    const auto programs=read_programs(dir);
+    auto distinct=[&](Span other){return !bands.extent.overlaps(other) && !timings.extent.overlaps(other);};
+    require(distinct(programs.domains) && distinct(programs.programs),"Memory and clock program tables overlap");
+    if(const auto perf=dir.pointer('P',0)) {
+        dir.own({*perf,10});
+        require(b[*perf]==0x50 && b[*perf+1]==10 && b[*perf+2]==3 && b[*perf+4]==6 && b[*perf+5]==9,
+                "Unrecognized Pascal performance-state layout");
+        const Span extent{*perf,10+size_t(b[*perf+3])*57};
+        dir.own(extent);
+        require(distinct(extent),"Memory and performance tables overlap");
+    }
+    std::optional<unsigned> selected;
+    for (unsigned i = 0; i < bands.count; ++i) {
+        const size_t at = bands.first + i * bands.stride;
+        const unsigned lo = le16(b, at) & 0x3fff, hi = le16(b, at + 2) & 0x3fff;
+        require(lo <= hi, "Invalid memory band frequency range");
+        if (unsigned(sample.memory_mhz) < lo || unsigned(sample.memory_mhz) > hi) continue;
+        require(!selected, "P0 memory clock matches multiple memory bands");
+        selected = i;
+    }
+    require(selected.has_value(), "P0 memory clock does not match a memory band");
+    const auto row_index = [&](unsigned band, unsigned col) {
+        return b[bands.first + band * bands.stride + bands.base + col * bands.sub];
+    };
+    std::optional<unsigned> matched;
+    for (unsigned col = 0; col < bands.columns; ++col) {
+        const unsigned index = row_index(*selected, col);
+        if (index == 255) continue;
+        require(index < timings.count, "Memory strap selects a timing row outside the table");
+        const size_t at = timings.first + index * timings.stride;
+        // GP107 runtime may mask CONFIG3's upper byte. Preserve it in the
+        // image; physical verification compares the entire observed word.
+        const uint32_t comparable=sample.config3>>24 ? UINT32_MAX : 0x00ffffffu;
+        if (le32(b, at+4) != sample.config1 || ((le32(b, at+12) ^ sample.config3) & comparable)) continue;
+        require(!matched || *matched == index, "P0 controller fingerprint matches multiple timing rows");
+        matched = index;
+    }
+    require(matched.has_value(), "No P0 timing row matches the controller fingerprint");
+    for (unsigned i = 0; i < bands.count; ++i) {
+        if (i == *selected) continue;
+        const size_t at = bands.first + i * bands.stride;
+        if (!(le16(b, at) & 0x3fff) && !(le16(b, at+2) & 0x3fff)) continue;
+        for (unsigned col = 0; col < bands.columns; ++col)
+            require(row_index(i, col) != *matched, "P0 timing row is also referenced by another memory band");
+    }
+    return timings.first + *matched * timings.stride + 12;
+}
+
 const PascalClockField* find_field(const PascalClockTable& table, PascalClockDomain domain, int pstate) {
     const auto found = std::find_if(table.fields.begin(), table.fields.end(), [&](const PascalClockField& field) {
         return field.domain == domain && field.pstate == pstate;
@@ -380,6 +453,19 @@ PascalClockTable inspect_pascal_clocks(const Bytes& image, uint32_t architecture
     }
 }
 
+void inspect_pascal_tfaw(PascalClockTable& table, const Bytes& image, uint32_t architecture,
+                         const PascalTimingSample& sample) {
+    table.timing_sample.reset();
+    try {
+        require(architecture == 4, "BIOS tFAW override is supported only on Pascal");
+        tfaw_word(Directory(image), architecture, sample);
+        table.timing_sample = sample;
+        table.timing_message.clear();
+    } catch (const std::exception& e) {
+        table.timing_message = e.what();
+    }
+}
+
 PascalClockPreview pascal_clock_preview(const PascalClockTable& table,
     const std::vector<PascalClockEdit>& edits, PascalClockDomain domain, int pstate,
     std::optional<double> p0_peak_mhz) {
@@ -411,6 +497,20 @@ PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalC
         std::set<size_t> seen;
         Bytes patched = image;
         for (const auto& edit : edits) {
+            if (edit.domain == PascalClockDomain::tfaw) {
+                require(edit.pstate == 0 && edit.timing_sample && edit.value > 0 && edit.value <= 255,
+                        "Invalid P0 tFAW request or missing controller fingerprint");
+                const size_t at = tfaw_word(Directory(image), architecture, *edit.timing_sample);
+                const uint32_t word = le32(image, at);
+                require(seen.insert(at).second && int((word & pascal_tfaw_mask) >> 9) == edit.expected,
+                        "Duplicate timing edit or stale P0 tFAW");
+                const uint32_t patched_word = (word & ~pascal_tfaw_mask) | (uint32_t(edit.value) << 9);
+                for (unsigned j = 0; j < 4; ++j) patched[at+j] = static_cast<uint8_t>(patched_word >> (8*j));
+                require(tfaw_word(Directory(patched),architecture,with_tfaw(*edit.timing_sample,edit.value))==at,
+                        "Edited P0 fingerprint no longer identifies the same timing row");
+                continue;
+            }
+            require(!edit.timing_sample, "Unexpected timing fingerprint on a clock edit");
             const auto it = std::find_if(decoded.located.begin(), decoded.located.end(), [&](const LocatedField& l) {
                 return l.field.domain == edit.domain && l.field.pstate == edit.pstate;
             });

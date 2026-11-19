@@ -61,6 +61,22 @@ inline std::vector<uint8_t> pascal_clock_fixture() {
     return b;
 }
 
+// Two different bands, multiple strap columns, and header-declared padding.
+inline std::vector<uint8_t> pascal_timing_fixture() {
+    auto b=pascal_clock_fixture();
+    auto u32=[&](size_t at,uint32_t v){for(unsigned j=0;j<4;++j)b[at+j]=uint8_t(v>>(j*8));};
+    auto put=[&](size_t at,std::initializer_list<uint8_t> bytes){std::copy(bytes.begin(),bytes.end(),b.begin()+at);};
+    b[148]=12; b[150]=0xe0; // Relocate the BIT P payload to fit three pointers.
+    u32(0xe0,0x300);u32(0xe4,0x600);u32(0xe8,0x700);
+    put(0x600,{0x11,8,4,2,3,2});
+    put(0x608,{0,0,0xe8,3,0,7,1,7,255,7});
+    put(0x612,{0xe9,3,0xa0,15,1,8,2,8,2,8});
+    put(0x700,{0x20,8,32,0,0,3});
+    u32(0x708+32+4,0xba987654);u32(0x708+32+12,0x11221855);
+    u32(0x748+4,0x2966c296);u32(0x748+12,0x220038aa);
+    return b;
+}
+
 inline std::vector<uint8_t> legacy_clock_fixture(uint32_t architecture) {
     constexpr size_t perf = 0x300;
     // Recorded GTX 770 and GM107 P0/P8 values and flags, with disabled
