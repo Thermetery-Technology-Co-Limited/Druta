@@ -1,0 +1,551 @@
+{
+  "boards": {
+    "GA104": {
+      "bit_m": {
+        "beyond_published_memory_script_pointer_hex": "7984000097300700084600000c47000090480000",
+        "image_offset": "0x2bd",
+        "length_bytes": 41,
+        "pointers": {
+          "candidate_training": {
+            "geometry": {
+              "base_record_bytes": 1,
+              "ends_at_pattern_pointer": true,
+              "extent_bytes": 113,
+              "header_bytes": 8,
+              "rows": 7,
+              "strap_cell_bytes": 1,
+              "strap_cells_per_row": 14,
+              "training_clock_header_value": 0,
+              "version": "0x10"
+            },
+            "image_offset": "0x88763",
+            "leading_bytes": "100801010e07000000010101",
+            "raw": "0x71d63",
+            "token_offset": "0x5",
+            "width_bits": 32
+          },
+          "candidate_training_pattern": {
+            "image_offset": "0x887d4",
+            "leading_bytes": "110605000108445f002206f0",
+            "raw": "0x71dd4",
+            "token_offset": "0x9",
+            "width_bits": 32
+          },
+          "memory_info": {
+            "image_offset": "0x40ad",
+            "leading_bytes": "100716100014420af0500200",
+            "raw": "0x40ad",
+            "token_offset": "0x3",
+            "width_bits": 16
+          },
+          "memory_partition_info": {
+            "image_offset": "0x505f",
+            "leading_bytes": "100402060001000700070007",
+            "raw": "0x505f",
+            "token_offset": "0xd",
+            "width_bits": 32
+          },
+          "memory_script_list": {
+            "image_offset": "0x846d",
+            "leading_bytes": "000000000000000000000000",
+            "raw": "0x846d",
+            "token_offset": "0x11",
+            "width_bits": 32
+          },
+          "strap_translation": {
+            "image_offset": "0x3fbf",
+            "leading_bytes": "000102030405060700010203",
+            "raw": "0x3fbf",
+            "token_offset": "0x1",
+            "width_bits": 16
+          }
+        },
+        "strap_data_count": 14,
+        "training_pointer_provenance": "envytools labels M+5/M+9 TRAIN/TRAIN PATTERN using a historical 16-bit reader. Here the 32-bit pointers follow NVIDIA's BIT adjustment and the apparent v0x10 geometry follows envytools. Consumer and GDDR6X extension semantics are unresolved.",
+        "version": 2
+      },
+      "clock_table": {
+        "all_zero_rows": 0,
+        "base_record_bytes": 86,
+        "bit_p_pointer_offset": "0x4",
+        "declared_rows": 10,
+        "extension_note": "Use the header-declared sizes. No semantics were assigned to bytes outside the published fields.",
+        "extent_bytes": 7046,
+        "file_offset": "0x8ae1e",
+        "header_bytes": 26,
+        "image_offset": "0x81c1e",
+        "nominal_frequency_bounds_mhz": [
+          [
+            0,
+            540
+          ],
+          [
+            541,
+            1249
+          ],
+          [
+            2005,
+            4699
+          ],
+          [
+            4700,
+            5500
+          ],
+          [
+            5501,
+            6300
+          ],
+          [
+            6301,
+            8499
+          ],
+          [
+            8500,
+            16383
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "stride_bytes": 702,
+        "subrecord_bytes": 44,
+        "subrecords_per_row": 14,
+        "unadjusted_pointer": "0x6b21e",
+        "version": "0x11",
+        "zero_frequency_placeholder_rows": 3
+      },
+      "normalized_pci_images": [
+        {
+          "complete": true,
+          "device": 9346,
+          "end": 65024,
+          "header": 368,
+          "last": false,
+          "magic": "PCIR",
+          "size": 65024,
+          "start": 0,
+          "type": 0,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 9346,
+          "end": 157696,
+          "header": 65052,
+          "last": true,
+          "magic": "PCIR",
+          "size": 92672,
+          "start": 65024,
+          "type": 3,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 8704,
+          "end": 179712,
+          "header": 158016,
+          "last": false,
+          "magic": "NPDS",
+          "size": 22016,
+          "start": 157696,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 8704,
+          "end": 565248,
+          "header": 179744,
+          "last": true,
+          "magic": "NPDS",
+          "size": 385536,
+          "start": 179712,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 0,
+          "end": 962048,
+          "header": 752672,
+          "last": true,
+          "magic": "NPDS",
+          "size": 209408,
+          "start": 752640,
+          "type": 112,
+          "vendor": 4318
+        }
+      ],
+      "p0": {
+        "all_matching_strap_cells_byte_equal": true,
+        "band_index": 6,
+        "band_min_max_mhz": [
+          8500,
+          16383
+        ],
+        "config3_mask_for_row_selection_only": "0xffffffff",
+        "faw_image_byte_offset": "0x837b7",
+        "faw_offset_provenance": "Adjusted BIT P+8 pointer plus declared header and row stride, then CONFIG3 at byte 12 and FAW bit 9 in its second byte.",
+        "faw_raw_file_byte_offset": "0x8c9b7",
+        "matched_tweak_row": 0,
+        "matching_strap_columns_zero_based": [
+          1,
+          2
+        ],
+        "prior_a_memory_clock_reported_mhz": 9501,
+        "prior_a_readback_config1": "0x79e9839e",
+        "prior_a_readback_config3": "0x2300294c",
+        "prior_a_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "prior_attempt_index": 5,
+        "rom_config3_exactly_matches_prior_a": true,
+        "row_image_offset": "0x837aa",
+        "row_raw_file_offset": "0x8c9aa",
+        "six_config_words": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ],
+        "six_word_block_unique_in_full_raw_file": true,
+        "six_word_exact_hits_in_full_raw_file": [
+          "0x8c9aa"
+        ],
+        "strap_cell_row_indexes": [
+          8,
+          0,
+          0,
+          8,
+          18,
+          8,
+          38,
+          19,
+          8,
+          8,
+          255,
+          255,
+          255,
+          255
+        ],
+        "strap_selection_note": "Candidates match the observed fingerprint within the P0 band. This does not identify the physical strap."
+      },
+      "pci_device_id": "0x2482",
+      "pci_wrapper_bytes": 37376,
+      "prior_a_digest_matches_normalized_prefix_ending_at": [
+        "0x8a000"
+      ],
+      "prior_a_identity_note": "A whole-image digest match is independent of the selected timing-row fingerprint. The GP107 P0 A capture included earlier clock edits.",
+      "raw_bytes": 999424,
+      "raw_file": "GA104.rom",
+      "raw_sha256": "8f3b77fb0398d8c2ca1a69d952093bd0cef6a92c58c7e634ddaa046fe82c3a64",
+      "tweak_table": {
+        "all_zero_rows": 53,
+        "base_record_bytes": 76,
+        "bit_p_pointer_offset": "0x8",
+        "declared_rows": 65,
+        "extent_bytes": 4946,
+        "faw_histogram_nonzero_config_rows": {
+          "8": 1,
+          "12": 5,
+          "16": 4,
+          "20": 1,
+          "24": 1
+        },
+        "file_offset": "0x8c9a4",
+        "header_bytes": 6,
+        "image_offset": "0x837a4",
+        "rows_with_nonzero_config_words": 12,
+        "rows_with_zero_config_words": 53,
+        "semantics_note": "Histogram counts ROM rows with any nonzero CONFIG0..5 word. It does not describe permitted values or other row bytes.",
+        "stride_bytes": 76,
+        "subrecord_bytes": 12,
+        "subrecords_per_row": 0,
+        "unadjusted_pointer": "0x6cda4",
+        "version": "0x20"
+      }
+    },
+    "GP107": {
+      "bit_m": {
+        "beyond_published_memory_script_pointer_hex": "5ccc0000",
+        "image_offset": "0x2d5",
+        "length_bytes": 25,
+        "pointers": {
+          "candidate_training": {
+            "geometry": {
+              "base_record_bytes": 1,
+              "ends_at_pattern_pointer": true,
+              "extent_bytes": 85,
+              "header_bytes": 8,
+              "rows": 7,
+              "strap_cell_bytes": 1,
+              "strap_cells_per_row": 10,
+              "training_clock_header_value": 1150,
+              "version": "0x10"
+            },
+            "image_offset": "0x7050",
+            "leading_bytes": "100801010a077e0400010101",
+            "raw": "0x7050",
+            "token_offset": "0x5",
+            "width_bits": 32
+          },
+          "candidate_training_pattern": {
+            "image_offset": "0x70a5",
+            "leading_bytes": "1005046008445f2207101010",
+            "raw": "0x70a5",
+            "token_offset": "0x9",
+            "width_bits": 32
+          },
+          "memory_info": {
+            "image_offset": "0x4c50",
+            "leading_bytes": "1007081000d74c0310500300",
+            "raw": "0x4c50",
+            "token_offset": "0x3",
+            "width_bits": 16
+          },
+          "memory_partition_info": {
+            "image_offset": "0x512d",
+            "leading_bytes": "100402060001000700070007",
+            "raw": "0x512d",
+            "token_offset": "0xd",
+            "width_bits": 32
+          },
+          "memory_script_list": {
+            "image_offset": "0xcc50",
+            "leading_bytes": "5dc0000065790000fb7a0000",
+            "raw": "0xcc50",
+            "token_offset": "0x11",
+            "width_bits": 32
+          },
+          "strap_translation": {
+            "image_offset": "0x4b9a",
+            "leading_bytes": "000102030405060700010203",
+            "raw": "0x4b9a",
+            "token_offset": "0x1",
+            "width_bits": 16
+          }
+        },
+        "strap_data_count": 10,
+        "training_pointer_provenance": "envytools labels M+5/M+9 TRAIN/TRAIN PATTERN using a historical 16-bit reader. Here the 32-bit pointers follow NVIDIA's BIT adjustment and the apparent v0x10 geometry follows envytools. Consumer and GDDR6X extension semantics are unresolved.",
+        "version": 2
+      },
+      "clock_table": {
+        "all_zero_rows": 0,
+        "base_record_bytes": 20,
+        "bit_p_pointer_offset": "0x4",
+        "declared_rows": 6,
+        "extension_note": "Use the header-declared sizes. No semantics were assigned to bytes outside the published fields.",
+        "extent_bytes": 806,
+        "file_offset": "0x2e1c8",
+        "header_bytes": 26,
+        "image_offset": "0x2d7c8",
+        "nominal_frequency_bounds_mhz": [
+          [
+            0,
+            540
+          ],
+          [
+            541,
+            1299
+          ],
+          [
+            1300,
+            2800
+          ],
+          [
+            2801,
+            3300
+          ],
+          [
+            3301,
+            3800
+          ],
+          [
+            3801,
+            4500
+          ]
+        ],
+        "stride_bytes": 130,
+        "subrecord_bytes": 11,
+        "subrecords_per_row": 10,
+        "unadjusted_pointer": "0x1cfc8",
+        "version": "0x11",
+        "zero_frequency_placeholder_rows": 0
+      },
+      "normalized_pci_images": [
+        {
+          "complete": true,
+          "device": 7298,
+          "end": 61440,
+          "header": 416,
+          "last": false,
+          "magic": "PCIR",
+          "size": 61440,
+          "start": 0,
+          "type": 0,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 7298,
+          "end": 129024,
+          "header": 61468,
+          "last": true,
+          "magic": "PCIR",
+          "size": 67584,
+          "start": 61440,
+          "type": 3,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 7296,
+          "end": 185344,
+          "header": 129200,
+          "last": false,
+          "magic": "NPDS",
+          "size": 56320,
+          "start": 129024,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 7296,
+          "end": 231936,
+          "header": 185376,
+          "last": false,
+          "magic": "NPDS",
+          "size": 46592,
+          "start": 185344,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 0,
+          "end": 234496,
+          "header": 231968,
+          "last": false,
+          "magic": "NPDS",
+          "size": 2560,
+          "start": 231936,
+          "type": 112,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 0,
+          "end": 256000,
+          "header": 234528,
+          "last": true,
+          "magic": "NPDS",
+          "size": 21504,
+          "start": 234496,
+          "type": 112,
+          "vendor": 4318
+        }
+      ],
+      "p0": {
+        "all_matching_strap_cells_byte_equal": true,
+        "band_index": 4,
+        "band_min_max_mhz": [
+          3301,
+          3800
+        ],
+        "config3_mask_for_row_selection_only": "0x00ffffff",
+        "faw_image_byte_offset": "0x2dd81",
+        "faw_offset_provenance": "Adjusted BIT P+8 pointer plus declared header and row stride, then CONFIG3 at byte 12 and FAW bit 9 in its second byte.",
+        "faw_raw_file_byte_offset": "0x2e781",
+        "matched_tweak_row": 9,
+        "matching_strap_columns_zero_based": [
+          1
+        ],
+        "prior_a_memory_clock_reported_mhz": 3504,
+        "prior_a_readback_config1": "0x2966c296",
+        "prior_a_readback_config3": "0x38aa",
+        "prior_a_sha256": "3024a5fed5e2426d37d1491b651821026268b758f3d54ba11a1d02cf1d214d4e",
+        "prior_attempt_index": 4,
+        "rom_config3_exactly_matches_prior_a": false,
+        "row_image_offset": "0x2dd74",
+        "row_raw_file_offset": "0x2e774",
+        "six_config_words": [
+          "0x1b58c147",
+          "0x2966c296",
+          "0x881c0900",
+          "0x220038aa",
+          "0xd5838032",
+          "0xa6b270d2"
+        ],
+        "six_word_block_unique_in_full_raw_file": true,
+        "six_word_exact_hits_in_full_raw_file": [
+          "0x2e774"
+        ],
+        "strap_cell_row_indexes": [
+          4,
+          9,
+          3,
+          3,
+          255,
+          255,
+          255,
+          37,
+          38,
+          255
+        ],
+        "strap_selection_note": "Candidates match the observed fingerprint within the P0 band. This does not identify the physical strap."
+      },
+      "pci_device_id": "0x1c82",
+      "pci_wrapper_bytes": 2560,
+      "prior_a_digest_matches_normalized_prefix_ending_at": [],
+      "prior_a_identity_note": "A whole-image digest match is independent of the selected timing-row fingerprint. The GP107 P0 A capture included earlier clock edits.",
+      "raw_bytes": 258560,
+      "raw_file": "GP107.rom",
+      "raw_sha256": "d3013f35f2d5273c0a4315b3da14fde3706bd3ce701c7d6a133480ad48fe315a",
+      "tweak_table": {
+        "all_zero_rows": 22,
+        "base_record_bytes": 68,
+        "bit_p_pointer_offset": "0x8",
+        "declared_rows": 64,
+        "extent_bytes": 4358,
+        "faw_histogram_nonzero_config_rows": {
+          "9": 1,
+          "12": 5,
+          "20": 2,
+          "24": 2,
+          "28": 8,
+          "32": 2
+        },
+        "file_offset": "0x2e50a",
+        "header_bytes": 6,
+        "image_offset": "0x2db0a",
+        "rows_with_nonzero_config_words": 20,
+        "rows_with_zero_config_words": 44,
+        "semantics_note": "Histogram counts ROM rows with any nonzero CONFIG0..5 word. It does not describe permitted values or other row bytes.",
+        "stride_bytes": 68,
+        "subrecord_bytes": 12,
+        "subrecords_per_row": 0,
+        "unadjusted_pointer": "0x1d30a",
+        "version": "0x20"
+      }
+    }
+  },
+  "scope": "Per-board ROM observations and prior P0 readbacks. Runtime consumption, training effects, and unpublished extension meanings were not inferred from ROM bytes.",
+  "sources": {
+    "envytools_training_layout": "https://github.com/envytools/envytools/blob/master/nvbios/mem.c",
+    "nvidia_bit": "https://download.nvidia.com/open-gpu-doc/BIOS-Information-Table/1/BIOS-Information-Table.html",
+    "nvidia_clock_table": "https://download.nvidia.com/open-gpu-doc/MemoryClockTable/1/MemoryClockTable.html",
+    "nvidia_tweak_table": "https://download.nvidia.com/open-gpu-doc/MemoryTweakTable/1/MemoryTweakTable.html",
+    "prior_p0_readbacks": "firmware-tfaw-20261119.json"
+  },
+  "study": "Offline comparison of the supplied GA104 and GP107 ROMs"
+}

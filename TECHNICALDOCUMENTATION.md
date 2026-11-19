@@ -1371,6 +1371,47 @@ The evidence file
 also retains earlier P8 and P2 trials as historical records.
 [Trial records and full-image digests](experiments/firmware-tfaw-20261119.json).
 
+### Where the GA104 tFAW override stops
+
+The two supplied ROMs both use the version 0x11 memory clock table to select
+a row in the version 0x20 memory tweak table. Their headers declare different
+record sizes. The largest difference is in the clock-band and strap map.
+
+| ROM structure | GTX 1050 Ti (GP107) | RTX 3070 Ti (GA104) |
+|---|---:|---:|
+| Memory clock table, total bytes | 806 | 7,046 |
+| Clock-band base record | 20 bytes | 86 bytes |
+| Strap columns per band × bytes per column | 10 × 11 | 14 × 44 |
+| Nonzero frequency ranges | 6 | 7, plus 3 zero-range entries |
+| Memory tweak table, rows × bytes per row | 64 × 68 | 65 × 76 |
+| BIT M memory-control pointer block | 25 bytes | 41 bytes |
+
+On this 3070 Ti, the two P0 strap columns matching the observed timings are
+byte-identical and both select row 0. Its first six CONFIG words occur together
+only once in the entire ROM file. All six matched the live controller before
+the edit at P0 and 9501 MHz. Separate training records are present on both
+cards. How GA104 uses the additional bytes is unresolved.
+[Reproducible ROM comparison](experiments/ga104_memory_layout_20261119.py) ·
+[Decoded layouts](experiments/ga104-memory-layout-20261119.json).
+
+The 12 GA104 rows with populated CONFIG words all use a tFAW divisible by
+four. To test whether the earlier 20 → 21 result came from rounding, a second
+trial requested 20 → 24 → 20. The driver returned the exact edited image with
+CONFIG3 `0x2300314c`. The independent controller read returned
+`0x2300294c` (20 cycles) in all three phases. All six broadcast CONFIG words
+matched their original values throughout, including tCL at 30. Each sample
+was bracketed by P0 at 9501 MHz. The two selected-device restarts completed,
+the original image was restored and the temporary registry record was cleared.
+[P0 readbacks and image hashes](experiments/ga104-p0-tfaw24-20261119.json).
+
+These measurements place the discrepancy between the driver-visible timing
+image and the programmed P0 controller words. Rounding to a multiple of four
+cannot by itself explain the second result. Ampere firmware can program VRAM
+timings during device initialization before the host driver starts. An earlier
+firmware snapshot or a separate runtime source could therefore explain the
+observations. The trial did not identify the component that supplies P0 timings
+on this Windows driver. [Linux kernel description of Ampere device initialization](https://docs.kernel.org/gpu/nova/core/devinit.html).
+
 ## A cycle count is not a time until you know its clock
 
 A timing register holds a **cycle count**, and a cycle count without the clock
