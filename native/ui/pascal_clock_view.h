@@ -22,9 +22,8 @@ struct PascalClockViewState {
 bool has_writable_pascal_clock(const PascalClockTable* table, PascalClockDomain domain);
 
 struct PascalClockReference {
-    int live_pstate = -1;
-    std::optional<double> live_gpc_mhz;
-    double core_offset_mhz = 0;
+    double peak_mhz, point_mv, ceiling_mv;
+    bool staged = false;
 };
 
 // Per-state maxima use doubled MHz in the image. Shared program ratios use whole percent.
@@ -33,5 +32,6 @@ int pascal_clock_raw_value(const PascalClockField& field, double displayed);
 
 void draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTable* table,
                                uint64_t generation, bool edit_enabled, bool apply_enabled,
-                               std::vector<PascalClockEdit>& confirmed, const PascalClockReference& reference = {});
+                               std::vector<PascalClockEdit>& confirmed,
+                               const std::optional<PascalClockReference>& reference = {});
 }

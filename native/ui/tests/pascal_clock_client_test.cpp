@@ -14,6 +14,54 @@ dc_status DC_CALL clock_identity(const dc_gpu*, dc_gpu_identity* out) {
     *out = opened_clock_id;
     return DC_OK;
 }
+dc_status DC_CALL pascal_architecture(dc_gpu*, uint32_t* out) {
+    *out = 4;
+    return DC_OK;
+}
+bool nvvdd_limits_missing = false;
+dc_status DC_CALL pascal_rail_limits(dc_gpu* gpu, dc_rails_limit_set* out) {
+    if (nvvdd_limits_missing) return DC_E_UNAVAILABLE;
+    const auto status = rail_limits(gpu, out);
+    out->rails[0].has_effective = 1;
+    out->rails[0].effective_mv = 1056.25;
+    return status;
+}
+
+void test_p0_rail_snapshot() {
+    auto a = api();
+    a.identity = clock_identity;
+    a.i2c.architecture = pascal_architecture;
+    a.rails.lock = lock_gpu;
+    a.rails.unlock = unlock_gpu;
+    a.rails.identity = clock_identity;
+    a.rails.fields = rail_fields;
+    a.rails.limits = pascal_rail_limits;
+    a.rails.state = rail_state;
+    auto client = create_core_backend_for_test(a);
+    std::string error;
+    CHECK(client->open(opened_clock_id.slot, error));
+    const int initial_state_calls = rail_state_calls;
+    CHECK(client->read(true).pascal_p0_nvvdd_effective_mv == 1056.25);
+    CHECK(client->read(false).pascal_p0_nvvdd_effective_mv == 1056.25 && rail_state_calls == initial_state_calls);
+
+    rail_fields_fail = true;
+    rail_effective_mv = 1031.25;
+    CHECK(client->read(true).pascal_p0_nvvdd_effective_mv == 1031.25 && rail_state_calls == initial_state_calls + 1);
+
+    // The same Classic state read supplies the fallback even without the list of editable requests.
+    rail_fields_fail = false;
+    nvvdd_limits_missing = true;
+    client->set_live_readouts(true);
+    rail_effective_mv = 1018.75;
+    CHECK(client->read(true).pascal_p0_nvvdd_effective_mv == 1018.75 && rail_state_calls == initial_state_calls + 2);
+    rail_state_fail = true;
+    CHECK(!client->read(true).pascal_p0_nvvdd_effective_mv && rail_state_calls == initial_state_calls + 4);
+    rail_state_fail = false;
+    rail_effective_mv = 0;
+    CHECK(!client->read(true).pascal_p0_nvvdd_effective_mv);
+    CHECK(writes == 0 && advanced_writes == 0 && rail_set_calls == 0);
+    client->close();
+}
 }
 int main() {
     WeightFake fake(true);
@@ -58,8 +106,8 @@ int main() {
     prepare.enabled = true;
     prepare.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(
         std::vector<PascalClockEdit>{{PascalClockDomain::xbar, 0, 3600, 3000},
-                                     {PascalClockDomain::xbar, -1, 95, 105},
-                                     {PascalClockDomain::sys, -1, 90, 105}});
+                                     {PascalClockDomain::xbar, -1, 95, 200},
+                                     {PascalClockDomain::sys, -1, 90, 200}});
     CHECK(!client->execute(prepare).ok && reads == 0);
     CHECK(client->execute(read).ok && reads == 1 && registry_reads == 0);
     const auto snapshot = client->read(false);
@@ -70,9 +118,16 @@ int main() {
     CHECK(!client->execute(prepare).ok && !receipt);
     CHECK(!client->read(false).pascal_clock_fresh && client->read(false).pascal_clocks == snapshot.pascal_clocks);
     CHECK(client->execute(read).ok);
+    for (const auto& edit : {PascalClockEdit{PascalClockDomain::xbar, -1, 95, 201},
+                            PascalClockEdit{PascalClockDomain::sys, -1, 90, 201}}) {
+        auto invalid = prepare;
+        invalid.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(1, edit);
+        CHECK(!client->execute(invalid).ok && !receipt && writes == 0);
+        CHECK(client->execute(read).ok);
+    }
     const auto prepared = client->execute(prepare);
     if (!prepared.ok) std::fprintf(stderr, "Prepare: %s\n", prepared.message.c_str());
-    CHECK(prepared.ok && registry_reads == 2 && receipt && receipt->is_pascal_clocks());
+    CHECK(prepared.ok && registry_reads == 4 && receipt && receipt->is_pascal_clocks());
     const auto after = client->read(false);
     CHECK(after.power_weights && after.power_weights->receipt && after.power_weights->receipt->id == receipt->id);
     CHECK(after.pascal_clocks && snapshot.pascal_clock_fresh && writes == 0);
@@ -85,9 +140,9 @@ int main() {
         const auto installed = client->read(false);
         CHECK(installed.pascal_clock_active_receipt == receipt->id && installed.pascal_clock_fresh && installed.pascal_clocks &&
               std::count_if(installed.pascal_clocks->fields.begin(), installed.pascal_clocks->fields.end(),
-                            [](const auto& field) { return field.pstate == -1 && field.current == 105; }) == 2);
+                            [](const auto& field) { return field.pstate == -1 && field.current == 200; }) == 2);
         prepare.pascal_clock_edits = std::make_shared<const std::vector<PascalClockEdit>>(
-            std::vector<PascalClockEdit>{{PascalClockDomain::xbar, -1, 105, 101}});
+            std::vector<PascalClockEdit>{{PascalClockDomain::xbar, -1, 200, 101}});
         const auto previous = *receipt;
         receipt.reset(); // An existing GUI can have closed the session since Read.
         CHECK(!client->execute(prepare).ok && !receipt && replacements == 0);
@@ -123,6 +178,7 @@ int main() {
     CHECK(client->read(false).pascal_clock_availability == Availability::unsupported);
     client->close();
     CHECK(writes == 0);
+    test_p0_rail_snapshot();
     std::printf("Pascal clock client: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

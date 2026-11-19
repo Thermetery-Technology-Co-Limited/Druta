@@ -31,11 +31,11 @@ struct Bench {
   current.registry=PowerWeightRegistrySnapshot{{L"EnableGpuFirmware",4,{0x11,0,0,0}}};
   current.image=test::pascal_clock_fixture();
  }
- PowerWeightReceipt make() {
+ PowerWeightReceipt make(int ratio = 200) {
   return make_pascal_clock_receipt(current,{{PascalClockDomain::gpc,0,3800,3300},
                                              {PascalClockDomain::sys,5,1800,1600},
-                                             {PascalClockDomain::xbar,-1,95,105},
-                                             {PascalClockDomain::sys,-1,90,105}});
+                                             {PascalClockDomain::xbar,-1,95,ratio},
+                                             {PascalClockDomain::sys,-1,90,ratio}});
  }
  void publish_replacement(const PowerWeightReceipt& next) {
   check(active&&durable.phase=="active"&&next.id!=durable.id,"replacement must supersede a verified active receipt");
@@ -126,8 +126,8 @@ void tests() {
   Bench b;const auto r=b.make();
   const auto copy=decode_weight_receipt(encode_weight_receipt(r));
   check(copy.is_pascal_clocks()&&copy.clocks.size()==4&&copy.info.empty(),"clock receipt roundtrip failed");
-  check(copy.clocks[2].expected==95&&copy.clocks[2].value==105&&
-        copy.clocks[3].expected==90&&copy.clocks[3].value==105,"clock receipt lost the raised ratios");
+  check(copy.clocks[2].expected==95&&copy.clocks[2].value==200&&
+        copy.clocks[3].expected==90&&copy.clocks[3].value==200,"clock receipt lost the raised ratios");
   check(!power_weight_verify_registry(r,derive_weight_receipt(r).after,false),"active verification accepted staged records");
   PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
   const auto result=worker.run(PowerWeightOperation::apply,r);
@@ -137,18 +137,18 @@ void tests() {
   check(b.current.image==derive_weight_receipt(r).clock_plan.image,"applied image differs");
   const auto installed=inspect_pascal_clocks(b.current.image);
   check(installed.ok&&std::count_if(installed.fields.begin(),installed.fields.end(),[](const auto& field) {
-   return field.pstate==-1&&field.current==105;
+   return field.pstate==-1&&field.current==200;
   })==2,"the running table lost the raised ratios");
   check(worker.run(PowerWeightOperation::verify,b.durable).ok&&b.restarts==1,"read-only verification changed session");
   const auto cleared=worker.run(PowerWeightOperation::remove,b.durable);
   check(cleared.ok&&b.current.image==r.image&&b.restarts==2&&!b.active,"explicit restore incomplete");
  }
  {
-  Bench b;const auto initial=b.make();PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  Bench b;const auto initial=b.make(105);PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
   check(worker.run(PowerWeightOperation::apply,initial).ok,"cannot activate initial clocks for replacement test");
   const auto first_running=b.current.image;
   const auto replacement=revise_pascal_clock_receipt(b.current,b.durable,
-   {{PascalClockDomain::gpc,0,3300,3400},{PascalClockDomain::xbar,-1,105,95}});
+   {{PascalClockDomain::xbar,-1,105,200},{PascalClockDomain::sys,-1,105,200}});
   b.publish_replacement(replacement);
   check(worker.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==2&&b.current.registry->size()==1,
         "replacement did not load and unstage its complete settings");
@@ -158,10 +158,14 @@ void tests() {
     return field.domain==domain&&field.pstate==pstate&&field.current==raw;
    });
   };
-  check(has(PascalClockDomain::gpc,0,3400)&&has(PascalClockDomain::xbar,-1,95)&&
-        has(PascalClockDomain::sys,-1,105)&&has(PascalClockDomain::sys,5,1600),
+  auto expected_image=first_running;
+  constexpr size_t sys_ratio_byte=0x200+8+21+14, xbar_ratio_byte=sys_ratio_byte+3;
+  expected_image[sys_ratio_byte]=expected_image[xbar_ratio_byte]=200;
+  check(b.current.image==expected_image,"revising a 105 percent receipt altered bytes outside the two ratios");
+  check(has(PascalClockDomain::gpc,0,3300)&&has(PascalClockDomain::xbar,-1,200)&&
+        has(PascalClockDomain::sys,-1,200)&&has(PascalClockDomain::sys,5,1600),
         "replacement lost earlier settings in other fields");
-  const auto next=revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3400,3200}});
+  const auto next=revise_pascal_clock_receipt(b.current,b.durable,{{PascalClockDomain::gpc,0,3300,3200}});
   b.publish_replacement(next);
   check(worker.run(PowerWeightOperation::apply,b.durable).ok&&b.restarts==3,"cannot replace already revised settings");
   check(worker.run(PowerWeightOperation::remove,b.durable).ok&&b.restarts==4&&!b.active&&
@@ -209,7 +213,7 @@ void tests() {
  }
  {
   Bench b;
-  b.current.image=derive_weight_receipt(b.make()).clock_plan.image;
+  b.current.image=derive_weight_receipt(b.make(105)).clock_plan.image;
   const auto r=make_pascal_clock_receipt(b.current,{{PascalClockDomain::xbar,-1,105,100},
                                                    {PascalClockDomain::sys,-1,105,100}});
   PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);

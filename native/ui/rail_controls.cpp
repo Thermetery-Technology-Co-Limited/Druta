@@ -66,13 +66,18 @@ RailResult failed(const char* why) { RailResult r; r.message = why; return r; }
 }
 RailControls::RailControls(RailApi api, dc_gpu* gpu, const dc_gpu_identity& target)
     : api_(api), gpu_(gpu), target_(target) {}
-std::array<RailRow, DC_RAILS_COUNT> RailControls::read() {
+std::array<RailRow, DC_RAILS_COUNT> RailControls::read(std::optional<double>* nvvdd_effective_mv) {
+    if (nvvdd_effective_mv) nvvdd_effective_mv->reset();
     for (auto& rail : last_) for (auto& field : rail.fields) if (field.established) field.stale = true;
     Lock guard(api_, gpu_);
     if (!guard.held || !identity(api_, gpu_, target_)) return last_;
     for (int rail = 0; rail < static_cast<int>(DC_RAILS_COUNT); ++rail) {
         dc_rails_limit_row row{};
-        if (!fields(api_, gpu_, rail) || !limits(api_, gpu_, rail, row) || !row.has_base) continue;
+        if (!fields(api_, gpu_, rail) || !limits(api_, gpu_, rail, row)) continue;
+        if (rail == 0 && nvvdd_effective_mv && row.has_effective == 1 &&
+            std::isfinite(row.effective_mv) && row.effective_mv > 0)
+            *nvvdd_effective_mv = row.effective_mv;
+        if (!row.has_base) continue;
         auto& dest = last_[rail];
         if (dest.type && *dest.type != row.type) dest = {};
         dest.type = row.type;
@@ -90,7 +95,9 @@ std::array<RailRow, DC_RAILS_COUNT> RailControls::read() {
     }
     return last_;
 }
-std::array<RailReadout, DC_RAILS_COUNT> RailControls::readouts(bool with_limits) {
+std::array<RailReadout, DC_RAILS_COUNT> RailControls::readouts(bool with_limits,
+    std::optional<double>* nvvdd_effective_mv) {
+    if (nvvdd_effective_mv) nvvdd_effective_mv->reset();
     for (auto& r : last_readouts_) r.stale = true;
     Lock guard(api_, gpu_);
     if (!guard.held || !identity(api_, gpu_, target_)) return last_readouts_;
@@ -99,6 +106,9 @@ std::array<RailReadout, DC_RAILS_COUNT> RailControls::readouts(bool with_limits)
         states = {}; states.size = sizeof(states);
         states_ok = api_.state(gpu_, &states) == DC_OK;
     }
+    if (nvvdd_effective_mv && states_ok && (states.present & 1u) &&
+        std::isfinite(states.rails[0].effective) && states.rails[0].effective > 0)
+        *nvvdd_effective_mv = states.rails[0].effective;
     dc_rails_limit_set set{}; bool listing = false;
     if (with_limits && api_.limits) for (int i = 0; i < 2 && !listing; ++i) {
         set = {}; set.size = sizeof(set);

@@ -368,7 +368,11 @@ void front_page_clocks(Presentation presentation) {
     live->data.advanced_controls.clear();
     table->state_targets = false;
     table->fields = {{PascalClockDomain::gpc, 0, 3800, 3200, 4200},
-                     {PascalClockDomain::xbar, -1, 98, 1, 105}};
+                     {PascalClockDomain::xbar, -1, 98, 1, 200}};
+    live->curve_revision = 1;
+    live->data.curve = {{0, 800, 1300, 0}, {1, 1000, 1800, 0}, {2, 1100, 2100, 0}};
+    live->data.curve_freq_div = 2;
+    live->data.pascal_p0_nvvdd_effective_mv = 1000;
     auto& core = live->data.controls[static_cast<size_t>(ControlId::core)];
     core.availability = Availability::available;
     core.current = 80;
@@ -376,12 +380,12 @@ void front_page_clocks(Presentation presentation) {
     core.high = 300;
     auto& telemetry = live->data.telemetry;
     telemetry.present = DC_T_CORE | DC_T_PSTATE | DC_T_CORE_OFF;
-    telemetry.core = 1800;
-    telemetry.pstate = 0;
+    telemetry.core = 405;
+    telemetry.pstate = 8;
     telemetry.core_off = 80;
     text = frame(state);
     check(text.find("1764.0 MHz") != std::string::npos && has_live_offsets(text),
-          "The Pascal ratio estimates from live GPC while core and memory offsets remain present");
+          "The idle card shows its NVVDD-limited P0 ratio target alongside the normal offsets");
     state.pascal_clock_view.stage(table->fields.back(), 95);
     text = frame(state);
     check(text.find("1710.0 MHz") != std::string::npos && state.power_weights_intents.empty(),
@@ -392,23 +396,35 @@ void front_page_clocks(Presentation presentation) {
     text = frame(state);
     check(text.find("1729.0 MHz") != std::string::npos, "A staged core offset adjusts the base by the change from applied");
     telemetry.core = 1900;
+    telemetry.pstate = 0;
     text = frame(state);
-    check(text.find("1824.0 MHz") != std::string::npos, "A changing live GPC updates the staged ratio target");
-    live->telemetry_stale_mask = DC_T_CORE;
-    text = frame(state);
-    check(text.find("the firmware GPC nominal when available") != std::string::npos &&
-          text.find("1824.0 MHz") == std::string::npos, "A stale sample loses its live reference");
+    check(text.find("1729.0 MHz") != std::string::npos, "Moving from idle to P0 leaves the ratio estimate stable");
     table->fields.push_back({PascalClockDomain::gpc, 8, 800, 600, 900});
     state.pascal_clock_view.selected_pstate = 8;
-    telemetry.pstate = 8;
-    telemetry.core = 400;
-    live->telemetry_stale_mask = 0;
+    live->telemetry_stale_mask = DC_T_CORE | DC_T_PSTATE;
     text = frame(state);
-    check(text.find("380.0 MHz") != std::string::npos && text.find("Target estimates for P8 use the live GPC clock.") != std::string::npos,
-          "The P0 core-offset draft does not shift a live P8 ratio target");
-    live->telemetry_stale_mask = DC_T_CORE;
+    check(text.find("1729.0 MHz") != std::string::npos && text.find("Staged P0 V/F peak is") != std::string::npos,
+          "Selecting P8 and losing instantaneous telemetry preserve the staged P0 target");
+    live->data.pascal_p0_nvvdd_effective_mv = 800;
     text = frame(state);
-    check(text.find("285.0 MHz") != std::string::npos, "The P0 core-offset draft does not shift the P8 firmware nominal");
+    check(text.find("1254.0 MHz") != std::string::npos, "A lower NVVDD limit selects the next eligible V/F point");
+    live->data.pascal_p0_nvvdd_effective_mv = 1000;
+    check(state.curve_draft.stage_mhz(1, 40), "A curve draft can change the peak point");
+    text = frame(state);
+    check(text.find("1767.0 MHz") != std::string::npos, "Staged point and core changes each contribute once");
+    check(state.curve_draft.revert(), "The staged point can be discarded");
+    live->data.pascal_p0_nvvdd_effective_mv.reset();
+    text = frame(state);
+    check(text.find("P0 estimate needs") != std::string::npos && text.find("1729.0 MHz") == std::string::npos,
+          "Without the effective NVVDD reading the ratio stays editable with no fabricated MHz");
+    live->data.pascal_p0_nvvdd_effective_mv = 1000;
+    live->curve_stale = true;
+    text = frame(state);
+    check(text.find("P0 estimate needs") != std::string::npos, "An invalidated curve removes the estimate");
+    live->curve_stale = false;
+    ++live->curve_revision;
+    text = frame(state);
+    check(text.find("1729.0 MHz") != std::string::npos, "A fresh V/F read restores the ratio estimate");
 
     auto* window = advanced_window(Presentation::focused);
     if (classic && window) {

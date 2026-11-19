@@ -100,6 +100,8 @@ struct LiveData {
     Availability pascal_clock_availability = Availability::unknown;
     std::string pascal_clock_original_receipt;
     std::string pascal_clock_active_receipt;
+    // Effective NVVDD ceiling reported during the same details refresh as the V/F curve.
+    std::optional<double> pascal_p0_nvvdd_effective_mv;
     std::shared_ptr<const PowerIntegralData> power_integral;
     std::shared_ptr<const VoltagePolicyData> voltage_policies;
     std::shared_ptr<const VoltageTablesData> voltage_tables;

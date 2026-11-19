@@ -2075,28 +2075,30 @@ void queue_front_pascal_clock_read(ViewState& state) {
         state.automatic_clock_read = s.generation;
 }
 
-PascalClockReference clock_preview_reference(const ViewState& state) {
+std::optional<PascalClockReference> clock_preview_reference(const ViewState& state) {
     const auto& s = *state.live;
+    const auto cap = s.data.pascal_p0_nvvdd_effective_mv;
+    if (s.data.clock_architecture != 4u || !s.data.connected || !cap || !s.curve_revision || s.curve_stale)
+        return std::nullopt;
+    const auto& curve = state.curve_draft;
+    const bool staged_curve = curve.dirty();
+    if (staged_curve && (curve.generation() != s.generation || !curve.can_apply())) return std::nullopt;
+
     const auto index = static_cast<size_t>(ControlId::core);
     const auto& control = s.data.controls[index];
     const auto& draft = state.drafts[index];
-    const auto& telemetry = s.data.telemetry;
-    auto applied = control.availability == Availability::available ? control.current : std::nullopt;
-    if (!s.paused && !(s.telemetry_stale_mask & DC_T_CORE_OFF)) {
-        if (const auto offset = telemetry_value(s, DC_T_CORE_OFF, telemetry.core_off)) applied = offset;
+    double offset_change = 0;
+    if (draft.dirty) {
+        if (control.availability != Availability::available || !control.current ||
+            !std::isfinite(*control.current) || !std::isfinite(draft.value) ||
+            (control.low && draft.value < *control.low) || (control.high && draft.value > *control.high))
+            return std::nullopt;
+        offset_change = draft.value - *control.current;
     }
-    const bool staged = draft.dirty && std::isfinite(draft.value) &&
-        (!control.low || draft.value >= *control.low) && (!control.high || draft.value <= *control.high);
-    PascalClockReference reference;
-    if (applied && std::isfinite(*applied)) reference.core_offset_mhz = staged ? draft.value : *applied;
-    if (!s.data.connected || s.paused || (s.telemetry_stale_mask & (DC_T_CORE | DC_T_PSTATE))) return reference;
-    if (auto live = telemetry_value(s, DC_T_CORE, telemetry.core); live && *live > 0 &&
-        (telemetry.present & DC_T_PSTATE)) {
-        reference.live_pstate = telemetry.pstate;
-        reference.live_gpc_mhz = telemetry.pstate != 0 || !staged ? live :
-            applied ? preview_clock_offset(*live, *applied, draft.value) : std::nullopt;
-    }
-    return reference;
+    const auto peak = pascal_p0_curve_peak(staged_curve ? curve.draft() : s.data.curve,
+        s.data.curve_freq_div, cap, offset_change);
+    if (!peak) return std::nullopt;
+    return PascalClockReference{peak->peak_mhz, peak->park_mv, *cap, staged_curve || draft.dirty};
 }
 
 void pascal_clock_panel(ViewState& state, bool front = false) {

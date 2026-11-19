@@ -79,6 +79,12 @@ struct CurvePeak {
     std::size_t at_peak = 0;
 };
 CurvePeak curve_peak(const std::vector<dc_vf_point>& points, double cap_mv);
+// Maximum evaluated Pascal graphics bin within the driver-reported NVVDD
+// effective ceiling. Points are already in physical MHz with applied deltas.
+// An optional staged scalar offset is supplied as desired minus applied MHz.
+std::optional<CurvePeak> pascal_p0_curve_peak(const std::vector<dc_vf_point>& points,
+    std::uint32_t freq_div, std::optional<double> nvvdd_effective_mv,
+    double staged_core_change_mhz = 0.0);
 // Flat runs (a point no faster than the one before it) below the cap, walked in index order.
 std::size_t curve_flat_runs(const std::vector<dc_vf_point>& points, double cap_mv);
 // Draft points whose raw delta differs from the same index in the baseline.

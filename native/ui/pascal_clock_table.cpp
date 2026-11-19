@@ -18,7 +18,7 @@ namespace {
 using Bytes = std::vector<uint8_t>;
 constexpr unsigned frequency_mask = 0x3fff;
 constexpr int minimum_ratio = 1;
-constexpr int maximum_ratio = 105;
+constexpr int maximum_ratio = 200;
 
 void require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
@@ -361,15 +361,9 @@ PascalClockTable inspect_pascal_clocks(const Bytes& image, uint32_t architecture
     }
 }
 
-std::optional<double> preview_clock_offset(double live_mhz, double applied_offset_mhz,
-                                           double staged_offset_mhz) {
-    if (!positive_frequency(live_mhz)) return {};
-    return positive_frequency(live_mhz + (staged_offset_mhz - applied_offset_mhz));
-}
-
 PascalClockPreview pascal_clock_preview(const PascalClockTable& table,
     const std::vector<PascalClockEdit>& edits, PascalClockDomain domain, int pstate,
-    double core_offset_mhz, std::optional<double> gpc_reference_mhz) {
+    std::optional<double> p0_peak_mhz) {
     PascalClockPreview out;
     if (!table.ok || pstate < 0) return out;
 
@@ -380,19 +374,12 @@ PascalClockPreview pascal_clock_preview(const PascalClockTable& table,
         return out;
     }
 
-    // For ceiling fields, the qualified minimum is the read-only nominal
-    // frequency from the same firmware performance tuple (all doubled MHz).
     if (raw) out.ceiling_mhz = *raw / 2.0;
-    if (gpc_reference_mhz) {
-        gpc_reference_mhz = positive_frequency(*gpc_reference_mhz);
-    } else if (const auto* gpc = find_field(table, PascalClockDomain::gpc, pstate)) {
-        gpc_reference_mhz = positive_frequency(gpc->minimum / 2.0 + (pstate == 0 ? core_offset_mhz : 0));
-    }
-    if (!gpc_reference_mhz) return out;
+    if (!p0_peak_mhz || !positive_frequency(*p0_peak_mhz)) return out;
     if (domain == PascalClockDomain::gpc) {
-        out.nominal_mhz = gpc_reference_mhz;
+        out.nominal_mhz = p0_peak_mhz;
     } else if (const auto ratio = preview_value(find_field(table, domain, -1), edits)) {
-        out.nominal_mhz = positive_frequency(*gpc_reference_mhz * (*ratio / 100.0));
+        out.nominal_mhz = positive_frequency(*p0_peak_mhz * (*ratio / 100.0));
     }
     return out;
 }

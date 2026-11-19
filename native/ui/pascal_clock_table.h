@@ -43,18 +43,11 @@ struct PascalClockPreview {
     std::optional<double> ceiling_mhz;
 };
 
-// Estimate a new clock at the sampled operating point, where the live reading
-// already includes the applied offset. Both offsets are absolute requests.
-std::optional<double> preview_clock_offset(double live_mhz, double applied_offset_mhz,
-                                           double staged_offset_mhz);
-
-// Compute the selected state's nominal target and any independent ceiling.
-// Pascal uses either a supplied, offset-adjusted GPC reference or the firmware
-// GPC nominal plus the absolute requested P0 core offset. Legacy target fields
-// already specify their own absolute nominal frequency.
+// Pascal's global ratios use the P0 V/F peak under the configured NVVDD ceiling.
+// Per-state ceiling fields and legacy independent MHz targets are separate.
 PascalClockPreview pascal_clock_preview(const PascalClockTable& table,
     const std::vector<PascalClockEdit>& edits, PascalClockDomain domain, int pstate,
-    double core_offset_mhz = 0, std::optional<double> gpc_reference_mhz = std::nullopt);
+    std::optional<double> p0_peak_mhz = std::nullopt);
 
 // Input is a PCI image starting at the legacy ROM header, as returned by the
 // driver's complete image capture. No external file offsets or hardware I/O.

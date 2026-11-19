@@ -427,17 +427,21 @@ arranged as 0/1/2/4/5.
 
 Druta reads the selected adapter's running VBIOS. For the supported Pascal HAL 2
 clock tables, it locates the GPC master program and its XBAR and SYS dependents.
-The master program contains two independently editable percentage ratios. A
-version 0x50 performance table can also supply an individual maximum per domain
-and performance state. Druta edits only the maximum bits of a selected entry.
+The master program contains two independently editable ratio bytes. XBAR and
+SYS each accept whole-percent requests from 1% through 200% of GPC. A version
+0x50 performance table can also supply an individual maximum per domain and
+performance state. Druta edits only the maximum bits of a selected entry.
 The editor divides the stored double-rate MHz by two for display.
 
-In Daily tuning and Classic Control the ratio rows estimate target MHz as
-`GPC MHz × ratio / 100`. The active state's reference follows core telemetry.
-A staged P0 core offset adds only its difference from the applied offset to
-a live P0 reading. The fallback is the selected state's firmware GPC nominal.
-The selected ceiling is shown independently because Boost can move the actual
-clock away from either value.
+In Daily tuning and Classic Control, the ratio rows estimate target MHz as
+`P0 GPC V/F peak MHz × ratio / 100`. Druta picks the highest GPC frequency
+among V/F points whose voltage is at or below the reported effective NVVDD
+limit. The applied P0 curve already includes the applied offset. The preview
+uses any staged curve edits and adds the difference between a staged core
+offset and the applied offset. The estimate follows the P0 curve while the GPU
+idles and while other performance states are selected. If the curve or voltage
+limit is unavailable, the editor omits the estimate. The per-state ceilings
+remain independent settings and GPU Boost can affect the actual clock.
 
 The Kepler and Maxwell editor recognizes the nine-clock, four-byte-record
 PERF 4.x layout captured in the GTX 770 and GM107 samples. GPC2CLK, XBAR2CLK
@@ -466,7 +470,6 @@ showed no measurable H.264 decode response on this board. Other performance
 states are selectable wherever their table entries qualify. The physical tests
 above used P0.
 
-The native editor accepts XBAR and SYS ratio requests from 1% through 105%.
 On the same GP107, separate P0 trials held the programmed GPC clock at
 1518.5 MHz and changed one ratio at a time. The peer domain retained its
 stock ratio (98% XBAR or 90% SYS). Each reported percentage is the median

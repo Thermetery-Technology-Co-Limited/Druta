@@ -13,7 +13,34 @@ static unsigned checks = 0;
 static dc_vf_point point(uint32_t idx, double voltage, double base, int32_t delta) {
     return {idx, voltage, base + delta / 1000.0, delta};
 }
+static void pascal_p0_curve_estimate() {
+    const std::vector<dc_vf_point> curve{
+        {64, 1131.25, 1885.5, 0},
+        {61, 1056.251, 1847.5, 25000},
+        {62, 1056.25, 1835, 12500},
+        {60, 1050, 1835, 0},
+        {59, 1043.75, 1800, 0},
+    };
+    const auto p0 = pascal_p0_curve_peak(curve, 2, 1056.25);
+    CHECK(p0 && p0->peak_mhz == 1835 && p0->park_idx == 60 && p0->park_mv == 1050 && p0->at_peak == 2);
+    const auto lower_cap = pascal_p0_curve_peak(curve, 2, 1049.999);
+    CHECK(lower_cap && lower_cap->peak_mhz == 1800 && lower_cap->park_idx == 59);
+    const auto staged = pascal_p0_curve_peak(curve, 2, 1056.251, -12.5);
+    CHECK(staged && staged->peak_mhz == 1835 && staged->park_idx == 61);
+    CHECK(!pascal_p0_curve_peak(curve, 2, 1043.749));
+    CHECK(!pascal_p0_curve_peak(curve, 2, std::nullopt));
+    CHECK(!pascal_p0_curve_peak(curve, 2, 0));
+    CHECK(!pascal_p0_curve_peak(curve, 0, 1056.25));
+    CHECK(!pascal_p0_curve_peak(curve, 1, 1056.25));
+    auto malformed = curve;
+    malformed[0].volt_mv = std::numeric_limits<double>::quiet_NaN();
+    CHECK(!pascal_p0_curve_peak(malformed, 2, 1056.25));
+    malformed = curve;
+    malformed[0].idx = malformed[1].idx;
+    CHECK(!pascal_p0_curve_peak(malformed, 2, 1056.25));
+}
 int main() {
+    pascal_p0_curve_estimate();
     const std::vector<dc_vf_point> points{point(9, 850, 1500, 10000), point(2, 900, 1600, -2000)};
     CurveDraft draft;
     draft.observe(1, points, true, 1);

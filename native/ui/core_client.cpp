@@ -934,9 +934,9 @@ class Client final : public IBackend {
         if (undoing && result.ok) undo_.pop_back(); return result;
     }
 
-    void read_rails() {
+    void read_rails(std::optional<double>* nvvdd_effective_mv) {
         if (!rail_service_) return;
-        auto rows = rail_service_->read(); dc_rails_hold_record hold{}; hold.size = sizeof(hold);
+        auto rows = rail_service_->read(nvvdd_effective_mv); dc_rails_hold_record hold{}; hold.size = sizeof(hold);
         bool hold_known = false;
         if (api_.rails.hold) for (int i = 0; i < 2 && !hold_known; ++i) hold_known = api_.rails.hold(gpu_, &hold) == DC_OK && (!hold.present || (hold.rail >= 0 && hold.rail < static_cast<int>(DC_RAILS_COUNT)));
         const bool writer_available = api_.rails.set_raw && api_.rails.lock && api_.rails.unlock && api_.rails.identity && api_.rails.limits && api_.rails.fields && api_.rails.hold;
@@ -2774,13 +2774,26 @@ public:
             if (api_.native_power(gpu_, &native_st, &native_has, &native_mw, nullptr, 0, &native_needed) == DC_OK && native_has == 1 && native_mw < 0xFFFFFFFFu)
                 last_.native_power_limit_w = native_mw / 1000.0;
         }
-        read_advanced(details); if (details) read_rails();
+        read_advanced(details);
+        const bool pascal_curve_refresh = details && clock_architecture_ == 4u;
+        if (details) {
+            last_.pascal_p0_nvvdd_effective_mv.reset();
+            read_rails(pascal_curve_refresh ? &last_.pascal_p0_nvvdd_effective_mv : nullptr);
+        }
         // Python refresh_rail_live every tick; the limits listing and boost only
         // with the full read. Display only: no request or preflight uses it.
-        // Only the Classic presentation shows them: Focused makes no rail-state read.
+        // Only Classic shows these live readouts. Focused can read NVVDD with the
+        // Pascal curve details when the editable limits did not report it.
         // A readout kept from an earlier Classic read is marked stale until Classic reads again.
-        if (rail_service_ && live_readouts_) last_.rail_readouts = rail_service_->readouts(details);
-        else if (last_.rail_readouts) for (auto& readout : *last_.rail_readouts) readout.stale = true;
+        auto* missing_pascal_cap = pascal_curve_refresh && !last_.pascal_p0_nvvdd_effective_mv
+            ? &last_.pascal_p0_nvvdd_effective_mv : nullptr;
+        if (rail_service_ && live_readouts_) {
+            last_.rail_readouts = rail_service_->readouts(details, missing_pascal_cap);
+        } else {
+            if (last_.rail_readouts) for (auto& readout : *last_.rail_readouts) readout.stale = true;
+            // A read-only NVVDD cap can be available without the editable rail limits.
+            if (rail_service_ && missing_pascal_cap) rail_service_->readouts(false, missing_pascal_cap);
+        }
         if (details) {
             dc_vf_delta_snapshot snapshot{}; std::vector<dc_vf_point> points; std::string why; uint32_t curve_step = 0; int32_t measured = 0;
             if (api_.lock && api_.unlock && api_.lock(gpu_) == DC_OK) {

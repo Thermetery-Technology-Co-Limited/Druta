@@ -23,7 +23,7 @@ struct Frame {
 
 Frame frame(PascalClockViewState& state, const PascalClockTable* table, uint64_t generation,
             const char* click = nullptr, bool edit = true, bool apply = true,
-            const PascalClockReference& reference = {}) {
+            const std::optional<PascalClockReference>& reference = std::nullopt) {
     constexpr const char* window = "Pascal clocks test";
     if (click) {
         const auto* w = ImGui::FindWindowByName(window);
@@ -54,7 +54,8 @@ void check_clock_column_widths(const PascalClockTable& clocks, float width, cons
     const auto panel = ImGui::GetID("PascalClockSliders");
     PascalClockViewState state;
     std::vector<PascalClockEdit> confirmed;
-    draw_pascal_clock_sliders(state, &clocks, 1, true, true, confirmed, {0, 1800.0});
+    draw_pascal_clock_sliders(state, &clocks, 1, true, true, confirmed,
+                             PascalClockReference{1800.0, 1037.5, 1056.25});
     const std::string text = ImGui::GetCurrentContext()->LogBuffer.c_str();
     ImGui::LogFinish();
     check(text.find("1764.0 MHz") != std::string::npos, "The narrow layout still shows the estimated ratio frequency");
@@ -72,7 +73,7 @@ void check_clock_column_widths(const PascalClockTable& clocks, float width, cons
               "The clock slider keeps usable space when the numeric input is widened");
     };
     check_table("state_ceilings", "1911.5");
-    check_table("shared_ratios", "105");
+    check_table("shared_ratios", "200");
     ImGui::End();
     ImGui::Render();
     ImGui::GetStyle() = old_style;
@@ -95,43 +96,70 @@ int main() {
     table.fields = {{PascalClockDomain::gpc, 8, 280, 270, 400},
                     {PascalClockDomain::gpc, 0, 3823, 1900, 4200},
                     {PascalClockDomain::sys, 0, 3417, 1300, 3600},
-                    {PascalClockDomain::xbar, -1, 98, 1, 105}};
+                    {PascalClockDomain::xbar, -1, 98, 1, 200},
+                    {PascalClockDomain::sys, -1, 92, 1, 200}};
     auto first = frame(state, &table, 10);
     check(state.selected_pstate == 0 && first.text.find("SYS / Video") != std::string::npos,
           "Select P0 by default and display shared SYS / Video");
     check(first.text.find("all states") != std::string::npos && first.confirmed.empty(), "Show global scope");
+    check(first.text.find("P0 estimate needs a current V/F curve and NVVDD limit.") != std::string::npos &&
+          first.text.find("1798.3 MHz") == std::string::npos,
+          "Ratios remain available when the P0 peak is missing");
+
+    const PascalClockReference p0_reference{1835.0, 1050.0, 1056.25};
+    const auto estimates = frame(state, &table, 10, nullptr, true, true, p0_reference);
+    check(estimates.text.find("1798.3 MHz") != std::string::npos &&
+          estimates.text.find("1688.2 MHz") != std::string::npos &&
+          estimates.text.find("P0 V/F peak is") != std::string::npos &&
+          estimates.text.find("1050.00 mV") != std::string::npos &&
+          estimates.text.find("1056.25 mV") != std::string::npos,
+          "XBAR and SYS estimates use the given P0 peak and display its NVVDD evidence");
 
     check(pascal_clock_display_value(0, 3823) == 1911.5 &&
           pascal_clock_raw_value(table.fields[1], 1800.5) == 3601 &&
           pascal_clock_raw_value(table.fields[1], 1800.20) == 3600, "Half-MHz precision");
     check(pascal_clock_display_value(-1, 98) == 98 &&
           pascal_clock_raw_value(table.fields[3], 97.2) == 97 &&
-          pascal_clock_raw_value(table.fields[3], 106) == 105, "Whole-percent precision and ratio bounds");
+          pascal_clock_raw_value(table.fields[3], 201) == 200 &&
+          pascal_clock_raw_value(table.fields[4], 201) == 200, "Whole-percent precision and ratio bounds");
 
-    state.stage(table.fields[3], 106);
-    check(state.drafts.empty(), "Refuse a ratio above the table's upper bound");
+    state.stage(table.fields[3], 201);
+    state.stage(table.fields[4], 201);
+    check(state.drafts.empty(), "Refuse either ratio above the table's upper bound");
 
     state.stage(table.fields[1], 3601);
     state.selected_pstate = 8;
     state.stage(table.fields[0], 279);
-    state.stage(table.fields[3], 105);
+    state.stage(table.fields[3], 200);
+    state.stage(table.fields[4], 200);
     auto early = frame(state, &table, 10, "Apply and refresh selected GPU");
-    check(early.confirmed.empty() && state.drafts.size() == 3, "Stage changes across states before review");
-    auto preview = frame(state, &table, 10, "Review clock changes");
+    check(early.confirmed.empty() && state.drafts.size() == 4, "Stage changes across states before review");
+    auto staged_reference = p0_reference;
+    staged_reference.staged = true;
+    auto preview = frame(state, &table, 10, "Review clock changes", true, true, staged_reference);
     check(preview.confirmed.empty() && state.reviewing, "Review does not apply");
     check(preview.text.find("P0  GPC maximum   1911.5 to 1800.5 MHz") != std::string::npos &&
           preview.text.find("P8  GPC maximum   140.0 to 139.5 MHz") != std::string::npos &&
-          preview.text.find("All states  XBAR ratio   98% to 105%") != std::string::npos,
+          preview.text.find("All states  XBAR ratio   98% to 200%") != std::string::npos &&
+          preview.text.find("All states  SYS / Video ratio   92% to 200%") != std::string::npos,
           "Review includes all states, units and both values");
+    const std::string double_peak = "3670.0 MHz";
+    const auto peak_first = preview.text.find(double_peak);
+    check(peak_first != std::string::npos && preview.text.find(double_peak, peak_first + double_peak.size()) != std::string::npos &&
+          preview.text.find("Staged P0 V/F peak is") != std::string::npos && state.selected_pstate == 8,
+          "Both staged 200 percent ratios still use the P0 peak while viewing P8");
     auto locked = frame(state, &table, 10, "Apply and refresh selected GPU", true, false);
-    check(locked.confirmed.empty() && !state.reviewing && state.drafts.size() == 3, "Locked Apply retains drafts");
+    check(locked.confirmed.empty() && !state.reviewing && state.drafts.size() == 4, "Locked Apply retains drafts");
     frame(state, &table, 10, "Review clock changes");
     state.stage(table.fields[1], 3603);
-    check(!state.reviewing && state.drafts.size() == 3, "Updating a draft requires new review");
+    check(!state.reviewing && state.drafts.size() == 4, "Updating a draft requires new review");
     frame(state, &table, 10, "Review clock changes");
     auto applied = frame(state, &table, 10, "Apply and refresh selected GPU");
-    check(applied.confirmed.size() == 3 && applied.confirmed[0].value == 3603 &&
-          applied.confirmed[2].pstate == -1 && applied.confirmed[2].value == 105 && state.drafts.empty(),
+    check(applied.confirmed.size() == 4 && applied.confirmed[0].value == 3603 &&
+          applied.confirmed[2].domain == PascalClockDomain::xbar && applied.confirmed[2].pstate == -1 &&
+          applied.confirmed[2].value == 200 &&
+          applied.confirmed[3].domain == PascalClockDomain::sys && applied.confirmed[3].pstate == -1 &&
+          applied.confirmed[3].value == 200 && state.drafts.empty(),
           "Confirm the reviewed batch once");
 
     state.stage(table.fields[1], 3601);
@@ -160,10 +188,10 @@ int main() {
     check(state.selected_pstate == 8, "Accept an adapter whose only shown state is P8");
     PascalClockViewState ratio_only_state;
     partial.fields = {table.fields[3]};
-    auto ratio_only = frame(ratio_only_state, &partial, 12, nullptr, true, true, {8, 250.0});
-    check(ratio_only.text.find("245.0 MHz") != std::string::npos &&
-          ratio_only.text.find("Target estimates for P8") != std::string::npos,
-          "A ratio-only layout estimates from the live state when no state selector is available");
+    auto ratio_only = frame(ratio_only_state, &partial, 12, nullptr, true, true, p0_reference);
+    check(ratio_only.text.find("1798.3 MHz") != std::string::npos &&
+          ratio_only.text.find("P0 V/F peak is") != std::string::npos,
+          "A ratio-only layout uses the supplied P0 peak without a state selector");
     partial.fields = {{PascalClockDomain::gpc, 0, 3200, 3200, 3200}};
     auto fixed = frame(ratio_only_state, &partial, 12);
     check(!has_writable_pascal_clock(&partial, PascalClockDomain::gpc) && fixed.text.find("##slider") == std::string::npos &&

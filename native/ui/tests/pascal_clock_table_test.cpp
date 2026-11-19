@@ -66,44 +66,50 @@ void run_legacy_targets() {
 }
 void run_clock_previews() {
     const auto table = inspect_pascal_clocks(test::pascal_clock_fixture());
-    const auto current = pascal_clock_preview(table, {}, Domain::xbar, 0);
-    check(near(current.nominal_mhz, 593.75) && near(current.ceiling_mhz, 1800),
-          "Nominal ratio math uses the selected firmware GPC nominal and leaves the ceiling independent");
+    constexpr double p0_peak = 1835;
+    const auto missing = pascal_clock_preview(table, {}, Domain::xbar, 0);
+    check(!missing.nominal_mhz && near(missing.ceiling_mhz, 1800),
+          "The independent firmware ceiling is available without the P0 curve peak");
+    const auto current = pascal_clock_preview(table, {}, Domain::xbar, 0, p0_peak);
+    check(near(current.nominal_mhz, 1743.25) && near(current.ceiling_mhz, 1800),
+          "The current XBAR ratio uses the supplied P0 curve peak");
 
-    const std::vector<PascalClockEdit> drafts{{Domain::xbar, -1, 95, 105},
+    const std::vector<PascalClockEdit> drafts{{Domain::xbar, -1, 95, 200},
         {Domain::xbar, 0, 3600, 3001}, {Domain::gpc, 0, 3800, 3201}};
-    const auto live = preview_clock_offset(1600, 100, 150);
-    check(near(live, 1650), "A staged absolute offset subtracts the offset already included in live GPC");
-    const auto xbar = pascal_clock_preview(table, drafts, Domain::xbar, 0, 150, live);
-    check(near(xbar.nominal_mhz, 1732.5) && near(xbar.ceiling_mhz, 1500.5),
-          "Staged ratio uses projected GPC once and the staged ceiling remains a separate half-MHz value");
-    const auto gpc = pascal_clock_preview(table, drafts, Domain::gpc, 0, 150, live);
-    check(near(gpc.nominal_mhz, 1650) && near(gpc.ceiling_mhz, 1600.5),
-          "Staged GPC ceiling is visible separately from the expected operating-point estimate");
-    const auto moved = pascal_clock_preview(table, drafts, Domain::xbar, 0, 150,
-                                           preview_clock_offset(1500, 100, 150));
-    check(near(moved.nominal_mhz, 1627.5), "The ratio estimate follows a new live GPC operating point");
-    const auto p8 = pascal_clock_preview(table, drafts, Domain::xbar, 8, 150);
-    check(near(p8.nominal_mhz, 551.25) && near(p8.ceiling_mhz, 600),
-          "Another state uses its own firmware GPC nominal and ceiling without a P0-only offset");
-    const auto peer = pascal_clock_preview(table, drafts, Domain::sys, 8);
-    check(near(peer.nominal_mhz, 472.5), "Moving XBAR does not move the independent SYS ratio");
+    const auto xbar = pascal_clock_preview(table, drafts, Domain::xbar, 0, p0_peak);
+    check(near(xbar.nominal_mhz, 3670) && near(xbar.ceiling_mhz, 1500.5),
+          "The 200 percent ratio estimate and staged half-MHz XBAR ceiling remain independent");
+    const auto gpc = pascal_clock_preview(table, drafts, Domain::gpc, 0, p0_peak);
+    check(near(gpc.nominal_mhz, p0_peak) && near(gpc.ceiling_mhz, 1600.5),
+          "The GPC estimate reports the P0 curve peak beside the staged ceiling");
+    const auto moved = pascal_clock_preview(table, drafts, Domain::xbar, 0, 1800);
+    check(near(moved.nominal_mhz, 3600), "A different P0 peak updates the ratio estimate");
+    const auto p8 = pascal_clock_preview(table, drafts, Domain::xbar, 8);
+    check(!p8.nominal_mhz && near(p8.ceiling_mhz, 600),
+          "P8 retains its own ceiling without a supplied P0 peak");
+    const auto peer = pascal_clock_preview(table, drafts, Domain::sys, 0, p0_peak);
+    check(near(peer.nominal_mhz, 1651.5), "Only XBAR uses the staged ratio");
+    auto both = drafts;
+    both.push_back({Domain::sys, -1, 90, 200});
+    const auto sys = pascal_clock_preview(table, both, Domain::sys, 0, p0_peak);
+    check(near(sys.nominal_mhz, 3670) && near(sys.ceiling_mhz, 1700),
+          "SYS independently estimates 200 percent of the P0 peak");
 
     const auto unavailable = pascal_clock_preview(table, {}, Domain::xbar, 2);
     check(!unavailable.nominal_mhz && !unavailable.ceiling_mhz, "An unqualified state never fabricates frequencies");
-    const auto stale = pascal_clock_preview(table, {{Domain::xbar, -1, 94, 100}}, Domain::xbar, 0);
+    const auto stale = pascal_clock_preview(table, {{Domain::xbar, -1, 94, 100}}, Domain::xbar, 0, p0_peak);
     check(!stale.nominal_mhz && stale.ceiling_mhz, "Stale ratio drafts leave the independent ceiling available");
     auto ratio_only = table;
     ratio_only.fields.erase(std::remove_if(ratio_only.fields.begin(), ratio_only.fields.end(),
         [](const PascalClockField& field) { return field.pstate >= 0; }), ratio_only.fields.end());
-    const auto ratio_live = pascal_clock_preview(ratio_only, {}, Domain::xbar, 0, 0, 1200);
-    check(near(ratio_live.nominal_mhz, 1140) && !ratio_live.ceiling_mhz,
-          "An adapter with only a qualified ratio can still preview from known live GPC");
-    check(near(preview_clock_offset(1000, -100, 0), 1100) &&
-          near(preview_clock_offset(1000, -100, -100), 1000) &&
-          !preview_clock_offset(0, 0, 100) && !preview_clock_offset(50, 0, -100) &&
-          !preview_clock_offset(1000, std::numeric_limits<double>::infinity(), 0),
-          "Offset preview handles stock, unchanged and invalid requests at the sampled operating point");
+    const auto ratio_peak = pascal_clock_preview(ratio_only, {}, Domain::xbar, 0, 1200);
+    check(near(ratio_peak.nominal_mhz, 1140) && !ratio_peak.ceiling_mhz,
+          "An adapter with only a qualified ratio can estimate from a known P0 peak");
+    for (const double invalid : {0.0, -1.0, std::numeric_limits<double>::infinity()}) {
+        const auto estimate = pascal_clock_preview(table, {}, Domain::xbar, 0, invalid);
+        check(!estimate.nominal_mhz && near(estimate.ceiling_mhz, 1800),
+              "An invalid P0 peak leaves the estimate unavailable");
+    }
 
     PascalClockTable independent;
     independent.ok = true;
@@ -112,17 +118,17 @@ void run_clock_previews() {
                           {Domain::sys, 0, 1000, 900, 1000}, {Domain::xbar, 8, 900, 810, 900}};
     const std::vector<PascalClockEdit> independent_drafts{{Domain::gpc, 0, 1200, 1050},
                                                        {Domain::xbar, 0, 1100, 1001}};
-    const auto older = pascal_clock_preview(independent, independent_drafts, Domain::xbar, 0, 150, 800);
+    const auto older = pascal_clock_preview(independent, independent_drafts, Domain::xbar, 0, p0_peak);
     check(near(older.nominal_mhz, 500.5) && !older.ceiling_mhz,
           "An independent firmware target previews its own staged single-rate MHz without a ratio or ceiling");
-    check(near(pascal_clock_preview(independent, independent_drafts, Domain::sys, 0, 150, 800).nominal_mhz, 500) &&
+    check(near(pascal_clock_preview(independent, independent_drafts, Domain::sys, 0, p0_peak).nominal_mhz, 500) &&
           near(pascal_clock_preview(independent, independent_drafts, Domain::xbar, 8).nominal_mhz, 450),
           "A legacy draft leaves peer domains and other states at their programmed targets");
 }
 void run() {
     run_clock_previews();
     run_legacy_targets();
-    constexpr int ratio_max = 105;
+    constexpr int ratio_max = 200;
     constexpr size_t sys_ratio_byte = 0x200 + 8 + 21 + 14, xbar_ratio_byte = sys_ratio_byte + 3;
     const auto rom = test::pascal_clock_fixture();
     const auto t = inspect_pascal_clocks(rom);
@@ -173,7 +179,7 @@ void run() {
     expected[xbar_ratio_byte] = expected[sys_ratio_byte] = ratio_max;
     const auto raised = plan_pascal_clocks(stock, {{Domain::xbar, -1, 100, ratio_max},
                                                   {Domain::sys, -1, 100, ratio_max}});
-    check(raised.ok && raised.image == expected, "Both ratios can reach 105 percent by changing their own bytes");
+    check(raised.ok && raised.image == expected, "Both ratios can reach 200 percent by changing their own bytes");
     const auto raised_table = inspect_pascal_clocks(raised.image);
     const auto raised_xbar = find(raised_table, Domain::xbar, -1);
     const auto raised_sys = find(raised_table, Domain::sys, -1);

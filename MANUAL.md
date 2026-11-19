@@ -41,12 +41,15 @@ Druta reads the selected card’s clock table and shows the sliders it supports.
 Choose a **Performance state** to edit that state's entries. The same editor is
 available in **Advanced**, under **Registry / BIOS overrides** in Classic.
 
-On Pascal, the state sliders set **GPC**, **XBAR** and **SYS / Video** ceilings
-in 0.5 MHz steps. Beside each ratio, **Est. target** shows the requested
-percentage of GPC in MHz. It updates as you move the ratio or change the core
-offset. When the selected state is active, it uses the sampled core clock.
-Otherwise it uses the selected state's firmware nominal when available.
-GPU Boost and the state ceiling can affect the clock you actually measure.
+On Pascal, the state sliders set independent **GPC**, **XBAR** and
+**SYS / Video** ceilings in 0.5 MHz steps. For the shared XBAR and SYS ratios,
+**Est. target** finds the highest GPC frequency on the P0 voltage/frequency
+(V/F) curve whose voltage is at or below the reported effective NVVDD limit.
+It multiplies that frequency by the selected ratio. Staged core offset and
+V/F curve edits update the preview before they are applied. The estimate stays
+tied to the P0 curve even while the GPU idles or you select another performance
+state. It needs a current curve and voltage limit. GPU Boost and the state's
+independent ceiling can affect the clock you actually measure.
 On the tested GTX 1050 Ti, SYS also governs the reported Video clock and
 affects H.264 decode speed.
 
@@ -55,10 +58,10 @@ On Kepler and Maxwell cards with a supported nine-clock performance table,
 Each slider spans the targets already programmed for that domain on the card.
 Moving the GPC slider leaves the independent XBAR and SYS targets as set.
 
-The Pascal XBAR and SYS ratio sliders each accept 1–105% of GPC in whole-percent steps.
+The Pascal XBAR and SYS ratio sliders each accept 1–200% of GPC in whole-percent steps.
 They apply across performance states, including states other than the one selected.
-At 105% on the tested GTX 1050 Ti, each clock ran about 4.4% faster than GPC
-in P0. The exact clock depends on the operating point. You can stage ceilings in
+The highest ratio tested on the GTX 1050 Ti was 105%. At that setting, each
+clock ran about 4.4% faster than GPC in P0. You can stage ceilings in
 several states and change a ratio in the same draft. To apply or restore, run
 Druta as administrator and enable **Unlock controls**. Choose **Review clock
 changes** to see the state and values for every edit. **Apply and refresh
@@ -444,13 +447,11 @@ The GTX 690 shares one blower between its two GPU cores.
 releases the hold but leaves fan duty as set. Clock, power and voltage settings
 are not changed by this button.
 
-## 4. What about XBAR? 
+## 4. What about XBAR?
 
-On 10, I have found no manipulable software knobs to tune XBAR. To help you cope and seethe, you can read the the 1000 series XBAR frequence inside the monitor tab of Druta but not change it, because NVIDIA simply doesn't expose any way to change it. The good news:
-
-### For 10 and 20 series, XBAR strictly scales with CORE FREQUENCY, NOT NVVDD VOTLAGE. 
-
-That means you should just overclock the crap out of your core like everyone else instead of worrying about NVVDD. 
+Monitor shows the reported XBAR clock. The native GUI offers an XBAR firmware
+ratio and per-state ceilings on supported Pascal cards. See
+[Firmware clock controls in the native GUI](#firmware-clock-controls-in-the-native-gui).
 
 ## 5. Shunt mod corrected power
 

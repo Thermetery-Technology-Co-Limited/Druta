@@ -99,7 +99,7 @@ bool PascalClockViewState::confirm(const PascalClockTable* table, bool enabled,
 
 namespace {
 void draw_field(PascalClockViewState& view, const PascalClockTable& table, const PascalClockField& field,
-                bool editable, int preview_state, const PascalClockReference& reference, bool compact_ratio) {
+                bool editable, const std::optional<PascalClockReference>& reference, bool compact_ratio) {
     const bool ratio = field.pstate == -1;
     const auto draft = matching_row(view.drafts, field.domain, field.pstate);
     const bool stale = draft != view.drafts.end() && draft->expected != field.current;
@@ -129,9 +129,8 @@ void draw_field(PascalClockViewState& view, const PascalClockTable& table, const
             ImGui::TableSetColumnIndex(3);
             ImGui::AlignTextToFramePadding();
         }
-        const auto live_gpc = reference.live_pstate == preview_state ? reference.live_gpc_mhz : std::nullopt;
-        const auto preview = pascal_clock_preview(table, view.drafts, field.domain, preview_state,
-                                                   preview_state == 0 ? reference.core_offset_mhz : 0, live_gpc);
+        const auto preview = pascal_clock_preview(table, view.drafts, field.domain, 0,
+            reference ? std::optional<double>(reference->peak_mhz) : std::nullopt);
         if (preview.nominal_mhz) ImGui::Text(compact_ratio ? "~%.1f MHz" : "%.1f MHz", *preview.nominal_mhz);
         else ImGui::TextDisabled("--");
     }
@@ -142,7 +141,7 @@ void draw_field(PascalClockViewState& view, const PascalClockTable& table, const
 // The selector uses just the rows decoded on this adapter. P0 sorts first even
 // when the firmware lists its low-power states before the performance state.
 void draw_controls(PascalClockViewState& state, const PascalClockTable& table, bool editable,
-                   const PascalClockReference& reference) {
+                   const std::optional<PascalClockReference>& reference) {
     std::vector<int> states;
     bool ratios = false;
     for (const auto& field : table.fields) {
@@ -163,7 +162,7 @@ void draw_controls(PascalClockViewState& state, const PascalClockTable& table, b
     const float input_chrome = 2 * (style.FramePadding.x + frame_height + style.ItemInnerSpacing.x);
     const float label_width = ImGui::CalcTextSize(table.state_targets ? "XBAR" : "SYS / Video").x;
     const float target_width = ImGui::CalcTextSize("9999.9 MHz").x;
-    auto draw_group = [&](int pstate, int preview_state) {
+    auto draw_group = [&](int pstate) {
         const bool ratio = pstate == -1;
         const float number_width = ratio ? 3 * digit_width : 5 * digit_width + ImGui::CalcTextSize(".").x;
         const float input_width = std::ceil(number_width + input_chrome) + 1;
@@ -181,7 +180,7 @@ void draw_controls(PascalClockViewState& state, const PascalClockTable& table, b
             ImGui::TableHeadersRow();
             for (const auto& field : table.fields)
                 if (field.pstate == pstate && writable(field))
-                    draw_field(state, table, field, editable, preview_state, reference, compact_ratio);
+                    draw_field(state, table, field, editable, reference, compact_ratio);
             ImGui::EndTable();
         }
     };
@@ -197,24 +196,23 @@ void draw_controls(PascalClockViewState& state, const PascalClockTable& table, b
             }
             ImGui::EndCombo();
         }
-        draw_group(state.selected_pstate, state.selected_pstate);
+        draw_group(state.selected_pstate);
     }
     if (ratios) {
-        const auto preview_state = states.empty() && reference.live_gpc_mhz ? reference.live_pstate : state.selected_pstate;
         ImGui::TextUnformatted("GPC clock ratios (all states)");
-        draw_group(-1, preview_state);
-        const bool uses_live_gpc = reference.live_pstate == preview_state && reference.live_gpc_mhz;
-        const char* basis = "the firmware GPC nominal when available";
-        if (uses_live_gpc)
-            basis = preview_state == 0 ? "the live GPC clock adjusted for any core offset draft" : "the live GPC clock";
-        ImGui::TextWrapped("Target estimates for %s use %s.", state_name(preview_state).c_str(), basis);
+        draw_group(-1);
+        if (reference)
+            ImGui::TextWrapped("%sP0 V/F peak is %.1f MHz at %.2f mV (NVVDD limit %.2f mV).",
+                reference->staged ? "Staged " : "", reference->peak_mhz, reference->point_mv, reference->ceiling_mv);
+        else
+            ImGui::TextWrapped("P0 estimate needs a current V/F curve and NVVDD limit.");
     }
 }
 }
 
 void draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTable* table,
                                uint64_t generation, bool edit_enabled, bool apply_enabled,
-                               std::vector<PascalClockEdit>& confirmed, const PascalClockReference& reference) {
+                               std::vector<PascalClockEdit>& confirmed, const std::optional<PascalClockReference>& reference) {
     state.sync(generation);
     ImGui::PushID("PascalClockSliders");
     if (table && table->ok) draw_controls(state, *table, edit_enabled, reference);
