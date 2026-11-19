@@ -763,7 +763,10 @@ class DeviationD5Tests(HookCase):
             with self.subTest(name):
                 detail = self.assert_d5(HookRig([ARCH_STEP, owner(power_packet())], missing={name}),
                                         f"gdi32 lacks {name}")
-                self.assertEqual(detail, f"gdi32 lacks {name}")
+                expected = f"gdi32 lacks {name}"
+                if name == ENUM2:
+                    expected += "; display-name fallback lacks user32!EnumDisplayDevicesW"
+                self.assertEqual(detail, expected)
 
     def test_missing_escape_is_the_xpdm_wording(self):
         self.assert_d5(HookRig([ARCH_STEP, owner(power_packet())], missing={ESCAPE}),
@@ -776,7 +779,8 @@ class DeviationD5Tests(HookCase):
         rig = HookRig([ARCH_STEP, owner(power_packet())], missing={ENUM2})
         python, native_run = self.sides(rig, layouts_then_cache)
         self.assertEqual(python[0], NOTHING_SEEN)
-        self.assertEqual(native_run[0][2], NOTHING_SEEN[2] + " (gdi32 lacks D3DKMTEnumAdapters2)")
+        self.assertEqual(native_run[0][2], NOTHING_SEEN[2] + " (gdi32 lacks D3DKMTEnumAdapters2; "
+                         "display-name fallback lacks user32!EnumDisplayDevicesW)")
 
     def test_a_complete_capability_adds_nothing(self):
         # No hook for another reason (no generation policy) with gdi32 complete: identical text.

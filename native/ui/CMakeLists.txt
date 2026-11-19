@@ -3,6 +3,9 @@ cmake_policy(SET CMP0091 NEW)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(druta_ui LANGUAGES C CXX)
   enable_testing()
+  if(DRUTA_LEGACY_X64)
+    message(FATAL_ERROR "Configure from native/ for the legacy x64 GUI, matching core, worker and probe")
+  endif()
 endif()
 if(NOT WIN32)
   message(FATAL_ERROR "The native UI preview requires Windows. The core remains portable.")
@@ -49,7 +52,11 @@ add_executable(druta-ui-timing-cuda timing_cuda_worker_main.cpp)
 target_link_libraries(druta-ui-timing-cuda PRIVATE druta_ui_cuda)
 if(MSVC)
   target_compile_options(druta_ui_cuda PRIVATE /W4 /WX)
-  target_link_options(druta-ui-timing-cuda PRIVATE /SUBSYSTEM:CONSOLE,6.00)
+  if(DRUTA_LEGACY_X64)
+    druta_legacy_x64_binary(druta-ui-timing-cuda CONSOLE)
+  else()
+    target_link_options(druta-ui-timing-cuda PRIVATE /SUBSYSTEM:CONSOLE,6.00)
+  endif()
 endif()
 
 add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp profile_library.cpp profile_history.cpp timing_helper_config.cpp test_signing.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
@@ -121,8 +128,14 @@ file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/FreeType-FTL.txt
 if(MSVC)
   target_compile_options(druta_ui_session PRIVATE /W4 /WX)
   target_compile_options(druta-ui PRIVATE /W4 /WX)
-  target_link_options(druta-ui PRIVATE /SUBSYSTEM:WINDOWS,6.00
-    /MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/druta-ui.manifest)
+  target_link_options(druta-ui PRIVATE /MANIFEST:EMBED /MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/druta-ui.manifest)
+  if(DRUTA_LEGACY_X64)
+    druta_legacy_x64_binary(druta-ui WINDOWS)
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/YY-Thunks-LICENSE.txt"
+         INPUT "${DRUTA_LEGACY_LICENSE}")
+  else()
+    target_link_options(druta-ui PRIVATE /SUBSYSTEM:WINDOWS,6.00)
+  endif()
 endif()
 
 # The shared C ABI stays the same boundary used by Python experiments.
@@ -407,23 +420,37 @@ add_test(NAME druta-ui-policy COMMAND druta-ui-policy-test)
 
 # Audit the actual output, not a remembered developer SDK/driver combination.
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
-set(audit_stamp ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/ui-imports-ok)
-add_custom_command(OUTPUT ${audit_stamp}
-  COMMAND ${CMAKE_COMMAND} -E rm -f ${audit_stamp}
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_imports.py
-    $<TARGET_FILE:druta-ui> --report ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/imports.json
-  COMMAND ${CMAKE_COMMAND} -E touch ${audit_stamp}
-  DEPENDS druta-ui tools/audit_imports.py ../tools/check_imports.py VERBATIM)
-add_custom_target(druta-ui-import-audit ALL DEPENDS ${audit_stamp})
-set(cuda_audit_stamp ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/cuda-imports-ok)
-add_custom_command(OUTPUT ${cuda_audit_stamp}
-  COMMAND ${CMAKE_COMMAND} -E rm -f ${cuda_audit_stamp}
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_imports.py
-    $<TARGET_FILE:druta-ui-timing-cuda> --subsystem console
-    --report ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/cuda-imports.json
-  COMMAND ${CMAKE_COMMAND} -E touch ${cuda_audit_stamp}
-  DEPENDS druta-ui-timing-cuda tools/audit_imports.py ../tools/check_imports.py VERBATIM)
-add_custom_target(druta-ui-cuda-import-audit ALL DEPENDS ${cuda_audit_stamp})
+set(package_dir "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+function(druta_ui_audit binary audit report subsystem)
+  set(stamp "${package_dir}/${report}-ok")
+  if(DRUTA_LEGACY_X64)
+    set(profile --legacy-x64-exports "${DRUTA_LEGACY_EXPORT_MAP_DIR}")
+    foreach(build 5.2.3790 6.0.6000 6.1.7600)
+      list(APPEND maps "${DRUTA_LEGACY_EXPORT_MAP_DIR}/${build}.txt")
+    endforeach()
+  endif()
+  add_custom_command(OUTPUT "${stamp}" "${package_dir}/${report}.json"
+    COMMAND ${CMAKE_COMMAND} -E rm -f "${stamp}"
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_imports.py
+      $<TARGET_FILE:${binary}> --subsystem ${subsystem} ${profile} --report "${package_dir}/${report}.json"
+    COMMAND ${CMAKE_COMMAND} -E touch "${stamp}"
+    DEPENDS ${binary} tools/audit_imports.py ../tools/check_imports.py ${maps} VERBATIM)
+  add_custom_target(${audit} ALL DEPENDS "${stamp}" "${package_dir}/${report}.json")
+endfunction()
+druta_ui_audit(druta-ui druta-ui-import-audit imports gui)
+druta_ui_audit(druta-ui-timing-cuda druta-ui-cuda-import-audit cuda-imports console)
+if(DRUTA_LEGACY_X64)
+  druta_ui_audit(drutacore druta-core-legacy-import-audit core-imports gui)
+  druta_ui_audit(druta-probe druta-probe-legacy-import-audit probe-imports console)
+  add_custom_target(druta-legacy-x64-package
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:druta-probe> "${package_dir}/druta-probe.exe"
+    COMMAND ${CMAKE_COMMAND} -E tar cf "${CMAKE_BINARY_DIR}/Druta-native-legacy-x64-$<CONFIG>.zip" --format=zip
+      druta-ui.exe drutacore.dll druta-probe.exe druta-ui-timing-cuda.exe
+      imports.json core-imports.json probe-imports.json cuda-imports.json Native-README.md COPYING
+      ImGui-LICENSE.txt ImPlot-LICENSE.txt FreeType-LICENSE.txt FreeType-FTL.txt JSON-LICENSE.txt YY-Thunks-LICENSE.txt
+    DEPENDS druta-ui-import-audit druta-ui-cuda-import-audit druta-core-legacy-import-audit druta-probe-legacy-import-audit
+    WORKING_DIRECTORY "${package_dir}" VERBATIM)
+endif()
 add_test(NAME druta-ui-import-policy
   COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_audit_imports.py)
 set_tests_properties(druta-ui-import-policy PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..)

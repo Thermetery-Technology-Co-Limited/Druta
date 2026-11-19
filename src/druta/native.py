@@ -4070,7 +4070,7 @@ def escape_capability():
     out = {name: bool(getattr(c, name)) for name in (
         "gdi32_loaded", "escape", "query_adapter_info", "close_adapter", "enum_adapters2", "enum_adapters",
         "open_from_display_name", "open_from_hdc", "complete")}
-    out["method"] = ("none", "enum2", "enum", "gdi_display_name", "hdc")[c.method]
+    out["method"] = ("none", "enum2", "enum", "gdi_display_name", "hdc", "device_interface")[c.method]
     out["patch_bytes"] = c.patch_bytes
     out["detail"] = _text(c.detail)
     return out

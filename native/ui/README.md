@@ -198,21 +198,41 @@ cross-process tuning ownership.
 
 ## Standalone compatibility on older Windows
 
-The Vista and XP targets concern the native executable and its companion
-core DLL. The optional Python plugin is outside qualification on those two
-systems. Python can run the build tools on a separate machine.
+The legacy x64 package contains Classic and Focused, the native core,
+the timing worker, and the read-only probe. It runs independently of Python.
+It targets Windows 7 SP1 x64, Vista SP2 x64, and Windows XP Professional x64
+Edition SP2. The optional Python plugin and a 32-bit XP GUI are outside this build.
 
-| Target | Status of the native program |
-|---|---|
-| Windows 7 SP1 x64 | Ready for an on-machine check. Launch, render both layouts at system DPI, and verify a read from the selected adapter before exercising Apply and Restore. The restart path uses SetupAPI on this OS and has fixture coverage. |
-| Vista SP2 x64 | The inspected VS 2022 v143 Release EXE statically imports `TryAcquireSRWLockExclusive`, which requires Windows 7. A Vista-compatible runtime build of the EXE and core DLL needs an import check and a real Vista launch. |
-| Windows XP | The existing XP build targets cover the core DLL and command-line probe. The current GUI and its v143 core DLL both declare PE subsystem 6.0 and import `InitializeCriticalSectionEx`, introduced in Vista. Running the full GUI requires a separate XP build and qualification. |
+The standard v143 GUI previously imported `TryAcquireSRWLockExclusive` through
+the C++ runtime, which prevented it from loading on Vista. Its subsystem 6.0
+header and Vista-era imports also excluded XP x64. The legacy build uses a
+pinned copy of YY-Thunks for runtime fallbacks, including synchronization, and
+sets the x64 loader floor to NT 5.2. Packaging checks the imports and headers
+of all four binaries against x64 XP, Vista and Windows 7 export inventories.
+The package has been exercised on Windows 10. First launch, rendering and GPU
+control still need verification on each legacy OS.
+[YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks/tree/v1.2.3) ·
+[Windows lock API requirements](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive)
 
-The inspection used the x64 Release binaries from this branch on Windows 10
-build 19045. No legacy OS launch was verified. [Windows API requirement for
-the lock import](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive) ·
-[Windows API requirement for critical-section initialization](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-initializecriticalsectionex) ·
-[Core and probe build instructions](../README.md).
+On Windows 7 and Vista with WDDM, start with `druta-probe.exe`. Compare the
+reported PCI addresses with the GPU you selected before checking its policies.
+On the Windows 10 test rig, GDI display-name lookup found the GTX 1050 Ti at
+`01:00.0`. Device-interface lookup also found the headless RTX 3070 Ti at
+`02:00.0`. Druta uses these older methods when `D3DKMTEnumAdapters2` is missing.
+Old NVIDIA drivers may expose different current and board-power requests.
+XP x64 uses XPDM and has no WDDM escape for fine current policies or extended
+XOC board power. Other controls discover their own NVAPI and NVML capabilities.
+
+To build the ZIP from an x64 Visual Studio developer prompt:
+
+```powershell
+cmake -S native -B native/build/legacy-x64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DDRUTA_BUILD_UI=ON -DDRUTA_LEGACY_X64=ON
+cmake --build native/build/legacy-x64 --target druta-legacy-x64-package
+```
+
+The output is `native/build/legacy-x64/Druta-native-legacy-x64-Release.zip`.
+For an offline build, set `DRUTA_YY_THUNKS_ARCHIVE` to the official
+`YY-Thunks-Objs.zip` from v1.2.3. CMake checks its SHA-256 in either mode.
 
 ## Build on Windows
 
@@ -363,7 +383,7 @@ the original scalar requests and full curve were checked afterward.
 - Vista SP2 x64 and Windows 7 SP1 x64 remain targets with no actual launch,
   font/DPI, device-loss or shutdown qualification yet. The PE audit checks
   selected imports/headers, not every CRT path or actual legacy execution.
-  XP/x86 UI support is not promised; core support remains independent.
+  See the legacy x64 package section above for current build and audit coverage.
 
 The first fixture shell's build, rendered scale review and smoke history remain
 in [validation/2026-11-11-smoke.json](validation/2026-11-11-smoke.json). Its sample

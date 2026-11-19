@@ -76,10 +76,11 @@ service also vendors pinned MIT-licensed nlohmann JSON. D3D11 can be evaluated
 later; the first version must
 not need Vista's D3D11 platform update merely to draw.
 
-Qualification targets are Vista SP2 x64, Windows 7 SP1 x64, Windows 10 x64 and
-Windows 11 x64. XP and an x86 UI release remain separate scope decisions;
-choosing D3D9 does not establish support for either. Preserve the core's existing
-architecture support and XP import audit independently of the UI target.
+The standalone GUI targets Windows XP Professional x64 Edition SP2, Vista SP2
+x64, Windows 7 SP1 x64, Windows 10 x64 and Windows 11 x64. The legacy package
+uses the 64-bit NVIDIA libraries. XP x86 and the optional Python plugin are
+outside the legacy GUI qualification scope. See the [build and verification
+status](ui/README.md#standalone-compatibility-on-older-windows).
 
 Audit the compiler/runtime and dependency imports, not just PE subsystem
 versions. Resolve optional newer OS functions conditionally with older
