@@ -1412,6 +1412,43 @@ firmware snapshot or a separate runtime source could therefore explain the
 observations. The trial did not identify the component that supplies P0 timings
 on this Windows driver. [Linux kernel description of Ampere device initialization](https://docs.kernel.org/gpu/nova/core/devinit.html).
 
+### Which memory profile matches the 3070 Ti at P0?
+
+On this GA104, two read-only configuration queries gave different results.
+The strap bits used by Nouveau read 0 twice (`0x101000 = 0x00400080`).
+NVIDIA's framebuffer `RAM_CFG` query returned 2 twice. NVIDIA describes this
+field as implementation-dependent. The following comparison uses the supplied
+ROM's clock band containing the recorded P0 memory clock of 9501 MHz.
+[Board readbacks](experiments/ga104-strap-capacity-20261119.json) ·
+[Nouveau strap and group lookup](https://github.com/torvalds/linux/blob/v6.18/drivers/gpu/drm/nouveau/nvkm/subdev/bios/ramcfg.c#L27-L75) ·
+[NVIDIA framebuffer query definition](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h#L111-L119).
+
+| ROM group | Empirical density per device | Timing row | tFAW (cycles) | tRFC (cycles) |
+|---|---:|---:|---:|---:|
+| 0 | 8 Gbit | 8 | 16 | 165 |
+| 1 and 2 | 8 Gbit | 0 | 20 | 262 |
+| 3 | 16 Gbit | 8 | 16 | 165 |
+| 6 and 7 | 16 Gbit | 38 and 19 | Zeroed records | Zeroed records |
+
+Groups 0 and 3 share the same timing row despite their different density
+codes. All six controller CONFIG words in the baseline P0 recording equal
+row 0. Interpreting the driver's value of 2 as a group predicts that row.
+Using the Nouveau strap and group lookup gives row 8. Groups 1 and 2 both
+fit the baseline, and the firmware's own selection procedure remains unknown.
+The earlier 20 → 24 → 20 image trial therefore edited a row that matches
+the controller in all six words, yet its tFAW never reached the sampled P0
+controller state. [Profile and timing map](experiments/ga104-memory-layout-20261119.json) ·
+[P0 controller readings](experiments/ga104-p0-tfaw24-20261119.json).
+
+GA10x also exposes an independent capacity measurement. NVIDIA's driver reads
+the usable framebuffer size published by VBIOS Devinit. This 3070 Ti returned
+8192 MiB there and the same total through the driver's physical RAM query and
+NVML. On a board with a density change, comparing those measurements can show
+whether the smaller capacity is already present at the end of initialization.
+The size alone cannot identify which timing row firmware uses.
+[NVIDIA Devinit capacity reader](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/nvidia/src/kernel/gpu/mem_sys/arch/ampere/kern_mem_sys_ga102.c#L34-L47) ·
+[Read-only collector](experiments/ga10x_capacity_handoff.py).
+
 ## A cycle count is not a time until you know its clock
 
 A timing register holds a **cycle count**, and a cycle count without the clock

@@ -15,11 +15,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from druta.vbios_fields import FormatError, _Image
 
 EVIDENCE_PATH = Path(__file__).with_name("firmware-tfaw-20261119.json")
+READER_SOURCE = "https://github.com/fmuniztriana/nvidia-bios-reader/blob/892723fd23537c639f89f1e8bf62ac6f92850236"
 SOURCES = {
     "nvidia_bit": "https://download.nvidia.com/open-gpu-doc/BIOS-Information-Table/1/BIOS-Information-Table.html",
     "nvidia_clock_table": "https://download.nvidia.com/open-gpu-doc/MemoryClockTable/1/MemoryClockTable.html",
     "nvidia_tweak_table": "https://download.nvidia.com/open-gpu-doc/MemoryTweakTable/1/MemoryTweakTable.html",
     "envytools_training_layout": "https://github.com/envytools/envytools/blob/master/nvbios/mem.c",
+    "nouveau_ramcfg_descriptor": "https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/nouveau/nvkm/subdev/bios/M0203.c",
+    "reader_descriptor_and_timing_decode": f"{READER_SOURCE}/src/nvbios_reader.cpp",
+    "reader_density_confidence": f"{READER_SOURCE}/docs/format-notes.md#memory-descriptor",
     "prior_p0_readbacks": EVIDENCE_PATH.name,
 }
 
@@ -137,6 +141,113 @@ def p0_readback(evidence, board):
     return trials[-1]
 
 
+def timing_fields(config1, config3):
+    return {"tcl": config1 & 0x7F, "tfaw": (config3 >> 9) & 0xFF}
+
+
+def ramcfg_profiles(image, wrapper, memory, clock, bands, ranges, tweak, rows, words, p0_band, candidates):
+    pointer = memory["pointers"]["memory_info"]
+    if "image_offset" not in pointer:
+        raise FormatError("missing BIT M v2 Memory Information Table")
+    at = int(pointer["image_offset"], 16)
+    version, header, stride, count, lookup = image.span(at, 5)
+    if version != 0x10 or header < 7 or stride < 4 or not count or lookup != 0:
+        raise FormatError("unsupported Memory Information Table RAMCFG layout")
+    extent = header + stride * count
+    image.own(at, extent)
+    used_bands = [i for i, limits in enumerate(ranges) if limits != (0, 0)]
+    p0_position = used_bands.index(p0_band)
+    columns = clock["subrecords_per_row"]
+    base = clock["base_record_bytes"]
+    sub = clock["subrecord_bytes"]
+    first_row = int(tweak["file_offset"], 16) + tweak["header_bytes"]
+    p0_rows = {}
+    profiles = []
+    straps = set()
+    for i in range(count):
+        record_at = at + header + i * stride
+        descriptor = image.span(record_at, 4)
+        strap, group = descriptor[0] >> 4, descriptor[1] & 0x0F
+        memory_type, density = descriptor[0] & 0x0F, descriptor[2] >> 4
+        if strap in straps:
+            raise FormatError(f"duplicate RAMCFG descriptor for strap {strap}")
+        straps.add(strap)
+        profile = {
+            "descriptor_file_offset": hex(wrapper + record_at),
+            "descriptor_first_four_bytes": descriptor.hex(),
+            "ramcfg_strap": strap,
+            "clock_group": group,
+            "memory_type_code": hex(memory_type),
+            "density_code": hex(density),
+        }
+        type_name = {0x3: "GDDR5", 0xA: "GDDR6X", 0xF: "unused"}.get(memory_type)
+        if type_name:
+            profile["memory_type"] = type_name
+        if memory_type != 0xF and density in (5, 6):
+            profile["empirical_density_gbit_per_device"] = {5: 8, 6: 16}[density]
+        if memory_type == 0xF or group >= columns:
+            profile["timing_coverage"] = "unused_descriptor" if memory_type == 0xF else "group_out_of_range"
+            profiles.append(profile)
+            continue
+        cell = base + group * sub
+        ids = [bands[band][cell] for band in used_bands]
+        populated_bands = [
+            band
+            for band, timing_id in zip(used_bands, ids, strict=True)
+            if timing_id != 0xFF and timing_id < len(words) and any(words[timing_id])
+        ]
+        if len(populated_bands) == len(ids):
+            coverage = "full"
+        elif populated_bands:
+            coverage = "partial"
+        else:
+            coverage = "unavailable"
+        p0_id = ids[p0_position]
+        if p0_id not in p0_rows:
+            if p0_id == 0xFF or p0_id >= len(words):
+                p0_rows[p0_id] = {"status": "no_reference" if p0_id == 0xFF else "out_of_range"}
+            else:
+                config = words[p0_id]
+                populated = any(config)
+                row = {
+                    "status": "populated" if populated else "zero_config_words",
+                    "whole_record_zero": not any(rows[p0_id]),
+                    "file_offset": hex(first_row + p0_id * tweak["stride_bytes"]),
+                    "six_config_words": [f"{word:#010x}" for word in config],
+                }
+                if populated:
+                    row.update(timing_fields(config[1], config[3]))
+                    row["trfc"] = (config[0] >> 8) & 0x1FF
+                p0_rows[p0_id] = row
+        profile.update(
+            used_band_tweak_rows=ids,
+            used_bands_with_populated_config=populated_bands,
+            timing_coverage=coverage,
+            p0_tweak_row=p0_id,
+            matches_recorded_p0_fingerprint=group in candidates,
+        )
+        profiles.append(profile)
+    return {
+        "table_file_offset": hex(wrapper + at),
+        "header_bytes": header,
+        "record_bytes": stride,
+        "declared_records": count,
+        "extent_bytes": extent,
+        "used_clock_bands": [{"band_index": i, "min_max_mhz": ranges[i]} for i in used_bands],
+        "p0_rom_rows_by_tweak_id": p0_rows,
+        "recorded_p0_fingerprint_candidate_ramcfg": [
+            p["ramcfg_strap"] for p in profiles if p.get("matches_recorded_p0_fingerprint")
+        ],
+        "empirical_16_gbit_ramcfg": [
+            p["ramcfg_strap"] for p in profiles if p.get("empirical_density_gbit_per_device") == 16
+        ],
+        "profiles": profiles,
+        "density_note": "Descriptor byte 2 high nibble is reported raw. The 5/6 labels are empirical per-device density interpretations from NVIDIA BIOS Reader. Profile descriptors do not establish installed capacity or the active strap.",
+        "timing_note": "Each used_band_tweak_rows array follows used_clock_bands. 255 indicates no reference. Coverage counts in-range rows with nonzero CONFIG0..5. P0 values come from ROM rows at the recorded P0 memory clock and are not alternate-strap hardware readbacks.",
+        "timing_encoding": "tCL = CONFIG1[6:0], tFAW = CONFIG3[16:9], tRFC = CONFIG0[16:8], in controller cycles for populated rows.",
+    }
+
+
 def inspect_rom(path, prior):
     trial_index, trial = prior
     before = trial["before_a"]
@@ -175,6 +286,9 @@ def inspect_rom(path, prior):
     populated = [w for w in words if any(w)]
     block_hits = positions(raw, rows[row_index][:24])
     hashes = {hex(record["end"]): digest(image.b[: record["end"]]) for record in image.images if record["complete"]}
+    memory = memory_metadata(image)
+    if timing_fields(c1, c3) != {"tcl": before["decoded_cl"], "tfaw": before["decoded_faw"]}:
+        raise FormatError("decoded CONFIG fields differ from the recorded P0 readback")
     return {
         "raw_file": path.name,
         "raw_bytes": len(raw),
@@ -186,7 +300,10 @@ def inspect_rom(path, prior):
             end for end, sha in hashes.items() if sha == before["effective_vbios_sha256"]
         ],
         "prior_a_identity_note": "A whole-image digest match is independent of the selected timing-row fingerprint. The GP107 P0 A capture included earlier clock edits.",
-        "bit_m": memory_metadata(image),
+        "bit_m": memory,
+        "ramcfg_profiles": ramcfg_profiles(
+            image, wrapper, memory, clock, bands, ranges, tweak, rows, words, band_index, candidates
+        ),
         "clock_table": dict(
             clock,
             zero_frequency_placeholder_rows=ranges.count((0, 0)),
@@ -208,6 +325,7 @@ def inspect_rom(path, prior):
             "prior_a_memory_clock_reported_mhz": frequency,
             "prior_a_readback_config1": hex(c1),
             "prior_a_readback_config3": hex(c3),
+            "prior_a_readback_timing_fields": timing_fields(c1, c3),
             "config3_mask_for_row_selection_only": f"{mask:#010x}",
             "rom_config3_exactly_matches_prior_a": words[row_index][3] == c3,
             "band_index": band_index,
