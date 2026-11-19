@@ -196,6 +196,24 @@ experiment path remain available; no Python runtime is required by the EXE.
 Standalone Python and the UI own separate sessions, so a handle mutex is not
 cross-process tuning ownership.
 
+## Standalone compatibility on older Windows
+
+The Vista and XP targets concern the native executable and its companion
+core DLL. The optional Python plugin is outside qualification on those two
+systems. Python can run the build tools on a separate machine.
+
+| Target | Status of the native program |
+|---|---|
+| Windows 7 SP1 x64 | Ready for an on-machine check. Launch, render both layouts at system DPI, and verify a read from the selected adapter before exercising Apply and Restore. The restart path uses SetupAPI on this OS and has fixture coverage. |
+| Vista SP2 x64 | The inspected VS 2022 v143 Release EXE statically imports `TryAcquireSRWLockExclusive`, which requires Windows 7. A Vista-compatible runtime build of the EXE and core DLL needs an import check and a real Vista launch. |
+| Windows XP | The existing XP build targets cover the core DLL and command-line probe. The current GUI and its v143 core DLL both declare PE subsystem 6.0 and import `InitializeCriticalSectionEx`, introduced in Vista. Running the full GUI requires a separate XP build and qualification. |
+
+The inspection used the x64 Release binaries from this branch on Windows 10
+build 19045. No legacy OS launch was verified. [Windows API requirement for
+the lock import](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive) ·
+[Windows API requirement for critical-section initialization](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-initializecriticalsectionex) ·
+[Core and probe build instructions](../README.md).
+
 ## Build on Windows
 
 Run from the repository root with CMake 3.20+, Visual Studio 2022 C++ tools and
