@@ -22,8 +22,8 @@ curve and 1062.5 mV P0 hold were restored exactly. The observed memory clock
 changed from 8000 to 7750 MHz despite both offsets returning to zero; that
 physical clock difference remains under investigation. This is not a claim of
 complete physical-state restoration. See the
-[431.60 clock report](experiments/turing-43160-clock-compat-20261028.json) and
-[validation script](experiments/validate_turing_clock_compat.py).
+[431.60 clock report](../experiments/turing-43160-clock-compat-20261028.json) and
+[validation script](../experiments/validate_turing_clock_compat.py).
 
 Driver 472.12 was installed through PnP without a Windows reboot and P0 was
 verified. Both offset writes passed. A combined trial also verified that a core
@@ -31,9 +31,9 @@ write preserves a nonzero memory offset. Captured offsets, graphics curve and
 hold were restored, and the observed memory clock returned to its captured
 7750 MHz baseline. These tests do not explain the earlier 431.60 clock change.
 The public evidence is recorded in the
-[472.12 comparison](experiments/turing-47212-compatibility-20261028.md),
-[clock report](experiments/turing-47212-clock-compat-20261028.json), and
-[power report](experiments/turing-47212-live-power-20261028.json).
+[472.12 comparison](../experiments/turing-47212-compatibility-20261028.md),
+[clock report](../experiments/turing-47212-clock-compat-20261028.json), and
+[power report](../experiments/turing-47212-live-power-20261028.json).
 
 The installed loader retained the System32 NVML runtime **8.17.16.2101**,
 whose clock-offset exports exist but report unsupported capability. A separate
@@ -66,14 +66,14 @@ describe the tested processes; they do not select support.
 
 ## Retained Turing power qualification
 
-The [live driver comparison](experiments/turing-driver-live-comparison-20261028.md)
+The [live driver comparison](../experiments/turing-driver-live-comparison-20261028.md)
 records idle 349/351/400 W configured requests and exact client/native
 restoration on 431.60 and 621.01, alongside the prior 581.42 evidence. The short
 RM `26xx` geometry and modern packets carrying v30 firmware definitions remain
 independently validated. Role binding, units, unknown bytes, current bounds,
 coupled peer changes, pin replay and compensation retain their checks. The
-[431.60 static evidence](experiments/turing-43160-static-layout-20261028.md)
-and historical [offline ABI review](experiments/turing-driver-abi-review-20261028.md)
+[431.60 static evidence](../experiments/turing-43160-static-layout-20261028.md)
+and historical [offline ABI review](../experiments/turing-driver-abi-review-20261028.md)
 explain the observed interfaces without becoming compatibility lists.
 
 On 431.60, initial native effective status samples of 349/350/350 W settled
@@ -99,7 +99,7 @@ client/native state and exact P0 hold. The native plateau leaves downstream
 override unqualified, and physical power enforcement under load remains
 unmeasured.
 
-The separate [owner FurMark A/B report](experiments/turing-owner-furmark-ab-20261028.md)
+The separate [owner FurMark A/B report](../experiments/turing-owner-furmark-ab-20261028.md)
 describes an operative limit increase during the prior 581.42 session on this
 board. Its shunt-modified TDP telemetry and estimated 900 W+ transient do not
 establish calibrated GPU input watts or a universal physical ceiling.

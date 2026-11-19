@@ -1,11 +1,13 @@
 # Druta
 
-**Version 1.9.1** — latest stable release, [release notes](RELEASE-NOTES-1.9.1.md).
+**Version 1.9.1** — latest stable release, [release notes](releases/RELEASE-NOTES-1.9.1.md).
 Supersedes 1.8.1 and the 1.9 prereleases. Adds registry/BIOS overrides with
 durable Undo, session-only live voltage and power-saving controls, extended
 power requests and Pascal core current limits, profiles and Undo across the
 tuning controls, Ampere GA102 table support, and an Advanced tab that groups
 everything beyond daily tuning by scope.
+
+See the [release-note archive](releases/README.md) for earlier versions.
 
 Hardware validation: [Maxwell/Pascal](MAXWELL-PASCAL-VALIDATION.md),
 [RTX 5080 / Blackwell](BLACKWELL-VALIDATION.md) and
@@ -786,7 +788,7 @@ not board-identity restrictions. Manual PMBus Verify and Apply use an owned,
 observed minimum graphics-clock clamp. Manual requests are session-only and
 are omitted from profiles; return to Auto before loading a profile. Existing
 offset profiles retain their original recipe and verification path. See the
-[manual](MANUAL.md#i2c-controller-selection) and [1.8.1 notes](RELEASE-NOTES-1.8.1.md).
+[manual](MANUAL.md#i2c-controller-selection) and [1.8.1 notes](releases/RELEASE-NOTES-1.8.1.md).
 
 Private-control profiles must match the GPU, VBIOS and driver. If these change,
 save a fresh profile after validating the settings on that configuration.

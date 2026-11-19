@@ -35,8 +35,8 @@ pending tasks are explicitly excluded from completed support.
 
 Capabilities are checked on the current adapter. The tested board's device ID,
 driver version, firmware, limits and defaults are not compatibility allowlists
-or universal values. See [the manual](MANUAL.md) for individual operations and
-[technical documentation](TECHNICALDOCUMENTATION.md) for their contracts.
+or universal values. See [the manual](../MANUAL.md) for individual operations and
+[technical documentation](../TECHNICALDOCUMENTATION.md) for their contracts.
 
 ## Validation and limits
 

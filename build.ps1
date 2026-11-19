@@ -67,23 +67,7 @@ function Get-SourceSnapshot {
         'AGENTS.md', 'COPYING', 'THIRD-PARTY-NOTICES.md', 'README.md', 'MANUAL.md',
         'TECHNICALDOCUMENTATION.md', 'DEBUG-SUMMARY-RTX5080.md',
         'VOLTAGE-RAILS-TITAN.md', 'VOLTAGE-RAILS-47212.md', 'DRIVER-COMPATIBILITY.md', 'ADAPTER-MATRIX.md',
-        'RELEASE-NOTES-1.3.0.md', 'RELEASE-NOTES-1.5.0a.md', 'RELEASE-NOTES-1.5.1.md',
-        'RELEASE-NOTES-1.6.0.md',
-        'RELEASE-NOTES-1.7.0.md',
-        'RELEASE-NOTES-1.8.0a.md',
-        'RELEASE-NOTES-1.8.0b.md',
-        'RELEASE-NOTES-1.8.0c.md',
-        'RELEASE-NOTES-1.8.0.md',
-        'RELEASE-NOTES-1.8.1.md',
-        'RELEASE-NOTES-1.9.0a.md',
-        'RELEASE-NOTES-1.9.0b.md',
-        'RELEASE-NOTES-1.9.03.md',
-        'RELEASE-NOTES-1.9.04.md',
-        'RELEASE-NOTES-1.9.05.md',
-        'RELEASE-NOTES-1.9.06.md',
-        'RELEASE-NOTES-1.9.07.md',
-        'RELEASE-NOTES-1.9.08.md',
-        'RELEASE-NOTES-1.9.1.md',
+        'releases/README.md',
         'MAXWELL-PASCAL-VALIDATION.md', 'BLACKWELL-VALIDATION.md', 'ADA-VALIDATION.md',
         'CURRENT-LIMITS-RTX5080.md', 'COMPATIBILITY-GATING-AUDIT.md',
         'CURRENT-LIMITS-KEPLER-MAXWELL.md',
@@ -307,7 +291,7 @@ function Get-SourceSnapshot {
         $paths += @(Get-ChildItem -LiteralPath (Join-Path $root $directory) -Filter '*.py' -File -Recurse |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }
-    foreach ($pattern in @('i2c/*.toml', 'i2c/*.md')) {
+    foreach ($pattern in @('i2c/*.toml', 'i2c/*.md', 'releases/RELEASE-NOTES-*.md')) {
         $paths += @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction SilentlyContinue |
             ForEach-Object { $_.FullName.Substring($root.Length + 1).Replace('\', '/') })
     }

@@ -18,8 +18,8 @@ Prerelease. Merges the registry and live-tuning line (PR #39) with the
   verification is unchanged; a request whose Undo point cannot be saved is
   not sent.
 
-Each control's tested scope and limits are in the [manual](MANUAL.md) and
-[technical documentation](TECHNICALDOCUMENTATION.md). Support depends on the
+Each control's tested scope and limits are in the [manual](../MANUAL.md) and
+[technical documentation](../TECHNICALDOCUMENTATION.md). Support depends on the
 current adapter and driver; results from the tested boards are not universal.
 
 ## Validation
