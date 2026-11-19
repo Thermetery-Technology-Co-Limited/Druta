@@ -1449,6 +1449,32 @@ this board. FBPA 1 remains unverified. Only broadcast was sampled while the
 24-cycle image was active in the earlier trial.
 [Stock P0 readings by partition](experiments/ga104-p0-partition-baseline-20261120.json).
 
+Two subsequent tests compared the lifetime of the temporary override on this
+3070 Ti (driver 581.80). Both loaded the exact image requesting 24 cycles.
+One cleared the registry record after the driver returned that image. The
+other kept it in place through the first P0 measurement, a drop to 810 MHz,
+and the return to P0. Each six-word timing sample was bracketed by P0 at
+9501 MHz. Only clock and state were observed during the departure.
+
+| Override during the P0 reads | First P0 tFAW | After return to P0 | Restored tFAW |
+|---|---:|---:|---:|
+| Record already removed | 20 | 20 | 20 |
+| Record still present | 20 | 20 | 20 |
+
+Broadcast and FBPA 0, 2 and 3 agreed on every sample. All six words matched
+the baseline, including tCL at 30. Both trials restored the complete original
+image and cleared the managed registry records. FBPA 1 remains unverified.
+The sole stock 24-cycle row sets tCL to 32 and differs from row 0 in 24 bytes
+outside tFAW. Each of row 0's six CONFIG words appears literally just once
+in the supplied full ROM. These observations rule out a second literal copy
+of those words and leave packed values and an earlier snapshot possible.
+[Partition readings, image checks and stock ROM comparison](experiments/ga104-p0-tfaw-partition-trials-20261120.json).
+
+NVIDIA's open display driver identifies the framebuffer Falcon (FBFLCN) as a
+participant in runtime memory-clock switching. Its public description covers
+the handshake with the display engine. The input that supplies tFAW at P0 on
+this Windows driver remains unidentified. [NVIDIA display control](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/a4b95f6a2db0bba10ccaccef79190a3c18dcf14a/src/common/sdk/nvidia/inc/ctrl/ctrlc372/ctrlc372chnc.h#L211-L219).
+
 GA10x also exposes an independent capacity measurement. NVIDIA's driver reads
 the usable framebuffer size published by VBIOS Devinit. This 3070 Ti returned
 8192 MiB there and the same total through the driver's physical RAM query and
