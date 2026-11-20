@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Decode configured power relationship metadata from a validated INFO packet.
 
-This is a read-only interpretation of the known INFO geometry for V3 and V4
+This is a read-only interpretation of the known INFO layouts for V3 and V4
 policy rows (``power_arbitration.ROW_FORMATS``). Relationship
 records identify targets; separate policy fields identify configured source
 references. Neither identifies arbitration clients or proves runtime execution.
@@ -17,10 +17,23 @@ from collections.abc import Mapping, Sequence
 from .power_arbitration import ROW_FORMATS
 
 _INFO = 0x2080A618
-_SIZE = 20512
-_POLICY_BASE, _POLICY_STRIDE = 0xCC, 0x104
-_REL_MASK, _REL_BASE, _REL_STRIDE = 0x41CC, 0x41D0, 0x24
+_POLICY_BASE = 0xCC
+# Packet size maps to policy stride and relationship base.
+_INFO_GEOMETRY = {20000: (0xFC, 0x3FD0), 20512: (0x104, 0x41D0)}
+_REL_STRIDE = 0x24
 _CAPACITY = 32
+
+
+def packet_layout(size):
+    """Recover a known layout descriptor for an archived INFO packet."""
+    stride, _ = _INFO_GEOMETRY[size]
+    return {"info": (_POLICY_BASE, stride), "sizes": {_INFO: size}}
+
+
+def weight_offset(size, index):
+    """Return the weight field offset in an INFO packet with known geometry."""
+    _, base = _INFO_GEOMETRY[size]
+    return base + index * _REL_STRIDE + 6
 
 
 def decode(layout, info):
@@ -38,25 +51,27 @@ def decode(layout, info):
     sizes = layout["sizes"]
     size = sizes.get(_INFO, sizes.get(str(_INFO)))
     commands = layout.get("commands", {})
-    if (not isinstance(commands, Mapping)
+    geometry = _INFO_GEOMETRY.get(size) if type(size) is int else None
+    if (geometry is None or not isinstance(commands, Mapping)
             or commands.get(_INFO, commands.get(str(_INFO), _INFO)) != _INFO
-            or layout.get("info") not in ((_POLICY_BASE, _POLICY_STRIDE), [_POLICY_BASE, _POLICY_STRIDE])
-            or type(size) is not int or size != _SIZE):
+            or layout.get("info") not in ((_POLICY_BASE, geometry[0]), [_POLICY_BASE, geometry[0]])):
         result["reason"] = "The policy INFO geometry or command is not understood."
         return result
     if (not isinstance(info, Sequence) or isinstance(info, (str, bytes, bytearray, memoryview))
-            or len(info) != _SIZE // 4
+            or len(info) != size // 4
             or any(type(word) is not int or not 0 <= word <= 0xFFFFFFFF for word in info)):
         result["reason"] = "The policy INFO packet is invalid or incomplete."
         return result
 
     raw = struct.pack(f"<{len(info)}I", *info)
     policy_mask = info[1]
-    relation_mask = struct.unpack_from("<I", raw, _REL_MASK)[0]
+    policy_stride, relation_base = geometry
+    compact_info = policy_stride == 0xFC
+    relation_mask = struct.unpack_from("<I", raw, relation_base - 4)[0]
     for index in range(_CAPACITY):
         if not relation_mask >> index & 1:
             continue
-        offset = _REL_BASE + index * _REL_STRIDE
+        offset = relation_base + index * _REL_STRIDE
         kind, target = raw[offset], raw[offset + 1]
         record = {
             "index": index,
@@ -69,7 +84,7 @@ def decode(layout, info):
         if target >= _CAPACITY or not policy_mask >> target & 1:
             record["target_reason"] = "The target policy is absent from the INFO mask."
         else:
-            at = _POLICY_BASE + target * _POLICY_STRIDE
+            at = _POLICY_BASE + target * policy_stride
             version, header, minimum, default, maximum = struct.unpack_from("<5I", raw, at)
             unit_code = (header >> 16) & 0xFF
             unit = {0: "mW", 1: "mA"}.get(unit_code)
@@ -96,9 +111,9 @@ def decode(layout, info):
     for index in range(_CAPACITY):
         if not policy_mask >> index & 1:
             continue
-        at = _POLICY_BASE + index * _POLICY_STRIDE
+        at = _POLICY_BASE + index * policy_stride
         kind = raw[at + 4]
-        if kind == 33:
+        if not compact_info and kind == 33:
             first, last = struct.unpack_from("<HH", raw, at + 0x34)
             source = {"policy": index, "first": first, "last": last,
                       "relationships": [], "available": False, "reason": None}
@@ -120,7 +135,7 @@ def decode(layout, info):
                     source["available"] = True
             result["range_references"].append(source)
             continue
-        if kind == 32:
+        if not compact_info and kind == 32:
             relation = struct.unpack_from("<H", raw, at + 0x34)[0]
             record = by_index.get(relation)
             link = {"policy": index, "relationship": relation,
@@ -139,8 +154,9 @@ def decode(layout, info):
         if kind != 0:
             result["source_uninterpreted_policies"].append(index)
             continue
-        first, last = struct.unpack_from("<HH", raw, at + 0xBC)
-        flag_a, flag_b = raw[at + 0xB9], raw[at + 0xC0]
+        first, last = struct.unpack_from("<HH", raw, at + (0xB4 if compact_info else 0xBC))
+        flag_a = raw[at + (0xB1 if compact_info else 0xB9)]
+        flag_b = 0 if compact_info else raw[at + 0xC0]
         source = {"policy": index, "available": False, "reason": None,
                   "enabled": None, "first": first, "last": last, "relationships": []}
         if raw[at] not in ROW_FORMATS:

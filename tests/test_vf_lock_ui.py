@@ -38,7 +38,7 @@ class VfLockUiTests(FakeUiTest):
                 self.assertEqual(self.driver.state.locks[VF_LOCK_DOMAIN].lockMode, VF_LOCK_MODE_POINT)
                 self.assertFalse(self.app.shutdown_is_clean())
                 self.assertFalse(self.app.hold_for_read())
-                with patch("druta.druta.GPU") as constructor:
+                with patch("druta.druta.open_gpu") as constructor:
                     self.assertFalse(self.app.swap_gpu("0000:02:00.0"))
                 constructor.assert_not_called()
                 self.exit_app()
@@ -55,7 +55,7 @@ class VfLockUiTests(FakeUiTest):
         self.assertIn("RECOVERY REQUIRED", self.values["hold_info"])
         self.assertFalse(self.app.handover(Druta.LOCK_NVML))
         self.assertFalse(self.app.handover(Druta.LOCK_VF))
-        with patch("druta.druta.GPU") as constructor:
+        with patch("druta.druta.open_gpu") as constructor:
             self.assertFalse(self.app.swap_gpu("0000:02:00.0"))
         constructor.assert_not_called()
         self.assertEqual(len(self.driver.writes), 1)

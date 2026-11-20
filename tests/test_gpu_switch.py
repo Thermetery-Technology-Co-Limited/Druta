@@ -119,8 +119,9 @@ class GpuSwitchTests(unittest.TestCase):
                 app.build_ui = Mock()
                 kwargs = ({"side_effect": failure} if isinstance(failure, Exception)
                           else {"return_value": failure})
-                with patch("druta.druta.GPU", **kwargs):
+                with patch("druta.druta.open_gpu", **kwargs) as constructor:
                     self.assertFalse(app.swap_gpu(self.TARGET))
+                constructor.assert_called_once_with(self.TARGET)
                 self.assertIs(app.gpu, original_gpu)
                 self.assertIs(app.vf_points, original_points)
                 self.assertEqual(app.vf_work, original_work)

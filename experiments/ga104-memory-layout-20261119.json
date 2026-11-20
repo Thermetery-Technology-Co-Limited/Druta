@@ -1,0 +1,1449 @@
+{
+  "boards": {
+    "GA104": {
+      "bit_m": {
+        "beyond_published_memory_script_pointer_hex": "7984000097300700084600000c47000090480000",
+        "image_offset": "0x2bd",
+        "length_bytes": 41,
+        "pointers": {
+          "candidate_training": {
+            "geometry": {
+              "base_record_bytes": 1,
+              "ends_at_pattern_pointer": true,
+              "extent_bytes": 113,
+              "header_bytes": 8,
+              "rows": 7,
+              "strap_cell_bytes": 1,
+              "strap_cells_per_row": 14,
+              "training_clock_header_value": 0,
+              "version": "0x10"
+            },
+            "image_offset": "0x88763",
+            "leading_bytes": "100801010e07000000010101",
+            "raw": "0x71d63",
+            "token_offset": "0x5",
+            "width_bits": 32
+          },
+          "candidate_training_pattern": {
+            "image_offset": "0x887d4",
+            "leading_bytes": "110605000108445f002206f0",
+            "raw": "0x71dd4",
+            "token_offset": "0x9",
+            "width_bits": 32
+          },
+          "memory_info": {
+            "image_offset": "0x40ad",
+            "leading_bytes": "100716100014420af0500200",
+            "raw": "0x40ad",
+            "token_offset": "0x3",
+            "width_bits": 16
+          },
+          "memory_partition_info": {
+            "image_offset": "0x505f",
+            "leading_bytes": "100402060001000700070007",
+            "raw": "0x505f",
+            "token_offset": "0xd",
+            "width_bits": 32
+          },
+          "memory_script_list": {
+            "image_offset": "0x846d",
+            "leading_bytes": "000000000000000000000000",
+            "raw": "0x846d",
+            "token_offset": "0x11",
+            "width_bits": 32
+          },
+          "strap_translation": {
+            "image_offset": "0x3fbf",
+            "leading_bytes": "000102030405060700010203",
+            "raw": "0x3fbf",
+            "token_offset": "0x1",
+            "width_bits": 16
+          }
+        },
+        "strap_data_count": 14,
+        "training_pointer_provenance": "envytools labels M+5/M+9 TRAIN/TRAIN PATTERN using a historical 16-bit reader. Here the 32-bit pointers follow NVIDIA's BIT adjustment and the apparent v0x10 geometry follows envytools. Consumer and GDDR6X extension semantics are unresolved.",
+        "version": 2
+      },
+      "clock_table": {
+        "all_zero_rows": 0,
+        "base_record_bytes": 86,
+        "bit_p_pointer_offset": "0x4",
+        "declared_rows": 10,
+        "extension_note": "Use the header-declared sizes. No semantics were assigned to bytes outside the published fields.",
+        "extent_bytes": 7046,
+        "file_offset": "0x8ae1e",
+        "header_bytes": 26,
+        "image_offset": "0x81c1e",
+        "nominal_frequency_bounds_mhz": [
+          [
+            0,
+            540
+          ],
+          [
+            541,
+            1249
+          ],
+          [
+            2005,
+            4699
+          ],
+          [
+            4700,
+            5500
+          ],
+          [
+            5501,
+            6300
+          ],
+          [
+            6301,
+            8499
+          ],
+          [
+            8500,
+            16383
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            0
+          ]
+        ],
+        "stride_bytes": 702,
+        "subrecord_bytes": 44,
+        "subrecords_per_row": 14,
+        "unadjusted_pointer": "0x6b21e",
+        "version": "0x11",
+        "zero_frequency_placeholder_rows": 3
+      },
+      "normalized_pci_images": [
+        {
+          "complete": true,
+          "device": 9346,
+          "end": 65024,
+          "header": 368,
+          "last": false,
+          "magic": "PCIR",
+          "size": 65024,
+          "start": 0,
+          "type": 0,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 9346,
+          "end": 157696,
+          "header": 65052,
+          "last": true,
+          "magic": "PCIR",
+          "size": 92672,
+          "start": 65024,
+          "type": 3,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 8704,
+          "end": 179712,
+          "header": 158016,
+          "last": false,
+          "magic": "NPDS",
+          "size": 22016,
+          "start": 157696,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 8704,
+          "end": 565248,
+          "header": 179744,
+          "last": true,
+          "magic": "NPDS",
+          "size": 385536,
+          "start": 179712,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 0,
+          "end": 962048,
+          "header": 752672,
+          "last": true,
+          "magic": "NPDS",
+          "size": 209408,
+          "start": 752640,
+          "type": 112,
+          "vendor": 4318
+        }
+      ],
+      "p0": {
+        "all_matching_strap_cells_byte_equal": true,
+        "band_index": 6,
+        "band_min_max_mhz": [
+          8500,
+          16383
+        ],
+        "config3_mask_for_row_selection_only": "0xffffffff",
+        "faw_image_byte_offset": "0x837b7",
+        "faw_offset_provenance": "Adjusted BIT P+8 pointer plus declared header and row stride, then CONFIG3 at byte 12 and FAW bit 9 in its second byte.",
+        "faw_raw_file_byte_offset": "0x8c9b7",
+        "matched_tweak_row": 0,
+        "matching_strap_columns_zero_based": [
+          1,
+          2
+        ],
+        "prior_a_memory_clock_reported_mhz": 9501,
+        "prior_a_readback_config1": "0x79e9839e",
+        "prior_a_readback_config3": "0x2300294c",
+        "prior_a_readback_timing_fields": {
+          "tcl": 30,
+          "tfaw": 20
+        },
+        "prior_a_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+        "prior_attempt_index": 5,
+        "rom_config3_exactly_matches_prior_a": true,
+        "row_image_offset": "0x837aa",
+        "row_raw_file_offset": "0x8c9aa",
+        "six_config_words": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ],
+        "six_word_block_unique_in_full_raw_file": true,
+        "six_word_exact_hits_in_full_raw_file": [
+          "0x8c9aa"
+        ],
+        "strap_cell_row_indexes": [
+          8,
+          0,
+          0,
+          8,
+          18,
+          8,
+          38,
+          19,
+          8,
+          8,
+          255,
+          255,
+          255,
+          255
+        ],
+        "strap_selection_note": "Candidates match the observed fingerprint within the P0 band. This does not identify the physical strap."
+      },
+      "pci_device_id": "0x2482",
+      "pci_wrapper_bytes": 37376,
+      "prior_a_digest_matches_normalized_prefix_ending_at": [
+        "0x8a000"
+      ],
+      "prior_a_identity_note": "A whole-image digest match is independent of the selected timing-row fingerprint. The GP107 P0 A capture included earlier clock edits.",
+      "ramcfg_profiles": {
+        "declared_records": 16,
+        "density_note": "Descriptor byte 2 high nibble is reported raw. The 5/6 labels are empirical per-device density interpretations from NVIDIA BIOS Reader. Profile descriptors do not establish installed capacity or the active strap.",
+        "empirical_16_gbit_ramcfg": [
+          3,
+          6,
+          7
+        ],
+        "extent_bytes": 359,
+        "header_bytes": 7,
+        "p0_rom_rows_by_tweak_id": {
+          "0": {
+            "file_offset": "0x8c9aa",
+            "six_config_words": [
+              "0x24790660",
+              "0x79e9839e",
+              "0x77260c10",
+              "0x2300294c",
+              "0x82828032",
+              "0xf9f270f6"
+            ],
+            "status": "populated",
+            "tcl": 30,
+            "tfaw": 20,
+            "trfc": 262,
+            "whole_record_zero": false
+          },
+          "8": {
+            "file_offset": "0x8cc0a",
+            "six_config_words": [
+              "0x174ca53d",
+              "0x41260295",
+              "0x77180800",
+              "0x2200214a",
+              "0xc0820033",
+              "0xa7c270d5"
+            ],
+            "status": "populated",
+            "tcl": 21,
+            "tfaw": 16,
+            "trfc": 165,
+            "whole_record_zero": false
+          },
+          "18": {
+            "file_offset": "0x8cf02",
+            "six_config_words": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "status": "zero_config_words",
+            "whole_record_zero": true
+          },
+          "19": {
+            "file_offset": "0x8cf4e",
+            "six_config_words": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "status": "zero_config_words",
+            "whole_record_zero": true
+          },
+          "38": {
+            "file_offset": "0x8d4f2",
+            "six_config_words": [
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000",
+              "0x00000000"
+            ],
+            "status": "zero_config_words",
+            "whole_record_zero": true
+          }
+        },
+        "profiles": [
+          {
+            "clock_group": 0,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd2b4",
+            "descriptor_first_four_bytes": "0af05002",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 8,
+            "ramcfg_strap": 0,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              2,
+              3,
+              4,
+              8
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 1,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd2ca",
+            "descriptor_first_four_bytes": "1af15002",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": true,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 0,
+            "ramcfg_strap": 1,
+            "timing_coverage": "partial",
+            "used_band_tweak_rows": [
+              6,
+              5,
+              12,
+              3,
+              13,
+              1,
+              0
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              3,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 2,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd2e0",
+            "descriptor_first_four_bytes": "2af25002",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": true,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 0,
+            "ramcfg_strap": 2,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              6,
+              5,
+              4,
+              3,
+              2,
+              1,
+              0
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 3,
+            "density_code": "0x6",
+            "descriptor_file_offset": "0xd2f6",
+            "descriptor_first_four_bytes": "3af36002",
+            "empirical_density_gbit_per_device": 16,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 8,
+            "ramcfg_strap": 3,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              2,
+              3,
+              4,
+              8
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 4,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd30c",
+            "descriptor_first_four_bytes": "4af45001",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 18,
+            "ramcfg_strap": 4,
+            "timing_coverage": "partial",
+            "used_band_tweak_rows": [
+              10,
+              11,
+              12,
+              12,
+              13,
+              14,
+              18
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1
+            ]
+          },
+          {
+            "clock_group": 5,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd322",
+            "descriptor_first_four_bytes": "5af55001",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 8,
+            "ramcfg_strap": 5,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              2,
+              3,
+              4,
+              8
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 6,
+            "density_code": "0x6",
+            "descriptor_file_offset": "0xd338",
+            "descriptor_first_four_bytes": "6af66001",
+            "empirical_density_gbit_per_device": 16,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 38,
+            "ramcfg_strap": 6,
+            "timing_coverage": "unavailable",
+            "used_band_tweak_rows": [
+              30,
+              31,
+              32,
+              32,
+              33,
+              34,
+              38
+            ],
+            "used_bands_with_populated_config": []
+          },
+          {
+            "clock_group": 7,
+            "density_code": "0x6",
+            "descriptor_file_offset": "0xd34e",
+            "descriptor_first_four_bytes": "7af76001",
+            "empirical_density_gbit_per_device": 16,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 19,
+            "ramcfg_strap": 7,
+            "timing_coverage": "partial",
+            "used_band_tweak_rows": [
+              10,
+              11,
+              12,
+              12,
+              13,
+              14,
+              19
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1
+            ]
+          },
+          {
+            "clock_group": 8,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd364",
+            "descriptor_first_four_bytes": "8af85002",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 8,
+            "ramcfg_strap": 8,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              2,
+              3,
+              4,
+              8
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 9,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0xd37a",
+            "descriptor_first_four_bytes": "9af95001",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR6X",
+            "memory_type_code": "0xa",
+            "p0_tweak_row": 8,
+            "ramcfg_strap": 9,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              2,
+              3,
+              4,
+              8
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          },
+          {
+            "clock_group": 2,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0xd390",
+            "descriptor_first_four_bytes": "af020000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 10,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 3,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0xd3a6",
+            "descriptor_first_four_bytes": "bf030000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 11,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 4,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0xd3bc",
+            "descriptor_first_four_bytes": "cf040000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 12,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 5,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0xd3d2",
+            "descriptor_first_four_bytes": "df050000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 13,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 6,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0xd3e8",
+            "descriptor_first_four_bytes": "ef060000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 14,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 7,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0xd3fe",
+            "descriptor_first_four_bytes": "ff070000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 15,
+            "timing_coverage": "unused_descriptor"
+          }
+        ],
+        "record_bytes": 22,
+        "recorded_p0_fingerprint_candidate_ramcfg": [
+          1,
+          2
+        ],
+        "table_file_offset": "0xd2ad",
+        "timing_encoding": "tCL = CONFIG1[6:0], tFAW = CONFIG3[16:9], tRFC = CONFIG0[16:8], in controller cycles for populated rows.",
+        "timing_note": "Each used_band_tweak_rows array follows used_clock_bands. 255 indicates no reference. Coverage counts in-range rows with nonzero CONFIG0..5. P0 values come from ROM rows at the recorded P0 memory clock and are not alternate-strap hardware readbacks.",
+        "used_clock_bands": [
+          {
+            "band_index": 0,
+            "min_max_mhz": [
+              0,
+              540
+            ]
+          },
+          {
+            "band_index": 1,
+            "min_max_mhz": [
+              541,
+              1249
+            ]
+          },
+          {
+            "band_index": 2,
+            "min_max_mhz": [
+              2005,
+              4699
+            ]
+          },
+          {
+            "band_index": 3,
+            "min_max_mhz": [
+              4700,
+              5500
+            ]
+          },
+          {
+            "band_index": 4,
+            "min_max_mhz": [
+              5501,
+              6300
+            ]
+          },
+          {
+            "band_index": 5,
+            "min_max_mhz": [
+              6301,
+              8499
+            ]
+          },
+          {
+            "band_index": 6,
+            "min_max_mhz": [
+              8500,
+              16383
+            ]
+          }
+        ]
+      },
+      "raw_bytes": 999424,
+      "raw_file": "GA104.rom",
+      "raw_sha256": "8f3b77fb0398d8c2ca1a69d952093bd0cef6a92c58c7e634ddaa046fe82c3a64",
+      "tweak_table": {
+        "all_zero_rows": 53,
+        "base_record_bytes": 76,
+        "bit_p_pointer_offset": "0x8",
+        "declared_rows": 65,
+        "extent_bytes": 4946,
+        "faw_histogram_nonzero_config_rows": {
+          "8": 1,
+          "12": 5,
+          "16": 4,
+          "20": 1,
+          "24": 1
+        },
+        "file_offset": "0x8c9a4",
+        "header_bytes": 6,
+        "image_offset": "0x837a4",
+        "rows_with_nonzero_config_words": 12,
+        "rows_with_zero_config_words": 53,
+        "semantics_note": "Histogram counts ROM rows with any nonzero CONFIG0..5 word. It does not describe permitted values or other row bytes.",
+        "stride_bytes": 76,
+        "subrecord_bytes": 12,
+        "subrecords_per_row": 0,
+        "unadjusted_pointer": "0x6cda4",
+        "version": "0x20"
+      }
+    },
+    "GP107": {
+      "bit_m": {
+        "beyond_published_memory_script_pointer_hex": "5ccc0000",
+        "image_offset": "0x2d5",
+        "length_bytes": 25,
+        "pointers": {
+          "candidate_training": {
+            "geometry": {
+              "base_record_bytes": 1,
+              "ends_at_pattern_pointer": true,
+              "extent_bytes": 85,
+              "header_bytes": 8,
+              "rows": 7,
+              "strap_cell_bytes": 1,
+              "strap_cells_per_row": 10,
+              "training_clock_header_value": 1150,
+              "version": "0x10"
+            },
+            "image_offset": "0x7050",
+            "leading_bytes": "100801010a077e0400010101",
+            "raw": "0x7050",
+            "token_offset": "0x5",
+            "width_bits": 32
+          },
+          "candidate_training_pattern": {
+            "image_offset": "0x70a5",
+            "leading_bytes": "1005046008445f2207101010",
+            "raw": "0x70a5",
+            "token_offset": "0x9",
+            "width_bits": 32
+          },
+          "memory_info": {
+            "image_offset": "0x4c50",
+            "leading_bytes": "1007081000d74c0310500300",
+            "raw": "0x4c50",
+            "token_offset": "0x3",
+            "width_bits": 16
+          },
+          "memory_partition_info": {
+            "image_offset": "0x512d",
+            "leading_bytes": "100402060001000700070007",
+            "raw": "0x512d",
+            "token_offset": "0xd",
+            "width_bits": 32
+          },
+          "memory_script_list": {
+            "image_offset": "0xcc50",
+            "leading_bytes": "5dc0000065790000fb7a0000",
+            "raw": "0xcc50",
+            "token_offset": "0x11",
+            "width_bits": 32
+          },
+          "strap_translation": {
+            "image_offset": "0x4b9a",
+            "leading_bytes": "000102030405060700010203",
+            "raw": "0x4b9a",
+            "token_offset": "0x1",
+            "width_bits": 16
+          }
+        },
+        "strap_data_count": 10,
+        "training_pointer_provenance": "envytools labels M+5/M+9 TRAIN/TRAIN PATTERN using a historical 16-bit reader. Here the 32-bit pointers follow NVIDIA's BIT adjustment and the apparent v0x10 geometry follows envytools. Consumer and GDDR6X extension semantics are unresolved.",
+        "version": 2
+      },
+      "clock_table": {
+        "all_zero_rows": 0,
+        "base_record_bytes": 20,
+        "bit_p_pointer_offset": "0x4",
+        "declared_rows": 6,
+        "extension_note": "Use the header-declared sizes. No semantics were assigned to bytes outside the published fields.",
+        "extent_bytes": 806,
+        "file_offset": "0x2e1c8",
+        "header_bytes": 26,
+        "image_offset": "0x2d7c8",
+        "nominal_frequency_bounds_mhz": [
+          [
+            0,
+            540
+          ],
+          [
+            541,
+            1299
+          ],
+          [
+            1300,
+            2800
+          ],
+          [
+            2801,
+            3300
+          ],
+          [
+            3301,
+            3800
+          ],
+          [
+            3801,
+            4500
+          ]
+        ],
+        "stride_bytes": 130,
+        "subrecord_bytes": 11,
+        "subrecords_per_row": 10,
+        "unadjusted_pointer": "0x1cfc8",
+        "version": "0x11",
+        "zero_frequency_placeholder_rows": 0
+      },
+      "normalized_pci_images": [
+        {
+          "complete": true,
+          "device": 7298,
+          "end": 61440,
+          "header": 416,
+          "last": false,
+          "magic": "PCIR",
+          "size": 61440,
+          "start": 0,
+          "type": 0,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 7298,
+          "end": 129024,
+          "header": 61468,
+          "last": true,
+          "magic": "PCIR",
+          "size": 67584,
+          "start": 61440,
+          "type": 3,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 7296,
+          "end": 185344,
+          "header": 129200,
+          "last": false,
+          "magic": "NPDS",
+          "size": 56320,
+          "start": 129024,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 7296,
+          "end": 231936,
+          "header": 185376,
+          "last": false,
+          "magic": "NPDS",
+          "size": 46592,
+          "start": 185344,
+          "type": 224,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 0,
+          "end": 234496,
+          "header": 231968,
+          "last": false,
+          "magic": "NPDS",
+          "size": 2560,
+          "start": 231936,
+          "type": 112,
+          "vendor": 4318
+        },
+        {
+          "complete": true,
+          "device": 0,
+          "end": 256000,
+          "header": 234528,
+          "last": true,
+          "magic": "NPDS",
+          "size": 21504,
+          "start": 234496,
+          "type": 112,
+          "vendor": 4318
+        }
+      ],
+      "p0": {
+        "all_matching_strap_cells_byte_equal": true,
+        "band_index": 4,
+        "band_min_max_mhz": [
+          3301,
+          3800
+        ],
+        "config3_mask_for_row_selection_only": "0x00ffffff",
+        "faw_image_byte_offset": "0x2dd81",
+        "faw_offset_provenance": "Adjusted BIT P+8 pointer plus declared header and row stride, then CONFIG3 at byte 12 and FAW bit 9 in its second byte.",
+        "faw_raw_file_byte_offset": "0x2e781",
+        "matched_tweak_row": 9,
+        "matching_strap_columns_zero_based": [
+          1
+        ],
+        "prior_a_memory_clock_reported_mhz": 3504,
+        "prior_a_readback_config1": "0x2966c296",
+        "prior_a_readback_config3": "0x38aa",
+        "prior_a_readback_timing_fields": {
+          "tcl": 22,
+          "tfaw": 28
+        },
+        "prior_a_sha256": "3024a5fed5e2426d37d1491b651821026268b758f3d54ba11a1d02cf1d214d4e",
+        "prior_attempt_index": 4,
+        "rom_config3_exactly_matches_prior_a": false,
+        "row_image_offset": "0x2dd74",
+        "row_raw_file_offset": "0x2e774",
+        "six_config_words": [
+          "0x1b58c147",
+          "0x2966c296",
+          "0x881c0900",
+          "0x220038aa",
+          "0xd5838032",
+          "0xa6b270d2"
+        ],
+        "six_word_block_unique_in_full_raw_file": true,
+        "six_word_exact_hits_in_full_raw_file": [
+          "0x2e774"
+        ],
+        "strap_cell_row_indexes": [
+          4,
+          9,
+          3,
+          3,
+          255,
+          255,
+          255,
+          37,
+          38,
+          255
+        ],
+        "strap_selection_note": "Candidates match the observed fingerprint within the P0 band. This does not identify the physical strap."
+      },
+      "pci_device_id": "0x1c82",
+      "pci_wrapper_bytes": 2560,
+      "prior_a_digest_matches_normalized_prefix_ending_at": [],
+      "prior_a_identity_note": "A whole-image digest match is independent of the selected timing-row fingerprint. The GP107 P0 A capture included earlier clock edits.",
+      "ramcfg_profiles": {
+        "declared_records": 16,
+        "density_note": "Descriptor byte 2 high nibble is reported raw. The 5/6 labels are empirical per-device density interpretations from NVIDIA BIOS Reader. Profile descriptors do not establish installed capacity or the active strap.",
+        "empirical_16_gbit_ramcfg": [],
+        "extent_bytes": 135,
+        "header_bytes": 7,
+        "p0_rom_rows_by_tweak_id": {
+          "3": {
+            "file_offset": "0x2e5dc",
+            "six_config_words": [
+              "0x155aa542",
+              "0x20e5c295",
+              "0x88150800",
+              "0x220030ec",
+              "0xd5830032",
+              "0xa6b270e2"
+            ],
+            "status": "populated",
+            "tcl": 21,
+            "tfaw": 24,
+            "trfc": 165,
+            "whole_record_zero": false
+          },
+          "4": {
+            "file_offset": "0x2e620",
+            "six_config_words": [
+              "0x196ac14e",
+              "0x2516c297",
+              "0x88190900",
+              "0x220039ec",
+              "0xd5838032",
+              "0xa6b270e2"
+            ],
+            "status": "populated",
+            "tcl": 23,
+            "tfaw": 28,
+            "trfc": 193,
+            "whole_record_zero": false
+          },
+          "9": {
+            "file_offset": "0x2e774",
+            "six_config_words": [
+              "0x1b58c147",
+              "0x2966c296",
+              "0x881c0900",
+              "0x220038aa",
+              "0xd5838032",
+              "0xa6b270d2"
+            ],
+            "status": "populated",
+            "tcl": 22,
+            "tfaw": 28,
+            "trfc": 193,
+            "whole_record_zero": false
+          },
+          "37": {
+            "file_offset": "0x2eee4",
+            "six_config_words": [
+              "0x156a9e4a",
+              "0x29164297",
+              "0x88190900",
+              "0x2200394c",
+              "0xd5838032",
+              "0xa6b270e2"
+            ],
+            "status": "populated",
+            "tcl": 23,
+            "tfaw": 28,
+            "trfc": 158,
+            "whole_record_zero": false
+          }
+        },
+        "profiles": [
+          {
+            "clock_group": 0,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0x5657",
+            "descriptor_first_four_bytes": "03105003",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR5",
+            "memory_type_code": "0x3",
+            "p0_tweak_row": 4,
+            "ramcfg_strap": 0,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "clock_group": 1,
+            "density_code": "0x5",
+            "descriptor_file_offset": "0x565f",
+            "descriptor_first_four_bytes": "13f15003",
+            "empirical_density_gbit_per_device": 8,
+            "matches_recorded_p0_fingerprint": true,
+            "memory_type": "GDDR5",
+            "memory_type_code": "0x3",
+            "p0_tweak_row": 9,
+            "ramcfg_strap": 1,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              6,
+              7,
+              8,
+              9,
+              10
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "clock_group": 2,
+            "density_code": "0x1",
+            "descriptor_file_offset": "0x5667",
+            "descriptor_first_four_bytes": "23f21003",
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR5",
+            "memory_type_code": "0x3",
+            "p0_tweak_row": 3,
+            "ramcfg_strap": 2,
+            "timing_coverage": "partial",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              1,
+              2,
+              3,
+              255
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          {
+            "clock_group": 3,
+            "density_code": "0x1",
+            "descriptor_file_offset": "0x566f",
+            "descriptor_first_four_bytes": "33f31003",
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR5",
+            "memory_type_code": "0x3",
+            "p0_tweak_row": 3,
+            "ramcfg_strap": 3,
+            "timing_coverage": "partial",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              1,
+              2,
+              3,
+              255
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          {
+            "clock_group": 4,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x5677",
+            "descriptor_first_four_bytes": "4f040000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 4,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 5,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x567f",
+            "descriptor_first_four_bytes": "5f050000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 5,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 6,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x5687",
+            "descriptor_first_four_bytes": "6f060000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 6,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 7,
+            "density_code": "0x4",
+            "descriptor_file_offset": "0x568f",
+            "descriptor_first_four_bytes": "73174003",
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR5",
+            "memory_type_code": "0x3",
+            "p0_tweak_row": 37,
+            "ramcfg_strap": 7,
+            "timing_coverage": "partial",
+            "used_band_tweak_rows": [
+              46,
+              45,
+              255,
+              40,
+              37,
+              52
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              3,
+              4
+            ]
+          },
+          {
+            "clock_group": 0,
+            "density_code": "0x4",
+            "descriptor_file_offset": "0x5697",
+            "descriptor_first_four_bytes": "83304003",
+            "matches_recorded_p0_fingerprint": false,
+            "memory_type": "GDDR5",
+            "memory_type_code": "0x3",
+            "p0_tweak_row": 4,
+            "ramcfg_strap": 8,
+            "timing_coverage": "full",
+            "used_band_tweak_rows": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "used_bands_with_populated_config": [
+              0,
+              1,
+              2,
+              3,
+              4,
+              5
+            ]
+          },
+          {
+            "clock_group": 1,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x569f",
+            "descriptor_first_four_bytes": "9f010000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 9,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 2,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x56a7",
+            "descriptor_first_four_bytes": "af020000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 10,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 3,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x56af",
+            "descriptor_first_four_bytes": "bf030000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 11,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 4,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x56b7",
+            "descriptor_first_four_bytes": "cf040000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 12,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 5,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x56bf",
+            "descriptor_first_four_bytes": "df050000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 13,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 6,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x56c7",
+            "descriptor_first_four_bytes": "ef060000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 14,
+            "timing_coverage": "unused_descriptor"
+          },
+          {
+            "clock_group": 7,
+            "density_code": "0x0",
+            "descriptor_file_offset": "0x56cf",
+            "descriptor_first_four_bytes": "ff070000",
+            "memory_type": "unused",
+            "memory_type_code": "0xf",
+            "ramcfg_strap": 15,
+            "timing_coverage": "unused_descriptor"
+          }
+        ],
+        "record_bytes": 8,
+        "recorded_p0_fingerprint_candidate_ramcfg": [
+          1
+        ],
+        "table_file_offset": "0x5650",
+        "timing_encoding": "tCL = CONFIG1[6:0], tFAW = CONFIG3[16:9], tRFC = CONFIG0[16:8], in controller cycles for populated rows.",
+        "timing_note": "Each used_band_tweak_rows array follows used_clock_bands. 255 indicates no reference. Coverage counts in-range rows with nonzero CONFIG0..5. P0 values come from ROM rows at the recorded P0 memory clock and are not alternate-strap hardware readbacks.",
+        "used_clock_bands": [
+          {
+            "band_index": 0,
+            "min_max_mhz": [
+              0,
+              540
+            ]
+          },
+          {
+            "band_index": 1,
+            "min_max_mhz": [
+              541,
+              1299
+            ]
+          },
+          {
+            "band_index": 2,
+            "min_max_mhz": [
+              1300,
+              2800
+            ]
+          },
+          {
+            "band_index": 3,
+            "min_max_mhz": [
+              2801,
+              3300
+            ]
+          },
+          {
+            "band_index": 4,
+            "min_max_mhz": [
+              3301,
+              3800
+            ]
+          },
+          {
+            "band_index": 5,
+            "min_max_mhz": [
+              3801,
+              4500
+            ]
+          }
+        ]
+      },
+      "raw_bytes": 258560,
+      "raw_file": "GP107.rom",
+      "raw_sha256": "d3013f35f2d5273c0a4315b3da14fde3706bd3ce701c7d6a133480ad48fe315a",
+      "tweak_table": {
+        "all_zero_rows": 22,
+        "base_record_bytes": 68,
+        "bit_p_pointer_offset": "0x8",
+        "declared_rows": 64,
+        "extent_bytes": 4358,
+        "faw_histogram_nonzero_config_rows": {
+          "9": 1,
+          "12": 5,
+          "20": 2,
+          "24": 2,
+          "28": 8,
+          "32": 2
+        },
+        "file_offset": "0x2e50a",
+        "header_bytes": 6,
+        "image_offset": "0x2db0a",
+        "rows_with_nonzero_config_words": 20,
+        "rows_with_zero_config_words": 44,
+        "semantics_note": "Histogram counts ROM rows with any nonzero CONFIG0..5 word. It does not describe permitted values or other row bytes.",
+        "stride_bytes": 68,
+        "subrecord_bytes": 12,
+        "subrecords_per_row": 0,
+        "unadjusted_pointer": "0x1d30a",
+        "version": "0x20"
+      }
+    }
+  },
+  "scope": "Per-board ROM observations and prior P0 readbacks. Runtime consumption, training effects, and unpublished extension meanings were not inferred from ROM bytes.",
+  "sources": {
+    "envytools_training_layout": "https://github.com/envytools/envytools/blob/master/nvbios/mem.c",
+    "nouveau_ramcfg_descriptor": "https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/nouveau/nvkm/subdev/bios/M0203.c",
+    "nvidia_bit": "https://download.nvidia.com/open-gpu-doc/BIOS-Information-Table/1/BIOS-Information-Table.html",
+    "nvidia_clock_table": "https://download.nvidia.com/open-gpu-doc/MemoryClockTable/1/MemoryClockTable.html",
+    "nvidia_tweak_table": "https://download.nvidia.com/open-gpu-doc/MemoryTweakTable/1/MemoryTweakTable.html",
+    "prior_p0_readbacks": "firmware-tfaw-20261119.json",
+    "reader_density_confidence": "https://github.com/fmuniztriana/nvidia-bios-reader/blob/892723fd23537c639f89f1e8bf62ac6f92850236/docs/format-notes.md#memory-descriptor",
+    "reader_descriptor_and_timing_decode": "https://github.com/fmuniztriana/nvidia-bios-reader/blob/892723fd23537c639f89f1e8bf62ac6f92850236/src/nvbios_reader.cpp"
+  },
+  "study": "Offline comparison of the supplied GA104 and GP107 ROMs"
+}

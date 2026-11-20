@@ -2,6 +2,198 @@ How to use Druta:
 
 Druta is from Sanskrit *druta* meaning fast. In Hindu performing art, it can also denote a “rapid shift (of expressions)", which is perfect for what this project is. 
 
+## Display refresh and pausing
+
+**Always refresh** is off by default each time Druta starts. While visible,
+the window renders normally during interaction, then drops to a target of
+10 FPS after 0.75 seconds without activity. Telemetry keeps its usual cadence.
+Routine panel updates follow visible pages, including detached pages; hidden
+panels do not trigger their extra diagnostic reads. Clock evidence and an
+explicitly armed timing capture still process incoming telemetry.
+
+Turn **Always refresh** on to keep normal rendering and telemetry running
+at all times, including while minimized. This is a per-window display option,
+not a saved tuning setting. **Pause display + monitoring** overrides it.
+
+Click **Pause display + monitoring**, or minimize with **Always refresh** off, to stop
+rendering, panel/layout updates, routine GPU telemetry and capability retries.
+Restore the existing window from the taskbar or press **Ctrl+Shift+F11** to
+resume. The shortcut restores only; holding it does not toggle the pause.
+If another application owns the shortcut, Druta reports that it is unavailable
+and taskbar restoration remains available.
+
+The last readings remain marked stale after restoration until a fresh read
+arrives. An in-flight read may finish when pause begins, but its old result
+cannot overwrite the resumed session's readings. Pause does not apply, undo,
+save or replay tuning settings.
+
+Work already in progress, including verification and its restoration, finishes
+through its existing lifecycle. Required maintenance for an active hold also
+continues: Hold Headroom reads only its live rail and checks its owned lock,
+instead of running the full telemetry scan. The window still processes restore,
+close and shutdown messages while paused. Without active maintenance or an
+in-flight operation, it issues no recurring GPU telemetry reads.
+
+## Firmware clock controls in the native GUI
+
+Druta opens in **Verbose**. Use **Skin** in the menu bar to switch layouts.
+Open **Control → Clock offsets** in Verbose or **Daily tuning** in Focused.
+Druta reads the selected card’s clock table and shows the sliders it supports.
+Choose a **Performance state** to edit that state's entries. The same editor is
+available in **Advanced**, under **Registry / BIOS overrides** in Classic.
+
+On Pascal, the state sliders set independent **GPC**, **XBAR** and
+**SYS / Video** ceilings in 0.5 MHz steps. For the shared XBAR and SYS ratios,
+**Est. target** finds the highest GPC frequency on the P0 voltage/frequency
+(V/F) curve whose voltage is at or below the reported effective NVVDD limit.
+It multiplies that frequency by the selected ratio. Staged core offset and
+V/F curve edits update the preview before they are applied. The estimate stays
+tied to the P0 curve even while the GPU idles or you select another performance
+state. It needs a current curve and voltage limit. GPU Boost and the state's
+independent ceiling can affect the clock you actually measure.
+On the tested GTX 1050 Ti, SYS also governs the reported Video clock and
+affects H.264 decode speed.
+
+On Kepler and Maxwell cards with a supported nine-clock performance table,
+**GPC**, **XBAR** and **SYS** have independent MHz targets for each state.
+Each slider spans the targets already programmed for that domain on the card.
+Moving the GPC slider leaves the independent XBAR and SYS targets as set.
+
+The Pascal XBAR and SYS ratio sliders each accept 1–200% of GPC in whole-percent steps.
+They apply across performance states, including states other than the one selected.
+In a measured GTX 1050 Ti trial at 105%, each clock ran about 4.4% faster
+than GPC in P0. A later trial raised XBAR from 107% to 117% and SYS from 108%
+to 115% together. The display failed to return during driver initialization.
+The slider range does not establish a stable clock for a particular card.
+You can stage ceilings in
+several states and change a ratio in the same draft. To apply or restore, run
+Druta as administrator and enable **Unlock controls**. Choose **Review clock
+changes** to see the state and values for every edit. **Apply and refresh
+selected GPU** closes Druta, restarts the selected GPU and clears its ordinary
+tuning. Druta checks the running image before and after clearing its temporary
+registry records, then reopens the editor with the applied values. You can adjust
+a slider again, enable **Unlock controls**, and review and apply the next change.
+Each Apply carries forward the other values in the session. Once Druta has
+removed the staged records, an ordinary GPU restart clears the running edit.
+
+**Optional recovery boot for Pascal XBAR or SYS ratio changes.** On Windows
+Vista and later, the review offers **Use recovery boot for this Apply**.
+It starts unchecked. **View recovery script** opens the packaged
+`Druta-Recovery-Boot.cmd` in Notepad. To opt in, leave the Apply warning
+open, run that script as administrator from the extracted Druta folder,
+and confirm the GPU and edit shown. Then return to the warning to continue.
+
+The script uses Windows Boot Configuration Data (BCD) to select a copy of
+the current Windows entry for one Safe Mode boot. It keeps the usual boot
+entry as the default and does not rewrite the boot sector or install a
+BootExecute program. Have your account password and, if the system drive
+uses BitLocker, its recovery key available. After a freeze, sign in to Safe
+Mode with the same account and approve recovery. Stay in Safe Mode until
+Druta confirms cleanup, then restart normally. Windows XP Professional x64
+uses the manual procedure below.
+[Windows one-time boot selection](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/bcdedit--bootsequence)
+and [Safe Mode RunOnce behavior](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys).
+
+**If the display stays black after a clock edit**, a separate helper can remove
+the staged records while Windows is responsive. If the machine freezes or
+cannot start normally, sign in to Windows Safe Mode using the account that
+applied the edit. Open an administrator command prompt in the Druta folder:
+
+```bat
+druta-ui.exe --recover-clock-overrides
+```
+
+Use the PCI slot listed for the affected card. For example, for a card at
+`0000:01:00.0`, run:
+
+```bat
+druta-ui.exe --recover-clock-overrides 0000:01:00.0
+```
+
+After recovery confirms the staged records are clear, restart Windows normally.
+The recovery command uses the saved record for that GPU and works without
+loading the NVIDIA driver. It reports conflicts if registry values have changed.
+
+Use **Restore original clocks and refresh GPU** to return to the clocks from
+before the first Apply. Returning every field to its original value with the
+sliders also closes the session.
+If the GPU has already restarted, **Verify clock override** checks the original
+image and closes the saved session. After an interrupted activation, use
+**Inspect saved override** on the same adapter, then choose Verify or Restore
+according to the reported state.
+
+## Pascal BIOS memory timing
+
+Choose **Timings → BIOS memory timing → Read P0 BIOS timings** in either native
+skin. Keep the selected GPU at P0 with a steady memory clock. Druta shows
+fields whose controller readback matches the selected firmware row. Each row
+lists the current encoded value, its range and its register bits. tCL is
+read-only. Edit one or more values, choose **Review BIOS timing changes**,
+then **Apply timings and refresh selected GPU** to load the batch with one
+driver restart. Druta uses temporary driver records for the override.
+
+If the GPU idles during the restart, return it to the same P0 memory clock and
+choose **Verify P0 timing override**. Druta checks the actual controller words
+as well as the driver-visible image. **Restore original firmware settings and
+refresh GPU** returns to the original firmware image.
+
+On the MSI GTX 1050 Ti (GP107) at P0 and 3504 MHz, the controller confirmed
+individual edits and restoration for tRC, tRFC, tRAS, tRP, tWL, tRCDRD,
+tRCDWR, RPRE, WPRE, CDLR, tWR, W2R_BUS, R2W_BUS, PDEX, PDEN2PDEX, AOND,
+tREFI, tRRD and WRCRC. tCL read 22 throughout. Druta withheld tCCDL and tCCDS
+because their BIOS and controller values differed. These measurements cover
+programming and restoration at that operating point.
+[Measured values for each timing](TECHNICALDOCUMENTATION.md#hardware-verification-on-the-msi-gtx-1050-ti)
+
+An earlier trial on the same 1050 Ti confirmed tFAW at 28 → 29 → 28 cycles,
+bringing the verified total to 20. On the tested RTX 3070 Ti, tFAW stayed at
+20 cycles after the edited image loaded. [tFAW trial records](experiments/firmware-tfaw-20261119.json)
+
+## Native backend preview
+
+The C++ core is opt-in while hardware validation continues. Start
+`Druta.exe --backend native` to use it, or `Druta.exe --backend python` for
+the Python backend, which remains the default. `--backend auto` tries the
+native library and falls back to Python if it cannot load, has an incompatible
+ABI, lacks the required interface, or cannot open the card. Explicit `native`
+reports a failure and never silently falls back. The same choices can be set
+in the `DRUTA_BACKEND` environment variable. A process keeps one backend for
+all its cards; its helper processes inherit the choice.
+
+Help > About and the application log show the selected backend.
+`Druta.exe --version` shows the version and requested backend without opening
+a card. `DRUTA_NATIVE_LIB` can select a particular native library for testing.
+An unattended `--startup-profile` launch with no explicit backend still uses
+Python. Selecting a backend does not save or reapply tuning after a driver
+restart; session controls and manual profile application keep their existing
+behavior.
+
+To collect a read-only comparison on a specific card:
+
+```powershell
+Druta.exe --backend-compare 0000:01:00.0 C:\Druta-reports\comparison-1
+```
+
+The output directory must be new and its parent must exist. Two separate
+processes capture Python and native results, with a two-minute limit each:
+identity, static capabilities, one telemetry tick, V/F curve, rail limits and
+diagnostics, current limits, power policies, clock-domain rows, P-state table
+and the Windows target binding. This command never applies tuning or profiles.
+It writes `python.json`, `native.json`, `comparison.json` and `diff.txt`.
+Exit code 0 means complete equal captures; 1 means differences or an incomplete
+capture; 2 means invalid arguments or an output error. Live readings occur at
+different times, so a telemetry difference alone is not evidence of a backend
+defect. Preserve the captures with the tested device and operating conditions.
+
+Windows bundles built with `build.ps1` include a core matching the Python
+process architecture. The script builds it with CMake and Visual C++ first;
+`-NativeLibrary PATH` selects an existing architecture-matched CMake DLL,
+including a MinGW cross-build. `-NativeToolset v141_xp` selects that installed
+toolset for a native build targeting XP. The native core's legacy-OS target
+does not extend the Python front end's OS support. The shipped source snapshot
+includes the C++ source and build recipes, and its manifest records the
+bundled DLL hash.
+
 # I. Hotkeys built for gamers:
 
 - V/F curve editing is controlled by WASD: AD changes the point, WS changes the frequency.
@@ -324,13 +516,11 @@ The GTX 690 shares one blower between its two GPU cores.
 releases the hold but leaves fan duty as set. Clock, power and voltage settings
 are not changed by this button.
 
-## 4. What about XBAR? 
+## 4. What about XBAR?
 
-On 10, I have found no manipulable software knobs to tune XBAR. To help you cope and seethe, you can read the the 1000 series XBAR frequence inside the monitor tab of Druta but not change it, because NVIDIA simply doesn't expose any way to change it. The good news:
-
-### For 10 and 20 series, XBAR strictly scales with CORE FREQUENCY, NOT NVVDD VOTLAGE. 
-
-That means you should just overclock the crap out of your core like everyone else instead of worrying about NVVDD. 
+Monitor shows the reported XBAR clock. The native GUI offers an XBAR firmware
+ratio and per-state ceilings on supported Pascal cards. See
+[Firmware clock controls in the native GUI](#firmware-clock-controls-in-the-native-gui).
 
 ## 5. Shunt mod corrected power
 
@@ -482,8 +672,9 @@ use the controller's Stock/Auto action or a full power cycle as appropriate.
 
 Open **Advanced > Registry / BIOS overrides**, then **Read current fields**.
 The **Advanced** tab groups everything beyond daily tuning into **Power
-policies**, **Registry / BIOS overrides** (persistent; applying restarts the
-GPU), **Live voltage controls** and **Live power-saving & PCIe** (this driver
+policies**, **Registry / BIOS overrides** (the fields described in this
+section persist across GPU restarts; native Pascal clock edits last for one
+driver session), **Live voltage controls** and **Live power-saving & PCIe** (this driver
 session only), and read-only **Diagnostics**. Its top line repeats the newest
 log entry, so a refused write there is visible without switching tabs.
 The panel shows understood BIOS fields and sensed silicon-model inputs for the

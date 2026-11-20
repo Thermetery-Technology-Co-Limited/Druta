@@ -140,6 +140,32 @@ def _fan_is_manual(gpu):
         return None
 
 
+# The request envelopes a profile is validated against, by the backend's own
+# constant: what each one bounds, for the refusal text.
+ENVELOPE_MEANINGS = {
+    "VOLT_LIMIT_MIN_MV": "per-rail voltage-limit minimum",
+    "VOLT_LIMIT_MAX_MV": "per-rail voltage-limit maximum",
+    "VOLT_LIMIT_XOC_MAX_MV": "experimental (XOC) per-rail voltage-limit maximum",
+    "RAIL_OFFSET_XOC_MAX_MV": "experimental (XOC) rail-offset maximum",
+    "MAX_ABS_DELTA_KHZ": "largest V/F point delta",
+}
+
+
+def backend_envelope(gpu, name):
+    """The backend's own value of a request-envelope constant. A backend that
+    does not carry it, or carries something that is not a finite number, gets
+    a ValueError: a profile is never validated against an assumed bound."""
+    meaning = ENVELOPE_MEANINGS[name]
+    try:
+        value = getattr(gpu, name)
+    except AttributeError:
+        raise ValueError(f"the GPU backend does not report its {meaning} ({name}); "
+                         "the saved values cannot be checked against it") from None
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ValueError(f"the GPU backend reports an unusable {meaning} ({name}: {value!r})")
+    return value
+
+
 def capture(gpu, rail=None):
     """Snapshot every knob this tool can write. Values are stored in the units
     the corresponding setter expects, so restore is a straight hand-back.
@@ -743,8 +769,17 @@ def capture_rails(gpu, state, rail):
     if callable(capability_reader):
         try:
             capability = capability_reader(rail=1)
-            domains = set(getattr(gpu, "_msvdd_offset_domains_written", ()))
-            domains.update(getattr(gpu, "_msvdd_offset_domains_seen", ()))
+            domains = set()
+            session = getattr(gpu, "msvdd_offset_domains", None)
+            if callable(session):
+                written, seen = session()
+                domains.update(written)
+                domains.update(seen)
+            else:
+                # Not "none this session": this backend cannot say which
+                # MSVDD requests were written or seen, so they may be missing.
+                missing.append("MSVDD requests written this session NOT captured "
+                               "(the backend does not report them)")
             if capability["available"]:
                 domains.add(capability["domain"])
             for domain in sorted(domains):
@@ -815,8 +850,19 @@ def capture_rails(gpu, state, rail):
             missing.append(f"{label} NOT captured ({e})")
     # Unticking XOC does not undo above-normal values already in the card.
     # Replaying that carryover after reboot still needs the wider envelope.
-    required = any(value > getattr(gpu, "VOLT_LIMIT_MAX_MV", 1200)
-                   for fields in state["rail_limits_mv"].values() for value in fields.values())
+    required = False
+    if state["rail_limits_mv"]:
+        try:
+            normal_max = backend_envelope(gpu, "VOLT_LIMIT_MAX_MV")
+        except ValueError as e:
+            # As for an I2C control that fails the normal envelope below: the
+            # values are already in the card, so an undecidable carryover is
+            # recorded as needing the wider envelope, and named as unchecked.
+            missing.append(f"per-rail limit envelope NOT determined ({e})")
+            required = True
+        else:
+            required = any(value > normal_max
+                           for fields in state["rail_limits_mv"].values() for value in fields.values())
     offset = state["nvvdd_offset_mv"]
     required = required or (offset is not None and not -100 <= offset <= 200)
     required = required or bool(state["clock_domain_offsets_mhz"].get("2"))
@@ -1091,7 +1137,7 @@ def _validate_saved_fields(gpu, state):
                     or type(entry.get("channel")) is not int or type(entry.get("type")) is not int):
                 raise ValueError(f"invalid name for power policy {key}")
     deltas = _vf_deltas(state)
-    maximum = getattr(gpu, "MAX_ABS_DELTA_KHZ", 1_000_000)
+    maximum = backend_envelope(gpu, "MAX_ABS_DELTA_KHZ") if deltas else None
     for index, delta in deltas.items():
         if abs(delta) > maximum:
             raise ValueError(f"V/F point {index} delta is outside +/-{maximum} kHz")
@@ -1364,8 +1410,9 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
             if not gpu.volt_rail_limits_supported():
                 raise ValueError("per-rail limits are not supported on this GPU/driver")
             current = gpu.read_volt_rail_limits()
-            maximum = (getattr(gpu, "VOLT_LIMIT_XOC_MAX_MV", 1500) if state.get("xoc")
-                       else getattr(gpu, "VOLT_LIMIT_MAX_MV", 1200))
+            maximum = backend_envelope(gpu, "VOLT_LIMIT_XOC_MAX_MV" if state.get("xoc")
+                                       else "VOLT_LIMIT_MAX_MV")
+            floor = backend_envelope(gpu, "VOLT_LIMIT_MIN_MV")
             for key, values in limits.items():
                 if key not in ("0", "1") or not isinstance(values, dict) or not values:
                     raise ValueError("invalid voltage rail")
@@ -1381,7 +1428,7 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                     wanted = (current_value - current[int(key)][field] + value / 1000
                               if raw_limits else value)
                     bound = max(maximum, current_value)
-                    minimum = min(getattr(gpu, "VOLT_LIMIT_MIN_MV", 300), current_value)
+                    minimum = min(floor, current_value)
                     initial_reader = getattr(gpu, "stock_limit_mv", None)
                     initial = initial_reader(int(key), field) if callable(initial_reader) else None
                     if type(initial) in (int, float) and math.isfinite(initial):
@@ -1406,7 +1453,7 @@ def preflight(gpu, state, rail=None, *, apply_curve=True):
                 current = capability["value_mv"]
                 if value != 0 and not state.get("xoc"):
                     raise ValueError("MSVDD offset requires the saved experimental XOC opt-in")
-                upper = getattr(gpu, "RAIL_OFFSET_XOC_MAX_MV", 500)
+                upper = backend_envelope(gpu, "RAIL_OFFSET_XOC_MAX_MV")
                 if not min(-500, current) <= value <= max(upper, current):
                     raise ValueError("MSVDD offset is outside the request bounds")
         if offsets:

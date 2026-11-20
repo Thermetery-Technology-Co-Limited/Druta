@@ -1,0 +1,186 @@
+{
+  "schema": "ga10x-capacity-handoff-v1",
+  "at_utc": "2026-11-19T15:55:45.751818+00:00",
+  "requested_slot": "0000:02:00.0",
+  "identity": {
+    "slot": "0000:02:00.0",
+    "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1",
+    "devid": 9346,
+    "subsys": 2282623043,
+    "name": "NVIDIA GeForce RTX 3070 Ti",
+    "driver": "581.80",
+    "vbios": "94.04.5a.00.56"
+  },
+  "native_chip": {
+    "status": "ok",
+    "value": {
+      "architecture": 368,
+      "implementation": 4,
+      "revision": 161,
+      "raw_auxiliary": 1
+    },
+    "samples": [
+      {
+        "architecture": 368,
+        "implementation": 4,
+        "revision": 161,
+        "raw_auxiliary": 1
+      },
+      {
+        "architecture": 368,
+        "implementation": 4,
+        "revision": 161,
+        "raw_auxiliary": 1
+      }
+    ]
+  },
+  "devinit_usable_size": {
+    "register": "0x1183a4",
+    "symbol": "NV_USABLE_FB_SIZE_IN_MB",
+    "unit": "MiB",
+    "status": "ok",
+    "value": 8192,
+    "samples": [
+      8192,
+      8192
+    ]
+  },
+  "nouveau_strap_readback": {
+    "register": "0x101000",
+    "unit": "raw DWORD",
+    "status": "ok",
+    "value": 4194432,
+    "samples": [
+      4194432,
+      4194432
+    ],
+    "strap_bits_5_2": 0,
+    "note": "Nouveau's strap extraction. The NVIDIA firmware interpretation and active profile are unverified."
+  },
+  "fb_get_info_v2": {
+    "command": "0x20801303",
+    "parameter_bytes": 1028,
+    "fields": {
+      "RAM_CFG": {
+        "index": "0xc",
+        "unit": "implementation-dependent value",
+        "status": "ok",
+        "value": 2,
+        "samples": [
+          2,
+          2
+        ]
+      },
+      "RAM_SIZE": {
+        "index": "0x7",
+        "unit": "KiB",
+        "status": "ok",
+        "value": 8388608,
+        "samples": [
+          8388608,
+          8388608
+        ]
+      },
+      "TOTAL_RAM_SIZE": {
+        "index": "0x8",
+        "unit": "KiB",
+        "status": "ok",
+        "value": 8388608,
+        "samples": [
+          8388608,
+          8388608
+        ]
+      },
+      "USABLE_RAM_SIZE": {
+        "index": "0x20",
+        "unit": "KiB",
+        "status": "ok",
+        "value": 8388096,
+        "samples": [
+          8388096,
+          8388096
+        ]
+      },
+      "BUS_WIDTH": {
+        "index": "0xb",
+        "unit": "raw driver value (RM header omits unit)",
+        "status": "ok",
+        "value": 256,
+        "samples": [
+          256,
+          256
+        ]
+      },
+      "PARTITION_MASK": {
+        "index": "0x14",
+        "unit": "active partition bitmask, low 32 bits",
+        "status": "ok",
+        "value": 15,
+        "samples": [
+          15,
+          15
+        ]
+      },
+      "PARTITION_COUNT": {
+        "index": "0x4",
+        "unit": "FBPA count",
+        "status": "ok",
+        "value": 4,
+        "samples": [
+          4,
+          4
+        ]
+      },
+      "FBP_COUNT": {
+        "index": "0x19",
+        "unit": "FBP count",
+        "status": "ok",
+        "value": 4,
+        "samples": [
+          4,
+          4
+        ]
+      },
+      "RAM_TYPE": {
+        "index": "0xd",
+        "unit": "enum",
+        "status": "ok",
+        "value": 18,
+        "samples": [
+          18,
+          18
+        ]
+      },
+      "MEMORYINFO_VENDOR_ID": {
+        "index": "0x1c",
+        "unit": "enum",
+        "status": "ok",
+        "value": 15,
+        "samples": [
+          15,
+          15
+        ]
+      }
+    }
+  },
+  "nvml_memory_total": {
+    "api": "nvmlDeviceGetMemoryInfo",
+    "unit": "bytes",
+    "status": "ok",
+    "value": 8589934592,
+    "samples": [
+      8589934592,
+      8589934592
+    ]
+  },
+  "ram_cfg_note": "Implementation-dependent RM value. Its relationship to the physical strap is unverified.",
+  "sources": {
+    "rm_fields": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h",
+    "devinit_handoff": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/nvidia/src/kernel/gpu/mem_sys/arch/ampere/kern_mem_sys_ga102.c#L34-L47",
+    "devinit_chip_dispatch": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/nvidia/generated/g_kern_mem_sys_nvoc.c#L323-L332",
+    "devinit_register": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/common/inc/swref/published/ampere/ga102/dev_gc6_island.h#L32",
+    "devinit_register_alias": "https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/common/inc/swref/published/ampere/ga102/dev_gc6_island_addendum.h#L31-L33",
+    "nouveau_strap_extraction": "https://github.com/torvalds/linux/blob/v6.18/drivers/gpu/drm/nouveau/nvkm/subdev/bios/ramcfg.c#L27-L31",
+    "nvml_total": "https://docs.nvidia.com/deploy/nvml-api/api/structnvmlMemory__t.html"
+  }
+}

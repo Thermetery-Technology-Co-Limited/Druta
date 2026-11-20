@@ -35,7 +35,7 @@ class FakeGPU:
     def memory_offset_step_units(self):
         return 1
 
-    def _offset_range(self, kind):
+    def clock_offset_range(self, kind):
         return (-2000, 2000, self.memory)
 
     def clkdom_ok(self):

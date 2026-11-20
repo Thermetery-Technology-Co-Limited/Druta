@@ -1,0 +1,1311 @@
+{
+  "study": "ASUS RTX 3070 Ti P0 tFAW partition and temporary-record lifetime trials",
+  "ended_utc": "2026-11-19T16:52:33.429508+00:00",
+  "hardware": {
+    "slot": "0000:02:00.0",
+    "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1",
+    "name": "NVIDIA GeForce RTX 3070 Ti",
+    "vbios": "94.04.5a.00.56",
+    "driver": "581.80"
+  },
+  "backend_source_commit": "25f15f2be3b8d9f27000c083ded81f3158c67987",
+  "scope_start_addresses": {
+    "broadcast": "0x9a0290",
+    "fbpa0": "0x900290",
+    "fbpa2": "0x908290",
+    "fbpa3": "0x90c290"
+  },
+  "index_coverage_note": "Broadcast and the three previously confirmed individual indices on this board. FBPA 1 was not sampled.",
+  "word_order": [
+    "CONFIG0",
+    "CONFIG1",
+    "CONFIG2",
+    "CONFIG3",
+    "CONFIG4",
+    "CONFIG5"
+  ],
+  "word_sets": {
+    "W0": {
+      "hex": [
+        "0x24790660",
+        "0x79e9839e",
+        "0x77260c10",
+        "0x2300294c",
+        "0x82828032",
+        "0xf9f270f6"
+      ],
+      "tfaw_cycles": 20,
+      "tcl_cycles": 30
+    }
+  },
+  "method": "Only row 0 CONFIG3[16:9] was edited. Each block was read twice at each named scope using P0/9501 brackets. During clock departures only telemetry was read. Both trials used exact-hash readback on the selected device, cleanup in a finally block, and no nvtune or physical ROM flash.",
+  "image_request_stock_edited_restored_cycles": [
+    20,
+    24,
+    20
+  ],
+  "trials": {
+    "remove_record_after_image_read": {
+      "temporary_record_single_byte": {
+        "image_offset": "0x837b7",
+        "before": "0x29",
+        "edited": "0x31"
+      },
+      "journal_sha256": "603201eee48e8ec1616fed143058395f20119cdb39a1dc6821621af46dab2580",
+      "runner_sha256": "32e0d167b85c291f6431a53a7f315e9a8684b96e32059a00ef0828dc0523fde2",
+      "phases": {
+        "A": {
+          "driver_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "B": {
+          "driver_image_sha256": "2c45b09f928a9553d6bf57fdc8089443c2c72c6d823cb2aab79a1ec856e74410",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "returned-B": {
+          "driver_image_sha256": "2c45b09f928a9553d6bf57fdc8089443c2c72c6d823cb2aab79a1ec856e74410",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "restored-A": {
+          "driver_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        }
+      },
+      "clock_only_departure": [
+        {
+          "pstate": "P0",
+          "mem_mhz": 9501,
+          "polls": 29
+        },
+        {
+          "pstate": "P5",
+          "mem_mhz": 9501,
+          "polls": 4
+        },
+        {
+          "pstate": "P8",
+          "mem_mhz": 810,
+          "polls": 2
+        }
+      ],
+      "restart_results": [
+        {
+          "message": "GPU PnP restart completed and Windows reports the device started",
+          "method": "pnputil",
+          "ok": true,
+          "reboot_required": false,
+          "returncode": 0
+        },
+        {
+          "message": "GPU PnP restart completed and Windows reports the device started",
+          "method": "pnputil",
+          "ok": true,
+          "reboot_required": false,
+          "returncode": 0
+        }
+      ],
+      "registry_empty_at_final_verification": true,
+      "p0_at_each_stage_and_restart": {
+        "activate-pre-stage-state": [
+          "P0",
+          9501
+        ],
+        "activate-pre-restart-state": [
+          "P0",
+          9501
+        ],
+        "restore-pre-stage-state": [
+          "P0",
+          9501
+        ],
+        "restore-pre-restart-state": [
+          "P0",
+          9501
+        ]
+      }
+    },
+    "retain_record_through_return_to_p0": {
+      "temporary_record_single_byte": {
+        "image_offset": "0x837b7",
+        "before": "0x29",
+        "edited": "0x31"
+      },
+      "journal_sha256": "80f860b7f48b4bb572a19413326dc6a8ba6ce1c2f4070deb921ea651e85ee49f",
+      "runner_sha256": "92aa6b47f557d5e8569bd075b6df195686338a45e1eeebda0040fd0ec7c1daed",
+      "phases": {
+        "A": {
+          "driver_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "B-present": {
+          "driver_image_sha256": "2c45b09f928a9553d6bf57fdc8089443c2c72c6d823cb2aab79a1ec856e74410",
+          "temporary_record_present": true,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "returned-B-present": {
+          "driver_image_sha256": "2c45b09f928a9553d6bf57fdc8089443c2c72c6d823cb2aab79a1ec856e74410",
+          "temporary_record_present": true,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "B-after-cleanup": {
+          "driver_image_sha256": "2c45b09f928a9553d6bf57fdc8089443c2c72c6d823cb2aab79a1ec856e74410",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        },
+        "restored-A": {
+          "driver_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+          "temporary_record_present": false,
+          "observations": [
+            {
+              "pass": 1,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 1,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "broadcast",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa0",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa2",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            },
+            {
+              "pass": 2,
+              "scope": "fbpa3",
+              "words": "W0",
+              "before": [
+                "P0",
+                9501
+              ],
+              "after": [
+                "P0",
+                9501
+              ]
+            }
+          ]
+        }
+      },
+      "clock_only_departure": [
+        {
+          "pstate": "P0",
+          "mem_mhz": 9501,
+          "polls": 29
+        },
+        {
+          "pstate": "P5",
+          "mem_mhz": 9501,
+          "polls": 3
+        },
+        {
+          "pstate": "P8",
+          "mem_mhz": 810,
+          "polls": 2
+        }
+      ],
+      "restart_results": [
+        {
+          "message": "GPU PnP restart completed and Windows reports the device started",
+          "method": "pnputil",
+          "ok": true,
+          "reboot_required": false,
+          "returncode": 0
+        },
+        {
+          "message": "GPU PnP restart completed and Windows reports the device started",
+          "method": "pnputil",
+          "ok": true,
+          "reboot_required": false,
+          "returncode": 0
+        }
+      ],
+      "registry_empty_at_final_verification": true,
+      "p0_at_each_stage_and_restart": {
+        "activate-pre-stage-state": [
+          "P0",
+          9501
+        ],
+        "activate-pre-restart-state": [
+          "P0",
+          9501
+        ],
+        "restore-pre-stage-state": [
+          "P0",
+          9501
+        ],
+        "restore-pre-restart-state": [
+          "P0",
+          9501
+        ]
+      }
+    }
+  },
+  "stock_workload_clock_observation": {
+    "at_utc": "2026-11-19T16:47:01.716387+00:00",
+    "slot": "0000:02:00.0",
+    "uuid": "GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1",
+    "vbios_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+    "method": "Unmodified image, workload-driven transitions. Clock/state polls approximately every 40 ms. Each P0 plateau needed 350 ms before timing reads and stable matching state and clock on both sides of each sample.",
+    "transitions": [
+      {
+        "time_s": 0.001,
+        "phase": "initial",
+        "pstate": 8,
+        "mem_mhz": 405
+      },
+      {
+        "time_s": 0.891,
+        "phase": "graphics-1",
+        "pstate": 0,
+        "mem_mhz": 9501
+      },
+      {
+        "time_s": 3.4,
+        "phase": "graphics-1",
+        "pstate": 5,
+        "mem_mhz": 810
+      },
+      {
+        "time_s": 4.417,
+        "phase": "release-1",
+        "pstate": 8,
+        "mem_mhz": 405
+      },
+      {
+        "time_s": 17.885,
+        "phase": "graphics-2",
+        "pstate": 0,
+        "mem_mhz": 9501
+      },
+      {
+        "time_s": 20.384,
+        "phase": "release-2",
+        "pstate": 5,
+        "mem_mhz": 810
+      },
+      {
+        "time_s": 21.395,
+        "phase": "release-2",
+        "pstate": 8,
+        "mem_mhz": 405
+      }
+    ],
+    "plateaus": [
+      {
+        "phase": "graphics-1",
+        "time_s": 1.255,
+        "pstate": 0,
+        "mem_mhz": 9501,
+        "two_equal_config0_to_5": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ]
+      },
+      {
+        "phase": "graphics-2",
+        "time_s": 18.25,
+        "pstate": 0,
+        "mem_mhz": 9501,
+        "two_equal_config0_to_5": [
+          "0x24790660",
+          "0x79e9839e",
+          "0x77260c10",
+          "0x2300294c",
+          "0x82828032",
+          "0xf9f270f6"
+        ]
+      }
+    ]
+  },
+  "rom_analysis": {
+    "full_rom_sha256": "8f3b77fb0398d8c2ca1a69d952093bd0cef6a92c58c7e634ddaa046fe82c3a64",
+    "bios_tweak_table_file_offset": "0x8c9a4",
+    "row_count": 65,
+    "complete_row_bytes": 76,
+    "stock_word_file_offsets_in_full_rom": [
+      [
+        "0x8c9aa"
+      ],
+      [
+        "0x8c9ae"
+      ],
+      [
+        "0x8c9b2"
+      ],
+      [
+        "0x8c9b6"
+      ],
+      [
+        "0x8c9ba"
+      ],
+      [
+        "0x8c9be"
+      ]
+    ],
+    "edited_config3_literal_in_stock_rom": [],
+    "stock_and_candidate_rows": [
+      {
+        "row": 0,
+        "tfaw": 20,
+        "tcl": 30,
+        "bytes_differing_from_row0_excluding_tfaw": 0
+      },
+      {
+        "row": 10,
+        "tfaw": 24,
+        "tcl": 32,
+        "bytes_differing_from_row0_excluding_tfaw": 24
+      }
+    ],
+    "p0_band_tweak_indices": [
+      8,
+      0,
+      0,
+      8,
+      18,
+      8,
+      38,
+      19,
+      8,
+      8,
+      255,
+      255,
+      255,
+      255
+    ],
+    "bit_p_version": 2,
+    "performance_settings_script_pointer": "0x0"
+  },
+  "independent_final_check": {
+    "original_image_sha256": "b728124ec306413a5eaccd24efae4552ba405d06d0a533d2f50f175eafbd0916",
+    "managed_registry_record_count": 0,
+    "selected_device_started": true,
+    "python_receipt_active": false
+  }
+}

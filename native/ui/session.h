@@ -1,0 +1,107 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+#include "backend.h"
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace druta::ui {
+struct HistorySample {
+    double time = 0;
+    std::optional<double> core_mhz, temp_c, power_w;
+};
+struct LogEntry {
+    std::uint64_t id = 0; std::string message; bool ok = false;
+    // A command's result entry names the operation it answers, and whether the
+    // host submitted that command on its own (Session::submit's automatic)
+    // rather than for a user action. Other lines leave both unset.
+    std::optional<Command::Operation> operation;
+    bool automatic = false;
+    // The result's own steps (Reset controls, Max it) for the current GPU.
+    std::vector<ActionStep> steps;
+};
+struct PolicyAnnotationCompletion {
+    std::uint64_t generation = 0, event_id = 0, action_log_id = 0;
+    Command::Operation operation{};
+    std::shared_ptr<const PolicyAnnotationEffect> effect;
+};
+struct SessionSnapshot {
+    std::uint64_t generation = 0, revision = 0;
+    std::uint64_t completed_reads = 0, completed_actions = 0;
+    std::uint64_t last_action_log_id = 0; // exact result entry for last_action_operation
+    std::optional<Command::Operation> last_action_operation;
+    bool last_action_ok = false;
+    // That action's own result (ActionResult): the value it asked for, what it
+    // read back, and whether it may have reached the hardware.
+    std::optional<double> last_action_requested, last_action_readback;
+    bool last_action_may_have_changed = false;
+    std::vector<Device> devices;
+    std::string selected_slot, status;
+    LiveData data;
+    bool busy = false, opening = false, paused = false;
+    bool close_refused = false;
+    bool i2c_ownership_uncertain = false;
+    bool tuning_ownership_uncertain = false;
+    bool frequency_ownership_uncertain = false;
+    bool auxiliary_cleanup_pending = false;
+    std::uint64_t telemetry_stale_mask = 0;
+    bool curve_stale = false;
+    std::uint64_t curve_revision = 0;
+    bool fan_readings_stale = false;
+    // Per ABI fan index and independent field. The bool above is a summary,
+    // never authority to mark a simultaneously fresh duty/RPM value stale.
+    std::uint32_t fan_duty_stale_mask = 0, fan_rpm_stale_mask = 0;
+    std::vector<HistorySample> history;
+    std::vector<LogEntry> log;
+    // Immutable effects survive later results and polling until explicitly acknowledged.
+    std::vector<PolicyAnnotationCompletion> annotation_completions;
+};
+class Session {
+public:
+    explicit Session(std::unique_ptr<IBackend> backend, std::function<void()> notify, const std::wstring& i2c_cache_path = {});
+    ~Session();
+    Session(const Session&) = delete;
+    Session& operator=(const Session&) = delete;
+    // An expected UUID requires an explicit slot and remains enforced until
+    // the user explicitly selects a device.
+    void start(const std::string& slot = {}, const std::string& expected_uuid = {});
+    bool select_device(const std::string& slot);
+    // Retry the current slot while retaining any startup UUID constraint.
+    bool reconnect();
+    void request_poll(bool details = false);
+    // Whether the host shows the display-only readouts (the Classic presentation);
+    // the next read passes it to the backend, which skips them when hidden.
+    void set_live_readouts(bool shown);
+    // Whether Classic's Power policies section is open; the next read passes it
+    // to the backend (IBackend::set_policy_readouts). Read-only.
+    void set_policy_readouts(bool open);
+    // A log line from the UI itself: no backend command, and busy, the command
+    // queue and last_action_* are untouched.
+    void note(bool ok, const std::string& message);
+    void set_paused(bool paused);
+    // automatic: the host submits this command on its own, not for a user
+    // action; the result's LogEntry carries the mark. Nothing else changes.
+    bool submit(Command command, std::uint64_t expected_generation, bool automatic = false);
+    static constexpr std::size_t annotation_completion_capacity = 32;
+    // Duplicate acknowledgments succeed only for an actually issued ID in this generation.
+    bool acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id);
+    bool cancel_i2c_discovery(std::uint64_t expected_generation);
+    bool cancel_timing_capture(std::uint64_t expected_generation);
+    std::shared_ptr<const SessionSnapshot> snapshot() const;
+    void begin_shutdown();
+    // Process-exit-only handoff, after a recovery helper has been launched.
+    // Drain in-flight work, then retain backend/DLL until OS teardown without
+    // issuing restoration writes. This Session cannot be reused afterward.
+    void begin_device_restart_shutdown();
+    bool finished() const;
+private:
+    bool change_device(const std::string& slot, bool preserve_constraint);
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+}

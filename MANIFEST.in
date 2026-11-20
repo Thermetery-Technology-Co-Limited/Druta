@@ -1,6 +1,6 @@
 # The sdist can rebuild both the wheel and the distributable Windows bundle.
 include druta.py src/run_druta.py Druta.spec build.ps1 requirements.txt pyproject.toml setup.py MANIFEST.in
-include AGENTS.md COPYING THIRD-PARTY-NOTICES.md README.md MANUAL.md
+include AGENTS.md COPYING THIRD-PARTY-NOTICES.md README.md MANUAL.md HANDOFF.md
 include TECHNICALDOCUMENTATION.md DEBUG-SUMMARY-RTX5080.md
 include VOLTAGE-RAILS-TITAN.md VOLTAGE-RAILS-47212.md DRIVER-COMPATIBILITY.md ADAPTER-MATRIX.md
 include releases/README.md releases/RELEASE-NOTES-*.md
@@ -10,6 +10,16 @@ include ADA-VALIDATION.md
 include .github/PULL_REQUEST_TEMPLATE/i2c_profile.md
 recursive-include src/druta *.py
 recursive-include tests *.py
+# Native source and reproducible build recipes, never native/build outputs.
+include native/CMakeLists.txt native/build.sh native/*.md
+recursive-include native/include *.h
+recursive-include native/src *.h *.cpp *.c
+recursive-include native/cmake *.cmake
+recursive-include native/tools *.py *.txt
+recursive-include native/fuzz *.cpp *.h *.sh
+include experiments/native-3070ti-live-validation-20261111.md
+include experiments/native-3070ti-live-evidence-20261111.json
+include experiments/native_*3070ti.py
 include i2c/*.toml i2c/*.md
 
 # Only these public measurements belong in a distribution.

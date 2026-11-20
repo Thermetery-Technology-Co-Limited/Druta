@@ -163,6 +163,13 @@ def run_one(name, builder, size):
 
 
 def main():
+    from . import gpu_backend
+    try:
+        gpu_backend.consume_argv(sys.argv)
+        gpu_backend.request()
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        raise SystemExit(2)
     size = sys.argv[1] if len(sys.argv) > 1 else "1500x1050"
     print(f"window size {size}   (smooth at 119Hz needs < ~8 ms/move)\n")
     print(f"{'variant':10} {'HWNDs':>6} {'median':>8} {'p95':>8} {'max':>8}   what")
@@ -178,7 +185,15 @@ def main():
         from . import nvbackend
         legacy_ui._enable_dpi_awareness()
         legacy_ui.SCALE = legacy_ui._detect_scale()
-        g = nvbackend.GPU(nvbackend.slot_from_argv())
+        try:
+            g = gpu_backend.open_gpu(nvbackend.slot_from_argv())
+        except gpu_backend.BackendRefused as e:
+            # SystemExit is not an Exception, so the "skipped" handler below does not swallow it.
+            print(f"GPU backend refused: {e}", file=sys.stderr)
+            raise SystemExit(1)
+        pinned = gpu_backend.choice()
+        if pinned is not None and pinned.source == "--backend" and pinned.kind == "python" and pinned.reason:
+            print(gpu_backend.describe(), file=sys.stderr)   # --backend auto fell back to Python
         a = legacy_ui.App(g)
         a.update()
         med, p95, mx, hwnd = bench(a)

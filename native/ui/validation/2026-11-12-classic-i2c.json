@@ -1,0 +1,230 @@
+{
+  "date": "2026-11-12",
+  "branch": "codex/native-ui-controls",
+  "starting_commit": "b8bea5e41299299b1914ec11d8e31b0cd8589120",
+  "platform": "Windows 10 x64 build 19045",
+  "adapter": {
+    "name": "NVIDIA GeForce RTX 3070 Ti",
+    "slot": "0000:01:00.0",
+    "driver": "595.97",
+    "vbios": "94.04.5a.00.56",
+    "scope": "Evidence for this adapter, controller route and operating point only; these identities are not compatibility gates."
+  },
+  "max_it_baseline": {
+    "path": "Existing Python UI oc_max with the C++ backend; native GUI Max it remains pending",
+    "fan_requested_percent": 100,
+    "power_requested_w": 500,
+    "voltage_boost_percent": 100,
+    "vf_hold_requested_mv": 1093.75,
+    "planned_peak_mhz": 2130,
+    "user_meter_v": 1.11,
+    "hold_headroom_and_vf_lock_released_before_native_i2c": true,
+    "other_max_it_tuning_requests_were_not_undone": true
+  },
+  "i2c": {
+    "transport": "Native dc_i2c_read/write, NVAPI Ex V3 x64",
+    "port": 1,
+    "address7": "0x20",
+    "controller": "MP2888A candidate, validated register layout and bounded response; fingerprint is not a unique model ID",
+    "physical_rail": "NVVDD, identified by the user's connected multimeter",
+    "initial_controller_mv": 676,
+    "verification": {
+      "requested_mv": [
+        900,
+        925,
+        900
+      ],
+      "samples_per_stage": 15,
+      "sample_interval_ms": 40,
+      "result": "A-B-A controller-reported response passed; captured entry restored exactly and clock clamp released"
+    },
+    "manual_apply": [
+      {
+        "command_mv": 1100,
+        "clock_clamp_mhz": 405,
+        "controller_mv": 1066,
+        "user_meter_v": 1.06,
+        "note": "User reported incorrect meter mode truncated digits; excluded from quantitative comparison"
+      },
+      {
+        "command_mv": 1125,
+        "clock_clamp_mhz": 405,
+        "controller_mv": 1091,
+        "user_meter_v": 1.097
+      },
+      {
+        "command_mv": 1100,
+        "clock_clamp_mhz": 405,
+        "controller_mv": 1067,
+        "user_meter_v": 1.071
+      },
+      {
+        "command_mv": 1125,
+        "clock_clamp_mhz": 405,
+        "controller_mv": 1091,
+        "user_meter_v": 1.097,
+        "user_reply": "1097",
+        "interpretation": "mV, in context of the preceding full-resolution V readings"
+      }
+    ],
+    "physical_result": "Repeatable 26 mV measured change for a 25 mV nominal command change at the owned, observed 405 MHz floor",
+    "restoration": {
+      "captured_command_and_mode_restored_exactly": true,
+      "unrelated_captured_registers_unchanged": true,
+      "controller_restored_before_clock_release": true,
+      "controller_mv": 676,
+      "observed_core_mhz": 210,
+      "user_meter_mv": 675,
+      "remaining_owned_request": false,
+      "remaining_recovery": false,
+      "helper_closed_cleanly": true
+    },
+    "limitations": [
+      "Command voltage, controller telemetry and multimeter measurements are distinct. No factory-voltage, universal gain or compensation offset was inferred.",
+      "Only the MP2888A manual command/mode path was physically qualified. Other controller families remain unported.",
+      "The native GUI buttons are covered by injected ImGui interaction tests; hardware writes used the interactive helper calling the same native Client/Session services.",
+      "The live helper was rebuilt after testing; the original helper executable hash was not captured. Subsequent changes added route intent guards, cached UI eligibility, software slider bounds and presentation tests; the transport and register write algorithm were unchanged.",
+      "x86 NVAPI Ex packet acceptance and Vista/7 execution remain unqualified. x86 refuses this I2C operation without disabling unrelated core functionality."
+    ],
+    "live_test_transport_sha256": "efa7c51a42b80e76737df51afcd91be40a32da12f3efb494c2ad113bce8ac16f"
+  },
+  "power_bounds_read_only": {
+    "normal_mw": [
+      100000,
+      500000
+    ],
+    "xoc_mw": [
+      1,
+      1999000
+    ],
+    "power_set_not_used_for_this_check": true
+  },
+  "verification": {
+    "ctest_suites": 15,
+    "client_checks": 394,
+    "session_checks": 114,
+    "view_checks": 561,
+    "advanced_view_checks": 177,
+    "i2c_transport_checks": 74,
+    "i2c_service_checks": 70,
+    "i2c_session_checks": 106,
+    "apply_header_collision": "Actual heading hover and click with ImGui diagnostics enabled: zero ID conflicts; heading does not queue a hardware command",
+    "i2c_buttons": "Probe, route-bound gate/Verify/Apply/Release, disabled states, no command on render/hover, and disconnected recovery tested in both presentations",
+    "live_window_smoke": "All 11 read-only phases passed; explicit Pause and ordinary minimization produced zero frames and telemetry reads; Always refresh minimized produced 114 frames and 2 telemetry reads",
+    "visuals": "Classic and Focused D3D9 captures reviewed; Classic advanced readback marked configured, memory retains explicit driver units",
+    "import_audit": "Passed bounded UI PE/import audit; not proof of Vista/7 launch or complete API floor",
+    "passed": true,
+    "live_window_metrics": {
+      "live_mode": true,
+      "phases": [
+        {
+          "phase": "visible_default",
+          "frames": 43,
+          "presents": 43,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.140625,
+          "passed": true
+        },
+        {
+          "phase": "always_visible",
+          "frames": 116,
+          "presents": 116,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.0625,
+          "passed": true
+        },
+        {
+          "phase": "always_minimized",
+          "frames": 114,
+          "presents": 114,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.125,
+          "passed": true
+        },
+        {
+          "phase": "explicit_pause",
+          "frames": 0,
+          "presents": 0,
+          "telemetry_reads": 0,
+          "cpu_seconds": 0.0,
+          "passed": true
+        },
+        {
+          "phase": "hotkey_restore",
+          "frames": 113,
+          "presents": 113,
+          "telemetry_reads": 3,
+          "cpu_seconds": 0.296875,
+          "passed": true
+        },
+        {
+          "phase": "default_minimized",
+          "frames": 0,
+          "presents": 0,
+          "telemetry_reads": 0,
+          "cpu_seconds": 0.0,
+          "passed": true
+        },
+        {
+          "phase": "default_restored",
+          "frames": 50,
+          "presents": 50,
+          "telemetry_reads": 3,
+          "cpu_seconds": 0.34375,
+          "passed": true
+        },
+        {
+          "phase": "classic",
+          "frames": 18,
+          "presents": 18,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.109375,
+          "passed": true
+        },
+        {
+          "phase": "advanced",
+          "frames": 19,
+          "presents": 19,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.125,
+          "passed": true
+        },
+        {
+          "phase": "monitor",
+          "frames": 18,
+          "presents": 18,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.078125,
+          "passed": true
+        },
+        {
+          "phase": "resize_1024x768",
+          "frames": 19,
+          "presents": 19,
+          "telemetry_reads": 2,
+          "cpu_seconds": 0.109375,
+          "passed": true
+        }
+      ],
+      "device_resets": 3,
+      "hotkey_registered": true,
+      "passed": true
+    },
+    "window_smoke_ui_sha256": "d81525db06851fcd79262861d9c6bfe6308b0805cc9843afd79296c978d33bb9"
+  },
+  "remaining_frontend_parity": [
+    "Native Max it and Reset all",
+    "Owned V/F holds/headroom workflows",
+    "Timings",
+    "Other I2C controllers",
+    "Broader manual profiles",
+    "Registry/VBIOS workflows",
+    "Configurable monitoring",
+    "Vista/7 execution"
+  ],
+  "final_build_sha256": {
+    "druta-ui.exe": "bb5350f862e7b2b48d4c7d22149b9f87369129c1a6f552a84858cfd143229f9c",
+    "drutacore.dll": "1d5ccff3c415f95c4cf2f33f82f86023784390a974246efabde66d3d4ea0e481",
+    "druta-ui-i2c-live-check.exe": "3aefc737937514939a09420c0216fc8e2b87be3d1009620ec32d5b9dacebd5e6"
+  }
+}

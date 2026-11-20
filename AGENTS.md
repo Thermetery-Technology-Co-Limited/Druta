@@ -14,6 +14,14 @@ the implementation.
 
 # Active-goal priority
 
+This session targets parity with the released Python 1.9.1 frontend and
+behavior, including the user's explicitly requested layout differences. Work
+only on concrete missing or mismatched functionality. Do not pursue purely
+theoretical issues, improvements beyond that scope, or closed GitHub issues.
+Check the current issue state before starting issue-linked work. Keep broader
+firmware research and qualification campaigns outside the active parity backlog;
+necessary verification of an actual port remains part of that port.
+
 Prioritize implementing and shipping working functionality in the active goal.
 The user has now authorized Undo and manual saved-profile work for the qualified
 controls while unresolved control research remains parked. Implement those
@@ -39,9 +47,12 @@ change the session-only rule for ordinary tuning controls.
 The root agent supervises the work. Subagents are authorized for concrete,
 independent tasks when useful; prefer Sol or Terra for easy, bounded
 implementation, documentation, or test work when that is the user's stated
-model preference. Give each task explicit paths, scope, and acceptance
-criteria. Assign one owner per file, or coordinate clear non-overlapping
-boundaries before editing shared files.
+model preference. Under Claude Code, every delegated executor (subagents and
+workflow agents) runs on Opus 5.5, never on the root agent's own model: use
+the `worker` agent definition in `.claude/agents/` or an explicit Opus model
+override. Give each task explicit paths, scope, and acceptance criteria.
+Assign one owner per file, or coordinate clear non-overlapping boundaries
+before editing shared files.
 
 Agents must share relevant findings and blockers promptly. Coordinate hardware
 access; only one agent may write to a GPU at a time. The root agent reviews
@@ -50,6 +61,9 @@ subagent work blindly. Follow the current user model instructions for any
 adversarial review.
 
 # Hardware capability and evidence
+
+Run hardware memory-timing tests only at verified P0. Check the selected card's
+P-state and memory clock immediately before and after each timing sample.
 
 Never implement a safety check or feature gate solely from observations on a
 developer's devices. Gate architectural support by GPU generation, then validate
