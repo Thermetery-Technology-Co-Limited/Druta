@@ -45,18 +45,19 @@ Python frontend parity and Vista/7 qualification remain open.
   does not disable a qualified control. Stock/Auto can have a separate capability
   from Apply; an explicit escape action can report that prior state was
   unavailable for Undo.
-  XOC is an explicit session mode. Its power slider can show the core's
-  published **1,999 W software request envelope**; each Apply still checks the
-  adapter's fresh validated power route and bounds, which can be narrower. The
-  GUI now also exposes explicit Max it and Reset controls actions. Max it captures
+  XOC is an explicit session mode. The power slider uses the adapter's
+  validated request range. With a supported live route, XOC extends that
+  range to the **1,999 W software ceiling** or a higher reported BIOS maximum.
+  Each Apply checks fresh bounds. The GUI also exposes Max it and Reset controls.
+  Max it captures
   Undo before applying the normal board maximum, fan/boost targets, a planned
   ramp and an owned V/F hold. Reset reports individual outcomes and any state it
   could not capture. The live Reset/Undo retest restored all 127 curve requests
   and all 19 power-policy requests on the tested adapter.
 - Controls start unlocked. An explicit lock choice stays in effect while switching
   adapters or layouts in the same application. Draft edits never write; use the
-  selected row's Apply or Stock/Auto. Memory dragging uses whole MHz; numeric entry retains fractional
-  values in the adapter-reported scale. Configured requests remain separate from
+  selected row's Apply or Stock/Auto. Daily sliders and their value boxes use
+  whole numbers in the displayed unit. Configured requests remain separate from
   live readings, enforced power and unavailable/stale values.
 - **Undo hardware write** restores captured state, including the full prior
   V/F table for core-offset writes and explicitly pinned policies for coupled

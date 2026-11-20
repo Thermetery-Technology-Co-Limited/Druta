@@ -74,6 +74,7 @@ dc_status DC_CALL boost_get(dc_gpu*, int32_t* v) { *v = boost_value; return DC_O
 dc_status DC_CALL boost_set(dc_gpu*, int64_t v, dc_outcome* o) { ++boost_writes; boost_value = static_cast<int>(v); o->ok = 1; return DC_OK; }
 uint32_t board = 200000; int64_t peer = 100, pinned_value = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0, pin_writes = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
 bool derived_test = false, callback_matches = true, callback_answer = false, mutable_bounds = false, power_throw = false;
+bool power_bounds_failed = false;
 int mutate_power_at_policy_read = 0;
 dc_status DC_CALL cpc_live(dc_gpu*, dc_cpc_observation* out, dc_error*) { CHECK(out->size == sizeof(*out) && out->metadata.size == sizeof(out->metadata) && out->arbitration.size == sizeof(out->arbitration)); out->metadata.role_info_size = 5; out->metadata.role_info[4] = 0x30; out->metadata.maximum_mw = 500000; out->requested_mw = 600000; out->metadata.native_info_size = 4; out->native_control_size = 4; uint32_t a = callback_matches ? 42u : 43u, b = 56; std::memcpy(out->metadata.native_info, &a, 4); std::memcpy(out->native_control, &b, 4); return DC_OK; }
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
@@ -84,7 +85,13 @@ dc_status DC_CALL memory_capabilities(dc_gpu* gpu, dc_capabilities* c) {
     capabilities(gpu, c); c->present |= DC_C_MEM_DIV; c->mem_div = 4; std::memcpy(c->mem_type, "GDDR6", sizeof("GDDR6")); return DC_OK;
 }
 dc_status DC_CALL power_read(dc_gpu*, dc_cl_statics*, int32_t* has, uint32_t* value, dc_error*) { *has = 1; *value = board; return DC_OK; }
-dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error*) { *low = 100000; *high = xoc && xoc_live ? 1999000 : 500000; if (board > *high) *high = board; return DC_OK; }
+dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error*) {
+    if (power_bounds_failed) return DC_E_FAILED;
+    *low = 100000;
+    *high = xoc && xoc_live ? 1999000 : 500000;
+    if (board > *high) *high = board;
+    return DC_OK;
+}
 dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = derived_test ? 700 : 200; if (power_throw) throw std::runtime_error("post-dispatch power failure"); *ok = 1; *needed = 1; return DC_OK; }
 dc_status DC_CALL message(dc_gpu*, char* out, size_t, size_t* n) { out[0] = 0; *n = 1; return DC_OK; }
 dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = pinned_value; } return DC_OK; }
@@ -487,10 +494,52 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
     CHECK(normal.power_policies.size() == 2 && normal.power_policies[1].id == 7 && normal.power_policies[1].core_current && normal.power_policies[1].label == "Core current (NVVDD)");
     current_read_fails = true; auto retained = xp->read(true); CHECK(retained.power_policies[1].core_current); current_read_fails = false;
     current_generic_label = true; auto generic = xp->read(true); CHECK(!generic.power_policies[1].core_current); current_generic_label = false; current_index = 19; auto alternate = xp->read(true); CHECK(alternate.power_policies[1].id == 19 && alternate.power_policies[1].core_current);
-    Command mode_on{}; mode_on.operation = Command::Operation::set_xoc; mode_on.enabled = true; CHECK(xp->execute(mode_on).ok); auto expanded = xp->read(false); CHECK(expanded.controls[2].high == 1999.0 && expanded.controls[2].detail.find("software envelope") != std::string::npos);
-    Command xoc_power{}; xoc_power.operation = Command::Operation::apply; xoc_power.control = ControlId::power; xoc_power.value = 1999; int writes_before = power_writes; CHECK(!xp->execute(xoc_power).ok && power_writes == writes_before && board == 200000);
-    xoc_live = true; CHECK(xp->execute(xoc_power).ok && power_writes == writes_before + 1 && board == 1999000); mode_on.enabled = false; CHECK(xp->execute(mode_on).ok); auto carry = xp->read(false); CHECK(carry.controls[2].high == 1999.0 && carry.controls[2].current == 1999.0);
+    Command mode_on{};
+    mode_on.operation = Command::Operation::set_xoc;
+    mode_on.enabled = true;
+    CHECK(xp->execute(mode_on).ok);
+    auto limited = xp->read(false);
+    CHECK(limited.controls[2].high == 500.0 && limited.controls[2].detail.find("100 to 500 W") != std::string::npos);
+
+    Command xoc_power{};
+    xoc_power.operation = Command::Operation::apply;
+    xoc_power.control = ControlId::power;
+    xoc_power.value = 1000;
+    int writes_before = power_writes;
+    const auto refused = xp->execute(xoc_power);
+    CHECK(!refused.ok && refused.requested == 1000.0 && refused.message.find("100 to 500 W") != std::string::npos);
+    CHECK(power_writes == writes_before && board == 200000);
+
+    xoc_live = true;
+    auto expanded = xp->read(false);
+    CHECK(expanded.controls[2].high == 1999.0);
+    power_bounds_failed = true;
+    const auto stale = xp->read(false);
+    CHECK(stale.controls[2].availability == Availability::transient && stale.controls[2].high == 1999.0);
+    const auto unreadable = xp->execute(xoc_power);
+    CHECK(!unreadable.ok && unreadable.message.find("bounds or XOC state unavailable") != std::string::npos);
+    CHECK(power_writes == writes_before && board == 200000);
+    power_bounds_failed = false;
+    const auto applied = xp->execute(xoc_power);
+    CHECK(applied.ok && applied.readback == 1000.0 && power_writes == writes_before + 1 && board == 1000000);
+    xoc_power.value = 1999;
+    CHECK(xp->execute(xoc_power).ok && power_writes == writes_before + 2 && board == 1999000);
+    mode_on.enabled = false;
+    CHECK(xp->execute(mode_on).ok);
+    auto carry = xp->read(false);
+    CHECK(carry.controls[2].high == 1999.0 && carry.controls[2].current == 1999.0);
     xoc_power.value = 200; CHECK(xp->execute(xoc_power).ok && board == 200000); CHECK(xp->read(false).controls[2].high == 500.0);
+
+    // Imported requests can still carry exact milliwatts even though Daily edits are whole watts.
+    xoc_power.value = 128.002;
+    CHECK(xp->execute(xoc_power).ok && board == 128002);
+    writes_before = power_writes;
+    xoc_power.value = 128.0025;
+    const auto fractional_mw = xp->execute(xoc_power);
+    CHECK(!fractional_mw.ok && fractional_mw.message.find("whole number of milliwatts") != std::string::npos);
+    CHECK(power_writes == writes_before && board == 128002);
+    xoc_power.value = 200;
+    CHECK(xp->execute(xoc_power).ok && board == 200000);
     CoreApi derived_api = pa; derived_api.cpc_live_read = cpc_live; auto derived = create_core_backend_for_test(derived_api); CHECK(derived->open("0000:02:00.0", error));
     derived_test = true; mutable_bounds = true; pin_present = false; board = 200000; peer = 700; callback_matches = true;
     auto derived_before = derived->read(true); CHECK(callback_answer && derived_before.power_policies[1].state.current == 0.7);

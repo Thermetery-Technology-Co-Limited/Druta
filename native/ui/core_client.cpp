@@ -40,6 +40,29 @@
 namespace druta::ui {
 namespace {
 size_t index(ControlId id) { return static_cast<size_t>(id); }
+
+struct BoardPowerBounds {
+    int64_t low_mw, high_mw;
+
+    bool contains(int64_t mw) const { return low_mw <= mw && mw <= high_mw; }
+
+    std::string description() const {
+        std::ostringstream text;
+        text.imbue(std::locale::classic());
+        text.precision(12);
+        text << low_mw / 1000.0 << " to " << high_mw / 1000.0 << " W";
+        return text.str();
+    }
+};
+
+std::optional<uint32_t> board_power_mw(double watts) {
+    const double mw = std::round(watts * 1000.0);
+    // Round the intermediate product and check the round trip. Even an exact
+    // mW value such as 128.002 W can multiply to a slightly non-integral double.
+    if (!std::isfinite(mw) || mw <= 0 || mw >= UINT32_MAX || mw / 1000.0 != watts) return std::nullopt;
+    return static_cast<uint32_t>(mw);
+}
+
 template<class F, class... A> dc_status retry(F f, A... args) {
     if (!f) return DC_E_UNRECOGNIZED;
     dc_status s = f(args...);
@@ -546,6 +569,18 @@ class Client final : public IBackend {
         xoc = voltage != 0; return true;
     }
     bool effective_xoc(bool& xoc) { xoc = false; return !api_.clkdom_flags || current_xoc(xoc); }
+    std::optional<BoardPowerBounds> read_board_power_bounds(dc_cl_statics& st) {
+        bool xoc = false;
+        int64_t low = 0, high = 0;
+        dc_error error{};
+        error.size = sizeof(error);
+        if (!api_.power_bounds || !effective_xoc(xoc)
+            || api_.power_bounds(gpu_, &st, xoc ? 1 : 0, &low, &high, &error) != DC_OK) return std::nullopt;
+        low = std::max<int64_t>(1, low);
+        high = std::min<int64_t>(UINT32_MAX - 1, high);
+        if (low > high) return std::nullopt;
+        return BoardPowerBounds{low, high};
+    }
     bool power_base_api() const { return api_.lock && api_.unlock && api_.power && api_.capabilities && api_.power_bounds && api_.power_set && api_.power_message; }
     bool power_api() const { return power_base_api() && api_.policy_read && api_.policy_set && api_.policy_message && api_.pins_get && api_.pins_set; }
     dc_cl_statics power_statics() {
@@ -771,20 +806,35 @@ class Client final : public IBackend {
         if (!captured && !stock) { result.message = "Power capture failed; no write issued: " + why; return result; }
         if (cmd.expected_power_state && (!captured || *cmd.expected_power_state != power_state_token(current))) { result.message = "Power requests or pins changed during profile application; no write issued"; return result; }
         if (cmd.expected_binding && (!captured || !binding_matches(cmd, board_binding(current)))) { result.message = "Board policy geometry changed; no write issued"; return result; }
-        dc_cl_statics st = power_statics(); int64_t low = 0, high = 0; dc_error error{}; error.size = sizeof(error);
-        bool xoc = false; if (!effective_xoc(xoc) || api_.power_bounds(gpu_, &st, xoc ? 1 : 0, &low, &high, &error) != DC_OK) { result.message = "Power bounds or XOC state unavailable; no write issued"; return result; }
-        double mw = stock ? (st.pl_def_state == DC_CL_STATIC_VALUE ? static_cast<double>(st.pl_def_mw) : -1.0) : cmd.value * 1000.0;
-        if (!std::isfinite(mw) || std::trunc(mw) != mw || mw <= 0 || mw >= UINT32_MAX || mw < low || mw > high) { result.message = "Power request is not a whole mW within the current bounds"; return result; }
+        dc_cl_statics st = power_statics();
+        const auto bounds = read_board_power_bounds(st);
+        if (!bounds) { result.message = "Power bounds or XOC state unavailable. No write issued."; return result; }
+        uint32_t mw = 0;
+        if (stock) {
+            if (st.pl_def_state != DC_CL_STATIC_VALUE || !bounds->contains(st.pl_def_mw)) {
+                result.message = "Stock power limit is unavailable within the current request range. No write issued.";
+                return result;
+            }
+            mw = static_cast<uint32_t>(st.pl_def_mw);
+        } else {
+            const auto request = board_power_mw(cmd.value);
+            if (!request) { result.message = "Power request must be a positive whole number of milliwatts in the supported numeric range."; return result; }
+            mw = *request;
+        }
         result.requested = mw / 1000.0;
-        if (captured && current.board == static_cast<uint32_t>(mw)) { result.ok = true; result.readback = mw / 1000.0; result.message = "Board request already matches"; return result; }
+        if (!bounds->contains(mw)) {
+            result.message = "Power request is outside the current range (" + bounds->description() + "). No write issued.";
+            return result;
+        }
+        if (captured && current.board == mw) { result.ok = true; result.readback = result.requested; result.message = "Board request already matches"; return result; }
         dc_gpu_identity before_write{}; if (!identity(before_write)) { result.message = "GPU identity changed or unreadable; no write issued"; return result; }
         before_history("power",[this]{return history_power();},!stock);
         if (captured) { Undo prior{}; prior.control = ControlId::power; prior.power = current; remember(prior); }
-        std::string note; const bool set_ok = set_board(static_cast<uint32_t>(mw), note); result.may_have_changed = true;
-        dc_gpu_identity id{}; st = power_statics(); int32_t has = 0; uint32_t got = 0; error = {}; error.size = sizeof(error);
+        std::string note; const bool set_ok = set_board(mw, note); result.may_have_changed = true;
+        dc_gpu_identity id{}; st = power_statics(); int32_t has = 0; uint32_t got = 0; dc_error error{}; error.size = sizeof(error);
         if (!identity(id) || retry(api_.power, gpu_, &st, &has, &got, &error) != DC_OK || !has) { result.message = note + "; board readback unavailable"; return result; }
-        result.readback = got / 1000.0; result.ok = set_ok && got == static_cast<uint32_t>(mw); result.message = note.empty() ? (result.ok ? "Board power applied" : "Board power write failed") : note;
-        if (got != static_cast<uint32_t>(mw)) result.message += "; readback differs from request";
+        result.readback = got / 1000.0; result.ok = set_ok && got == mw; result.message = note.empty() ? (result.ok ? "Board power applied" : "Board power write failed") : note;
+        if (got != mw) result.message += "; readback differs from request";
         if (!captured) result.message += "; prior policy state unavailable, so this stock action cannot be undone";
         return result;
     }
@@ -1160,12 +1210,16 @@ class Client final : public IBackend {
         }
         if (control == ControlId::power) {
             std::string detail; if (!power_capture(item.undo.power, detail)) { why = detail; return false; }
-            dc_cl_statics st = power_statics(); dc_error error{}; error.size = sizeof(error); int64_t low = 0, high = 0;
-            bool xoc = false; if (!effective_xoc(xoc) || api_.power_bounds(gpu_, &st, xoc ? 1 : 0, &low, &high, &error) != DC_OK) { why = "power bounds or XOC state unavailable"; return false; }
+            dc_cl_statics st = power_statics();
+            const auto bounds = read_board_power_bounds(st);
+            if (!bounds) { why = "power bounds or XOC state unavailable"; return false; }
             int64_t desired = item.undo.power.board;
             if (requested) { if (!keys_are(*requested, {"value", "unit"}) || (*requested)["unit"] != "mW") throw std::runtime_error("invalid power unit or fields"); desired = read_int((*requested)["value"]); }
-            if (desired <= 0 || desired >= UINT32_MAX || desired < low || desired > high || item.undo.power.board < low || item.undo.power.board > high) { why = "power request outside restorable bounds"; return false; }
-            item.command.value = desired / 1000.0; if (item.command.value * 1000.0 != static_cast<double>(desired)) { why = "power request is not exactly representable"; return false; } item.changed = desired != item.undo.power.board; item.data = {{"value", desired}, {"unit", "mW"}}; return true;
+            if (!bounds->contains(desired) || !bounds->contains(item.undo.power.board)) { why = "power request outside restorable bounds"; return false; }
+            item.command.value = desired / 1000.0;
+            item.changed = desired != item.undo.power.board;
+            item.data = {{"value", desired}, {"unit", "mW"}};
+            return true;
         }
         why = "unknown control"; return false;
     }
@@ -2704,8 +2758,13 @@ public:
             if (caps.present & DC_C_PL_DEF) { st.pl_def_state = DC_CL_STATIC_VALUE; st.pl_def_mw = caps.pl_def_mw; }
         }
         auto& power = last_.controls[index(ControlId::power)];
-        if (power_base_api()) { dc_cl_statics bounds_st = st; int64_t lo = 0, hi = 0; dc_error bounds_err{}; bounds_err.size = sizeof(bounds_err);
-            bool xoc = false; if (effective_xoc(xoc) && api_.power_bounds(gpu_, &bounds_st, xoc ? 1 : 0, &lo, &hi, &bounds_err) == DC_OK && bounds_st.pl_def_state == DC_CL_STATIC_VALUE) power.stock_writable = bounds_st.pl_def_mw > 0 && bounds_st.pl_def_mw < UINT32_MAX && bounds_st.pl_def_mw >= lo && bounds_st.pl_def_mw <= hi;
+        // Use the same runtime bounds for the slider and Apply. The global
+        // XOC ceiling does not establish an extended route on this adapter.
+        const auto bounds = power_base_api() ? read_board_power_bounds(st) : std::nullopt;
+        if (bounds) {
+            power.low = bounds->low_mw / 1000.0;
+            power.high = bounds->high_mw / 1000.0;
+            power.stock_writable = st.pl_def_state == DC_CL_STATIC_VALUE && bounds->contains(st.pl_def_mw);
         }
         int32_t has = 0; uint32_t mw = 0; dc_error err{}; err.size = sizeof(err);
         // Python refresh_power_policies: while Classic's Power policies section is
@@ -2729,7 +2788,7 @@ public:
                     api_.unlock(gpu_);
                 }
                 else reason = "Power policy interfaces or lock unavailable";
-                if (captured_ok) { power.writable = true; power.detail = "Configured request";
+                if (captured_ok) { power.writable = true;
                     const auto previous_policies = last_.power_policies;
                     last_.power_policies.clear();
                     unsigned candidates = 0; uint32_t candidate_id = 0;
@@ -2755,14 +2814,13 @@ public:
                     for (auto& policy : last_.power_policies) { policy.state.availability = Availability::transient; policy.state.detail = reason; }
                 }
             }
-            if (st.pl_min_state == DC_CL_STATIC_VALUE) power.low = std::min(st.pl_min_mw / 1000.0, *power.current);
-            if (st.pl_max_state == DC_CL_STATIC_VALUE) power.high = std::max(st.pl_max_mw / 1000.0, *power.current);
-            if (last_.xoc_known && last_.xoc_enabled && api_.envelopes) { dc_request_envelopes env{}; env.size = sizeof(env);
-                if (api_.envelopes(&env) == DC_OK && env.power_limit_xoc_max_mw > 0 && env.power_limit_xoc_max_mw < UINT32_MAX && power.high) {
-                    power.high = std::max(*power.high, env.power_limit_xoc_max_mw / 1000.0);
-                    if (power.availability == Availability::available) power.detail = "XOC software envelope; the adapter's validated request route may allow less";
+            if (power.availability == Availability::available) {
+                if (bounds) power.detail = "Current power request range: " + bounds->description();
+                else {
+                    if (power_base_api()) power.availability = Availability::transient;
+                    power.detail = "Current power request bounds unavailable";
                 }
-            } else if (power.availability == Availability::available && power.detail.find("XOC software envelope;") == 0) power.detail = "Configured request";
+            }
             if (st.pl_def_state == DC_CL_STATIC_VALUE) power.stock = st.pl_def_mw / 1000.0;
         } else {
             failure(power, !api_.power, "Configured power request unavailable");
