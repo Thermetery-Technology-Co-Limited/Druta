@@ -878,7 +878,7 @@ struct App {
         if(canceled_clock_refresh) {
             if(!app_target_matches(*canceled_clock_refresh,*current))canceled_clock_refresh.reset();
             else if(!current->busy&&!current->opening&&!view.select_slot) {
-                Command read;read.operation=view.page==Page::timings?Command::Operation::pascal_tfaw_read:Command::Operation::pascal_clock_read;
+                Command read;read.operation=view.page==Page::timings?Command::Operation::pascal_timing_read:Command::Operation::pascal_clock_read;
                 if(session->submit(read,current->generation,true)) {
                     view.power_weights_saved.reset();
                     canceled_clock_refresh.reset();
@@ -934,15 +934,15 @@ struct App {
         auto intents=std::move(view.power_weights_intents);view.power_weights_intents.clear();
         for(auto& intent:intents)try{
             if(closing||weight_prepare_pending||current->busy||view.select_slot)throw std::runtime_error("Wait for the current operation");
-            const bool clock_request = intent.operation == PowerWeightsIntent::Operation::read_clocks || intent.operation == PowerWeightsIntent::Operation::read_tfaw ||
+            const bool clock_request = intent.operation == PowerWeightsIntent::Operation::read_clocks || intent.operation == PowerWeightsIntent::Operation::read_firmware_timings ||
                 intent.operation == PowerWeightsIntent::Operation::prepare_clocks;
             if (clock_request && (!view.live || view.live->generation != current->generation))
                 throw std::runtime_error("Selected GPU session changed. Read the clock table again.");
             view.power_weights_view.status.clear();Command command;
             switch(intent.operation){
-            case PowerWeightsIntent::Operation::read_tfaw:
+            case PowerWeightsIntent::Operation::read_firmware_timings:
                 view.power_weights_saved.reset();
-                command.operation=Command::Operation::pascal_tfaw_read;break;
+                command.operation=Command::Operation::pascal_timing_read;break;
             case PowerWeightsIntent::Operation::read_clocks:
                 view.power_weights_saved.reset();
                 command.operation=Command::Operation::pascal_clock_read;break;

@@ -1350,17 +1350,43 @@ stock` zeroes the table, which is not the same as putting a previous state back.
 
 The register editor reads and edits framebuffer-partition timing registers
 through `nvtune`. The native GUI also offers **Timings → BIOS memory timing**
-on Pascal. This path changes tFAW in the P0 memory-clock band's firmware row
-and checks the programmed controller values through the NVIDIA driver. It
-uses the existing temporary ROM override and selected-device refresh.
+on Pascal. It can change 22 documented timing fields in the P0 memory-clock
+band's firmware row and check their programmed values through the NVIDIA
+driver. One selected-device refresh loads the edits.
 
 The firmware editor matches the current memory band and two controller
 readings to a unique Memory Tweak Table row. Each sample must begin and end
-at P0 at the same memory clock. It preserves all bits outside CONFIG3[16:9].
-After the running image matches, Druta removes the temporary registry records
-and checks the entire observed CONFIG1 and CONFIG3 against the requested
-result. If P0 evidence is missing, verification stays pending. The Ampere
-measurements below explain why that generation has no firmware tFAW editor.
+at P0 at the same memory clock. CONFIG1 and CONFIG3 identify the row. Fields
+from CONFIG0, CONFIG2, CONFIG4 and CONFIG5 also require two matching readings
+of their register. Each editable field must match its stored ROM bits.
+Multiple edits to one word are merged into the original ROM word using only
+their selected masks. After the complete running image matches, Druta clears
+the temporary registry records and checks the reviewed controller words at
+the original P0 clock. Missing evidence keeps verification pending. Existing
+tFAW-only receipts retain their original CONFIG1/CONFIG3 proof.
+
+| Controller word | Editable BIOS fields |
+|---|---|
+| CONFIG0 | tRC, tRFC, tRAS, tRP |
+| CONFIG1 | tWL, tRCDRD, tRCDWR. tCL is displayed read-only. |
+| CONFIG2 | RPRE, WPRE, CDLR, tWR, W2R_BUS, R2W_BUS |
+| CONFIG3 | PDEX, PDEN2PDEX, tFAW, AOND, tCCDL, tCCDS |
+| CONFIG4 | tREFI, tRRD |
+| CONFIG5 | WRCRC |
+
+TIMING22's two refresh fields (RFCSBA and RFCSBR), R2P and RDCRC have public
+ROM definitions. Their end-to-end Pascal controller mappings remain unverified.
+The six-word editor preserves their stored values along with training,
+voltage and reserved fields. Register ranges describe the encoding. Stability
+and the physical effect depend on the selected adapter and memory band.
+[NVIDIA memory tweak table](https://nvidia.github.io/open-gpu-doc/MemoryTweakTable/MemoryTweakTable.html)
+and [nvtune's register mapping notes](https://github.com/sebastianmarrufo/nvtune/blob/df5df6cfd0b99a5bd0440c768014f452c66cea1d/tool/src/regs.cpp#L88-L98).
+
+The MSI GTX 1050 Ti returned all six controller words at P0 and 3504 MHz.
+Twenty fields matched for editing. tCL read 22. The two CCD fields were
+omitted because CONFIG3's high byte was 0x22 in the firmware row and 0x00
+on the controller. This read-only inventory complements the earlier tFAW
+write trial. [GP107 controller capture](experiments/pascal-p0-bios-timing-inventory-20261120.json).
 
 ## Session firmware override experiment for tFAW
 

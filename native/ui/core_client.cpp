@@ -2863,19 +2863,31 @@ public:
             if (prepare && (!last_.pascal_clock_fresh || displayed_clock_image_.empty()))
                 throw std::runtime_error("Read the current clock table first");
 
-            const bool timing_read = cmd.operation == Command::Operation::pascal_tfaw_read;
+            const bool timing_read = cmd.operation == Command::Operation::pascal_timing_read;
             const bool timing_edit = prepare && std::any_of(cmd.pascal_clock_edits->begin(),cmd.pascal_clock_edits->end(),
-                [](const auto& edit){return edit.domain==PascalClockDomain::tfaw;});
+                [](const auto& edit){return pascal_timing_field(edit.domain)!=nullptr;});
             const auto reviewed=last_.power_weights?last_.power_weights->receipt:nullptr;
             const bool inherits_timing=prepare && reviewed && reviewed->id==reviewed_owner &&
                 receipt_timing_sample(*reviewed,PascalTimingPhase::applied).has_value();
             auto c = capture_weight_state(prepare, true, timing_read || timing_edit || inherits_timing);
             if (timing_edit) {
                 const auto& reviewed_table=last_.pascal_clocks;
-                if (!reviewed_table || !reviewed_table->timing_sample || !c.timing_sample || c.timing_sample!=reviewed_table->timing_sample)
-                    throw std::runtime_error(c.timing_sample_message.empty()?"Read the P0 controller again before changing tFAW":c.timing_sample_message);
+                if (!reviewed_table || !reviewed_table->timing_sample)
+                    throw std::runtime_error("Read P0 BIOS timings and review the available fields before applying changes.");
+                if (!c.timing_sample) {
+                    const auto reason = c.timing_sample_message.empty() ? "A stable P0 timing sample is unavailable." : c.timing_sample_message;
+                    throw std::runtime_error(reason + " Read P0 BIOS timings again before applying changes.");
+                }
+                const auto& expected = *reviewed_table->timing_sample;
+                const auto& actual = *c.timing_sample;
+                if (actual.memory_mhz != expected.memory_mhz)
+                    throw std::runtime_error("The P0 memory clock changed since review. Read P0 BIOS timings again.");
+                if ((actual.present & expected.present) != expected.present)
+                    throw std::runtime_error("A reviewed CONFIG word is unavailable or unstable. Read P0 BIOS timings again and review the available fields.");
+                if (!matches_pascal_timing(actual,expected))
+                    throw std::runtime_error("A P0 controller timing word changed since review. Read P0 BIOS timings again.");
                 for (const auto& edit:*cmd.pascal_clock_edits)
-                    if(edit.domain==PascalClockDomain::tfaw && edit.timing_sample!=reviewed_table->timing_sample)
+                    if(pascal_timing_field(edit.domain) && edit.timing_sample!=reviewed_table->timing_sample)
                         throw std::runtime_error("The reviewed P0 timing differs from the request");
             }
             if (!clock_override_architecture(c.identity.architecture))
@@ -2919,7 +2931,7 @@ public:
                 if (table.device_id != c.identity.device_id)
                     throw std::runtime_error("The clock image belongs to another PCI device");
                 if (timing_read) {
-                    if(c.timing_sample)inspect_pascal_tfaw(table,c.image,c.identity.architecture,*c.timing_sample);
+                    if(c.timing_sample)inspect_pascal_timings(table,c.image,c.identity.architecture,*c.timing_sample);
                     else table.timing_message=c.timing_sample_message.empty()?"A stable P0 controller sample is unavailable":c.timing_sample_message;
                 }
                 displayed_clock_image_ = std::move(c.image);
@@ -2999,7 +3011,7 @@ public:
             result.message = last_.power_arbitration->message;
             return result;
         }
-        if (cmd.operation == Command::Operation::pascal_clock_read || cmd.operation == Command::Operation::pascal_clock_prepare || cmd.operation == Command::Operation::pascal_tfaw_read)
+        if (cmd.operation == Command::Operation::pascal_clock_read || cmd.operation == Command::Operation::pascal_clock_prepare || cmd.operation == Command::Operation::pascal_timing_read)
             return pascal_clock_action(cmd);
         if(cmd.operation==Command::Operation::power_weights_read||cmd.operation==Command::Operation::power_weights_preview||cmd.operation==Command::Operation::power_weights_prepare||cmd.operation==Command::Operation::power_weights_inspect){
             if(!power_weights_){result.message="Power relationship service unavailable";return result;}

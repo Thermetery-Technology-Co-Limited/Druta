@@ -28,7 +28,7 @@ struct PowerWeightCaptureApi {
  std::function<VoltageScaffoldWindowsTarget(const dc_gpu_identity&,const dc_target&)> resolve_windows;
  std::function<PowerWeightRegistrySnapshot(const VoltageScaffoldWindowsTarget&)> registry_read;
  decltype(&dc_gpu_read_telemetry) telemetry=nullptr;
- std::function<std::array<uint32_t,2>(dc_gpu*)> timing_config;
+ std::function<PascalTimingSample(dc_gpu*)> timing_config;
 };
 // Zero-I/O construction. Each explicit capture is locked and target-bracketed.
 // Component failures are independent; identity/target errors abort the call.

@@ -59,8 +59,75 @@ void timing() {
     check(!plan_pascal_clocks(image,{{Domain::tfaw,5,28,29,sample}}).ok &&
           !plan_pascal_clocks(image,{{Domain::tfaw,0,28,29}}).ok &&
           !plan_pascal_clocks(image,{{Domain::tfaw,0,28,256,sample}}).ok &&
-          !plan_pascal_clocks(image,{{Domain::tfaw,0,28,0,sample}}).ok &&
-          !plan_pascal_clocks(image,{edit},7).ok,"Only qualified Pascal P0 and nonzero field encodings proceed");
+          !plan_pascal_clocks(image,{{Domain::tfaw,0,28,-1,sample}}).ok &&
+          !plan_pascal_clocks(image,{edit},7).ok,"Only qualified Pascal P0 and representable field encodings proceed");
+}
+
+void all_timing_fields() {
+    const auto image=test::pascal_timing_fixture();
+    const auto sample=test::pascal_full_timing_sample();
+    PascalClockTable table;
+    inspect_pascal_timings(table,image,4,sample);
+    check(table.timing_fields.size()==23 && table.timing_message.empty(),"All six matching words expose 22 timing controls and tCL");
+    const std::vector<std::pair<Domain,uint32_t>> masks{
+        {Domain::trc,0xff}, {Domain::trfc,0x1ff00}, {Domain::tras,0xfe0000}, {Domain::trp,0x7f000000},
+        {Domain::tcl,0x7f}, {Domain::twl,0x3f80}, {Domain::trcd_rd,0xfc000}, {Domain::trcd_wr,0x3f00000},
+        {Domain::rpre,0xf}, {Domain::wpre,0xf0}, {Domain::cdlr,0x7f00}, {Domain::twr,0x7f0000},
+        {Domain::w2r_bus,0xf000000}, {Domain::r2w_bus,0xf0000000}, {Domain::pdex,0x1f},
+        {Domain::pden2pdex,0x1e0}, {Domain::tfaw,0x1fe00}, {Domain::aond,0xfe0000},
+        {Domain::tccdl,0xf000000}, {Domain::tccds,0xf0000000}, {Domain::trefi,0x7ff8},
+        {Domain::trrd,0x1f8000}, {Domain::wrcrc,0x7f0}
+    };
+    auto expected=image;
+    auto changed=sample;
+    std::vector<PascalClockEdit> edits,restore;
+    for(const auto& [domain,mask]:masks) {
+        const auto& field=*pascal_timing_field(domain);
+        const int current=pascal_timing_value(sample,domain);
+        const int maximum=int(mask>>field.shift);
+        if(domain==Domain::tcl) {
+            check(!field.writable&&!plan_pascal_clocks(image,{{domain,0,current,current+1,sample}}).ok,
+                  "A directly requested tCL change is always refused");
+            continue;
+        }
+        check(field.writable && pascal_timing_label(domain)[0],"Qualified controller timing has an editable label");
+        edits.push_back({domain,0,current,maximum,sample});
+        changed=with_pascal_timing(changed,domain,maximum);
+        for(unsigned j=0;j<4;++j)expected[0x748+field.word*4+j]|=static_cast<uint8_t>(mask>>(j*8));
+        check(!plan_pascal_clocks(image,{{domain,0,current,maximum+1,sample}}).ok,"Field maximum protects adjacent bits");
+    }
+    const auto plan=plan_pascal_clocks(image,edits);
+    check(plan.ok && plan.image==expected && pascal_timing_value(changed,Domain::tcl)==pascal_timing_value(sample,Domain::tcl),
+          "Batch updates full-width adjacent fields, leaving tCL, reserved, training, and other rows unchanged");
+    for(const auto& edit:edits)restore.push_back({edit.domain,0,edit.value,edit.expected,changed});
+    check(plan.ok&&plan_pascal_clocks(plan.image,restore).image==image,"All firmware timing fields restore byte for byte");
+    edits.push_back(edits.front());
+    check(!plan_pascal_clocks(image,edits).ok,"Reject duplicate fields even within one controller word");
+
+    auto partial=sample;
+    partial.present&=~uint8_t(1u<<2);
+    partial.config3&=0xffffff;
+    partial.config5^=0x10;
+    inspect_pascal_timings(table,image,4,partial);
+    check(table.timing_fields.size()==14 && !table.timing_message.empty(),"Preserve other fields when CONFIG2 is missing, CCD is masked and WRCRC differs");
+    for(const auto d:{Domain::twr,Domain::tccdl,Domain::tccds,Domain::wrcrc})
+        check(!plan_pascal_clocks(image,{{d,0,0,1,partial}}).ok,"Unqualified field cannot enter a direct timing request");
+    const PascalTimingSample legacy{3504,sample.config1,sample.config3};
+    check(matches_pascal_timing(sample,legacy) && !matches_pascal_timing(legacy,sample),"Two-word legacy evidence can be verified by a six-word sample");
+
+    const auto zero=with_pascal_timing(sample,Domain::tfaw,0);
+    const auto zero_row=plan_pascal_clocks(image,{{Domain::tfaw,0,28,0,sample}});
+    check(zero_row.ok,"A zero tFAW encoding is representable in a populated P0 row");
+    inspect_pascal_timings(table,zero_row.image,4,zero);
+    check(table.timing_fields.size()==23,"Zero tFAW leaves independently matched timings available");
+    const auto raised=plan_pascal_clocks(zero_row.image,{{Domain::tfaw,0,0,1,zero},{Domain::trfc,0,pascal_timing_value(zero,Domain::trfc),511,zero}});
+    const auto applied=with_pascal_timing(with_pascal_timing(zero,Domain::tfaw,1),Domain::trfc,511);
+    check(raised.ok&&plan_pascal_clocks(raised.image,{{Domain::tfaw,0,1,0,applied},
+          {Domain::trfc,0,511,pascal_timing_value(zero,Domain::trfc),applied}}).image==zero_row.image,
+          "Mixed edits restore a captured zero timing byte for byte");
+    auto empty=zero;empty.config1=0;empty.config3=0;
+    inspect_pascal_timings(table,zero_row.image,4,empty);
+    check(!table.timing_sample&&table.timing_fields.empty(),"An empty mandatory fingerprint still cannot identify a P0 row");
 }
 
 void run_legacy_targets() {
@@ -348,6 +415,7 @@ void run() {
 
 int main(int argc, char** argv) {
     timing();
+    all_timing_fields();
     run();
     // Validate saved effective images with previously recorded hardware samples.
     if (argc == 4 && std::string(argv[1]) == "--timing-evidence") {
@@ -371,6 +439,27 @@ int main(int argc, char** argv) {
         check(plan.ok && gp!=expected && plan.image==expected, "GP107: reproduce the recorded row 9 one-bit edit");
         check(plan.ok && plan_pascal_clocks(plan.image,{{Domain::tfaw,0,29,28,with_tfaw(sample,29)}}).image==gp,
               "GP107: exact full-image restore");
+        // The independent P0 inventory on 2026-11-20 read CONFIG0..5 on this GPU.
+        auto offline=sample;
+        offline.set_word(0,0x1b58c147);
+        offline.set_word(2,0x881c0900);
+        offline.set_word(4,0xd5838032);
+        offline.set_word(5,0xa6b270d2);
+        PascalClockTable inventory;
+        inspect_pascal_timings(inventory,gp,4,offline);
+        check(inventory.timing_fields.size()==21,"GP107: six-word offline inventory omits the masked CCD fields");
+        std::vector<PascalClockEdit> alternatives,undo;
+        auto projected=offline;
+        for(const auto& field:inventory.timing_fields) {
+            if(!pascal_timing_field(field.domain)->writable)continue;
+            const int value=field.current==field.maximum?field.current-1:field.current+1;
+            alternatives.push_back({field.domain,0,field.current,value,offline});
+            projected=with_pascal_timing(projected,field.domain,value);
+        }
+        for(const auto& edit:alternatives)undo.push_back({edit.domain,0,edit.value,edit.expected,projected});
+        const auto batch=plan_pascal_clocks(gp,alternatives);
+        check(alternatives.size()==20&&batch.ok&&plan_pascal_clocks(batch.image,undo).image==gp,
+              "GP107: all twenty offline-qualified writable fields restore the exact saved image");
         const PascalTimingSample ampere{9501,0x79e9839e,0x2300294c};
         PascalClockTable unsupported;
         inspect_pascal_tfaw(unsupported,ga,7,ampere);

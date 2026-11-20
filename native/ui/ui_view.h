@@ -20,6 +20,7 @@
 #include "power_saving_view.h"
 #include "clock_gating_view.h"
 #include <cstdint>
+#include <map>
 
 namespace druta::ui {
 
@@ -56,9 +57,9 @@ struct ViewState {
     struct {
         uint64_t generation = 0;
         std::shared_ptr<const PascalClockTable> source;
-        int value = 0;
+        std::map<PascalClockDomain,int> changes;
         bool reviewing = false;
-    } tfaw;
+    } firmware_timings;
     bool open_pascal_clocks_requested = false;
     std::optional<uint64_t> automatic_clock_read;
     std::vector<PowerWeightsIntent> power_weights_intents;

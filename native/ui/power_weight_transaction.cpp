@@ -105,7 +105,7 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    const auto current=capture();
    const auto previous_timing=receipt_timing_sample(receipt,PascalTimingPhase::previous);
    if(previous_timing)
-    require(current.timing_sample==previous_timing,"Apply requires the reviewed P0 memory clock and controller timing");
+    require(current.timing_sample&&matches_pascal_timing(*current.timing_sample,*previous_timing),"Apply requires the reviewed P0 memory clock and controller timing");
    require(current.image_availability==VoltagePolicyAvailability::available&&current.image==source&&
            equal(*current.registry,receipt.before),"The clock preview is stale. Read the current GPU and preview again");
    require(derived.clock_plan.image!=source,"The selected clocks already match the running image");
@@ -129,7 +129,7 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    require(staged.image_availability==VoltagePolicyAvailability::available&&staged.image==source&&
            equal(*staged.registry,derived.after),"Clock pre-restart image or registry differs from staged preview");
    if(previous_timing)
-    require(staged.timing_sample==previous_timing,"The GPU left the reviewed P0 timing or memory clock before restart");
+    require(staged.timing_sample&&matches_pascal_timing(*staged.timing_sample,*previous_timing),"The GPU left the reviewed P0 timing or memory clock before restart");
    receipt.phase="refresh_pending";receipt.refresh_requested=true;receipt.uncertain=true;persist();
    result.may_have_changed=true;
    boundary(api.restart(receipt.windows));

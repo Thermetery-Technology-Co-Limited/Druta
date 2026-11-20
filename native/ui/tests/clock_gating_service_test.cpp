@@ -111,8 +111,16 @@ int main(){
   generation=4;
   values[0x9a0294]=0x2966c296;values[0x9a029c]=0x2200394a;
   ClockGatingService pascal(api(),gpu,device);
-  const auto pair=pascal.read_pascal_memory_config();
-  CHECK(pair[0]==values[0x9a0294]&&pair[1]==values[0x9a029c]);
+  values[0x9a0290]=0x6e6b6640;
+  values[0x9a02a4]=0x50;
+  const auto sample=pascal.read_pascal_memory_config();
+  CHECK(sample.present==0x3f && sample.config0==values[0x9a0290] && sample.config1==values[0x9a0294] &&
+        sample.config3==values[0x9a029c] && sample.config5==values[0x9a02a4]);
+  unavailable_register=0x9a0290;
+  values[0x9a02a4]=UINT32_MAX;
+  const auto partial=pascal.read_pascal_memory_config();
+  CHECK(partial.present==0x1e && partial.config1==sample.config1 && partial.config3==sample.config3);
+  unavailable_register=0;
   values[0x9a029c]=0xBAD00001;
   rejects([&]{pascal.read_pascal_memory_config();});
   values[0x9a029c]=0x2200394a;

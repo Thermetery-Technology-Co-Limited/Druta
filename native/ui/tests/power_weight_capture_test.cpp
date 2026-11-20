@@ -42,33 +42,45 @@ dc_status DC_CALL p0_tick(dc_gpu*,dc_telemetry* tick) {
 }
 void run_timing_capture() {
     auto* gpu=reinterpret_cast<dc_gpu*>(1);
-    for(timing_mode=0;timing_mode<=5;++timing_mode) {
+    for(timing_mode=0;timing_mode<=6;++timing_mode) {
         fresh();tick_count=0;
         generation=timing_mode==5?3:4;
         auto a=api();a.telemetry=p0_tick;
         int reads=0;
         a.timing_config=[&](dc_gpu*) {
             ++reads;
-            return std::array<uint32_t,2>{0x2966c296,
-                (timing_mode==4&&reads==2)?0x22003b4au:0x2200394au};
+            PascalTimingSample words{0,0x2966c296,(timing_mode==4&&reads==2)?0x22003b4au:0x2200394au};
+            words.set_word(0,42);
+            if(timing_mode!=6||reads==1)words.set_word(2,255);
+            words.set_word(4,timing_mode==6&&reads==2?1023:18);
+            words.set_word(5,2);
+            return words;
         };
         const auto state=make_power_weight_capture(a,adapter,true)(gpu,false);
         CHECK(state.image_availability==VoltagePolicyAvailability::available&&locks==0);
-        CHECK(state.timing_sample.has_value()==(timing_mode==0));
+        CHECK(state.timing_sample.has_value()==(timing_mode==0||timing_mode==6));
         if(timing_mode==0) {
             CHECK(reads==2&&tick_count==4);
             const auto sample=*state.timing_sample;
-            CHECK(sample.memory_mhz==3724&&sample.config1==0x2966c296&&sample.config3==0x2200394a);
+            CHECK(sample.present==0x3f&&sample.memory_mhz==3724&&sample.config1==0x2966c296&&sample.config3==0x2200394a);
             verify_pascal_timing_sample(state,sample);
-            for(int mismatch=0;mismatch<3;++mismatch) {
+            verify_pascal_timing_sample(state,{sample.memory_mhz,sample.config1,sample.config3}); // Legacy receipt.
+            for(int mismatch=-1;mismatch<6;++mismatch) {
                 auto other=sample;
-                if(mismatch==0)++other.memory_mhz;
-                if(mismatch==1)++other.config1;
-                if(mismatch==2)other.config3^=1u<<9;
+                if(mismatch<0)++other.memory_mhz;
+                else other.set_word(mismatch,sample.word(mismatch)^1);
                 bool refused=false;
                 try {verify_pascal_timing_sample(state,other);} catch(const VoltageEquationEvidenceError&){refused=true;}
                 CHECK(refused);
             }
+        } else if(timing_mode==6) {
+            CHECK(state.timing_sample->present==0x2b);
+            auto previous=*state.timing_sample;
+            previous.set_word(4,18);
+            bool pending=false;
+            try {verify_pascal_timing_sample(state,previous);}
+            catch(const VoltageEquationEvidenceError& error){pending=error.kind==VoltagePolicyAvailability::transient;}
+            CHECK(pending);
         } else if(timing_mode==5) {
             CHECK(state.timing_availability==VoltagePolicyAvailability::unsupported&&reads==0&&tick_count==0);
         } else {

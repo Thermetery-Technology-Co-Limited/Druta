@@ -66,7 +66,7 @@ int verify_main(const std::string& id,bool original,bool staged,const std::wstri
         e.kind==VoltagePolicyAvailability::unknown||e.kind==VoltagePolicyAvailability::unsupported;
      throw;
     }
-    ok=true;message="Complete firmware image, P0 controller tFAW and unchanged CONFIG1 verified";
+    ok=true;message="Complete firmware image and reviewed P0 controller timing words verified";
    }
   } else {
    const auto checked=verify_power_relationship_weights(derived.plan,capture.identity,capture.layout,capture.info,&capture.image,original);

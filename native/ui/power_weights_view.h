@@ -7,7 +7,7 @@ namespace druta::ui {
 struct PowerWeightDraft {uint32_t index=0;double multiplier=1;std::optional<uint16_t> expected;bool dirty=false,include=false;};
 struct PowerWeightsViewState {uint64_t generation=0;bool initialized=false;std::vector<PowerWeightDraft> drafts;std::string status;};
 struct PowerWeightsIntent {
-    enum class Operation {read,preview,prepare,inspect,activate_saved,verify,remove,read_clocks,prepare_clocks,read_tfaw};
+    enum class Operation {read,preview,prepare,inspect,activate_saved,verify,remove,read_clocks,prepare_clocks,read_firmware_timings};
     Operation operation = Operation::read;
     std::vector<PowerWeightRequest> requests;
     std::vector<PascalClockEdit> clock_edits{};

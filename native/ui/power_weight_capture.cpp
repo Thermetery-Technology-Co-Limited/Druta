@@ -67,25 +67,31 @@ struct Provider {
      (t.present&(DC_T_PSTATE|DC_T_MEM))!=(DC_T_PSTATE|DC_T_MEM))
    fail("Cannot read the current GPU performance state and memory clock",A::transient);
   if(t.pstate!=0||!t.mem||t.mem>INT32_MAX)
-   fail("Read firmware tFAW while the selected GPU is in P0 at a stable memory clock",A::transient);
+   fail("Read firmware timings while the selected GPU is in P0 at a stable memory clock",A::transient);
   return static_cast<int>(t.mem);
  }
  PascalTimingSample timings(dc_gpu* gpu, const dc_target& target) {
-  if(target.architecture!=4)fail("Firmware tFAW verification is available on Pascal",A::unsupported);
+  if(target.architecture!=4)fail("Firmware timing verification is available on Pascal",A::unsupported);
   if(!api.telemetry)fail("The core does not supply a performance-state and memory-clock read",A::unsupported);
   const auto sample=[&] {
    bound(gpu,target);
    const int before=p0_memory_clock(gpu);
-   const auto words=api.timing_config(gpu);
+   auto words=api.timing_config(gpu);
    const int after=p0_memory_clock(gpu);
    bound(gpu,target);
    if(before!=after)fail("The memory clock changed during the timing read",A::transient);
-   return PascalTimingSample{before,words[0],words[1]};
+   words.memory_mhz=before;
+   return words;
   };
   const auto first=sample(),second=sample();
-  if(first.memory_mhz!=second.memory_mhz||first.config1!=second.config1||first.config3!=second.config3)
+  if(first.memory_mhz!=second.memory_mhz||first.config1!=second.config1||first.config3!=second.config3||
+     (first.present&second.present&0x0a)!=0x0a)
    fail("The two P0 controller timing readings differ",A::transient);
-  return second;
+  PascalTimingSample stable{second.memory_mhz,second.config1,second.config3};
+  for(unsigned word:{0u,2u,4u,5u})
+   if((first.present&second.present&(1u<<word)) && first.word(word)==second.word(word))
+    stable.set_word(word,second.word(word));
+  return stable;
  }
  PowerWeightCapture read(dc_gpu* gpu,bool registry_requested){auto& a=api.evidence.target;if(!a.lock||!a.unlock)fail("Relationship capture lock interface unavailable",A::unsupported);if(a.lock(gpu)!=DC_OK)fail("Relationship capture lock unavailable",A::transient);struct Unlock{VoltagePolicyApi& api;dc_gpu* gpu;~Unlock(){api.unlock(gpu);}}unlock{a,gpu};
   PowerWeightCapture result;result.target=bind(gpu,&result.adapter);result.identity={result.target.slot,result.target.architecture,result.target.device_id,result.target.subsystem_id};
@@ -108,8 +114,10 @@ void verify_pascal_timing_sample(const PowerWeightCapture& capture,const PascalT
   fail("P0 controller verification pending. "+capture.timing_sample_message,capture.timing_availability);
  const auto& actual=*capture.timing_sample;
  if(actual.memory_mhz!=expected.memory_mhz)
-  fail("Verify firmware tFAW again at the reviewed P0 memory clock ("+std::to_string(expected.memory_mhz)+" MHz)",A::transient);
- if(actual.config1!=expected.config1||actual.config3!=expected.config3)
+  fail("Verify firmware timings again at the reviewed P0 memory clock ("+std::to_string(expected.memory_mhz)+" MHz)",A::transient);
+ if((actual.present & expected.present)!=expected.present)
+  fail("P0 controller verification pending. A previously reviewed CONFIG word is unavailable or unstable",A::transient);
+ if(!matches_pascal_timing(actual,expected))
   fail("The running firmware image matched, but the controller timing words differ from the reviewed values");
 }
 }

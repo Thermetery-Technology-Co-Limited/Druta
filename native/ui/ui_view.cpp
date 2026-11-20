@@ -2105,23 +2105,22 @@ void firmware_timing_panel(ViewState& state) {
     const auto& s=*state.live;
     ImGui::SeparatorText("BIOS memory timing");
     if(s.data.clock_architecture!=4u) {
-        ImGui::TextWrapped("P0 BIOS tFAW control requires a Pascal GPU with a supported memory table.");
+        ImGui::TextWrapped("P0 BIOS timing control requires a Pascal GPU with a supported memory table.");
         return;
     }
     const bool busy=s.busy||s.opening||!s.data.connected;
     const auto table=s.data.pascal_clocks;
     const auto sample=table&&s.data.pascal_clock_fresh?table->timing_sample:std::nullopt;
-    auto& draft=state.tfaw;
+    auto& draft=state.firmware_timings;
     if(draft.generation!=s.generation || draft.source!=table) {
         draft={};
         draft.generation=s.generation;
         draft.source=table;
-        if(sample)draft.value=int((sample->config3 & pascal_tfaw_mask)>>9);
     }
     ImGui::TextWrapped("Read the selected GPU at P0 to locate its memory timing row. "
                        "This path uses the NVIDIA driver and works without nvtune.");
     ImGui::BeginDisabled(busy);
-    if(ImGui::Button("Read P0 BIOS tFAW"))state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read_tfaw,{}});
+    if(ImGui::Button("Read P0 BIOS timings"))state.power_weights_intents.push_back({PowerWeightsIntent::Operation::read_firmware_timings,{}});
     ImGui::EndDisabled();
     if(table&&!table->timing_message.empty())ImGui::TextWrapped("%s",table->timing_message.c_str());
     if(!s.data.pascal_clock_fresh&&!s.data.pascal_clock_status.empty())ImGui::TextWrapped("%s",s.data.pascal_clock_status.c_str());
@@ -2132,29 +2131,90 @@ void firmware_timing_panel(ViewState& state) {
                               && !receipt->restoring && s.data.pascal_clock_active_receipt==receipt->id);
     std::string why;
     const bool restart=restart_device_target(s,why,state.app_actions.administrator).has_value();
-    if(sample) {
-        const int current=int((sample->config3 & pascal_tfaw_mask)>>9);
-        ImGui::Text("Controller at P0, %d MHz memory: tFAW %d cycles",sample->memory_mhz,current);
-        ImGui::BeginDisabled(busy||!ready);
-        ImGui::SetNextItemWidth(ImGui::GetFontSize()*9);
-        if(ImGui::InputInt("tFAW (cycles)",&draft.value))draft.reviewing=false;
+    if (sample && !table->timing_fields.empty()) {
+        ImGui::Text("P0 memory clock: %d MHz. Values use the controller's register encoding.",sample->memory_mhz);
+        const bool scroll = table->timing_fields.size() > 8;
+        ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
+        if (scroll) flags |= ImGuiTableFlags_ScrollY;
+        if (ImGui::BeginTable("firmware-timing-fields",5,flags,
+                              ImVec2(0,scroll ? 9 * ImGui::GetFrameHeightWithSpacing() : 0))) {
+            ImGui::TableSetupScrollFreeze(0,1);
+            ImGui::TableSetupColumn("Timing");
+            ImGui::TableSetupColumn("Controller");
+            ImGui::TableSetupColumn("New value",ImGuiTableColumnFlags_WidthFixed,ImGui::GetFontSize()*9);
+            ImGui::TableSetupColumn("Range");
+            ImGui::TableSetupColumn("Register");
+            ImGui::TableHeadersRow();
+            for (const auto& field : table->timing_fields) {
+                const auto* descriptor = pascal_timing_field(field.domain);
+                if (!descriptor) continue;
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(pascal_timing_label(field.domain));
+                ImGui::TableSetColumnIndex(1);
+                if (field.domain == PascalClockDomain::tfaw) ImGui::Text("%d cycles",field.current);
+                else ImGui::Text("%d",field.current);
+                ImGui::TableSetColumnIndex(4);
+                const unsigned high_bit = descriptor->shift + descriptor->width - 1;
+                ImGui::Text("CONFIG%u[%u:%u]",descriptor->word,high_bit,descriptor->shift);
+                ImGui::TableSetColumnIndex(2);
+                if (!descriptor->writable) {
+                    ImGui::TextDisabled("Read only");
+                    continue;
+                }
+                ImGui::PushID(static_cast<int>(field.domain));
+                const auto change = draft.changes.find(field.domain);
+                int value = change == draft.changes.end() ? field.current : change->second;
+                ImGui::BeginDisabled(busy || !ready);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputInt("##value",&value)) {
+                    if (value == field.current) draft.changes.erase(field.domain);
+                    else draft.changes[field.domain] = value;
+                    draft.reviewing = false;
+                }
+                ImGui::EndDisabled();
+                ImGui::PopID();
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%d to %d",field.minimum,field.maximum);
+            }
+            ImGui::EndTable();
+        }
+        std::vector<PascalClockEdit> edits;
+        bool valid = true;
+        for (const auto& field : table->timing_fields) {
+            const auto* descriptor = pascal_timing_field(field.domain);
+            const auto change = draft.changes.find(field.domain);
+            if (!descriptor || !descriptor->writable || change == draft.changes.end() || change->second == field.current) continue;
+            if (change->second < field.minimum || change->second > field.maximum) {
+                ImGui::TextWrapped("%s must be between %d and %d.",pascal_timing_label(field.domain),field.minimum,field.maximum);
+                valid = false;
+            }
+            edits.push_back({field.domain,0,field.current,change->second,sample});
+        }
+        const bool can_apply = valid && !edits.empty() && !busy && ready && restart && state.controls_unlocked;
+        if (!can_apply) draft.reviewing = false;
+        ImGui::BeginDisabled(!can_apply || draft.reviewing);
+        if (ImGui::Button("Review BIOS timing changes")) draft.reviewing = true;
         ImGui::EndDisabled();
-        const bool valid=draft.value>=1&&draft.value<=255&&draft.value!=current;
-        ImGui::BeginDisabled(busy||!ready||!valid||!restart||!state.controls_unlocked);
-        if(ImGui::Button("Review BIOS timing change"))draft.reviewing=true;
-        if(draft.reviewing && valid) {
-            ImGui::TextWrapped("Change the P0 memory-band row from %d to %d cycles and restart the selected GPU. "
-                               "Verification needs the same P0 memory clock after restart.",current,draft.value);
-            if(ImGui::Button("Apply tFAW and refresh selected GPU")) {
-                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks,{},
-                    {{PascalClockDomain::tfaw,0,current,draft.value,sample}}});
-                draft.reviewing=false;
+        if (!draft.changes.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Discard timing changes")) {
+                draft.changes.clear();
+                draft.reviewing = false;
             }
         }
-        ImGui::EndDisabled();
-        if(!restart)ImGui::TextWrapped("%s",why.c_str());
-        if(!state.controls_unlocked)ImGui::TextWrapped("Unlock controls to apply a BIOS timing edit.");
-        if(!valid && draft.value!=current)ImGui::TextWrapped("Enter 1 to 255 cycles.");
+        if (draft.reviewing) {
+            for (const auto& edit : edits)
+                ImGui::Text("%s: %d to %d",pascal_timing_label(edit.domain),edit.expected,edit.value);
+            ImGui::TextWrapped("Apply changes the P0 memory-band row and restarts the selected GPU. "
+                               "Verification needs the same P0 memory clock after restart.");
+            if (ImGui::Button("Apply timings and refresh selected GPU")) {
+                state.power_weights_intents.push_back({PowerWeightsIntent::Operation::prepare_clocks,{},std::move(edits)});
+                draft.reviewing = false;
+            }
+        }
+        if (!restart) ImGui::TextWrapped("%s",why.c_str());
+        if (!state.controls_unlocked) ImGui::TextWrapped("Unlock controls to apply BIOS timing edits.");
     }
     if(owned && receipt->is_pascal_clocks() && receipt_timing_sample(*receipt,PascalTimingPhase::applied)) {
         ImGui::TextWrapped("Saved timing override (%s). %s",receipt->phase.c_str(),receipt->message.c_str());

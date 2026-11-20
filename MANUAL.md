@@ -124,12 +124,13 @@ according to the reported state.
 
 ## Pascal BIOS memory timing
 
-Choose **Timings → BIOS memory timing → Read P0 BIOS tFAW** in either native
-skin. Keep the selected GPU at P0 with a steady memory clock. The reading
-identifies a timing row from the current ROM and the live controller.
-Set **tFAW (cycles)**, select **Review BIOS timing change**, and choose
-**Apply tFAW and refresh selected GPU**. This uses the driver's temporary
-BIOS override and leaves the on-card ROM and tCL unchanged.
+Choose **Timings → BIOS memory timing → Read P0 BIOS timings** in either native
+skin. Keep the selected GPU at P0 with a steady memory clock. Druta shows
+fields whose controller readback matches the selected firmware row. Each row
+lists the current encoded value, its range and its register bits. tCL is
+read-only. Edit one or more values, choose **Review BIOS timing changes**,
+then **Apply timings and refresh selected GPU** to load the batch with one
+driver restart. Druta uses temporary driver records for the override.
 
 If the GPU idles during the restart, return it to the same P0 memory clock and
 choose **Verify P0 timing override**. Druta checks the actual controller words

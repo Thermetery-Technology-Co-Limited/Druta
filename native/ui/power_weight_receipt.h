@@ -22,7 +22,8 @@ struct PowerWeightReceipt {
  bool refresh_requested=false,uncertain=false,restoring=false;
 };
 enum class PascalTimingPhase {original, previous, applied};
-// Before, pre-revision, or requested physical P0 controller words.
+// Expected physical P0 sample for the original, previously running, or requested
+// image. Legacy receipts cover CONFIG1/CONFIG3. New receipts retain every reviewed word.
 std::optional<PascalTimingSample> receipt_timing_sample(const PowerWeightReceipt&, PascalTimingPhase);
 struct PowerWeightReceiptDerived {
  PowerWeightPlan plan;

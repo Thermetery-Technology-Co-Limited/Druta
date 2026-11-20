@@ -343,11 +343,11 @@ Decoded decode(const Bytes& b, uint32_t architecture, const PascalClockTable* or
 
 // BIT P+4 maps each memory frequency band and strap column to a BIT P+8
 // tweak row. A controller fingerprint must resolve one row in the P0 band.
-size_t tfaw_word(const Directory& dir, uint32_t architecture, const PascalTimingSample& sample) {
-    require(architecture == 4, "BIOS tFAW override is supported only on Pascal");
-    require(sample.memory_mhz > 0 && sample.memory_mhz <= 0x3fff && sample.config1 && sample.config3,
+Span timing_row(const Directory& dir, uint32_t architecture, const PascalTimingSample& sample) {
+    require(architecture == 4, "BIOS memory timing override is supported only on Pascal");
+    require(sample.memory_mhz > 0 && sample.memory_mhz <= 0x3fff && (sample.present&0x0a)==0x0a &&
+            !(sample.present&0xc0) && (sample.config1 || sample.config3),
             "Missing P0 memory clock or controller fingerprint");
-    require((sample.config3 & pascal_tfaw_mask) != 0, "P0 controller reports a zero tFAW encoding");
     const auto& b = dir.bytes;
     struct Rows { Span extent; size_t first; unsigned base, sub, columns, count, stride; };
     const auto rows = [&](unsigned pointer, unsigned version, unsigned minimum_base) {
@@ -411,7 +411,20 @@ size_t tfaw_word(const Directory& dir, uint32_t architecture, const PascalTiming
         for (unsigned col = 0; col < bands.columns; ++col)
             require(row_index(i, col) != *matched, "P0 timing row is also referenced by another memory band");
     }
-    return timings.first + *matched * timings.stride + 12;
+    return {timings.first + *matched * timings.stride, timings.base};
+}
+
+int timing_maximum(const PascalTimingField& field) { return int((1u<<field.width)-1); }
+uint32_t timing_mask(const PascalTimingField& field) { return uint32_t(timing_maximum(field))<<field.shift; }
+bool timing_matches_row(const Bytes& image,Span row,const PascalTimingField& field,const PascalTimingSample& sample) {
+    if (!(sample.present & (1u<<field.word))) return false;
+    const auto offset=size_t(field.word)*4;
+    if(offset+4>row.size)return false;
+    const auto stored=le32(image,row.at+offset);
+    const auto physical=sample.word(field.word);
+    // Some Pascal controllers expose a zero CONFIG3 upper byte with nonzero CCD values on disk.
+    if(field.word==3 && field.shift>=24 && (stored>>24)!=(physical>>24))return false;
+    return ((stored^physical)&timing_mask(field))==0;
 }
 
 const PascalClockField* find_field(const PascalClockTable& table, PascalClockDomain domain, int pstate) {
@@ -444,6 +457,66 @@ bool clock_override_architecture(uint32_t architecture) {
     return architecture == 2 || architecture == 3 || architecture == 4;
 }
 
+const std::vector<PascalTimingField>& pascal_timing_fields() {
+    // The word and bit ranges are NVIDIA's v0x20 Memory Tweak Table base entry.
+    // https://nvidia.github.io/open-gpu-doc/MemoryTweakTable/MemoryTweakTable.html
+    using D=PascalClockDomain;
+    static const std::vector<PascalTimingField> fields{
+        {D::trc,"trc","tRC",0,0,8,true}, {D::trfc,"trfc","tRFC",0,8,9,true},
+        {D::tras,"tras","tRAS",0,17,7,true}, {D::trp,"trp","tRP",0,24,7,true},
+        {D::tcl,"tcl","tCL",1,0,7,false}, {D::twl,"twl","tWL",1,7,7,true},
+        {D::trcd_rd,"trcd_rd","tRCDRD",1,14,6,true}, {D::trcd_wr,"trcd_wr","tRCDWR",1,20,6,true},
+        {D::rpre,"rpre","RPRE",2,0,4,true}, {D::wpre,"wpre","WPRE",2,4,4,true},
+        {D::cdlr,"cdlr","CDLR",2,8,7,true}, {D::twr,"twr","tWR",2,16,7,true},
+        {D::w2r_bus,"w2r_bus","W2R_BUS",2,24,4,true}, {D::r2w_bus,"r2w_bus","R2W_BUS",2,28,4,true},
+        {D::pdex,"pdex","PDEX",3,0,5,true}, {D::pden2pdex,"pden2pdex","PDEN2PDEX",3,5,4,true},
+        {D::tfaw,"tfaw","tFAW",3,9,8,true}, {D::aond,"aond","AOND",3,17,7,true},
+        {D::tccdl,"tccdl","tCCDL",3,24,4,true}, {D::tccds,"tccds","tCCDS",3,28,4,true},
+        {D::trefi,"trefi","tREFI",4,3,12,true}, {D::trrd,"trrd","tRRD",4,15,6,true},
+        {D::wrcrc,"wrcrc","WRCRC",5,4,7,true}
+    };
+    return fields;
+}
+const PascalTimingField* pascal_timing_field(PascalClockDomain domain) {
+    for(const auto& field:pascal_timing_fields())if(field.domain==domain)return &field;
+    return nullptr;
+}
+const char* pascal_timing_label(PascalClockDomain domain) {
+    const auto* field=pascal_timing_field(domain);
+    return field?field->label:"";
+}
+namespace {
+using TimingMember=uint32_t PascalTimingSample::*;
+constexpr std::array<TimingMember,6> words{
+    &PascalTimingSample::config0,&PascalTimingSample::config1,&PascalTimingSample::config2,&PascalTimingSample::config3,
+    &PascalTimingSample::config4,&PascalTimingSample::config5
+};
+}
+uint32_t PascalTimingSample::word(unsigned index) const { return this->*words.at(index); }
+void PascalTimingSample::set_word(unsigned index,uint32_t value) {
+    this->*words.at(index)=value;
+    present|=static_cast<uint8_t>(1u<<index);
+}
+bool matches_pascal_timing(const PascalTimingSample& sample,const PascalTimingSample& expected) {
+    if(sample.memory_mhz!=expected.memory_mhz || (sample.present&expected.present)!=expected.present)return false;
+    for(unsigned i=0; i<words.size(); ++i)
+        if((expected.present&(1u<<i)) && sample.word(i)!=expected.word(i))return false;
+    return true;
+}
+int pascal_timing_value(const PascalTimingSample& sample,PascalClockDomain domain) {
+    const auto* field=pascal_timing_field(domain);
+    require(field&&(sample.present&(1u<<field->word)),"Missing controller timing field");
+    return int((sample.word(field->word)&timing_mask(*field))>>field->shift);
+}
+PascalTimingSample with_pascal_timing(PascalTimingSample sample,PascalClockDomain domain,int value) {
+    const auto* field=pascal_timing_field(domain);
+    require(field&&field->writable&&(sample.present&(1u<<field->word))&&value>=0&&
+            value<=timing_maximum(*field),"Invalid or read-only controller timing change");
+    const auto updated=(sample.word(field->word)&~timing_mask(*field))|(uint32_t(value)<<field->shift);
+    sample.set_word(field->word,updated);
+    return sample;
+}
+
 PascalClockTable inspect_pascal_clocks(const Bytes& image, uint32_t architecture, const PascalClockTable* original) {
     try { return decode(image, architecture, original).table; }
     catch (const std::exception& e) {
@@ -453,17 +526,28 @@ PascalClockTable inspect_pascal_clocks(const Bytes& image, uint32_t architecture
     }
 }
 
-void inspect_pascal_tfaw(PascalClockTable& table, const Bytes& image, uint32_t architecture,
-                         const PascalTimingSample& sample) {
+void inspect_pascal_timings(PascalClockTable& table, const Bytes& image, uint32_t architecture,
+                            const PascalTimingSample& sample) {
     table.timing_sample.reset();
+    table.timing_fields.clear();
     try {
-        require(architecture == 4, "BIOS tFAW override is supported only on Pascal");
-        tfaw_word(Directory(image), architecture, sample);
+        require(architecture == 4, "BIOS memory timing override is supported only on Pascal");
+        const auto row=timing_row(Directory(image), architecture, sample);
+        for(const auto& field:pascal_timing_fields()) {
+            if(timing_matches_row(image,row,field,sample))
+                table.timing_fields.push_back({field.domain,0,pascal_timing_value(sample,field.domain),
+                                               0,timing_maximum(field)});
+        }
         table.timing_sample = sample;
-        table.timing_message.clear();
+        table.timing_message=table.timing_fields.size()==pascal_timing_fields().size()?""
+            :"Showing the fields that match both the selected firmware row and the available P0 controller readings.";
     } catch (const std::exception& e) {
         table.timing_message = e.what();
     }
+}
+void inspect_pascal_tfaw(PascalClockTable& table,const Bytes& image,uint32_t architecture,
+                         const PascalTimingSample& sample) {
+    inspect_pascal_timings(table,image,architecture,sample);
 }
 
 PascalClockPreview pascal_clock_preview(const PascalClockTable& table,
@@ -495,19 +579,33 @@ PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalC
         const auto decoded = decode(image, architecture, original);
         require(!edits.empty(), "Select at least one clock field");
         std::set<size_t> seen;
+        std::set<PascalClockDomain> timing_edits;
+        std::optional<Span> selected_row;
+        std::optional<PascalTimingSample> timing_baseline;
         Bytes patched = image;
         for (const auto& edit : edits) {
-            if (edit.domain == PascalClockDomain::tfaw) {
-                require(edit.pstate == 0 && edit.timing_sample && edit.value > 0 && edit.value <= 255,
-                        "Invalid P0 tFAW request or missing controller fingerprint");
-                const size_t at = tfaw_word(Directory(image), architecture, *edit.timing_sample);
-                const uint32_t word = le32(image, at);
-                require(seen.insert(at).second && int((word & pascal_tfaw_mask) >> 9) == edit.expected,
-                        "Duplicate timing edit or stale P0 tFAW");
-                const uint32_t patched_word = (word & ~pascal_tfaw_mask) | (uint32_t(edit.value) << 9);
+            if (const auto* field=pascal_timing_field(edit.domain)) {
+                require(field->writable && edit.pstate==0 && edit.timing_sample &&
+                        edit.value>=0 && edit.value<=timing_maximum(*field),
+                        "Read-only timing or invalid P0 timing request");
+                const auto& sample=*edit.timing_sample;
+                const auto row=timing_row(Directory(image),architecture,sample);
+                require(timing_matches_row(image,row,*field,sample) && pascal_timing_value(sample,edit.domain)==edit.expected,
+                        "Timing field differs between the P0 sample and firmware row");
+                require(timing_edits.insert(edit.domain).second,"Duplicate timing edit");
+                if(!timing_baseline) {timing_baseline=sample;selected_row=row;}
+                else {
+                    require(selected_row->at==row.at && timing_baseline->memory_mhz==sample.memory_mhz,
+                            "Mixed timing rows or P0 clocks in one transaction");
+                    for(unsigned i=0;i<words.size();++i)if(sample.present&(1u<<i)) {
+                        require(!(timing_baseline->present&(1u<<i))||timing_baseline->word(i)==sample.word(i),
+                                "Contradictory P0 controller samples in one transaction");
+                        timing_baseline->set_word(i,sample.word(i));
+                    }
+                }
+                const size_t at=row.at+field->word*4;
+                const uint32_t patched_word=(le32(patched,at)&~timing_mask(*field))|(uint32_t(edit.value)<<field->shift);
                 for (unsigned j = 0; j < 4; ++j) patched[at+j] = static_cast<uint8_t>(patched_word >> (8*j));
-                require(tfaw_word(Directory(patched),architecture,with_tfaw(*edit.timing_sample,edit.value))==at,
-                        "Edited P0 fingerprint no longer identifies the same timing row");
                 continue;
             }
             require(!edit.timing_sample, "Unexpected timing fingerprint on a clock edit");
@@ -534,6 +632,12 @@ PascalClockPlan plan_pascal_clocks(const Bytes& image, const std::vector<PascalC
                 for (unsigned j = 0; j < 4; ++j)
                     patched[it->offset + j] = static_cast<uint8_t>(packed >> (8 * j));
             }
+        }
+        if(timing_baseline) {
+            for(const auto& edit:edits)if(pascal_timing_field(edit.domain))
+                *timing_baseline=with_pascal_timing(*timing_baseline,edit.domain,edit.value);
+            require(timing_row(Directory(patched),architecture,*timing_baseline).at==selected_row->at,
+                    "Edited P0 fingerprint no longer identifies the same timing row");
         }
         return {true, {}, std::move(patched)};
     } catch (const std::exception& e) {

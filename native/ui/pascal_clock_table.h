@@ -8,17 +8,42 @@
 
 namespace druta::ui {
 
-enum class PascalClockDomain { gpc, xbar, sys, tfaw };
+enum class PascalClockDomain {
+    gpc, xbar, sys, tfaw, trc, trfc, tras, trp, tcl, twl, trcd_rd, trcd_wr, rpre, wpre, cdlr,
+    twr, w2r_bus, r2w_bus, pdex, pden2pdex, aond, tccdl, tccds, trefi, trrd, wrcrc
+};
+
+struct PascalTimingField {
+    PascalClockDomain domain;
+    const char* key;
+    const char* label;
+    unsigned word, shift, width;
+    bool writable;
+};
+
+const std::vector<PascalTimingField>& pascal_timing_fields();
+const PascalTimingField* pascal_timing_field(PascalClockDomain domain);
+const char* pascal_timing_label(PascalClockDomain domain);
 
 // Both sides of this controller sample must have reported P0 at the same memory clock.
 struct PascalTimingSample {
     int memory_mhz = 0;
     uint32_t config1 = 0, config3 = 0;
+    uint32_t config0 = 0, config2 = 0, config4 = 0, config5 = 0;
+    uint8_t present = 0x0a; // Older receipts captured CONFIG1 and CONFIG3.
+    uint32_t word(unsigned index) const;
+    void set_word(unsigned index, uint32_t value);
     bool operator==(const PascalTimingSample& rhs) const {
-        return memory_mhz == rhs.memory_mhz && config1 == rhs.config1 && config3 == rhs.config3;
+        if (memory_mhz != rhs.memory_mhz || present != rhs.present) return false;
+        for (unsigned i=0; i<6; ++i)
+            if ((present & (1u<<i)) && word(i)!=rhs.word(i)) return false;
+        return true;
     }
     bool operator!=(const PascalTimingSample& rhs) const { return !(*this == rhs); }
 };
+bool matches_pascal_timing(const PascalTimingSample& sample, const PascalTimingSample& expected);
+int pascal_timing_value(const PascalTimingSample& sample, PascalClockDomain domain);
+PascalTimingSample with_pascal_timing(PascalTimingSample sample, PascalClockDomain domain, int value);
 inline constexpr uint32_t pascal_tfaw_mask = 0x1fe00;
 inline PascalTimingSample with_tfaw(PascalTimingSample sample, int cycles) {
     sample.config3 = (sample.config3 & ~pascal_tfaw_mask) | ((uint32_t(cycles) << 9) & pascal_tfaw_mask);
@@ -41,6 +66,7 @@ struct PascalClockTable {
     uint16_t device_id = 0;
     bool state_targets = false;
     std::optional<PascalTimingSample> timing_sample;
+    std::vector<PascalClockField> timing_fields;
     std::string timing_message;
 };
 
@@ -59,6 +85,8 @@ struct PascalClockPlan {
 // Annotate a clock inspection with the selected GPU's independently observed P0 timing.
 void inspect_pascal_tfaw(PascalClockTable&, const std::vector<uint8_t>& image,
                          uint32_t architecture, const PascalTimingSample& sample);
+void inspect_pascal_timings(PascalClockTable&, const std::vector<uint8_t>& image,
+                            uint32_t architecture, const PascalTimingSample& sample);
 
 struct PascalClockPreview {
     std::optional<double> nominal_mhz;

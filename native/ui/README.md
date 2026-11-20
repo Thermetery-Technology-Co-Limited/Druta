@@ -162,14 +162,19 @@ values and the Windows device binding, and requires no working NVIDIA display.
 
 ### Pascal firmware memory timing
 
-In either skin, open **Timings → BIOS memory timing → Read P0 BIOS tFAW**.
+In either skin, open **Timings → BIOS memory timing → Read P0 BIOS timings**.
 Keep the selected GPU at P0 and a stable memory clock for the reading. Enter
-**tFAW (cycles)**, choose **Review BIOS timing change**, then **Apply tFAW and
-refresh selected GPU**. This route edits the matching firmware timing row using
-temporary driver records. It needs no nvtune or Python. Druta reads CONFIG1
-and CONFIG3 twice at P0 to identify the row and checks them after the driver
-refresh. It rejects an ambiguous row or one reused in another memory-clock
-band. CONFIG1, including tCL, stays unchanged.
+one or more encoded values, choose **Review BIOS timing changes**, then
+**Apply timings and refresh selected GPU**. The native editor uses temporary
+driver records and works independently of nvtune and Python. It can edit 22
+named timing fields across CONFIG0–5, including row timings, refresh, write
+recovery and bus turnaround. tCL is read-only.
+
+Druta reads the six controller words twice. Each editable field must agree
+with the current firmware row. A masked field or an unavailable optional word
+does not prevent editing other matched fields. An ambiguous row or a row
+shared with another memory-clock band cannot be edited. Apply changes only
+the selected bits and checks the reviewed controller words after restart.
 
 If the GPU idles after the refresh, return it to the reviewed P0 memory clock
 and choose **Verify P0 timing override**. **Restore original firmware settings

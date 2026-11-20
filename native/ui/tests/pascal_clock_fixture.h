@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "../pascal_clock_table.h"
 #include <algorithm>
 #include <cstdint>
 #include <vector>
@@ -61,6 +62,13 @@ inline std::vector<uint8_t> pascal_clock_fixture() {
     return b;
 }
 
+inline PascalTimingSample pascal_full_timing_sample() {
+    PascalTimingSample sample{3504,0x2966c296,0x220038aa};
+    sample.set_word(0,0x1b58c147);sample.set_word(2,0x881c0900);
+    sample.set_word(4,0xd5838032);sample.set_word(5,0xa6b270d2);
+    return sample;
+}
+
 // Two different bands, multiple strap columns, and header-declared padding.
 inline std::vector<uint8_t> pascal_timing_fixture() {
     auto b=pascal_clock_fixture();
@@ -73,7 +81,8 @@ inline std::vector<uint8_t> pascal_timing_fixture() {
     put(0x612,{0xe9,3,0xa0,15,1,8,2,8,2,8});
     put(0x700,{0x20,8,32,0,0,3});
     u32(0x708+32+4,0xba987654);u32(0x708+32+12,0x11221855);
-    u32(0x748+4,0x2966c296);u32(0x748+12,0x220038aa);
+    const auto sample=pascal_full_timing_sample();
+    for(unsigned i=0;i<6;++i)u32(0x748+i*4,sample.word(i));
     return b;
 }
 
@@ -86,7 +95,7 @@ inline std::vector<uint8_t> legacy_clock_fixture(uint32_t architecture) {
     const size_t row_header = kepler ? 25 : 32;
     const size_t stride = row_header + 9 * 4;
     auto rom = pascal_clock_fixture();
-    std::fill(rom.begin() + 0xc8, rom.begin() + 0xd0, 0); // No Pascal clock-program pointers.
+    std::fill(rom.begin() + 0xc8, rom.begin() + 0xd0, uint8_t(0)); // No Pascal clock-program pointers.
     rom[perf] = 0x40;
     rom[perf + 1] = static_cast<uint8_t>(header);
     rom[perf + 2] = static_cast<uint8_t>(row_header);

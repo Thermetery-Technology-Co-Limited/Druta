@@ -97,22 +97,40 @@ PowerWeightReceipt captured_receipt(const PowerWeightCapture& c) {
  r.image=c.image;r.before=*c.registry;
  return r;
 }
+// Up to 16 performance states for each of three clock domains, two shared
+// ratios, and the timing fields recognized in this build.
+size_t maximum_clock_edits() { return 16*3 + 2 + pascal_timing_fields().size(); }
 const char* domain_name(PascalClockDomain domain) {
+ if(const auto* timing=pascal_timing_field(domain))return timing->key;
  switch(domain) {
   case PascalClockDomain::gpc:return "gpc";
   case PascalClockDomain::xbar:return "xbar";
   case PascalClockDomain::sys:return "sys";
-  case PascalClockDomain::tfaw:return "tfaw";
+  default:throw std::runtime_error("Unknown Pascal clock domain");
  }
- throw std::runtime_error("Unknown Pascal clock domain");
 }
 PascalClockDomain domain_value(const Json& value) {
- const auto name=string(value,8);
+ const auto name=string(value,24);
  if(name=="gpc")return PascalClockDomain::gpc;
  if(name=="xbar")return PascalClockDomain::xbar;
  if(name=="sys")return PascalClockDomain::sys;
- if(name=="tfaw")return PascalClockDomain::tfaw;
- throw std::runtime_error("Unknown Pascal clock domain");
+ for(const auto& field:pascal_timing_fields())if(name==field.key&&field.writable)return field.domain;
+ throw std::runtime_error("Unknown or read-only Pascal clock or timing field");
+}
+
+constexpr const char* timing_word_keys[]{"config0","config1","config2","config3","config4","config5"};
+void merge_timing_baseline(std::optional<PascalTimingSample>& baseline,const PascalTimingSample& sample) {
+ require((sample.present&0x0a)==0x0a && !(sample.present&~0x3f),
+         "Missing or unknown P0 timing controller words");
+ if(!baseline){baseline=sample;return;}
+ require(baseline->memory_mhz==sample.memory_mhz,"P0 memory clock changed between timing edits");
+ for(unsigned word=0;word<std::size(timing_word_keys);++word) {
+  const auto bit=1u<<word;
+  if(!(sample.present&bit))continue;
+  require(!(baseline->present&bit)||baseline->word(word)==sample.word(word),
+          "P0 controller fingerprint changed between timing edits");
+  baseline->set_word(word,sample.word(word));
+ }
 }
 
 bool same_clock_field(const PascalClockEdit& a,const PascalClockEdit& b) {
@@ -146,44 +164,60 @@ Json encode_clock_edits(const std::vector<PascalClockEdit>& edits) {
   Json entry={{"domain",domain_name(q.domain)},{"pstate",q.pstate},{"before_raw",q.expected},{"after_raw",q.value}};
   if(q.timing_sample) {
    const auto& sample=*q.timing_sample;
-   entry["p0"]={{"memory_mhz",sample.memory_mhz},{"config1",sample.config1},{"config3",sample.config3}};
+   Json p0={{"memory_mhz",sample.memory_mhz}};
+   for(unsigned word=0;word<std::size(timing_word_keys);++word)if(sample.present&(1u<<word))p0[timing_word_keys[word]]=sample.word(word);
+   entry["p0"]=std::move(p0);
   }
   out.push_back(std::move(entry));
  }
  return out;
 }
 std::vector<PascalClockEdit> decode_clock_edits(const Json& rows) {
- require(rows.is_array()&&!rows.empty()&&rows.size()<=50,"Clock receipt request inventory invalid");
+ require(rows.is_array()&&!rows.empty()&&rows.size()<=maximum_clock_edits(),"Clock receipt request inventory invalid");
  std::vector<PascalClockEdit> out;
  for(const auto& q:rows) {
   const auto domain=domain_value(q.at("domain"));
   std::optional<PascalTimingSample> timing;
-  if(domain==PascalClockDomain::tfaw) {
+  if(const auto* field=pascal_timing_field(domain)) {
    keys(q,{"domain","pstate","after_raw","before_raw","p0"});
-   const auto& sample=q.at("p0");keys(sample,{"memory_mhz","config1","config3"});
-   timing=PascalTimingSample{int(number(sample.at("memory_mhz"),16383)),number(sample.at("config1")),number(sample.at("config3"))};
+   const auto& p0=q.at("p0");
+   require(p0.is_object(),"Invalid P0 controller sample");
+   PascalTimingSample sample{};
+   sample.memory_mhz=static_cast<int>(number(p0.at("memory_mhz"),16383));
+   sample.present=0;
+   size_t matched=1;
+   for(unsigned word=0;word<std::size(timing_word_keys);++word) {
+    const auto* key=timing_word_keys[word];
+    if(p0.contains(key)){sample.set_word(word,number(p0.at(key)));++matched;}
+   }
+   require(matched==p0.size()&&(sample.present&0x0a)==0x0a&&(sample.present&(1u<<field->word)),
+           "P0 fingerprint contains unexpected or missing controller words");
+   timing=sample;
   } else keys(q,{"domain","pstate","after_raw","before_raw"});
   const int pstate=q["pstate"].is_number_integer()&&q["pstate"]==-1?-1:static_cast<int>(number(q["pstate"],15));
-  out.push_back({domain,pstate,static_cast<int>(number(q["before_raw"],16383)),
-                 static_cast<int>(number(q["after_raw"],16383)),timing});
+  const uint32_t bound=timing?INT32_MAX:16383;
+  out.push_back({domain,pstate,static_cast<int>(number(q["before_raw"],bound)),
+                 static_cast<int>(number(q["after_raw"],bound)),timing});
  }
  return out;
 }
 }
 
 std::optional<PascalTimingSample> receipt_timing_sample(const PowerWeightReceipt& r, PascalTimingPhase phase) {
- const auto timing=[](const auto& edits) -> const PascalClockEdit* {
-  auto it=std::find_if(edits.begin(),edits.end(),[](const auto& e){return e.domain==PascalClockDomain::tfaw;});
-  return it==edits.end()?nullptr:&*it;
- };
- const auto* current=timing(r.clocks);
- const auto* previous=timing(r.previous_clocks);
- if(!current&&!previous)return {};
- const auto& baseline=(current?current:previous)->timing_sample;
- require(baseline.has_value()&&(!current||!previous||current->timing_sample==previous->timing_sample),
-         "P0 controller fingerprint changed between receipt revisions");
- if(phase==PascalTimingPhase::previous&&previous)return with_tfaw(*baseline,previous->value);
- if(phase==PascalTimingPhase::applied&&current)return with_tfaw(*baseline,current->value);
+ std::optional<PascalTimingSample> baseline;
+ for(const auto* edits:{&r.previous_clocks,&r.clocks}) {
+  for(const auto& edit:*edits) {
+   const auto* field=pascal_timing_field(edit.domain);
+   if(!field)continue;
+   require(field->writable&&edit.timing_sample&&(edit.timing_sample->present&(1u<<field->word)),
+           "Timing edit requires a writable field and its P0 controller word");
+   merge_timing_baseline(baseline,*edit.timing_sample);
+  }
+ }
+ if(!baseline||phase==PascalTimingPhase::original)return baseline;
+ const auto& edits=phase==PascalTimingPhase::previous?r.previous_clocks:r.clocks;
+ for(const auto& edit:edits)
+  if(pascal_timing_field(edit.domain))*baseline=with_pascal_timing(*baseline,edit.domain,edit.value);
  return baseline;
 }
 
@@ -200,7 +234,7 @@ PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
  uint32_t version=0;uint8_t oem=0;
  std::vector<PowerWeightRegistryPatch> patches;
  if(r.is_pascal_clocks()) {
-  require(clock_override_architecture(r.identity.architecture)&&r.requests.empty()&&r.info.empty()&&r.clocks.size()<=50,
+  require(clock_override_architecture(r.identity.architecture)&&r.requests.empty()&&r.info.empty()&&r.clocks.size()<=maximum_clock_edits(),
           "Clock receipt geometry or architecture invalid");
   const auto table=inspect_pascal_clocks(r.image,r.identity.architecture);
   require(table.ok,table.message.c_str());
@@ -208,7 +242,7 @@ PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
   out.clock_plan=plan_pascal_clocks(r.image,r.clocks,r.identity.architecture);
   require(out.clock_plan.ok,out.clock_plan.message.c_str());
   if(!r.previous_clocks.empty()) {
-   require(r.previous_clocks.size()<=50,"Previous Pascal clock receipt geometry invalid");
+   require(r.previous_clocks.size()<=maximum_clock_edits(),"Previous Pascal clock receipt geometry invalid");
    auto previous=plan_pascal_clocks(r.image,r.previous_clocks,r.identity.architecture);
    require(previous.ok,previous.message.c_str());
    require(previous.image!=r.image&&previous.image!=out.clock_plan.image,"Clock revision requires a distinct running image");
@@ -254,7 +288,7 @@ PowerWeightReceipt make_pascal_clock_receipt(const PowerWeightCapture& c,const s
  require(!edits.empty(),"Select at least one Pascal clock change");
  auto r=captured_receipt(c);r.clocks=edits;
  if(auto needed=receipt_timing_sample(r,PascalTimingPhase::original))
-  require(c.timing_sample==needed,"P0 controller timing or memory clock changed since review");
+  require(c.timing_sample&&matches_pascal_timing(*c.timing_sample,*needed),"P0 controller timing or memory clock changed since review");
  derive_weight_receipt(r);return r;
 }
 PowerWeightReceipt revise_pascal_clock_receipt(const PowerWeightCapture& c,const PowerWeightReceipt& active,
@@ -262,16 +296,29 @@ PowerWeightReceipt revise_pascal_clock_receipt(const PowerWeightCapture& c,const
  require(revisable(active),"Verify or restore the previous clock override before editing");
  const auto previous=derive_weight_receipt(active);
  if(auto inherited=receipt_timing_sample(active,PascalTimingPhase::applied))
-  require(c.timing_sample==inherited,"The active timing override must be verified at the same P0 memory clock before a revision");
+  require(c.timing_sample&&matches_pascal_timing(*c.timing_sample,*inherited),"Editing this active timing override requires all of its previously reviewed CONFIG words at the original P0 memory clock. Read P0 BIOS timings again when those words are available.");
  auto r=captured_receipt(c);
  require(same_clock_target(active,r),"Clock revision target differs from the active override");
  require(c.image==previous.clock_plan.image&&c.image!=active.image,
          "The running image differs from the verified clock override");
  require(same_registry(active.before,r.before),"The clock override's original registry settings changed");
  const auto original=inspect_pascal_clocks(active.image,active.identity.architecture);
- for(const auto& edit:edits)
-  if(edit.domain==PascalClockDomain::tfaw)
-   require(edit.timing_sample && c.timing_sample==edit.timing_sample,"P0 controller timing or memory clock changed since review");
+ auto timing_baseline=receipt_timing_sample(active,PascalTimingPhase::original);
+ for(const auto& edit:edits) {
+  if(!pascal_timing_field(edit.domain))continue;
+  require(edit.timing_sample&&c.timing_sample&&matches_pascal_timing(*c.timing_sample,*edit.timing_sample),
+          "P0 controller timing or memory clock changed since review");
+  // The reviewed sample describes the running revision. Undo every active
+  // timing edit in this sample before adding newly observed words to the
+  // original baseline (including revisions of old tFAW-only receipts).
+  auto original_sample=*edit.timing_sample;
+  for(const auto& prior:active.clocks) {
+   const auto* field=pascal_timing_field(prior.domain);
+   if(field&&(original_sample.present&(1u<<field->word)))
+    original_sample=with_pascal_timing(original_sample,prior.domain,prior.expected);
+  }
+  merge_timing_baseline(timing_baseline,original_sample);
+ }
  const auto wanted=plan_pascal_clocks(c.image,edits,active.identity.architecture,&original);
  require(wanted.ok,wanted.message.c_str());
  require(wanted.image!=c.image,"The selected clocks already match the running image");
@@ -281,16 +328,13 @@ PowerWeightReceipt revise_pascal_clock_receipt(const PowerWeightCapture& c,const
  r.before=active.before;
  r.previous_clocks=active.clocks;
  r.clocks=active.clocks;
+ for(auto& retained:r.clocks)if(pascal_timing_field(retained.domain))retained.timing_sample=timing_baseline;
  for(const auto& edit:edits) {
   const auto existing=std::find_if(r.clocks.begin(),r.clocks.end(),[&](const auto& row){return same_clock_field(row,edit);});
   auto rebased=edit;
-  if(edit.domain==PascalClockDomain::tfaw) {
-   if(existing!=r.clocks.end()) {
-    require(with_tfaw(*existing->timing_sample,existing->value)==*edit.timing_sample,
-            "P0 memory band or controller fingerprint differs from the active timing override");
-    rebased.expected=existing->expected;
-    rebased.timing_sample=existing->timing_sample;
-   }
+  if(pascal_timing_field(edit.domain)) {
+   rebased.expected=pascal_timing_value(*timing_baseline,edit.domain);
+   rebased.timing_sample=timing_baseline;
   } else {
    const auto field=std::find_if(original.fields.begin(),original.fields.end(),[&](const auto& row) {
     return row.domain==edit.domain&&row.pstate==edit.pstate;
@@ -345,7 +389,7 @@ PowerWeightReceipt decode_weight_receipt(const std::string& bytes) {
  const auto& w=j["windows"];keys(w,{"slot","instance_id","driver_key"});
  r.windows={string(w["slot"],23),string(w["instance_id"],32768),string(w["driver_key"],512)};
  r.image=unhex(j["image"],0xfa000);
- require(j["requests"].is_array()&&!j["requests"].empty()&&j["requests"].size()<=(clock?50u:32u),"Receipt request inventory invalid");
+ require(j["requests"].is_array()&&!j["requests"].empty()&&j["requests"].size()<=(clock?maximum_clock_edits():32u),"Receipt request inventory invalid");
  if(clock) {
   r.clocks=decode_clock_edits(j["requests"]);
   if(version==2)r.previous_clocks=decode_clock_edits(j["previous_requests"]);

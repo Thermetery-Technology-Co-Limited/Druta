@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "voltage_policy_service.h"
+#include "pascal_clock_table.h"
 #include "profile_io.h"
 #include "saving_profile.h"
 #include <functional>
@@ -55,8 +56,9 @@ class ClockGatingService {
 public:
     ClockGatingService(ClockGatingApi,dc_gpu*,const dc_gpu_identity&);
     ~ClockGatingService(); // host calls close before freeing GPU; no destructor replay
-    // Read the Pascal broadcast CONFIG1 and CONFIG3 words on this paired adapter.
-    std::array<uint32_t,2> read_pascal_memory_config();
+    // Read the six documented Pascal FBPA timing registers. The caller
+    // supplies the P0 memory-clock bracket. Missing optional words are omitted.
+    PascalTimingSample read_pascal_memory_config();
     void set_history_callback(std::function<void()>); // standalone explicit effects only
     const ClockGatingData& read(uint32_t families=15);
     // Qualified opposing ELCG/SLCG modes release the witnessed own request,
