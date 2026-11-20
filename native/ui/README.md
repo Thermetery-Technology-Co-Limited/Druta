@@ -178,11 +178,22 @@ the selected bits and checks the reviewed controller words after restart.
 
 If the GPU idles after the refresh, return it to the reviewed P0 memory clock
 and choose **Verify P0 timing override**. **Restore original firmware settings
-and refresh GPU** restores the original image. In the recorded GTX 1050 Ti
-trial the controller measured 28 → 29 → 28 cycles at 3504 MHz. The matching
-RTX 3070 Ti trial loaded the edited image but measured 20 cycles throughout.
-The firmware control is available on Pascal when the adapter supplies the
-matching ROM layout and a verifiable P0 controller reading.
+and refresh GPU** restores the original image. The firmware control is
+available on Pascal when the adapter supplies the matching ROM layout and a
+verifiable P0 controller reading.
+
+On the MSI GTX 1050 Ti (GP107, driver 581.80), 19 timings were edited
+individually at P0 and 3504 MHz. The controller confirmed each requested
+change, including tRFC at 193 → 194 → 193 and tREFI at 6 → 5 → 6. Across the
+six controller words, only the selected bits moved. All six words and the
+original running image were restored before the next edit. tCL read 22 throughout.
+tCCDL and tCCDS were ineligible because the controller and BIOS row differed.
+[All 19 hardware trials](../../experiments/gp107-p0-individual-bios-timings-20261120.json)
+
+An earlier tFAW trial at the same operating point measured 28 → 29 → 28
+cycles, bringing the total to 20 verified timings on this 1050 Ti. The RTX
+3070 Ti loaded its edited image and reported tFAW at 20 cycles throughout.
+[tFAW trial records](../../experiments/firmware-tfaw-20261119.json)
 
 ## Native I2C controller path
 

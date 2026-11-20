@@ -1382,11 +1382,47 @@ and the physical effect depend on the selected adapter and memory band.
 [NVIDIA memory tweak table](https://nvidia.github.io/open-gpu-doc/MemoryTweakTable/MemoryTweakTable.html)
 and [nvtune's register mapping notes](https://github.com/sebastianmarrufo/nvtune/blob/df5df6cfd0b99a5bd0440c768014f452c66cea1d/tool/src/regs.cpp#L88-L98).
 
-The MSI GTX 1050 Ti returned all six controller words at P0 and 3504 MHz.
-Twenty fields matched for editing. tCL read 22. The two CCD fields were
-omitted because CONFIG3's high byte was 0x22 in the firmware row and 0x00
-on the controller. This read-only inventory complements the earlier tFAW
-write trial. [GP107 controller capture](experiments/pascal-p0-bios-timing-inventory-20261120.json).
+## Hardware verification on the MSI GTX 1050 Ti
+
+On the tested GP107 with driver 581.80, the controller confirmed writes and
+restoration for all 20 timings the editor offered at P0 and 3504 MHz. An
+earlier trial verified tFAW at **28 → 29 → 28**. The table gives the raw
+controller values from the 19 subsequent single-field trials. Fields sharing
+a row had identical readings in separate trials.
+[Earlier tFAW trial](experiments/firmware-tfaw-20261119.json) ·
+[19 single-field trials and controller captures](experiments/gp107-p0-individual-bios-timings-20261120.json).
+
+| Controller word | Timing | Before | Applied | Restored |
+|---|---|---:|---:|---:|
+| CONFIG0 | tRC | 71 | 72 | 71 |
+| CONFIG0 | tRFC | 193 | 194 | 193 |
+| CONFIG0 | tRAS | 44 | 45 | 44 |
+| CONFIG0 | tRP | 27 | 28 | 27 |
+| CONFIG1 | tWL | 5 | 6 | 5 |
+| CONFIG1 | tRCDRD | 27 | 28 | 27 |
+| CONFIG1 | tRCDWR | 22 | 23 | 22 |
+| CONFIG2 | RPRE, WPRE | 0 | 1 | 0 |
+| CONFIG2 | CDLR | 9 | 10 | 9 |
+| CONFIG2 | tWR | 28 | 29 | 28 |
+| CONFIG2 | W2R_BUS, R2W_BUS | 8 | 9 | 8 |
+| CONFIG3 | PDEX | 10 | 11 | 10 |
+| CONFIG3 | PDEN2PDEX | 5 | 6 | 5 |
+| CONFIG3 | AOND | 0 | 1 | 0 |
+| CONFIG4 | tREFI | 6 | 5 | 6 |
+| CONFIG4 | tRRD | 7 | 8 | 7 |
+| CONFIG5 | WRCRC | 13 | 14 | 13 |
+
+All 57 captures began and ended at P0 and 3504 MHz. Only the selected bits
+moved across the six controller words in each trial. All six words and the
+complete running BIOS image returned to baseline before the next trial.
+The final check found zero staged override records. The sweep verified
+controller programming and restoration on this card at this operating point.
+Long-duration stability and performance were outside its scope.
+
+tCL stayed read-only and measured 22 throughout. tCCDL and tCCDS remain
+untested on this card because CONFIG3's high byte was 0x22 in the firmware
+row and 0x00 on the controller, so the editor withheld both fields.
+[GP107 timing inventory](experiments/pascal-p0-bios-timing-inventory-20261120.json).
 
 ## Session firmware override experiment for tFAW
 

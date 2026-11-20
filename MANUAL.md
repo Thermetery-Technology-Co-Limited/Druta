@@ -135,9 +135,19 @@ driver restart. Druta uses temporary driver records for the override.
 If the GPU idles during the restart, return it to the same P0 memory clock and
 choose **Verify P0 timing override**. Druta checks the actual controller words
 as well as the driver-visible image. **Restore original firmware settings and
-refresh GPU** returns to the original firmware image. The tested GTX 1050 Ti
-went from 28 to 29 cycles and back to 28 at 3504 MHz. The RTX 3070 Ti
-loaded the edited image without a measured change in tFAW.
+refresh GPU** returns to the original firmware image.
+
+On the MSI GTX 1050 Ti (GP107) at P0 and 3504 MHz, the controller confirmed
+individual edits and restoration for tRC, tRFC, tRAS, tRP, tWL, tRCDRD,
+tRCDWR, RPRE, WPRE, CDLR, tWR, W2R_BUS, R2W_BUS, PDEX, PDEN2PDEX, AOND,
+tREFI, tRRD and WRCRC. tCL read 22 throughout. Druta withheld tCCDL and tCCDS
+because their BIOS and controller values differed. These measurements cover
+programming and restoration at that operating point.
+[Measured values for each timing](TECHNICALDOCUMENTATION.md#hardware-verification-on-the-msi-gtx-1050-ti)
+
+An earlier trial on the same 1050 Ti confirmed tFAW at 28 → 29 → 28 cycles,
+bringing the verified total to 20. On the tested RTX 3070 Ti, tFAW stayed at
+20 cycles after the edited image loaded. [tFAW trial records](experiments/firmware-tfaw-20261119.json)
 
 ## Native backend preview
 
