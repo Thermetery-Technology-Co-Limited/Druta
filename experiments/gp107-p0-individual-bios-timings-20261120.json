@@ -1,0 +1,2078 @@
+{
+  "source_commit": "bb3c8e7a64ab6933e3de3154b40b37cb11c4d908",
+  "board": "MSI GeForce GTX 1050 Ti",
+  "driver": "581.80",
+  "pci": "0000:01:00.0",
+  "uuid": "GPU-bcf807ad-1f3c-a64b-a99c-d9eccd456470",
+  "stock_image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+  "started": "2026-11-20T18:08:07+08:00",
+  "prior_tFAW": "Previously verified 28 -> 29 -> 28; excluded from this new-field sweep",
+  "excluded": {
+    "tCL": "Read-only; watched at raw 22",
+    "tCCDL": "Firmware bits differ from controller at baseline",
+    "tCCDS": "Firmware bits differ from controller at baseline"
+  },
+  "trials": [
+    {
+      "field": "tRFC",
+      "original": 193,
+      "requested": 194,
+      "started": "2026-11-20T18:08:07+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c247",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d70ab2edda0000318c00000000",
+      "expected_image_sha256": "459973507e2f4c21848c943cac80ff13e58fb5051b9e768f307ef5f37b75d453",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c247",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "459973507e2f4c21848c943cac80ff13e58fb5051b9e768f307ef5f37b75d453",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d70ab2edda0000318c00000000",
+          "phase": "active"
+        }
+      },
+      "observed": 194,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 193,
+      "finished": "2026-11-20T18:08:15+08:00"
+    },
+    {
+      "field": "tRC",
+      "original": 71,
+      "requested": 72,
+      "started": "2026-11-20T18:08:57+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c148",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d72863b86a00002de400000000",
+      "expected_image_sha256": "0c555d182dd798fad00f3965afb8841903b41cebed0f6889a6cb11c42f2d47f0",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c148",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "0c555d182dd798fad00f3965afb8841903b41cebed0f6889a6cb11c42f2d47f0",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d72863b86a00002de400000000",
+          "phase": "active"
+        }
+      },
+      "observed": 72,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 71,
+      "finished": "2026-11-20T18:09:05+08:00"
+    },
+    {
+      "field": "tRAS",
+      "original": 44,
+      "requested": 45,
+      "started": "2026-11-20T18:09:06+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b5ac147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d72d590b0200003a8c00000000",
+      "expected_image_sha256": "8ad23f2d15199662f131ee397666a32611f86e1aeeb7fa66afba0b256f47f1e3",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b5ac147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "8ad23f2d15199662f131ee397666a32611f86e1aeeb7fa66afba0b256f47f1e3",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d72d590b0200003a8c00000000",
+          "phase": "active"
+        }
+      },
+      "observed": 45,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 44,
+      "finished": "2026-11-20T18:09:13+08:00"
+    },
+    {
+      "field": "tRP",
+      "original": 27,
+      "requested": 28,
+      "started": "2026-11-20T18:09:13+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1c58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d731e81c890000218400000000",
+      "expected_image_sha256": "f2039106d318040a63dd08be4e6e215ec87ad20625414ec17af98c5d5fa3bdb4",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1c58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "f2039106d318040a63dd08be4e6e215ec87ad20625414ec17af98c5d5fa3bdb4",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d731e81c890000218400000000",
+          "phase": "active"
+        }
+      },
+      "observed": 28,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 27,
+      "finished": "2026-11-20T18:09:21+08:00"
+    },
+    {
+      "field": "tRCDRD",
+      "original": 27,
+      "requested": 28,
+      "started": "2026-11-20T18:09:22+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x29670296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d736e107510000386c00000000",
+      "expected_image_sha256": "5fec40e64a410c761c2234fe2a0cd9831736f8e7f33f7157d5cbb5b1af4e03e4",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x29670296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "5fec40e64a410c761c2234fe2a0cd9831736f8e7f33f7157d5cbb5b1af4e03e4",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d736e107510000386c00000000",
+          "phase": "active"
+        }
+      },
+      "observed": 28,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 27,
+      "finished": "2026-11-20T18:09:29+08:00"
+    },
+    {
+      "field": "tRCDWR",
+      "original": 22,
+      "requested": 23,
+      "started": "2026-11-20T18:09:29+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2976c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d73b718dec00002ed800000000",
+      "expected_image_sha256": "25c9fab7ce69b54a06c7b5a2ca2b17aff7579dafd74a81c23b23e4f5e15a506d",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2976c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "25c9fab7ce69b54a06c7b5a2ca2b17aff7579dafd74a81c23b23e4f5e15a506d",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d73b718dec00002ed800000000",
+          "phase": "active"
+        }
+      },
+      "observed": 23,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 22,
+      "finished": "2026-11-20T18:09:36+08:00"
+    },
+    {
+      "field": "tWR",
+      "original": 28,
+      "requested": 29,
+      "started": "2026-11-20T18:09:37+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881d0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d7400650d10000385400000000",
+      "expected_image_sha256": "23b70569f64666cea11bad602115d46de02914a208f5d319e5e242a6f7d6accd",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881d0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "23b70569f64666cea11bad602115d46de02914a208f5d319e5e242a6f7d6accd",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d7400650d10000385400000000",
+          "phase": "active"
+        }
+      },
+      "observed": 29,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 28,
+      "finished": "2026-11-20T18:09:44+08:00"
+    },
+    {
+      "field": "CDLR",
+      "original": 9,
+      "requested": 10,
+      "started": "2026-11-20T18:09:45+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0a00",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d744a5caff00002ef800000000",
+      "expected_image_sha256": "ffb75db2541b248b13217ec728e3c9f60fd10827580fe53375003e2408cc13c6",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0a00",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "ffb75db2541b248b13217ec728e3c9f60fd10827580fe53375003e2408cc13c6",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d744a5caff00002ef800000000",
+          "phase": "active"
+        }
+      },
+      "observed": 10,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 9,
+      "finished": "2026-11-20T18:09:52+08:00"
+    },
+    {
+      "field": "W2R_BUS",
+      "original": 8,
+      "requested": 9,
+      "started": "2026-11-20T18:09:53+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x891c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d74996a9fc00002c9800000000",
+      "expected_image_sha256": "e33d44464acc2d5591e07f348fb89cc133bc2f7ee553ae6ad547bab2ad611cb1",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x891c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "e33d44464acc2d5591e07f348fb89cc133bc2f7ee553ae6ad547bab2ad611cb1",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d74996a9fc00002c9800000000",
+          "phase": "active"
+        }
+      },
+      "observed": 9,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 8,
+      "finished": "2026-11-20T18:10:00+08:00"
+    },
+    {
+      "field": "R2W_BUS",
+      "original": 8,
+      "requested": 9,
+      "started": "2026-11-20T18:10:01+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x981c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d74e29749d00003b8000000000",
+      "expected_image_sha256": "76b5bc58a48d858f1e3df72e968f7010e65069312ead08a314e94a6d51f53b32",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x981c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "76b5bc58a48d858f1e3df72e968f7010e65069312ead08a314e94a6d51f53b32",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d74e29749d00003b8000000000",
+          "phase": "active"
+        }
+      },
+      "observed": 9,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 8,
+      "finished": "2026-11-20T18:10:08+08:00"
+    },
+    {
+      "field": "PDEX",
+      "original": 10,
+      "requested": 11,
+      "started": "2026-11-20T18:10:09+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038ab",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d752e48ea90000342000000000",
+      "expected_image_sha256": "9e77066dc9339341a6a6a92437c84b1d15a14f2e98e26b5147b47fa8f0b7d34a",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038ab",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "9e77066dc9339341a6a6a92437c84b1d15a14f2e98e26b5147b47fa8f0b7d34a",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d752e48ea90000342000000000",
+          "phase": "active"
+        }
+      },
+      "observed": 11,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 10,
+      "finished": "2026-11-20T18:10:16+08:00"
+    },
+    {
+      "field": "PDEN2PDEX",
+      "original": 5,
+      "requested": 6,
+      "started": "2026-11-20T18:10:16+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038ca",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d7577a5aae0000282400000000",
+      "expected_image_sha256": "018f07bffc64488af8a62aa148bb13cc7a2df9184e104b053fde03562cc70b66",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038ca",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "018f07bffc64488af8a62aa148bb13cc7a2df9184e104b053fde03562cc70b66",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d7577a5aae0000282400000000",
+          "phase": "active"
+        }
+      },
+      "observed": 6,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 5,
+      "finished": "2026-11-20T18:10:23+08:00"
+    },
+    {
+      "field": "tRRD",
+      "original": 7,
+      "requested": 8,
+      "started": "2026-11-20T18:10:24+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5840032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d75c09f4a700000bb800000000",
+      "expected_image_sha256": "93a348c983883f2cccba3e37e0fe5c7e93879e48c016f000965f44b7a00e7a24",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5840032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "93a348c983883f2cccba3e37e0fe5c7e93879e48c016f000965f44b7a00e7a24",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d75c09f4a700000bb800000000",
+          "phase": "active"
+        }
+      },
+      "observed": 8,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 7,
+      "finished": "2026-11-20T18:10:31+08:00"
+    },
+    {
+      "field": "tREFI",
+      "original": 6,
+      "requested": 5,
+      "started": "2026-11-20T18:10:31+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd583802a",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d760909e010000038000000000",
+      "expected_image_sha256": "35c7035905da4df011dd105c97ee3fd54b0416d992b4e93a2def16247c60e672",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd583802a",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "35c7035905da4df011dd105c97ee3fd54b0416d992b4e93a2def16247c60e672",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d760909e010000038000000000",
+          "phase": "active"
+        }
+      },
+      "observed": 5,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 6,
+      "finished": "2026-11-20T18:10:39+08:00"
+    },
+    {
+      "field": "WRCRC",
+      "original": 13,
+      "requested": 14,
+      "started": "2026-11-20T18:10:39+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270e2"
+      },
+      "receipt_id": "01dd78d7653e5ede0000072000000000",
+      "expected_image_sha256": "cd219d1c022bfbc8430fb65bced036a5ff8148d354c10571e402a8658ef7e603",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270e2"
+        },
+        "image_sha256": "cd219d1c022bfbc8430fb65bced036a5ff8148d354c10571e402a8658ef7e603",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d7653e5ede0000072000000000",
+          "phase": "active"
+        }
+      },
+      "observed": 14,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 13,
+      "finished": "2026-11-20T18:10:47+08:00"
+    },
+    {
+      "field": "RPRE",
+      "original": 0,
+      "requested": 1,
+      "started": "2026-11-20T18:10:47+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0901",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d769ccb139000016f000000000",
+      "expected_image_sha256": "960c33b838d5286534a05e76e3e0b16b672aee166424572f5c860fc4fa6c6936",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0901",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "960c33b838d5286534a05e76e3e0b16b672aee166424572f5c860fc4fa6c6936",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d769ccb139000016f000000000",
+          "phase": "active"
+        }
+      },
+      "observed": 1,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 0,
+      "finished": "2026-11-20T18:10:54+08:00"
+    },
+    {
+      "field": "WPRE",
+      "original": 0,
+      "requested": 1,
+      "started": "2026-11-20T18:10:55+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0910",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d76e5de01d00001d7000000000",
+      "expected_image_sha256": "cffec8eb47592200112e50771c1449b56fddd3f6e0c140a49d1d15b84fb81c3c",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0910",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "cffec8eb47592200112e50771c1449b56fddd3f6e0c140a49d1d15b84fb81c3c",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d76e5de01d00001d7000000000",
+          "phase": "active"
+        }
+      },
+      "observed": 1,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 0,
+      "finished": "2026-11-20T18:11:02+08:00"
+    },
+    {
+      "field": "tWL",
+      "original": 5,
+      "requested": 6,
+      "started": "2026-11-20T18:11:02+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c316",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d772ea08150000028c00000000",
+      "expected_image_sha256": "0bf06e663a86a1e031622aaaf1476a2de7c988483bcbe2baef88ebd433b1a2cf",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c316",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "0bf06e663a86a1e031622aaaf1476a2de7c988483bcbe2baef88ebd433b1a2cf",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d772ea08150000028c00000000",
+          "phase": "active"
+        }
+      },
+      "observed": 6,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 5,
+      "finished": "2026-11-20T18:11:09+08:00"
+    },
+    {
+      "field": "AOND",
+      "original": 0,
+      "requested": 1,
+      "started": "2026-11-20T18:11:10+08:00",
+      "baseline": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "expected_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000238aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "receipt_id": "01dd78d777767906000024f800000000",
+      "expected_image_sha256": "53db926cf5d9f03fb28ca801152ae61e9c1a3c0690c1a21d746270845cb040ae",
+      "apply": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Selected clock image verified. Staged records are cleared for the next driver restart",
+        "phase": "active",
+        "operation": "apply"
+      },
+      "applied": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000238aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "53db926cf5d9f03fb28ca801152ae61e9c1a3c0690c1a21d746270845cb040ae",
+        "registry_count": 0,
+        "active_receipt": {
+          "id": "01dd78d777767906000024f800000000",
+          "phase": "active"
+        }
+      },
+      "observed": 1,
+      "applied_image_matches": true,
+      "other_controller_bits_match": true,
+      "result": "confirmed",
+      "remove": {
+        "ok": true,
+        "process_exit": 0,
+        "message": "Original clock image verified and staged registry records cleared",
+        "phase": "removed",
+        "operation": "remove"
+      },
+      "restored_sample": {
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "config_words": {
+          "0": "0x1b58c147",
+          "1": "0x2966c296",
+          "2": "0x881c0900",
+          "3": "0x000038aa",
+          "4": "0xd5838032",
+          "5": "0xa6b270d2"
+        },
+        "image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+        "registry_count": 0
+      },
+      "restored": true,
+      "restored_value": 0,
+      "finished": "2026-11-20T18:11:17+08:00"
+    }
+  ],
+  "last_verified": "2026-11-20T18:11:17+08:00",
+  "method": "One raw step in one field of the selected P0 timing row per trial. The native BIOS timing planner and Apply/Restore transaction ran against the selected GPU. A bounded stock CUDA copy on the 1050 Ti supplied P0 during sampling and exited before each selected-device restart. Each A1/B/A2 records all six controller words bracketed by P-state and memory-clock telemetry.",
+  "scope": "Controller programming and restoration on this board at this operating point. The sweep did not measure long-duration stability or benchmark performance.",
+  "verification": {
+    "trials_confirmed": 19,
+    "complete_A1_B_A2_captures": 57,
+    "pstate": 0,
+    "memory_mhz": 3504,
+    "tCL_raw_in_every_capture": 22,
+    "all_nonselected_bits_unchanged_at_B": true,
+    "restored_before_each_next_trial": true,
+    "original_effective_image_verified_after_each_trial": true,
+    "final_registry_count": 0,
+    "active_receipt_at_end": null,
+    "final_image_sha256": "be271765103cf2dca27b0c4dd7abb0b17d35e3308ebdd5a47f6e9df3bd105fef",
+    "final_config_words": {
+      "0": "0x1b58c147",
+      "1": "0x2966c296",
+      "2": "0x881c0900",
+      "3": "0x000038aa",
+      "4": "0xd5838032",
+      "5": "0xa6b270d2"
+    }
+  },
+  "fields": {
+    "AOND": {
+      "word": 3,
+      "shift": 17,
+      "width": 7
+    },
+    "CDLR": {
+      "word": 2,
+      "shift": 8,
+      "width": 7
+    },
+    "PDEN2PDEX": {
+      "word": 3,
+      "shift": 5,
+      "width": 4
+    },
+    "PDEX": {
+      "word": 3,
+      "shift": 0,
+      "width": 5
+    },
+    "R2W_BUS": {
+      "word": 2,
+      "shift": 28,
+      "width": 4
+    },
+    "RPRE": {
+      "word": 2,
+      "shift": 0,
+      "width": 4
+    },
+    "W2R_BUS": {
+      "word": 2,
+      "shift": 24,
+      "width": 4
+    },
+    "WPRE": {
+      "word": 2,
+      "shift": 4,
+      "width": 4
+    },
+    "WRCRC": {
+      "word": 5,
+      "shift": 4,
+      "width": 7
+    },
+    "tCCDL": {
+      "word": 3,
+      "shift": 24,
+      "width": 4
+    },
+    "tCCDS": {
+      "word": 3,
+      "shift": 28,
+      "width": 4
+    },
+    "tCL": {
+      "word": 1,
+      "shift": 0,
+      "width": 7
+    },
+    "tFAW": {
+      "word": 3,
+      "shift": 9,
+      "width": 8
+    },
+    "tRAS": {
+      "word": 0,
+      "shift": 17,
+      "width": 7
+    },
+    "tRC": {
+      "word": 0,
+      "shift": 0,
+      "width": 8
+    },
+    "tRCDRD": {
+      "word": 1,
+      "shift": 14,
+      "width": 6
+    },
+    "tRCDWR": {
+      "word": 1,
+      "shift": 20,
+      "width": 6
+    },
+    "tREFI": {
+      "word": 4,
+      "shift": 3,
+      "width": 12
+    },
+    "tRFC": {
+      "word": 0,
+      "shift": 8,
+      "width": 9
+    },
+    "tRP": {
+      "word": 0,
+      "shift": 24,
+      "width": 7
+    },
+    "tRRD": {
+      "word": 4,
+      "shift": 15,
+      "width": 6
+    },
+    "tWL": {
+      "word": 1,
+      "shift": 7,
+      "width": 7
+    },
+    "tWR": {
+      "word": 2,
+      "shift": 16,
+      "width": 7
+    }
+  },
+  "prior_clock_receipt": "An interrupted clock receipt was retired with Verify after fresh independent proof of the complete original running image and empty managed registry. No prior clock edits were replayed."
+}

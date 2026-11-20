@@ -1,0 +1,126 @@
+{
+  "board": "MSI GeForce GTX 1050 Ti",
+  "architecture": "Pascal GP107",
+  "driver_version": "581.80",
+  "after": {
+    "memory_mhz": 3504,
+    "pstate": 0
+  },
+  "before": {
+    "memory_mhz": 3504,
+    "pstate": 0
+  },
+  "closed_cleanly": true,
+  "config_presence": 63,
+  "config_words": {
+    "0": "0x1b58c147",
+    "1": "0x2966c296",
+    "2": "0x881c0900",
+    "3": "0x000038aa",
+    "4": "0xd5838032",
+    "5": "0xa6b270d2"
+  },
+  "fields": {
+    "AOND": {
+      "value": 0,
+      "writable": true
+    },
+    "CDLR": {
+      "value": 9,
+      "writable": true
+    },
+    "PDEN2PDEX": {
+      "value": 5,
+      "writable": true
+    },
+    "PDEX": {
+      "value": 10,
+      "writable": true
+    },
+    "R2W_BUS": {
+      "value": 8,
+      "writable": true
+    },
+    "RPRE": {
+      "value": 0,
+      "writable": true
+    },
+    "W2R_BUS": {
+      "value": 8,
+      "writable": true
+    },
+    "WPRE": {
+      "value": 0,
+      "writable": true
+    },
+    "WRCRC": {
+      "value": 13,
+      "writable": true
+    },
+    "tCL": {
+      "value": 22,
+      "writable": false
+    },
+    "tFAW": {
+      "value": 28,
+      "writable": true
+    },
+    "tRAS": {
+      "value": 44,
+      "writable": true
+    },
+    "tRC": {
+      "value": 71,
+      "writable": true
+    },
+    "tRCDRD": {
+      "value": 27,
+      "writable": true
+    },
+    "tRCDWR": {
+      "value": 22,
+      "writable": true
+    },
+    "tREFI": {
+      "value": 6,
+      "writable": true
+    },
+    "tRFC": {
+      "value": 193,
+      "writable": true
+    },
+    "tRP": {
+      "value": 27,
+      "writable": true
+    },
+    "tRRD": {
+      "value": 7,
+      "writable": true
+    },
+    "tWL": {
+      "value": 5,
+      "writable": true
+    },
+    "tWR": {
+      "value": 28,
+      "writable": true
+    }
+  },
+  "initial": {
+    "memory_mhz": 405,
+    "pstate": 8
+  },
+  "memory_band_mhz": [
+    3301,
+    3800
+  ],
+  "mode": "read-only P0 firmware timing inventory",
+  "ok": true,
+  "queried": true,
+  "readable_fields": 21,
+  "scope_note": "Showing the fields that match both the selected firmware row and the available P0 controller readings.",
+  "slot": "0000:01:00.0",
+  "workload_stopped": true,
+  "writable_fields": 20,
+  "write_validation": "Discovery only. A writable field matched the firmware and controller values at this operating point. No timing edit or driver restart was issued."
+}

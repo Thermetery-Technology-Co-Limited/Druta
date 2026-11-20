@@ -57,6 +57,10 @@ VOLTAGE_RAIL_VFE_SELECTORS = (13, 15, 17, 19, 33, 35)
 VOLTAGE_RAIL_POSSIBLE_VFE_BYTES = (21, 23)
 
 
+POWER_V30_SHORT_SHAPE = (0x30, 0x2C, 0x42)
+POWER_V30_SHORT_RUNTIME_TYPES = {1: 0, 4: 3, 5: 4, 8: 9, 10: 11}
+
+
 def power_runtime_type(version, kind):
     """Return only independently traced BIOS-to-runtime policy classes."""
     if version == 0x40:
@@ -357,14 +361,19 @@ class _Image:
         shapes = (
             ((0x40, 0x38, 0x66), (0x40, 0x3D, 0x66))
             if self.objects
-            else ((0x30, 0x32, 0x53), (0x30, 0x34, 0x5B), (0x30, 0x2C, 0x4B), (0x30, 0x2C, 0x47))
+            else ((0x30, 0x32, 0x53), (0x30, 0x34, 0x5B), (0x30, 0x2C, 0x4B),
+                  (0x30, 0x2C, 0x47), POWER_V30_SHORT_SHAPE)
         )
         t = self.table("power", "P", 0x2C, shapes, 0x13)
         modern = t["version"] == 0x40
+        short_v30 = (t["version"], t["header_size"], t["stride"]) == POWER_V30_SHORT_SHAPE
+        short_targets = set()
         for i in range(t["count"]):
             row = t["offset"] + t["header_size"] + i * t["stride"]
-            kind = self.b[row] if modern else (self.b[row] & 15) | ((self.b[row + 0x42] & 15) << 4)
-            inspection_only = not modern and t["stride"] == 0x47 and kind != 1
+            kind = self.b[row] if modern else self.b[row] & 15
+            if not modern and not short_v30:
+                kind |= (self.b[row + 0x42] & 15) << 4
+            inspection_only = short_v30 or (t["stride"] == 0x47 and kind != 1)
             if not kind:
                 continue
             # The common flags word has limit units in bit 0; other bits
@@ -375,6 +384,10 @@ class _Image:
             base = row + (13 if modern else 2)
             values = [self.u("I", base + k * 4) for k in range(3)]
             valid = discriminator in (0, 1) and kind in (1, 2, 3, 6, 7, 9, 11, 12, 13) and values == sorted(values)
+            runtime_type = (POWER_V30_SHORT_RUNTIME_TYPES.get(kind) if short_v30
+                            else power_runtime_type(t["version"], kind))
+            if short_v30 and runtime_type is not None and values == sorted(values):
+                short_targets.add(i)
             reason = "" if valid else "unknown units, class, or inconsistent limits"
             if inspection_only:
                 reason = "short v30 power class is qualified for read-only inspection only"
@@ -389,11 +402,11 @@ class _Image:
                     "channel": self.b[row + (5 if modern else 1)],
                     "units": unit,
                     "table_version": t["version"],
-                    "runtime_type": power_runtime_type(t["version"], kind),
+                    "runtime_type": runtime_type,
                     "class_evidence": POWER_CLASS_EVIDENCE
                     if modern
                     else POWER_V30_CLASS_EVIDENCE
-                    if kind == 1
+                    if not short_v30 and kind == 1
                     else None,
                     "required": "compare PCI-paired runtime policy index, class translation, channel, units and all three limits",
                 },
@@ -466,10 +479,10 @@ class _Image:
                     },
                 )
 
-        if modern:
+        if modern or short_v30:
             try:
-                stride, count = self.span(t["offset"] + 4, 2)
-                if stride != 18:
+                stride, count = self.span(t["offset"] + (4 if modern else 8), 2)
+                if stride != (18 if modern else 14):
                     raise FormatError("unknown relationship geometry")
                 base = t["offset"] + t["size"]
                 self.own(t["offset"], t["size"] + stride * count, 0x13)
@@ -477,7 +490,7 @@ class _Image:
                 for index in range(min(count, 32)):
                     at = base + index * stride
                     kind, target = self.b[at] & 15, self.b[at + 1]
-                    if kind != 1 or target >= t["count"]:
+                    if kind != 1 or target >= t["count"] or (short_v30 and target not in short_targets):
                         continue
                     self.field(
                         f"power_relationship.{index}.weight", f"Relationship {index} to policy {target} weight",

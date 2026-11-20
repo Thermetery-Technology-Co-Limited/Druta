@@ -1,0 +1,455 @@
+// Druta - a monitor and tuner for NVIDIA GPUs.
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// The C ABI of drutacore/client_power_controller.h.
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <exception>
+#include <string>
+
+#include "backend/client_power_controller.h"
+#include "core/abi_arbitration.h"
+#include "core/abi_internal.h"
+#include "core/mutex.h"
+
+namespace {
+
+void put_error(const druta::backend::RmError& why, dc_error* out) {
+    if (!out) return;
+    dc_error e{};
+    e.size = sizeof(dc_error);
+    e.kind = static_cast<int32_t>(why.kind);
+    e.fixed = why.fixed ? 1 : 0;
+    e.has_ntstatus = why.ntstatus ? 1 : 0;
+    e.ntstatus = why.ntstatus ? static_cast<int32_t>(*why.ntstatus) : 0;
+    e.rm_status = why.rm_status;
+    DC_COPY(e.message, why.message);
+    *out = e;
+}
+
+// The C++ exception that reached an entry point (only allocation can throw: the NATIVE_STATUS
+// exchange alone needs a 397 KB packet). A transient failure: nothing about the target is known.
+void put_exception(const char* what, dc_error* out) {
+    druta::backend::RmError e;
+    e.kind = druta::backend::RmErrorKind::transient;
+    e.message = std::string("Client-power controller failed: ") + what;
+    put_error(e, out);
+}
+
+constexpr bool same_text(const char* a, const char* b) {
+    for (; *a && *a == *b; ++a, ++b) {
+    }
+    return *a == *b;
+}
+static_assert(same_text(druta::backend::kCpStopCommand, DC_CPC_STOP_COMMAND) &&
+                  same_text(druta::backend::kCpStopPayload, DC_CPC_STOP_PAYLOAD) &&
+                  same_text(druta::backend::kCpStopDispatch, DC_CPC_STOP_DISPATCH),
+              "the caller-stop messages of drutacore/client_power_controller.h");
+
+// No exception crosses the C boundary (as abi_vfplan.cpp's guarded): with an error out, the failure
+// is reported there as transient.
+template <typename F>
+dc_status guarded(dc_error* error, F&& body) {
+    try {
+        return body();
+    } catch (const std::exception& e) {
+        try {
+            put_exception(e.what(), error);
+        } catch (...) {
+        }
+    } catch (...) {
+        try {
+            put_exception("unknown exception", error);
+        } catch (...) {
+        }
+    }
+    return DC_E_FAILED;
+}
+
+// dc_cpc_metadata from read_metadata()'s value. The caller has zeroed *out (absent keys and
+// padding are zero) and checked the payload sizes.
+void put_metadata(const druta::backend::CpMetadata& m, dc_cpc_metadata* out) {
+    out->size = sizeof(dc_cpc_metadata);
+    out->schema = 1;
+    out->stable_reads = 2;
+    DC_COPY(out->slot, m.identity.slot);
+    out->architecture = m.identity.architecture;
+    out->device_id = m.identity.device_id;
+    out->subsystem_id = m.identity.subsystem_id;
+    out->client_index = m.client_index;
+    out->native_index = m.native_index;
+    out->semantic_role = druta::backend::kCpRole;
+    out->client = druta::backend::kCpClient;
+    DC_COPY(out->units, std::string("mW"));
+    out->minimum_mw = m.minimum_mw;
+    out->rated_mw = m.rated_mw;
+    out->maximum_mw = m.maximum_mw;
+    out->layout = static_cast<int32_t>(m.layout);
+    out->native_layout = static_cast<int32_t>(m.native_layout);
+    out->has_native_info_stride = m.native_info_stride ? 1 : 0;
+    out->native_info_stride = m.native_info_stride ? *m.native_info_stride : 0;
+    out->info_size = static_cast<uint32_t>(m.info.size());
+    out->role_info_size = static_cast<uint32_t>(m.role_info.size());
+    out->native_info_size = static_cast<uint32_t>(m.native_info.size());
+    if (!m.info.empty()) std::memcpy(out->info, m.info.data(), m.info.size());
+    if (!m.role_info.empty()) std::memcpy(out->role_info, m.role_info.data(), m.role_info.size());
+    if (!m.native_info.empty()) std::memcpy(out->native_info, m.native_info.data(), m.native_info.size());
+}
+
+bool metadata_fits(const druta::backend::CpMetadata& m) {
+    return m.info.size() <= DC_CPC_INFO_MAX && m.role_info.size() <= DC_CPC_ROLE_INFO_MAX &&
+           m.native_info.size() <= DC_CPC_NATIVE_INFO_MAX;
+}
+
+// The caller-set sizes of a dc_cpc_observation (dc_cpc_read's DC_E_ARGUMENT checks).
+bool observation_sized(const dc_cpc_observation* out) {
+    return out && out->size == sizeof(dc_cpc_observation) && out->metadata.size == sizeof(dc_cpc_metadata) &&
+           out->arbitration.size == sizeof(dc_arbitration_report);
+}
+
+bool reading_fits(const druta::backend::CpReading& reading) {
+    const druta::backend::CpObservation& o = reading.observation;
+    return metadata_fits(o.metadata) && o.control.size() <= DC_CPC_CONTROL_MAX &&
+           o.native_control.size() <= DC_CPC_NATIVE_CONTROL_MAX;
+}
+
+// dc_cpc_observation from read()'s value; the caller checked reading_fits.
+void put_reading(const druta::backend::CpReading& reading, dc_cpc_observation* out) {
+    const druta::backend::CpObservation& o = reading.observation;
+    // Filled in place: the struct is about 85 KB.
+    std::memset(out, 0, sizeof(dc_cpc_observation));
+    out->size = sizeof(dc_cpc_observation);
+    put_metadata(o.metadata, &out->metadata);
+    out->requested_mw = o.requested_mw;
+    out->control_size = static_cast<uint32_t>(o.control.size());
+    out->native_control_size = static_cast<uint32_t>(o.native_control.size());
+    if (!o.control.empty()) std::memcpy(out->control, o.control.data(), o.control.size());
+    if (!o.native_control.empty()) std::memcpy(out->native_control, o.native_control.data(), o.native_control.size());
+    out->arbitration.size = sizeof(dc_arbitration_report);
+    if (reading.arbitration) {
+        out->has_arbitration = 1;
+        druta::abi::arbitration::put_report(*reading.arbitration, &out->arbitration);
+    }
+    if (reading.arbitration_error) {
+        out->has_arbitration_error = 1;
+        DC_COPY(out->arbitration_error, *reading.arbitration_error);
+    }
+}
+
+// ---- increment A7 ------------------------------------------------------------------------------ //
+
+static_assert(static_cast<int32_t>(druta::backend::RmErrorKind::readback) == DC_ERR_READBACK,
+              "ClientPowerError \"readback\" is DC_ERR_READBACK of drutacore.h");
+static_assert(same_text(druta::backend::kCpInvalidRequest, DC_CPC_INVALID_REQUEST),
+              "the invalid-request message of drutacore/client_power_controller.h");
+
+bool rollback_sized(const dc_cpc_rollback* r) { return r->size == sizeof(dc_cpc_rollback) && observation_sized(&r->readback); }
+
+bool set_result_sized(const dc_cpc_set_result* out) {
+    return out && out->size == sizeof(dc_cpc_set_result) && observation_sized(&out->before) &&
+           observation_sized(&out->after) && rollback_sized(&out->rollback);
+}
+
+// A zeroed observation with its caller-set sizes (put_reading's state before a value).
+void clear_observation(dc_cpc_observation* o) {
+    std::memset(o, 0, sizeof(dc_cpc_observation));
+    o->size = sizeof(dc_cpc_observation);
+    o->metadata.size = sizeof(dc_cpc_metadata);
+    o->arbitration.size = sizeof(dc_arbitration_report);
+}
+
+// dc_cpc_set_result with nothing in it (every size kept, has_rollback 0, error_length 0, the texts
+// empty), so no outcome of a call can present what a previous call left in the caller's struct.
+void clear_set_result(dc_cpc_set_result* out) {
+    clear_observation(&out->before);
+    clear_observation(&out->after);
+    dc_cpc_rollback* rb = &out->rollback;
+    clear_observation(&rb->readback);
+    rb->attempted = rb->verified = rb->has_error = rb->has_readback = 0;
+    rb->error_length = 0;
+    std::memset(rb->error, 0, sizeof(rb->error));
+    out->has_rollback = 0;
+}
+
+}  // namespace
+
+namespace druta::abi {
+
+// GPU._write_policy_limit on this handle: the controller holds no CurrentLimits. It runs under the
+// handle lock dc_cpc_set_request holds; CurrentLimits takes no lock of its own (and druta::Mutex is
+// re-entrant on the holding thread, so a nested LockGuard there would not deadlock either). Its
+// caller_failed cannot be set (write_policy_limit takes no callback); its message is not kept as
+// dc_cl_policy_message_get's, as Python's _rollback keeps only its own text.
+druta::backend::CpPeerWrite write_peer(void* context, std::uint32_t policy, std::uint32_t value) {
+    const druta::backend::PolicyWriteResult r = static_cast<dc_gpu*>(context)->cl.write_policy_limit(policy, value);
+    druta::backend::CpPeerWrite w;
+    w.in_bounds = r.in_bounds;
+    w.ok = r.ok;
+    w.message = r.message;
+    return w;
+}
+
+}  // namespace druta::abi
+
+extern "C" {
+
+DC_API dc_status DC_CALL dc_cpc_transport(dc_gpu* handle, struct dc_rm_transport* out, dc_error* error) {
+    if (!handle || !out || out->size != sizeof(dc_rm_transport) || (error && error->size != sizeof(dc_error)))
+        return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::backend::CpTransportResult r = handle->cp.transport();
+        if (!r.transport) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        dc_rm_transport t{};
+        t.size = sizeof(dc_rm_transport);
+        t.captured = 1;
+        t.header_count = r.transport->header_count;
+        for (std::size_t i = 0; i < 17; ++i) t.header[i] = r.transport->header[i];
+        const druta::backend::EscapeFields& f = r.transport->fields;
+        t.fields = dc_escape_fields{f.hAdapter, f.hDevice, f.Type, f.Flags, f.hContext};
+        *out = t;
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_exchange(dc_gpu* handle, uint32_t command, const uint8_t* payload, uint32_t size,
+                                         int32_t write, uint32_t flags, dc_cpc_dispatch_fn before_dispatch,
+                                         void* context, uint8_t* out, uint32_t capacity, int32_t* dispatched,
+                                         dc_error* error) {
+    if (dispatched) *dispatched = 0;
+    if (!handle || (!payload && size) || (!out && capacity) || !dispatched ||
+        (flags & ~uint32_t{DC_CPC_COMMAND_NOT_STORABLE | DC_CPC_PAYLOAD_NOT_STORABLE | DC_CPC_CALLER_ECHO}) ||
+        (error && error->size != sizeof(dc_error)))
+        return DC_E_ARGUMENT;
+    bool sent = false;
+    const dc_status status = guarded(error, [&]() -> dc_status {
+        druta::backend::CpCaller caller;
+        caller.command_not_storable = (flags & DC_CPC_COMMAND_NOT_STORABLE) != 0;
+        caller.payload_not_storable = (flags & DC_CPC_PAYLOAD_NOT_STORABLE) != 0;
+        caller.caller_echo = (flags & DC_CPC_CALLER_ECHO) != 0;
+        caller.before_dispatch = before_dispatch;
+        caller.context = context;
+        druta::LockGuard guard(handle->gpu.lock());
+        druta::backend::CpExchangeResult r =
+            handle->cp.exchange(command, payload, size, write != 0, capacity, caller, sent);
+        if (r.too_small) return DC_E_BUFFER;  // before any binding or dispatch
+        if (!r.response) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        // Never reached with a response larger than capacity: exchange refuses that before it binds.
+        if (!r.response->empty()) std::memcpy(out, r.response->data(), r.response->size());
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+    *dispatched = sent ? 1 : 0;
+    return status;
+}
+
+DC_API dc_status DC_CALL dc_cpc_read_metadata(dc_gpu* handle, dc_cpc_metadata* out, dc_error* error) {
+    if (!handle || !out || out->size != sizeof(dc_cpc_metadata) || (error && error->size != sizeof(dc_error)))
+        return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // read_metadata: `with self.gpu._lock`
+        druta::backend::CpRead<druta::backend::CpMetadata> r = handle->cp.read_metadata();
+        if (!r.value) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        const druta::backend::CpMetadata& m = *r.value;
+        if (!metadata_fits(m))
+            return DC_E_BUFFER;  // unreachable: DC_CPC_*_MAX are SIZES' packets, every group's largest
+        // Filled in place: the struct is about 23 KB.
+        std::memset(out, 0, sizeof(dc_cpc_metadata));
+        put_metadata(m, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_read(dc_gpu* handle, dc_cpc_observation* out, dc_error* error) {
+    if (!handle || !observation_sized(out) || (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // read: `with self.gpu._lock`
+        druta::backend::CpRead<druta::backend::CpReading> r = handle->cp.read();
+        if (!r.value) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        if (!reading_fits(*r.value)) return DC_E_BUFFER;  // unreachable, as dc_cpc_read_metadata's
+        put_reading(*r.value, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_live_read(dc_gpu* handle, dc_cpc_observation* out, dc_error* error) {
+    if (!handle || !observation_sized(out) || (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // GPU.read_live_power_request runs under the GPU lock
+        handle->capabilities();  // GPU.static: read once per handle, the store the back-fill writes
+        druta::backend::CpRead<druta::backend::CpReading> r = handle->cp.live_read(*handle->statics);
+        if (!r.value) {
+            put_error(r.error, error);
+            return DC_E_FAILED;
+        }
+        if (!reading_fits(*r.value)) return DC_E_BUFFER;  // unreachable, as dc_cpc_read's
+        put_reading(*r.value, out);
+        put_error(druta::backend::RmError{}, error);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_live_state_get(dc_gpu* handle, dc_cpc_live_state* out) {
+    if (!handle || !out || out->size != sizeof(dc_cpc_live_state) || !observation_sized(&out->last))
+        return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::CpLivePower& live = handle->cp.live();
+        if (live.last && !reading_fits(*live.last)) return DC_E_BUFFER;  // unreachable
+        // Filled in place: the struct is about 86 KB.
+        std::memset(out, 0, sizeof(dc_cpc_live_state));
+        out->size = sizeof(dc_cpc_live_state);
+        out->last.size = sizeof(dc_cpc_observation);
+        out->last.metadata.size = sizeof(dc_cpc_metadata);
+        out->last.arbitration.size = sizeof(dc_arbitration_report);
+        if (live.last) {
+            out->has_last = 1;
+            put_reading(*live.last, &out->last);
+        }
+        if (live.error) {
+            out->has_error = 1;
+            out->error_kind = static_cast<int32_t>(live.error_kind ? *live.error_kind
+                                                                   : druta::backend::RmErrorKind::transient);
+            DC_COPY(out->error, *live.error);
+        }
+        out->board_policy = live.board_policy ? static_cast<int32_t>(*live.board_policy) : -1;
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_board_policy_set(dc_gpu* handle, int32_t policy) {
+    if (!handle || policy < -1) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        handle->cp.set_board_policy(policy == -1 ? std::nullopt
+                                                 : std::optional<std::uint32_t>(static_cast<std::uint32_t>(policy)));
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_set_request(dc_gpu* handle, int64_t mw, dc_cpc_set_result* out, dc_error* error) {
+    if (!handle || !set_result_sized(out) || (error && error->size != sizeof(dc_error))) return DC_E_ARGUMENT;
+    // Cleared before anything runs (the struct is about 256 KB, filled in place): a refusal, a
+    // DC_E_BUFFER or an allocation failure the guard reports (DC_E_FAILED, transient) never shows a
+    // previous call's readings or rollback.
+    clear_set_result(out);
+    return guarded(error, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());  // set_request: `with self.gpu._lock`, the peer writes included
+        const druta::backend::CpPeerWriter peer{druta::abi::write_peer, handle};
+        druta::backend::CpSetResult r = handle->cp.set_request(mw, peer);
+        const bool success = r.before && r.after;
+        if (success ? !reading_fits(*r.before) || !reading_fits(*r.after)
+                    : r.rollback && r.rollback->readback && !reading_fits(*r.rollback->readback))
+            return DC_E_BUFFER;  // unreachable, as dc_cpc_read's
+        dc_cpc_rollback* rb = &out->rollback;
+        if (success) {
+            put_reading(*r.before, &out->before);
+            put_reading(*r.after, &out->after);
+            put_error(druta::backend::RmError{}, error);
+            return DC_OK;
+        }
+        if (r.rollback) {
+            out->has_rollback = 1;
+            rb->attempted = r.rollback->attempted ? 1 : 0;
+            rb->verified = r.rollback->verified ? 1 : 0;
+            if (r.rollback->error) {
+                rb->has_error = 1;
+                rb->error_length = static_cast<uint32_t>(std::min<std::size_t>(r.rollback->error->size(), UINT32_MAX));
+                DC_COPY(rb->error, *r.rollback->error);
+            }
+            if (r.rollback->readback) {
+                rb->has_readback = 1;
+                put_reading(*r.rollback->readback, &rb->readback);
+            }
+        }
+        put_error(r.error, error);
+        return DC_E_FAILED;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_rollback_error_get(dc_gpu* handle, char* out, size_t capacity, size_t* needed) {
+    if (!handle || !needed || (!out && capacity)) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const std::string& text = handle->cp.last_rollback_error();
+        *needed = text.size() + 1;
+        if (capacity < text.size() + 1) return DC_E_BUFFER;
+        if (!text.empty()) std::memcpy(out, text.data(), text.size());
+        out[text.size()] = '\0';
+        return DC_OK;
+    });
+}
+
+// The test seam (TargetBinding::arm_test_lookup); nothing but the parity tests calls it.
+DC_API dc_status DC_CALL dc_hook_test_cpc_binding(dc_gpu* handle, uint32_t nth, int32_t mode) {
+    using Lookup = druta::backend::TargetBinding::TestLookup;
+    if (!handle || mode < DC_CPC_TEST_LOOKUP_NONE || mode > DC_CPC_TEST_LOOKUP_CHANGED) return DC_E_ARGUMENT;
+    const Lookup lookup = mode == DC_CPC_TEST_LOOKUP_FAIL      ? Lookup::fail
+                          : mode == DC_CPC_TEST_LOOKUP_CHANGED ? Lookup::changed
+                                                               : Lookup::none;
+    druta::LockGuard guard(handle->gpu.lock());
+    handle->cp.arm_test_lookup(nth, lookup);
+    return DC_OK;
+}
+
+DC_API dc_status DC_CALL dc_cpc_reset_transport(dc_gpu* handle) {
+    if (!handle) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        handle->cp.reset_transport();
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_reset(dc_gpu* handle) {
+    if (!handle) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        handle->cp.reset();
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_cpc_state_get(dc_gpu* handle, dc_cpc_state* out) {
+    if (!handle || !out || out->size != sizeof(dc_cpc_state)) return DC_E_ARGUMENT;
+    return guarded(nullptr, [&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const druta::backend::CpControllerState& s = handle->cp.state();
+        dc_cpc_state o{};
+        o.size = sizeof(dc_cpc_state);
+        o.sizes = static_cast<int32_t>(s.sizes);
+        o.legacy = s.legacy ? 1 : 0;
+        o.native_policy124 = s.native_policy124 ? 1 : 0;
+        o.role_info216 = s.role_info216 ? 1 : 0;
+        o.rm26_records = s.rm26_records ? 1 : 0;
+        o.rm26 = s.rm26 ? 1 : 0;
+        o.rm26_extended = s.rm26_extended ? 1 : 0;
+        if (s.transport_key) {
+            o.has_transport_key = 1;
+            o.transport_key[0] = s.transport_key->command;
+            o.transport_key[1] = s.transport_key->packet_bytes;
+            o.transport_key[2] = s.transport_key->parameter_bytes;
+        }
+        *out = o;
+        return DC_OK;
+    });
+}
+
+}  // extern "C"

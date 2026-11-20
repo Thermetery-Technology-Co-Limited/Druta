@@ -1,0 +1,4149 @@
+# Druta - a monitor and tuner for NVIDIA GPUs.
+# Copyright (C) 2026 Thermetery Technology Co Limited
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The native core (drutacore) through its C ABI.
+
+The core is replacing the Python backend one feature at a time. Each feature
+exposed here keeps the signature and the error behaviour of the Python module
+it replaces, so the same tests run against both. Python-side type checks
+(bytes versus bytearray, bool versus int) stay here; the core validates the
+numbers and the packets.
+
+The library is found, in order, at ``DRUTA_NATIVE_LIB``, beside a frozen
+executable, or in a source checkout's ``native/build/linux`` tree. It is
+optional: :func:`available` says whether it loaded, and nothing in the
+application requires it yet.
+"""
+from __future__ import annotations
+
+import ctypes
+import math
+import os
+from pathlib import Path
+import sys
+import threading
+import weakref
+
+from . import rail_transport as _py_rail
+from .native_frontend import FrontendSurface
+
+ABI_VERSION = 2  # 2: dc_gpu_lock / dc_gpu_trylock / dc_gpu_unlock / dc_gpu_lock_held and DC_E_STATE
+
+DC_OK = 0
+DC_E_ARGUMENT = -1
+DC_E_BUFFER = -2
+DC_E_PARSE = -3
+DC_E_UNRECOGNIZED = -4
+DC_E_MASK = -5
+DC_E_RECORDS = -6
+DC_E_RANGE = -7
+DC_E_UNAVAILABLE = -8
+DC_E_FAILED = -9
+DC_E_CALLER = -10  # a caller-supplied callback reported a failure; abandoned before any write
+DC_E_STATE = -11  # not allowed in the current state: an unlock by a thread holding no level it took
+
+DC_ERR_NONE, DC_ERR_TRANSIENT, DC_ERR_INVALID, DC_ERR_UNSUPPORTED = 0, 1, 2, 3
+
+
+class NativeClosed(ValueError):
+    """A native.Gpu used after close(): its handle is invalidated (it is freed at the last reference).
+
+    Its text stays the one a closed Gpu gave before G4c, when it passed a NULL handle and the core
+    answered DC_E_ARGUMENT ("invalid argument"): callers and tests match it."""
+
+    def __init__(self, text="invalid argument"):
+        super().__init__(text)
+
+
+class NativeUnavailable(ImportError):
+    """The native core could not be loaded; the reason is the message."""
+
+
+class _RailLayout(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint32) for name in (
+        "packet_size", "params_size", "get_command", "set_command", "mask_word", "boost_word",
+        "record0", "record_stride", "record_type")] + [("valid_word", ctypes.c_int32)]
+
+
+class _RailRecord(ctypes.Structure):
+    _fields_ = [("rail", ctypes.c_uint32), ("values", ctypes.c_int32 * 4)]
+
+
+class _GpuEntry(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("slot", ctypes.c_char * 24), ("name", ctypes.c_char * 96),
+                ("uuid", ctypes.c_char * 96), ("has_devid", ctypes.c_int32), ("devid", ctypes.c_uint32),
+                ("subsys", ctypes.c_uint32), ("nvml_index", ctypes.c_int32), ("has_nvapi", ctypes.c_int32)]
+
+
+class _GpuIdentity(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("nvapi_ok", ctypes.c_int32), ("nvml_ok", ctypes.c_int32),
+                ("nvapi_error", ctypes.c_char * 512), ("nvml_error", ctypes.c_char * 1024),
+                ("nvml_path", ctypes.c_char * 512), ("pairing_error", ctypes.c_char * 512),
+                ("requested_slot", ctypes.c_char * 24), ("slot", ctypes.c_char * 24),
+                ("nvapi_selected", ctypes.c_int32), ("nvapi_slot", ctypes.c_char * 24),
+                ("nvapi_devid", ctypes.c_uint32), ("nvapi_subsys", ctypes.c_uint32),
+                ("nvml_selected", ctypes.c_int32), ("nvml_slot", ctypes.c_char * 24),
+                ("nvml_has_devid", ctypes.c_int32), ("nvml_devid", ctypes.c_uint32),
+                ("nvml_subsys", ctypes.c_uint32), ("nvml_index", ctypes.c_int32),
+                ("name", ctypes.c_char * 96), ("driver", ctypes.c_char * 96), ("vbios", ctypes.c_char * 96),
+                ("uuid", ctypes.c_char * 96), ("admin", ctypes.c_int32), ("nvapi_handle", ctypes.c_uint64)]
+
+
+class _Target(ctypes.Structure):  # dc_target
+    _fields_ = [("size", ctypes.c_uint32), ("slot", ctypes.c_char * 24), ("architecture", ctypes.c_uint32),
+                ("device_id", ctypes.c_uint32), ("subsystem_id", ctypes.c_uint32), ("handle", ctypes.c_uint64)]
+
+
+class _FanReading(ctypes.Structure):
+    _fields_ = [("has_duty", ctypes.c_int32), ("duty", ctypes.c_uint32), ("has_rpm", ctypes.c_int32),
+                ("rpm", ctypes.c_uint32)]
+
+
+class _TypedValue(ctypes.Structure):
+    _fields_ = [("present", ctypes.c_int32), ("type", ctypes.c_uint32), ("d", ctypes.c_double),
+                ("u", ctypes.c_uint64), ("s", ctypes.c_int64)]
+
+
+class _Telemetry(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint64),
+                ("core", ctypes.c_uint32), ("mem", ctypes.c_uint32), ("video", ctypes.c_uint32), ("xbar", ctypes.c_uint32),
+                ("core_off", ctypes.c_int32), ("mem_off", ctypes.c_int32),
+                ("priv_clocks", ctypes.c_uint32 * 288),
+                ("temp_edge", ctypes.c_int32), ("temp_hotspot", ctypes.c_double),
+                ("temp_sensor_count", ctypes.c_uint32), ("temp_sensors", ctypes.c_double * 32),
+                ("temp_delta", ctypes.c_double),
+                ("pl_requested_mw", ctypes.c_uint32), ("power_w", ctypes.c_double), ("pl_now_mw", ctypes.c_uint32),
+                ("pwr_gpu_pct", ctypes.c_double), ("pwr_board_pct", ctypes.c_double),
+                ("pl_target_pct", ctypes.c_double), ("vcore_mv", ctypes.c_double),
+                ("num_fans", ctypes.c_uint32), ("fan_count", ctypes.c_uint32), ("fans", _FanReading * 32),
+                ("util_gpu", ctypes.c_uint32), ("util_fb", ctypes.c_uint32), ("util_vid", ctypes.c_uint32),
+                ("util_bus", ctypes.c_uint32),
+                ("event_mask", ctypes.c_uint64), ("perf_decrease", ctypes.c_uint32),
+                ("pcie_gen", ctypes.c_uint32), ("pcie_width", ctypes.c_uint32), ("pcie_err", _TypedValue * 11),
+                ("pcie_err_total", ctypes.c_double), ("pcie_err_since", ctypes.c_double),
+                ("pstate", ctypes.c_uint32), ("vboost_pct", ctypes.c_int32),
+                ("core_p0max", ctypes.c_uint32), ("mem_p0max", ctypes.c_uint32), ("energy_j", ctypes.c_double),
+                ("vf_locked_count", ctypes.c_uint32), ("vf_locked_domains", ctypes.c_uint32 * 32),
+                ("vf_lock_mv", ctypes.c_double),
+                ("clk_lock_min_mhz", ctypes.c_uint32), ("clk_lock_max_mhz", ctypes.c_uint32),
+                ("pl_from_live", ctypes.c_int32)]
+
+
+_T_BITS = ["core", "mem", "video", "xbar", "core_off", "mem_off", "priv_clocks", "temp_edge", "temp_hotspot",
+           "temp_delta", "pl_requested_mw", "power_w", "pl_now_mw", "pwr_gpu_pct", "pwr_board_pct", "pl_target_pct",
+           "vcore_mv", "num_fans", "util_gpu", "util_fb", "util_vid", "util_bus", "event_mask", "perf_decrease",
+           "pcie_gen", "pcie_width", "pcie_err", "pstate", "vboost_pct", "core_p0max", "mem_p0max", "energy_j",
+           "vf_locked_domains", "vf_lock_mv", "clk_lock_mhz"]
+PCIE_ERR_NAMES = ["correctable", "naks_rx", "receiver", "bad_tlp", "naks_tx", "bad_dllp", "non_fatal", "fatal",
+                  "unsupp_req", "lcrc", "lane"]
+
+
+class _OffsetRange(ctypes.Structure):
+    _fields_ = [("present", ctypes.c_int32), ("low", ctypes.c_int32), ("high", ctypes.c_int32),
+                ("current", ctypes.c_int32)]
+
+
+class _Capabilities(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("present", ctypes.c_uint32),
+                ("pl_min_mw", ctypes.c_uint32), ("pl_max_mw", ctypes.c_uint32), ("pl_def_mw", ctypes.c_uint32),
+                ("mem_clock_count", ctypes.c_uint32), ("mem_clocks", ctypes.c_uint32 * 512),
+                ("gfx_min", ctypes.c_uint32), ("gfx_max", ctypes.c_uint32),
+                ("fan_min", ctypes.c_uint32), ("fan_max", ctypes.c_uint32),
+                ("mem_type_id", ctypes.c_uint32), ("mem_type", ctypes.c_char * 32), ("mem_div", ctypes.c_uint32),
+                ("core_off_range", _OffsetRange), ("mem_off_range", _OffsetRange)]
+
+
+_C_BITS = ["pl_min_mw", "pl_max_mw", "pl_def_mw", "gfx_min", "gfx_max", "fan_min", "fan_max", "mem_type_id", "mem_div"]
+
+
+class _FanRow(ctypes.Structure):
+    _fields_ = [("id", ctypes.c_uint32), ("level", ctypes.c_uint32), ("policy", ctypes.c_uint32),
+                ("default_policy", ctypes.c_uint32), ("manual", ctypes.c_int32), ("min", ctypes.c_uint32),
+                ("max", ctypes.c_uint32), ("has_rpm", ctypes.c_int32), ("rpm", ctypes.c_uint32)]
+
+
+class _FanState(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("source", ctypes.c_char * 16), ("count", ctypes.c_uint32),
+                ("fans", _FanRow * 32)]
+
+
+class _FanCapabilities(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("manual", ctypes.c_int32), ("automatic", ctypes.c_int32),
+                ("source", ctypes.c_char * 16), ("min", ctypes.c_uint32), ("max", ctypes.c_uint32)]
+
+
+class _Outcome(ctypes.Structure):
+    _fields_ = [("ok", ctypes.c_int32), ("message", ctypes.c_char * 4096)]
+
+
+class _FanSnapshotRow(ctypes.Structure):
+    _fields_ = [("has_manual", ctypes.c_int32), ("manual", ctypes.c_int32), ("has_id", ctypes.c_int32),
+                ("id", ctypes.c_uint32), ("level_valid", ctypes.c_int32), ("level", ctypes.c_int32),
+                ("has_policy", ctypes.c_int32), ("policy", ctypes.c_uint32)]
+
+
+class _FanSnapshot(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("is_mapping", ctypes.c_int32), ("source", ctypes.c_char * 16),
+                ("count", ctypes.c_uint32), ("fans", _FanSnapshotRow * 32)]
+
+
+class _VfPointLock(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("lock_mode", ctypes.c_uint32), ("volt_uv", ctypes.c_uint32),
+                ("count", ctypes.c_uint32)]
+
+
+class _VfLockStatus(ctypes.Structure):
+    _fields_ = [("locked", ctypes.c_int32), ("lock", _VfPointLock), ("error", ctypes.c_char * 256)]
+
+
+class _ClkLockStatus(ctypes.Structure):
+    _fields_ = [("locked", ctypes.c_int32), ("min_mhz", ctypes.c_uint32), ("max_mhz", ctypes.c_uint32),
+                ("error", ctypes.c_char * 256)]
+
+
+VFP_POINTS = 128
+
+
+class _VfLayout(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("n_entries", ctypes.c_uint32), ("gpu_count", ctypes.c_uint32),
+                ("gpu_idx", ctypes.c_uint32 * VFP_POINTS), ("other_count", ctypes.c_uint32),
+                ("other_idx", ctypes.c_uint32 * VFP_POINTS), ("freq_div", ctypes.c_uint32),
+                ("notes", ctypes.c_char * 256), ("error", ctypes.c_char * 256)]
+
+
+class _VfPoint(ctypes.Structure):
+    _fields_ = [("idx", ctypes.c_uint32), ("volt_mv", ctypes.c_double), ("freq_mhz", ctypes.c_double),
+                ("delta_khz", ctypes.c_int32)]
+
+
+class _VfCurve(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("points", _VfPoint * VFP_POINTS),
+                ("error", ctypes.c_char * 256)]
+
+
+class _VfOtherRow(ctypes.Structure):
+    _fields_ = [("idx", ctypes.c_uint32), ("volt_mv", ctypes.c_double), ("value", ctypes.c_double),
+                ("memory", ctypes.c_int32)]
+
+
+class _VfOtherRows(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("rows", _VfOtherRow * VFP_POINTS)]
+
+
+class _VfDelta(ctypes.Structure):
+    _fields_ = [("idx", ctypes.c_int64), ("delta_khz", ctypes.c_int64)]
+
+
+class _VfDeltaSnapshot(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("freq_div", ctypes.c_uint32), ("count", ctypes.c_uint32),
+                ("deltas", _VfDelta * VFP_POINTS)]
+
+
+class _MemOffsetScale(ctypes.Structure):
+    _fields_ = [("scale", ctypes.c_uint32), ("unit", ctypes.c_char * 16)]
+
+
+class _ClockRow(ctypes.Structure):
+    _fields_ = [("mem_mhz", ctypes.c_uint32), ("count", ctypes.c_uint32), ("graphics", ctypes.c_uint32 * 512)]
+
+
+class VfpLayout:
+    """nvbackend.VfpLayout's shape, filled from the core."""
+
+    __slots__ = ("n_entries", "gpu_idx", "other_idx", "freq_div", "notes")
+
+    def __init__(self, n_entries, gpu_idx, other_idx, freq_div, notes):
+        self.n_entries, self.gpu_idx, self.other_idx = n_entries, gpu_idx, other_idx
+        self.freq_div, self.notes = freq_div, notes
+
+    @property
+    def n_gpu(self):
+        return len(self.gpu_idx)
+
+
+# resolve(context, library, name) -> function pointer or NULL (the test seam)
+RESOLVER = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p)
+SLEEP_HOOK = ctypes.CFUNCTYPE(None, ctypes.c_uint32)
+CLOCK_HOOK = ctypes.CFUNCTYPE(ctypes.c_double)  # dc_clock_fn
+# dc_cl_confirm_fn: the read_live_power_request branch of _current_limit_state (DC_CALL is cdecl).
+CL_CONFIRM = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+                              ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32),
+                              ctypes.c_uint32)
+
+
+class _ClStatics(ctypes.Structure):  # dc_cl_statics (increment B2)
+    _fields_ = [("size", ctypes.c_uint32), ("pl_min_state", ctypes.c_int32), ("pl_def_state", ctypes.c_int32),
+                ("pl_max_state", ctypes.c_int32), ("pl_min_mw", ctypes.c_int64), ("pl_def_mw", ctypes.c_int64),
+                ("pl_max_mw", ctypes.c_int64)]
+
+
+class _PolicyRow(ctypes.Structure):  # dc_policy_row (increment B2)
+    _fields_ = [("size", ctypes.c_uint32), ("policy", ctypes.c_uint32), ("type", ctypes.c_uint32),
+                ("channel", ctypes.c_uint32), ("unit", ctypes.c_int32), ("minimum", ctypes.c_int64),
+                ("default_value", ctypes.c_int64), ("maximum", ctypes.c_int64), ("requested", ctypes.c_int64),
+                ("limit", ctypes.c_int64), ("value", ctypes.c_int64), ("has_pinned", ctypes.c_int32),
+                ("pinned", ctypes.c_int64), ("named_current", ctypes.c_int32), ("board", ctypes.c_int32),
+                ("maybe_board", ctypes.c_char * 96), ("consistent", ctypes.c_int32), ("in_range", ctypes.c_int32),
+                ("writable", ctypes.c_int32)]
+
+
+# dc_cl_policy_inputs_fn: read_power_limit_mw and the static keys, where read_power_policies reads them;
+# returns 0, or 1 when they raised (the core then abandons the call with DC_E_CALLER).
+CL_POLICY_INPUTS = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(_ClStatics))
+
+
+class _PolicyStep(ctypes.Structure):  # dc_policy_step (increment B4)
+    _fields_ = [("size", ctypes.c_uint32), ("ok", ctypes.c_int32), ("label_needed", ctypes.c_uint32),
+                ("message_needed", ctypes.c_uint32), ("label", ctypes.c_char * 128),
+                ("message", ctypes.c_char * 1024)]
+
+class _ClockDomainRow(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("name", ctypes.c_char * 24), ("grade", ctypes.c_char * 16),
+                ("kind", ctypes.c_char * 12), ("prog_khz", ctypes.c_uint32), ("meas_khz", ctypes.c_uint32),
+                ("flags", ctypes.c_uint32), ("srcid", ctypes.c_uint32), ("scale", ctypes.c_uint32),
+                ("has_prog_mhz", ctypes.c_int32), ("has_meas_mhz", ctypes.c_int32), ("has_delta_mhz", ctypes.c_int32),
+                ("prog_mhz", ctypes.c_double), ("meas_mhz", ctypes.c_double), ("delta_mhz", ctypes.c_double)]
+
+
+class _ClockDomains(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("rows", _ClockDomainRow * 32)]
+
+
+
+class _ClkDomLayout(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("name", ctypes.c_char * 16), ("version", ctypes.c_uint32),
+                ("block_size", ctypes.c_uint32), ("header", ctypes.c_uint32), ("stride", ctypes.c_uint32),
+                ("mask_dword", ctypes.c_uint32), ("mode", ctypes.c_uint32), ("freq_khz", ctypes.c_uint32),
+                ("has_nvvdd_uv", ctypes.c_int32), ("nvvdd_uv", ctypes.c_uint32), ("has_msvdd_uv", ctypes.c_int32),
+                ("msvdd_uv", ctypes.c_uint32)]
+
+
+class _ClkDomError(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("has_error", ctypes.c_int32), ("kind", ctypes.c_char * 32),
+                ("text", ctypes.c_char * 256)]
+
+
+class _ClkDomRequest(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("mode", ctypes.c_int32), ("freq_khz", ctypes.c_int32),
+                ("has_msvdd_uv", ctypes.c_int32), ("msvdd_uv", ctypes.c_int32)]
+
+
+class _ClkDomRequests(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("count", ctypes.c_uint32), ("rows", _ClkDomRequest * 32),
+                ("error", ctypes.c_char * 256)]
+
+
+class _ClkDomPair(ctypes.Structure):
+    _fields_ = [("control", ctypes.c_uint32), ("domain", ctypes.c_uint32)]
+
+
+class _ClkDomMeasurement(ctypes.Structure):
+    _fields_ = [("name", ctypes.c_char * 16), ("has_value", ctypes.c_int32), ("value_khz", ctypes.c_uint32)]
+
+
+class _ClkDomProbeError(ctypes.Structure):
+    _fields_ = [("domain", ctypes.c_uint32), ("text", ctypes.c_char * 64)]
+
+
+class _RailOffsetCapability(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32), ("available", ctypes.c_int32), ("has_domain", ctypes.c_int32),
+                ("domain", ctypes.c_int64), ("has_value", ctypes.c_int32), ("value_mv", ctypes.c_double),
+                ("experimental", ctypes.c_int32), ("reason", ctypes.c_char * 256)]
+
+
+
+class _CurrentRow(ctypes.Structure):  # dc_current_row
+    _fields_ = [("size", ctypes.c_uint32), ("policy", ctypes.c_uint32), ("label", ctypes.c_char * 64),
+                ("channel", ctypes.c_uint32), ("minimum_ma", ctypes.c_uint32), ("maximum_ma", ctypes.c_uint32),
+                ("normal_maximum_ma", ctypes.c_uint32), ("default_ma", ctypes.c_uint32), ("limit_ma", ctypes.c_uint32),
+                ("requested_ma", ctypes.c_uint32), ("value_ma", ctypes.c_uint32)]
+
+
+class _CurrentUnavailable(ctypes.Structure):  # dc_current_unavailable
+    _fields_ = [("size", ctypes.c_uint32), ("policy", ctypes.c_uint32), ("label", ctypes.c_char * 64),
+                ("present", ctypes.c_int32), ("unsupported", ctypes.c_int32), ("error", ctypes.c_char * 256)]
+
+
+class _Error(ctypes.Structure):  # dc_error
+    _fields_ = [("size", ctypes.c_uint32), ("kind", ctypes.c_int32), ("fixed", ctypes.c_int32),
+                ("has_ntstatus", ctypes.c_int32), ("ntstatus", ctypes.c_int32), ("rm_status", ctypes.c_uint32),
+                ("message", ctypes.c_char * 1024)]
+
+
+class _EscapeCapability(ctypes.Structure):
+    _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
+        "gdi32_loaded", "escape", "query_adapter_info", "close_adapter", "enum_adapters2", "enum_adapters",
+        "open_from_display_name", "open_from_hdc", "complete", "method")] + [
+        ("patch_bytes", ctypes.c_uint32), ("detail", ctypes.c_char * 256)]
+
+
+class _EscapeFields(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_uint32) for name in ("hAdapter", "hDevice", "Type", "Flags", "hContext")]
+
+
+class _RmTransport(ctypes.Structure):  # dc_rm_transport
+    _fields_ = [("size", ctypes.c_uint32), ("captured", ctypes.c_int32), ("header_count", ctypes.c_uint32),
+                ("header", ctypes.c_uint32 * 17), ("fields", _EscapeFields)]
+
+
+class _RmObserved(ctypes.Structure):  # dc_rm_observed
+    _fields_ = [("size", ctypes.c_uint32), ("seen", ctypes.c_int32), ("command_id", ctypes.c_uint32),
+                ("packet_bytes", ctypes.c_uint32), ("parameter_bytes", ctypes.c_uint32)]
+
+
+class _RailWriteRequest(ctypes.Structure):  # dc_rail_write_request
+    _fields_ = [("size", ctypes.c_uint32), ("control_version", ctypes.c_uint32), ("rail_mask", ctypes.c_uint32),
+                ("records", _RailRecord * 2), ("record_count", ctypes.c_uint32), ("boost", ctypes.c_uint32)]
+
+
+class _RailWriteResult(ctypes.Structure):  # dc_rail_write_result
+    _fields_ = [("size", ctypes.c_uint32), ("done", ctypes.c_int32), ("has_status", ctypes.c_int32),
+                ("status", ctypes.c_uint32), ("error", ctypes.c_char * 512), ("has_protocol", ctypes.c_int32),
+                ("get_command", ctypes.c_uint32), ("set_command", ctypes.c_uint32), ("packet_size", ctypes.c_uint32),
+                ("getter_version", ctypes.c_uint32), ("observed_count", ctypes.c_uint32),
+                ("observed", (ctypes.c_char * 256) * 8)]
+
+
+PRIV_CLK_WORDS = 288
+
+
+_SIGNATURES = {
+    "dc_set_export_resolver": (None, [RESOLVER, ctypes.c_void_p]),
+    "dc_enumerate_gpus": (ctypes.c_int32, [ctypes.POINTER(_GpuEntry), ctypes.c_size_t,
+                                           ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_open": (ctypes.c_int32, [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]),
+    "dc_gpu_close": (None, [ctypes.c_void_p]),
+    # the handle mutex (G4c): bound on the CDLL only, so ctypes releases the GIL while dc_gpu_lock blocks
+    "dc_gpu_lock": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_trylock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_unlock": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_lock_held": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_identity_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_GpuIdentity)]),
+    "dc_export_address": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_char_p,
+                                           ctypes.POINTER(ctypes.c_void_p)]),
+    "dc_gpu_nvml_device": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]),
+    "dc_gpu_status_line": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                            ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_architecture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_read_vcore_mv": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                              ctypes.POINTER(ctypes.c_double)]),
+    "dc_gpu_read_telemetry": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Telemetry)]),
+    "dc_gpu_capabilities_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Capabilities)]),
+    "dc_gpu_fan_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanState)]),
+    "dc_gpu_fan_manual_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_fan_capabilities_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanCapabilities)]),
+    "dc_gpu_fan_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_fan_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_fan_restore": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_FanSnapshot), ctypes.POINTER(_Outcome)]),
+    "dc_set_sleep_hook": (None, [SLEEP_HOOK]),
+    "dc_set_clock_hook": (None, [CLOCK_HOOK]),
+    "dc_gpu_voltage_boost_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_voltage_boost_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_status": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
+                                               ctypes.POINTER(_VfLockStatus)]),
+    "dc_gpu_clk_lock_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                             ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clk_lock_status": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkLockStatus)]),
+    "dc_gpu_vf_lock_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int32, ctypes.c_int64,
+                                            ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_recovery_pending": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_vf_lock_recover": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_clear": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64, ctypes.c_int32,
+                                              ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_lock_self_test": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_layout": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_VfLayout)]),
+    "dc_gpu_vf_curve_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfCurve)]),
+    "dc_gpu_vf_other_rows": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfOtherRows)]),
+    "dc_gpu_vf_deltas_apply": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDelta), ctypes.c_size_t,
+                                                ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_curve_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_rephase_deltas": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_vf_delta_snapshot": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_VfDeltaSnapshot)]),
+    "dc_gpu_mem_offset_scale": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_MemOffsetScale)]),
+    "dc_gpu_memory_offset_step_units": (ctypes.c_uint32, [ctypes.c_void_p]),
+    "dc_gpu_clock_step_khz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                               ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_max_rise_khz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_lockable_clocks": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClockRow), ctypes.c_size_t,
+                                                ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clock_offset_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_double, ctypes.c_int32,
+                                                 ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clocks_lock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clocks_last_lock": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                                 ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clocks_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clkdom_ok": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_clkdom_is_blackwell": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_clkdom_domains": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                               ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_layout": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomLayout)]),
+    "dc_gpu_clkdom_capability_error": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomError)]),
+    "dc_gpu_clkdom_probe_errors": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomProbeError),
+                                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_offset_read_pending": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_gpu_clkdom_controls_for_ui": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                                       ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_control_polarity": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64,
+                                                        ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_clkdom_control_label": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_char_p,
+                                                     ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_step_mhz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clkdom_delta_inert": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
+                                                   ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_clkdom_delta_clears_ceiling": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64,
+                                                            ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_clkdom_offset_slider_offered": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64]),
+    "dc_gpu_clkdom_pairing": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t,
+                                               ctypes.POINTER(_ClkDomPair), ctypes.c_size_t,
+                                               ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_measurements": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomMeasurement),
+                                                    ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_gpu_clkdom_requests": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomRequests)]),
+    "dc_gpu_clkdom_xbar_offset_mhz": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]),
+    "dc_gpu_clkdom_offset_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_double,
+                                                  ctypes.POINTER(_Outcome)]),
+    "dc_gpu_rail_offset_capability": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int32,
+                                                       ctypes.c_int64, ctypes.POINTER(_RailOffsetCapability)]),
+    "dc_gpu_rail_offset_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64,
+                                                 ctypes.POINTER(ctypes.c_double)]),
+    "dc_gpu_rail_offset_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_double, ctypes.c_int64, ctypes.c_int64,
+                                                ctypes.POINTER(_Outcome)]),
+    "dc_gpu_msvdd_offset_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.POINTER(_Outcome)]),
+    "dc_gpu_clkdom_flags_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]),
+    "dc_gpu_clkdom_flags_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                                 ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_retry_clock_capabilities": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_double,
+                                                         ctypes.POINTER(ctypes.c_int32)]),
+    "dc_gpu_refresh_capabilities": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClkDomError)]),
+    "dc_escape_capability_get": (ctypes.c_int32, [ctypes.POINTER(_EscapeCapability)]),
+    "dc_rm_escape_raw": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+                                          ctypes.POINTER(_EscapeFields), ctypes.POINTER(ctypes.c_int32),
+                                          ctypes.POINTER(_Error)]),
+    "dc_rm_transport_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_RmTransport)]),
+    "dc_rm_transport_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_RmTransport)]),
+    "dc_rm_transport_reset": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32]),
+    "dc_rm_observed_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmObserved)]),
+    "dc_rm_layout_choice_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                                 ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_rm_layout_choice_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_uint32]),
+    "dc_rm_capture": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_RmTransport)]),
+    "dc_rm_profile_supported": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_rm_power_transport": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmTransport),
+                                               ctypes.POINTER(_Error)]),
+    "dc_rm_power_layouts": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32,
+                                             ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_legacy_clk_records": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                               ctypes.POINTER(ctypes.c_int32)]),
+    "dc_rail_write_locked": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RailWriteRequest),
+                                              ctypes.POINTER(_RailWriteResult)]),
+    "dc_cl_max_words": (ctypes.c_uint32, []),
+    "dc_cl_capacity": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_abi": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                   ctypes.POINTER(_Error)]),
+    "dc_cl_probe_info": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                          ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_cl_rm": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                                  ctypes.c_int32, ctypes.c_uint32, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint32),
+                                  ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_cl_policy_table": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_cl_table_layout": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32)]),
+    "dc_cl_table_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(ctypes.c_uint32),
+                                         ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int32)]),
+    "dc_cl_table_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_cl_policy_mask_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_policy_mask_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
+    "dc_gpu_target_bind": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.POINTER(_Target),
+                                            ctypes.POINTER(_Error)]),
+    "dc_gpu_target_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_nvapi_interface_present": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
+    "dc_cl_state": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, ctypes.POINTER(_CurrentRow),
+                                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32),
+                                     ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int32),
+                                     ctypes.POINTER(_Error)]),
+    "dc_cl_unavailable": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_CurrentUnavailable), ctypes.c_uint32,
+                                           ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_get_current_limits": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p,
+                                                  ctypes.POINTER(_CurrentRow), ctypes.c_uint32,
+                                                  ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_last_rows": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_CurrentRow), ctypes.c_uint32,
+                                         ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_error_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t,
+                                         ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_established_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_established_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32]),
+    "dc_cl_set_current_limit_ma": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, ctypes.c_int64,
+                                                    ctypes.c_int64, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
+                                                    ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_pins_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int64),
+                                        ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_pins_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_int64),
+                                        ctypes.c_uint32]),
+    "dc_cl_policy_amount": (ctypes.c_int32, [ctypes.c_int64, ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t,
+                                             ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_policy_unwritable_reason": (ctypes.c_int32, [ctypes.POINTER(_PolicyRow), ctypes.c_char_p, ctypes.c_size_t,
+                                                        ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_policy_rows": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+                                           ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+                                           ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32, ctypes.c_uint32,
+                                           ctypes.POINTER(_ClStatics), ctypes.c_int32, ctypes.c_int64,
+                                           ctypes.POINTER(_PolicyRow), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_cl_power_policies_read": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
+                                                   ctypes.c_void_p, ctypes.POINTER(_PolicyRow), ctypes.c_uint32,
+                                                   ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_cl_write_policy_limit": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64,
+                                                  ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_set_power_policy": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
+                                                ctypes.c_void_p, ctypes.c_int64, ctypes.c_int32, ctypes.c_int64,
+                                                ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
+                                                ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_reapply_pins": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int64,
+                                            ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                            ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_cl_policy_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_size_t)]),
+    # the board power limit (increment A8)
+    "dc_pl_normal_bounds": (ctypes.c_int32, [ctypes.POINTER(_ClStatics), ctypes.POINTER(ctypes.c_int64),
+                                             ctypes.POINTER(ctypes.c_int64)]),
+    "dc_pl_request_bounds": (ctypes.c_int32, [ctypes.POINTER(_ClStatics), ctypes.c_int32, ctypes.c_int64,
+                                              ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ctypes.c_int64),
+                                              ctypes.POINTER(ctypes.c_int64)]),
+    "dc_pl_bounds": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int32,
+                                      ctypes.POINTER(ctypes.c_int64), ctypes.POINTER(ctypes.c_int64),
+                                      ctypes.POINTER(_Error)]),
+    "dc_pl_read_nvml": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int32),
+                                         ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_pl_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_Error)]),
+    "dc_pl_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64, ctypes.c_int32,
+                                   ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                   ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                           ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_set_nvml": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64,
+                                        ctypes.POINTER(_Outcome), ctypes.POINTER(ctypes.c_int32),
+                                        ctypes.POINTER(ctypes.c_uint32)]),
+    # increment B4: stock_power_policy, max_all_power_policies, read_native_power_limit_mw
+    "dc_pl_stock_power_policy": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int64,
+                                                  ctypes.c_int32, ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p, ctypes.c_size_t,
+                                                  ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_max_all": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics), ctypes.c_int32,
+                                       ctypes.POINTER(_PolicyStep), ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_pl_step_text_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32, ctypes.c_char_p,
+                                             ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_pl_native_power_limit": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_ClStatics),
+                                                  ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_uint32),
+                                                  ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_hook_test_entry": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_hook_test_state": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_int32), ctypes.POINTER(ctypes.c_int32),
+                                            ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_hook_test_fail_protect": (None, [ctypes.c_int32]),
+    "dc_hook_thunk": (ctypes.c_int32, [ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32,
+                                       ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_gpu_clock_domains": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_int32,
+                                              ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32,
+                                              ctypes.POINTER(_ClockDomains)]),
+    "dc_clock_domains_classify": (ctypes.c_int32, [ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t, ctypes.c_int32,
+                                                   ctypes.c_uint32, ctypes.c_int32, ctypes.c_uint32, ctypes.c_int32,
+                                                   ctypes.c_uint32, ctypes.POINTER(_ClockDomains)]),
+    "dc_abi_version": (ctypes.c_uint32, []),
+    "dc_status_text": (ctypes.c_char_p, [ctypes.c_int32]),
+    "dc_parse_slot": (ctypes.c_int32, [ctypes.c_char_p] + [ctypes.POINTER(ctypes.c_uint32)] * 4),
+    "dc_format_slot": (ctypes.c_int32, [ctypes.c_uint32] * 4 + [ctypes.c_char_p, ctypes.c_size_t,
+                                                                 ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_same_slot": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_char_p]),
+    "dc_rail_layout_count": (ctypes.c_uint32, []),
+    "dc_rail_layout_at": (ctypes.c_int32, [ctypes.c_uint32, ctypes.POINTER(_RailLayout)]),
+    "dc_rail_recognize": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_uint32,
+                                           ctypes.POINTER(ctypes.c_uint32)]),
+    "dc_rail_prepare_write": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_uint32,
+                                               ctypes.POINTER(_RailRecord), ctypes.c_size_t, ctypes.c_uint32,
+                                               ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_rail_packet_summary": (ctypes.c_int32, [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t,
+                                                ctypes.POINTER(ctypes.c_size_t)]),
+    # client-power controller (increment A3); dc_cpc_state is Gpu._CpcState, passed by address
+    "dc_cpc_transport": (ctypes.c_int32, [ctypes.c_void_p, ctypes.POINTER(_RmTransport), ctypes.POINTER(_Error)]),
+    "dc_cpc_exchange": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint32,
+                                         ctypes.c_int32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p,
+                                         ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_int32),
+                                         ctypes.POINTER(_Error)]),
+    "dc_cpc_reset_transport": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_cpc_reset": (ctypes.c_int32, [ctypes.c_void_p]),
+    "dc_cpc_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
+    # client-power controller (increment A4); dc_cpc_metadata is Gpu._CpcMetadata, passed by address
+    "dc_cpc_read_metadata": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    # client-power controller (increment A5); dc_cpc_observation is Gpu._cp_observation_type(), by address
+    "dc_cpc_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    # the live power request (increment A6); dc_cpc_live_state is Gpu._cp_live_state_type(), by address
+    "dc_cpc_live_read": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_cpc_live_state_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_void_p]),
+    "dc_cpc_board_policy_set": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int32]),
+    # the request SET with its compensating restoration (increment A7); dc_cpc_set_result is
+    # Gpu._cp_set_result_type(), by address
+    "dc_cpc_set_request": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_int64, ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_cpc_rollback_error_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                                   ctypes.POINTER(ctypes.c_size_t)]),
+    "dc_hook_test_cpc_binding": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int32]),
+}
+
+_lock = threading.Lock()
+_library = None
+_error = None
+
+
+def _library_name():
+    if sys.platform == "win32":
+        return "drutacore.dll"
+    if sys.platform == "darwin":
+        return "libdrutacore.dylib"
+    return "libdrutacore.so"
+
+
+def candidate_paths(environ=None):
+    """Where the core may be, most specific first. Only absolute paths."""
+    environ = os.environ if environ is None else environ
+    out = []
+    override = environ.get("DRUTA_NATIVE_LIB")
+    if override:
+        out.append(Path(override))
+    name = _library_name()
+    if getattr(sys, "frozen", False):
+        out.append(Path(sys.executable).resolve().parent / name)
+        bundle = getattr(sys, "_MEIPASS", None)
+        if bundle:
+            out.append(Path(bundle) / name)
+    else:
+        from .paths import source_root
+        root = source_root()
+        if root is not None:
+            build = root / "native" / "build"
+            if sys.platform == "win32":
+                bits = ctypes.sizeof(ctypes.c_void_p) * 8
+                for config in (f"msvc-{bits}", "msvc"):
+                    for variant in ("Release", "RelWithDebInfo", ""):
+                        out.append(build / config / variant / name)
+                out.append(build / ("mingw-x86_64" if bits == 64 else "mingw-i686") / name)
+            else:
+                out.append(build / "linux" / name)
+    return [path for path in out if path.is_absolute()]
+
+
+def _bind(library, names=None):
+    for name in _SIGNATURES if names is None else names:
+        restype, argtypes = _SIGNATURES[name]
+        function = getattr(library, name)
+        function.restype = restype
+        function.argtypes = argtypes
+    if names is None:
+        from .native_frontend import bind
+        bind(library)
+    return library
+
+
+def load():
+    """The bound library; raises NativeUnavailable with the reason."""
+    global _library, _error
+    with _lock:
+        if _library is not None:
+            return _library
+        if _error is not None:
+            raise NativeUnavailable(_error)
+        failures = []
+        for path in candidate_paths():
+            try:
+                present = path.is_file()
+            except OSError as exc:  # a name too long, a directory the account cannot search
+                failures.append(f"{path}: {exc}")
+                continue
+            if not present:
+                failures.append(f"{path}: not present")
+                continue
+            # The version first, on its own: a library of another ABI is refused as such, not by
+            # the first export of this ABI that it lacks. Only then is every export bound, so a
+            # library of this ABI with an export missing is refused with that export's name.
+            try:
+                library = _bind(ctypes.CDLL(str(path)), ("dc_abi_version",))
+            except (OSError, AttributeError) as exc:
+                failures.append(f"{path}: {exc}")
+                continue
+            version = library.dc_abi_version()
+            if version != ABI_VERSION:
+                failures.append(f"{path}: ABI {version}, this build needs {ABI_VERSION}")
+                continue
+            try:
+                _bind(library)
+            except AttributeError as exc:
+                failures.append(f"{path}: {exc}")
+                continue
+            _library = library
+            library.path = str(path)
+            return library
+        _error = "native core not loaded: " + ("; ".join(failures) or "no candidate location")
+        raise NativeUnavailable(_error)
+
+
+def available():
+    try:
+        load()
+    except NativeUnavailable:
+        return False
+    return True
+
+
+def _raise(status):
+    text = load().dc_status_text(status).decode()
+    if status == DC_E_RANGE:
+        text = "boost must be an integer from 0 through 100"
+    raise ValueError(text)
+
+
+# ---- PCI slot (nvbackend.format_slot / parse_slot / same_slot) ----------------------------------
+
+def format_slot(domain, bus, device, function=0):
+    buffer = ctypes.create_string_buffer(64)
+    needed = ctypes.c_size_t()
+    status = load().dc_format_slot(domain, bus, device, function, buffer, 64, ctypes.byref(needed))
+    if status != DC_OK:
+        _raise(status)
+    return buffer.value.decode()
+
+
+def parse_slot(text):
+    if not text:
+        return None
+    values = [ctypes.c_uint32() for _ in range(4)]
+    # str.strip() removes Unicode whitespace; the core strips ASCII only.
+    status = load().dc_parse_slot(str(text).strip().encode("utf-8", "replace"), *map(ctypes.byref, values))
+    if status == DC_E_PARSE:
+        return None
+    if status != DC_OK:
+        _raise(status)
+    return tuple(value.value for value in values)
+
+
+def same_slot(a, b):
+    if not a or not b:
+        return False
+    return bool(load().dc_same_slot(str(a).strip().encode("utf-8", "replace"),
+                                    str(b).strip().encode("utf-8", "replace")))
+
+
+# ---- voltage-rail packets (rail_transport) ------------------------------------------------------
+
+def _is_plain_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def rail_known_layouts():
+    """The Python module's own layout objects, checked against the core's table."""
+    library = load()
+    count = library.dc_rail_layout_count()
+    if count != len(_py_rail.KNOWN_LAYOUTS):
+        raise NativeUnavailable(f"native core knows {count} rail layouts, Python {len(_py_rail.KNOWN_LAYOUTS)}")
+    for index, expected in enumerate(_py_rail.KNOWN_LAYOUTS):
+        layout = _RailLayout()
+        if library.dc_rail_layout_at(index, ctypes.byref(layout)) != DC_OK:
+            raise NativeUnavailable(f"native core cannot describe rail layout {index}")
+        valid = None if layout.valid_word < 0 else layout.valid_word
+        actual = type(expected)(layout.packet_size, layout.params_size, layout.get_command, layout.set_command,
+                                layout.mask_word, layout.boost_word, layout.record0, layout.record_stride,
+                                layout.record_type, valid)
+        if actual != expected:
+            raise NativeUnavailable(f"native rail layout {index} differs from Python: {actual} != {expected}")
+    return _py_rail.KNOWN_LAYOUTS
+
+
+def rail_recognize_packet(payload, requested_mask):
+    if not isinstance(payload, bytes) or not _is_plain_int(requested_mask) or not 0 <= requested_mask <= 0xFFFFFFFF:
+        return None
+    index = ctypes.c_uint32()
+    status = load().dc_rail_recognize(payload, len(payload), requested_mask, ctypes.byref(index))
+    if status == DC_E_UNRECOGNIZED:
+        return None
+    if status != DC_OK:
+        _raise(status)
+    return rail_known_layouts()[index.value]
+
+
+def rail_prepare_write(payload, requested_mask, records, boost):
+    # The Python-type checks of rail_transport._validated_records, in its order.
+    if not _is_plain_int(requested_mask) or not _py_rail._valid_requested_mask(requested_mask):
+        raise ValueError("requested_mask must select rail 0, rail 1, or both")
+    if not hasattr(records, "keys") or not hasattr(records, "__getitem__"):
+        raise ValueError("records must be a mapping")
+    expected_rails = {rail for rail in range(2) if requested_mask & (1 << rail)}
+    if any(not _is_plain_int(rail) for rail in records) or set(records) != expected_rails:
+        raise ValueError("requested_mask must exactly match the record rails")
+    native = (_RailRecord * max(len(records), 1))()
+    for position, (rail, values) in enumerate(records.items()):
+        try:
+            record = tuple(values)
+        except TypeError as exc:
+            raise ValueError(f"rail {rail} record must contain four integers") from exc
+        if len(record) != 4:
+            raise ValueError(f"rail {rail} record must contain four integers")
+        if any(not _is_plain_int(value) or not -(1 << 31) <= value <= (1 << 31) - 1 for value in record):
+            raise ValueError(f"rail {rail} record values must be signed int32 integers")
+        native[position].rail = rail
+        native[position].values[:] = record
+    if not _is_plain_int(boost) or not 0 <= boost <= 100:
+        raise ValueError("boost must be an integer from 0 through 100")
+    if not isinstance(payload, bytes):
+        raise ValueError("payload is not an exact known rail GET packet")
+    out = ctypes.create_string_buffer(len(payload))
+    needed = ctypes.c_size_t()
+    status = load().dc_rail_prepare_write(payload, len(payload), requested_mask, native, len(records), boost,
+                                          out, len(payload), ctypes.byref(needed))
+    if status != DC_OK:
+        _raise(status)
+    return out.raw[:needed.value]
+
+
+def rail_packet_summary(payload):
+    if not isinstance(payload, bytes):
+        return "rail packet invalid: payload is not bytes"
+    buffer = ctypes.create_string_buffer(256)
+    needed = ctypes.c_size_t()
+    status = load().dc_rail_packet_summary(payload, len(payload), buffer, 256, ctypes.byref(needed))
+    if status == DC_E_BUFFER:
+        buffer = ctypes.create_string_buffer(needed.value)
+        status = load().dc_rail_packet_summary(payload, len(payload), buffer, needed.value, ctypes.byref(needed))
+    if status != DC_OK:
+        _raise(status)
+    return buffer.value.decode()
+
+
+# ---- GPU identity (nvbackend.Nvml / NvAPI / enumerate_gpus / GPU) ------------------------------
+
+_resolver_keepalive = None
+
+
+def set_export_resolver(resolve):
+    """Serve driver exports from Python (tests). resolve(library, name) returns a
+    ctypes function pointer address or None; name "" asks whether the library
+    loads. None restores the platform loader."""
+    global _resolver_keepalive
+    library = load()
+    if resolve is None:
+        library.dc_set_export_resolver(RESOLVER(0), None)
+        _resolver_keepalive = None
+        return
+
+    def trampoline(_context, lib, name):
+        pointer = resolve(lib.decode(), name.decode())
+        return pointer or 0
+
+    _resolver_keepalive = RESOLVER(trampoline)
+    library.dc_set_export_resolver(_resolver_keepalive, None)
+
+
+_sleep_keepalive = None
+
+
+def set_sleep_hook(hook):
+    """Replace the core's bounded wait inside readback loops (tests). hook(ms)
+    is called instead of sleeping; None restores the real sleep."""
+    global _sleep_keepalive
+    library = load()
+    if hook is None:
+        library.dc_set_sleep_hook(SLEEP_HOOK(0))
+        _sleep_keepalive = None
+        return
+    # Install the new thunk before dropping the old one: the core reads the hook pointer without a
+    # lock, so the previous closure must outlive dc_set_sleep_hook.
+    thunk = SLEEP_HOOK(hook)
+    library.dc_set_sleep_hook(thunk)
+    _sleep_keepalive = thunk
+
+
+_clock_keepalive = None
+
+
+def set_clock_hook(hook):
+    """Replace the core's monotonic clock behind retry cadences (tests; Python patches
+    time.monotonic). hook() returns the seconds; None restores the real clock."""
+    global _clock_keepalive
+    library = load()
+    if hook is None:
+        library.dc_set_clock_hook(CLOCK_HOOK(0))
+        _clock_keepalive = None
+        return
+    thunk = CLOCK_HOOK(hook)  # installed before the old thunk is dropped, as set_sleep_hook
+    library.dc_set_clock_hook(thunk)
+    _clock_keepalive = thunk
+
+
+def _text(field):
+    return field.decode(errors="replace")
+
+
+def enumerate_gpus():
+    """Same keys and order as nvbackend.enumerate_gpus()."""
+    library = load()
+    capacity = 8
+    while True:
+        entries = (_GpuEntry * capacity)()
+        for entry in entries:
+            entry.size = ctypes.sizeof(_GpuEntry)
+        count = ctypes.c_size_t()
+        status = library.dc_enumerate_gpus(entries, capacity, ctypes.byref(count))
+        if status == DC_E_BUFFER:
+            capacity = max(count.value, capacity * 2)
+            continue
+        if status != DC_OK:
+            _raise(status)
+        return [{
+            "slot": _text(e.slot), "name": _text(e.name), "uuid": _text(e.uuid),
+            "devid": e.devid if e.has_devid else None, "subsys": e.subsys if e.has_devid else None,
+            "nvml_index": None if e.nvml_index < 0 else e.nvml_index, "has_nvapi": bool(e.has_nvapi),
+        } for e in entries[:count.value]]
+
+
+class _Static(dict):
+    """nvbackend.GPU.static: the identity keys at construction, the capability keys
+    (pl_min_mw, gfx_min, mem_clocks, ...) merged in from capabilities() on their first use.
+    nvbackend reads them all in __init__; the core reads the capabilities once, when first
+    asked, so construction issues no NVML capability calls and the parity call logs hold."""
+
+    def __init__(self, gpu, identity):
+        super().__init__(identity)
+        # A weak reference: the Gpu owns this dict, and a strong one back would be a cycle that keeps
+        # a dropped Gpu (and its handle) alive until the cycle collector runs.
+        self._gpu, self._merged = weakref.ref(gpu), False
+
+    def _merge(self, key):
+        if not self._merged and key not in dict.keys(self):
+            gpu = self._gpu()
+            if gpu is None:
+                raise NativeClosed()  # the Gpu was dropped: as an entry on its closed handle
+            self._merged = True
+            for name, value in gpu.capabilities().items():
+                dict.setdefault(self, name, value)
+
+    def __getitem__(self, key):
+        self._merge(key)
+        return dict.__getitem__(self, key)
+
+    def __contains__(self, key):
+        self._merge(key)
+        return dict.__contains__(self, key)
+
+    def get(self, key, default=None):
+        self._merge(key)
+        return dict.get(self, key, default)
+
+
+class _HandleBox:
+    """Owns one dc_gpu*: dc_gpu_close runs in this object's finalizer, at its last reference.
+
+    The Gpu, its _HandleLock (and the companions, G4d) each hold the box, never each other, so a
+    thread that is inside a Gpu method, holds the lock or waits for it keeps the handle allocated:
+    the handle mutex is never destroyed while held or waited on, and no entry runs on a freed
+    handle. Gpu.close() only marks the box closed ("invalidate now, free at the last reference")."""
+
+    __slots__ = ("library", "handle", "closed", "__weakref__")
+
+    def __init__(self, library, handle):
+        self.library, self.handle, self.closed = library, handle, False
+
+    def __del__(self):
+        handle = getattr(self, "handle", None)
+        self.handle = None
+        if handle is not None and handle.value:
+            try:
+                self.library.dc_gpu_close(handle)
+            except Exception:  # noqa: BLE001 - a finalizer never raises (interpreter shutdown)
+                pass
+
+
+class _HandleLock:
+    """Gpu._lock: the handle's own mutex (dc_gpu_lock / dc_gpu_trylock / dc_gpu_unlock /
+    dc_gpu_lock_held), with the threading.RLock surface the front ends use (with, acquire, release,
+    _is_owned).
+
+    It is the mutex every core entry takes, so there is one lock per card: `with gpu._lock` in a
+    front end or a runtime is serialized against every core call from every thread, and the
+    binding's call-and-fetch pairs hold it across both calls. It is recursive per OS thread (a
+    Python thread is one OS thread): the with statement takes one level, each core entry inside it
+    takes and returns another. Core callbacks run on the thread that holds the mutex, so a callback
+    that takes this lock recurses instead of waiting.
+
+    acquire(blocking=True) blocks in dc_gpu_lock with the GIL released (the library is a ctypes.CDLL,
+    never a PyDLL), so a holder that runs Python is never stopped by a waiter. blocking=False is
+    dc_gpu_trylock. A timeout other than -1 raises ValueError: the core has no timed wait, and no
+    caller uses one. The object keeps no owner or depth of its own: the core is the one record of
+    ownership. release() is dc_gpu_unlock, which gives back only a level taken through this lock (or
+    a raw dc_gpu_lock) on the calling thread; when there is none (another thread holds the mutex,
+    none does, or inside a core callback the thread holds only the running entry's level) the core
+    changes nothing and release() raises RuntimeError, as threading.RLock's does. _is_owned() is
+    dc_gpu_lock_held: true at any level, the core entry's own included, so it is true inside a core
+    callback.
+
+    The lock refers to the box, not to the Gpu, so it keeps the handle allocated while held, and stays
+    usable after Gpu.close() (the handle is then invalid for entries, not freed).
+    Residual risk (DESIGN-FRONTEND.md (d)): only a console Ctrl+C on the holding thread can cause it.
+    A KeyboardInterrupt raised after dc_gpu_lock has returned and before __enter__ returns, or at the
+    entry of __exit__ or release() before dc_gpu_unlock runs, leaves that thread holding one level the
+    with statement never gives back; since ownership is the core's, that thread's own release() (or
+    dc_gpu_unlock) still frees it. A blocking acquire cannot be interrupted at all: the wait is in the
+    core, with the GIL released."""
+
+    __slots__ = ("_box",)
+
+    def __init__(self, box):
+        self._box = box
+
+    def acquire(self, blocking=True, timeout=-1):
+        if timeout != -1:
+            raise ValueError("native.Gpu._lock has no timed acquire (timeout must be -1)")
+        box = self._box
+        if blocking:
+            status = box.library.dc_gpu_lock(box.handle)
+            if status != DC_OK:
+                _raise(status)
+            return True
+        acquired = ctypes.c_int32()
+        status = box.library.dc_gpu_trylock(box.handle, ctypes.byref(acquired))
+        if status != DC_OK:
+            _raise(status)
+        return bool(acquired.value)
+
+    def release(self):
+        box = self._box
+        status = box.library.dc_gpu_unlock(box.handle)
+        if status == DC_E_STATE:
+            raise RuntimeError("cannot release un-acquired lock")
+        if status != DC_OK:
+            _raise(status)
+
+    def _is_owned(self):
+        box = self._box
+        held = ctypes.c_int32()
+        status = box.library.dc_gpu_lock_held(box.handle, ctypes.byref(held))
+        if status != DC_OK:
+            _raise(status)
+        return bool(held.value)
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, *_):
+        self.release()
+
+    def __repr__(self):
+        state = "held by this thread" if self._is_owned() else "not held by this thread"
+        return f"<{type(self).__module__}.{type(self).__qualname__} {state}>"
+
+
+class Gpu(FrontendSurface):
+    """One card through the native core: nvbackend.GPU's identity surface."""
+
+    def __init__(self, slot=None):
+        library = load()
+        handle = ctypes.c_void_p()
+        status = library.dc_gpu_open((slot or "").encode(), ctypes.byref(handle))
+        if status != DC_OK:
+            _raise(status)
+        box = self._box = _HandleBox(library, handle)  # frees the handle at its last reference
+        # nvbackend.GPU._lock, which the front end, the runtimes and the profiles hold around their
+        # own sequences: here the handle's own mutex (_HandleLock), the one every core entry takes,
+        # so there is one lock per card. The binding's `with self._lock` blocks (_policy_outcome,
+        # _cp_set_request, set_power_limit_mw, reset_all, the stock / max-all text fetches) hold it
+        # across a call and its message fetch, so no other thread's call lands in between. Core
+        # callbacks (the derived-clamp confirm, the policy inputs, before_write, the test seams) run
+        # on the thread that holds it, so taking it inside one is recursion, not a wait. Rules: never
+        # hold one card's lock while calling another card's object; a callback never waits on another
+        # thread; the rail hook mutex is taken only by the core, after this one.
+        self._lock = _HandleLock(box)
+        identity = _GpuIdentity()
+        identity.size = ctypes.sizeof(_GpuIdentity)
+        status = library.dc_gpu_identity_get(handle, ctypes.byref(identity))
+        if status != DC_OK:
+            self.close()
+            _raise(status)
+        self.requested_slot = _text(identity.requested_slot)
+        nvapi_selected = None
+        if identity.nvapi_selected:
+            nvapi_selected = {"slot": _text(identity.nvapi_slot), "devid": identity.nvapi_devid,
+                              "subsys": identity.nvapi_subsys, "handle": identity.nvapi_handle}
+        nvml_selected = None
+        if identity.nvml_selected:
+            nvml_selected = {"slot": _text(identity.nvml_slot), "nvml_index": identity.nvml_index,
+                             "devid": identity.nvml_devid if identity.nvml_has_devid else None,
+                             "subsys": identity.nvml_subsys if identity.nvml_has_devid else None,
+                             "uuid": _text(identity.uuid)}
+        from .native_companions import BoundNvAPI, BoundNvml
+        self.nvapi = BoundNvAPI(box, bool(identity.nvapi_ok), _text(identity.nvapi_error), nvapi_selected)
+        self.nvml = BoundNvml(box, bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected,
+                             _text(identity.nvml_path))
+        self.pairing_error = _text(identity.pairing_error)
+        self.static = _Static(self, {"name": _text(identity.name), "driver": _text(identity.driver),
+                                     "vbios": _text(identity.vbios), "admin": bool(identity.admin),
+                                     "slot": _text(identity.slot), "uuid": _text(identity.uuid)})
+
+    @property
+    def _handle(self):
+        """The dc_gpu* for the core entries; NativeClosed (a ValueError) once close() has run."""
+        box = self.__dict__.get("_box")
+        if box is None:  # built without __init__ (tests): whatever handle was assigned
+            try:
+                return self.__dict__["_bare_handle"]
+            except KeyError:
+                raise AttributeError(f"{type(self).__name__!r} object has no attribute '_handle'") from None
+        if box.closed:
+            raise NativeClosed()
+        return box.handle
+
+    @_handle.setter
+    def _handle(self, value):
+        if "_box" in self.__dict__:
+            raise AttributeError("the handle of an opened native.Gpu belongs to its box; use close()")
+        self.__dict__["_bare_handle"] = value
+
+    def close(self):
+        """Invalidate the handle now; it is freed at its last reference.
+
+        Raises RuntimeError when the calling thread holds the handle mutex at any level, inside
+        `with self._lock` or inside a core callback (the handle would be invalidated under that
+        thread's own sequence or the running entry). Otherwise takes the lock, waiting out the holder,
+        marks the box closed and releases: every later entry through this object raises NativeClosed.
+        A thread still inside a method or holding the lock keeps the box, so the handle (and its
+        mutex) is freed only after the last of them lets go. Closing twice is a no-op."""
+        box = self.__dict__.get("_box")
+        if box is None:  # built without __init__ (tests): the handle it was given, freed now
+            handle, self._handle = self.__dict__.get("_bare_handle"), None
+            if handle:
+                load().dc_gpu_close(handle)
+            return
+        if box.closed:
+            return
+        lock = self._lock
+        if lock._is_owned():
+            raise RuntimeError("native.Gpu.close() while this thread holds the card's lock (inside "
+                               "`with gpu._lock` or a core callback); close it after that returns")
+        with lock:
+            box.closed = True
+
+    def __del__(self):
+        # Nothing can reach this object any more: mark the box closed for whatever still holds it (the
+        # lock) without taking the lock, which a collector running on any thread must never wait for.
+        # The box frees the handle at its own last reference.
+        box = self.__dict__.get("_box")
+        if box is not None:
+            box.closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    def available(self):
+        return self.nvapi.ok or self.nvml.ok
+
+    def slot(self):
+        return self.static["slot"]
+
+    def status_line(self):
+        buffer = ctypes.create_string_buffer(4096)
+        needed = ctypes.c_size_t()
+        status = load().dc_gpu_status_line(self._handle, buffer, 4096, ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode(errors="replace")
+
+    def arch(self):
+        """NVML architecture enum, or None (nvbackend.GPU.arch)."""
+        value = ctypes.c_uint32()
+        status = load().dc_gpu_architecture(self._handle, ctypes.byref(value))
+        if status == DC_E_UNRECOGNIZED:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def read_vcore_mv(self):
+        """The NVVDD rail in mV from one NVAPI call, or None (nvbackend.GPU.read_vcore_mv)."""
+        has, mv = ctypes.c_int32(), ctypes.c_double()
+        status = load().dc_gpu_read_vcore_mv(self._handle, ctypes.byref(has), ctypes.byref(mv))
+        if status != DC_OK:
+            _raise(status)
+        return mv.value if has.value else None
+
+    # ---- the paired target binding (perf_diagnostics.PerfDiagnosticsReader._binding) ---------- #
+
+    _ERROR_KINDS = {1: "transient", 2: "invalid", 3: "unsupported", 4: "identity", 5: "malformed",
+                    6: "unstable", 7: "readback"}
+
+    def _target_bind(self, client_power):
+        target, error = _Target(), _Error()
+        target.size, error.size = ctypes.sizeof(_Target), ctypes.sizeof(_Error)
+        status = load().dc_gpu_target_bind(self._handle, 1 if client_power else 0, ctypes.byref(target),
+                                           ctypes.byref(error))
+        if status == DC_E_FAILED:
+            return None, (self._ERROR_KINDS.get(error.kind, "transient"), _text(error.message))
+        if status != DC_OK:
+            _raise(status)
+        return target, None
+
+    def _target_binding(self):
+        """PerfDiagnosticsReader._binding on this handle's shared binding: (api, slot, architecture),
+        or the PerfDiagnosticError it raises. One sticky identity per handle, reset with
+        _target_binding_reset() (a fresh reader)."""
+        from .perf_diagnostics import PerfDiagnosticError
+        target, failure = self._target_bind(False)
+        if failure:
+            raise PerfDiagnosticError(*failure)
+        return self.nvapi, _text(target.slot), target.architecture
+
+    def _client_power_binding(self):
+        """ClientPowerController._binding: the identity dict, or the ClientPowerError it raises."""
+        from .client_power_runtime import ClientPowerError
+        target, failure = self._target_bind(True)
+        if failure:
+            raise ClientPowerError(*failure)
+        return {"slot": _text(target.slot), "architecture": target.architecture,
+                "device_id": target.device_id, "subsystem_id": target.subsystem_id}
+
+    def _target_binding_reset(self):
+        status = load().dc_gpu_target_reset(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    def nvapi_interface_present(self, ident):
+        """NvAPI._i(ident) is not None: the binder resolves the interface id."""
+        return bool(load().dc_nvapi_interface_present(self._handle, int(ident) & 0xFFFFFFFF))
+
+    # ---- client-power controller (increment A3) ------------------------------------------------- #
+    # ClientPowerController._transport / _exchange / _reset_transport on this handle's one sticky
+    # controller (dc_cpc_*); _cp_reset() stands for constructing a fresh controller. Increment A4 adds
+    # read_metadata (_cp_read_metadata), A5 the full read (_cp_read), A7 set_request (_cp_set_request).
+
+    class _CpcState(ctypes.Structure):  # dc_cpc_state
+        _fields_ = [("size", ctypes.c_uint32)] + [(name, ctypes.c_int32) for name in (
+            "sizes", "legacy", "native_policy124", "role_info216", "rm26_records", "rm26", "rm26_extended",
+            "has_transport_key")] + [("transport_key", ctypes.c_uint32 * 3)]
+
+    # dc_cpc_state.sizes: the DC_CP_*_SIZES group, by its client_power_runtime name.
+    _CP_SIZE_GROUPS = ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES",
+                       "RM26_EXTENDED_SIZES", "A612_COMPACT_SIZES")
+
+    def _cp_raise(self, error):
+        """The ClientPowerError a dc_error stands for; DC_ERR_INVALID is the one bare ValueError."""
+        from .client_power_runtime import ClientPowerError
+        message = _text(error.message)
+        if error.kind == DC_ERR_INVALID:
+            raise ValueError(message)
+        raise ClientPowerError(self._ERROR_KINDS.get(error.kind, "transient"), message,
+                               rm_status=error.rm_status if error.rm_status else None)
+
+    def _cp_transport(self):
+        """ClientPowerController._transport: (header tuple, fields dict), or ClientPowerError."""
+        t, error = _RmTransport(), _Error()
+        t.size, error.size = ctypes.sizeof(_RmTransport), ctypes.sizeof(_Error)
+        status = load().dc_cpc_transport(self._handle, ctypes.byref(t), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status != DC_OK:
+            _raise(status)
+        header, fields = _transport_value(t)
+        return tuple(header), fields
+
+    # dc_cpc_exchange flags and caller stops (drutacore/client_power_controller.h)
+    _CPC_COMMAND_NOT_STORABLE, _CPC_PAYLOAD_NOT_STORABLE, _CPC_CALLER_ECHO = 1, 2, 4
+    _CPC_STOP_COMMAND = "caller stop: the command word"
+    _CPC_STOP_PAYLOAD = "caller stop: the payload bytes"
+    _CPC_STOP_DISPATCH = "caller stop: the dispatch"
+    _CPC_DISPATCH = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p)  # dc_cpc_dispatch_fn
+
+    def _cp_exchange(self, command, payload, *, write=None):
+        """ClientPowerController._exchange: the response bytes, or ClientPowerError. Python's own
+        failures inside the exchange (a command or payload ctypes cannot store, a write object that
+        cannot be marked) are raised at the point Python raises them, through the core's caller
+        stops; write.dispatched is set by the core's hook right before the escape."""
+        from .client_power_runtime import SET, ClientPowerError, _Write
+        # Python's precondition with its own `in` / `==` semantics on the caller's objects.
+        sizes = self._cp_state()["sizes"]
+        if command not in sizes or len(payload) != sizes[command] or (command == SET) != isinstance(write, _Write):
+            raise ClientPowerError("malformed", "Client-power command or packet geometry is not understood")
+        key = {k: k for k in sizes}[command]  # the table's own int that `command in sizes` matched
+        size = sizes[command]
+        stops, flags = {}, self._CPC_CALLER_ECHO
+        try:
+            (ctypes.c_uint32 * 1)()[0] = command  # packet[14] = wire_command
+        except Exception as exc:
+            stops[self._CPC_STOP_COMMAND] = exc
+            flags |= self._CPC_COMMAND_NOT_STORABLE
+        data = (ctypes.c_ubyte * size)()
+        try:
+            data[:] = payload  # buffer[68:] = payload: elements masked to 8 bits, as ctypes stores them
+        except Exception as exc:
+            stops[self._CPC_STOP_PAYLOAD] = exc
+            flags |= self._CPC_PAYLOAD_NOT_STORABLE
+        hook = None
+        if write is not None:
+            def mark(_context):
+                try:
+                    write.dispatched = True
+                except BaseException as exc:  # raised below, at Python's point
+                    stops[self._CPC_STOP_DISPATCH] = exc
+                    return 1
+                return 0
+            hook = self._CPC_DISPATCH(mark)
+        out = (ctypes.c_ubyte * max(size, 1))()
+        dispatched, error = ctypes.c_int32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_cpc_exchange(self._handle, key, bytes(data), size, 1 if isinstance(write, _Write) else 0,
+                                        flags, ctypes.cast(hook, ctypes.c_void_p) if hook else None, None,
+                                        ctypes.addressof(out), size, ctypes.byref(dispatched), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            stop = stops.get(_text(error.message)) if error.kind == DC_ERR_INVALID else None
+            if stop is not None:
+                raise stop
+            self._cp_raise(error)
+        if status != DC_OK:
+            _raise(status)
+        result = bytes(out)[:size]
+        if command == SET and result != payload:
+            raise ClientPowerError("malformed", "Client-power SET changed the requested packet")
+        return result
+
+    def _cp_reset_transport(self):
+        """ClientPowerController._reset_transport: clears _current_limit_transport and the layout choice."""
+        status = load().dc_cpc_reset_transport(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    def _cp_reset(self):
+        """A fresh controller: every attribute back to __init__, the sticky identity included."""
+        status = load().dc_cpc_reset(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    def _cp_state(self):
+        """The controller's attributes; "sizes" is the very client_power_runtime table object."""
+        from . import client_power_runtime
+        s = self._CpcState()
+        s.size = ctypes.sizeof(self._CpcState)
+        status = load().dc_cpc_state_get(self._handle, ctypes.addressof(s))
+        if status != DC_OK:
+            _raise(status)
+        return {"sizes": getattr(client_power_runtime, self._CP_SIZE_GROUPS[s.sizes]),
+                "legacy": bool(s.legacy), "native_policy124": bool(s.native_policy124),
+                "role_info216": bool(s.role_info216), "rm26": bool(s.rm26),
+                "rm26_records": bool(s.rm26_records), "rm26_extended": bool(s.rm26_extended),
+                "transport_key": tuple(s.transport_key) if s.has_transport_key else None}
+
+    class _CpcMetadata(ctypes.Structure):  # dc_cpc_metadata
+        _fields_ = ([("size", ctypes.c_uint32), ("schema", ctypes.c_int32), ("stable_reads", ctypes.c_int32),
+                     ("slot", ctypes.c_char * 24)]
+                    + [(name, ctypes.c_uint32) for name in (
+                        "architecture", "device_id", "subsystem_id", "client_index", "native_index",
+                        "semantic_role", "client")]
+                    + [("units", ctypes.c_char * 4)]
+                    + [(name, ctypes.c_uint32) for name in ("minimum_mw", "rated_mw", "maximum_mw")]
+                    + [(name, ctypes.c_int32) for name in ("layout", "native_layout", "has_native_info_stride")]
+                    + [(name, ctypes.c_uint32) for name in (
+                        "native_info_stride", "info_size", "role_info_size", "native_info_size")]
+                    + [("info", ctypes.c_uint8 * 2340), ("role_info", ctypes.c_uint8 * 264),
+                       ("native_info", ctypes.c_uint8 * 20512)])
+
+    # dc_cpc_metadata.layout / native_layout: the DC_CP_LAYOUT_* / DC_CP_NATIVE_* values present.
+    _CP_LAYOUTS = {2: "rm26", 3: "legacy32"}
+    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended"}
+
+    def _cp_read_metadata(self):
+        """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.
+
+        Python's read_metadata holds `self.gpu._lock` around _stable_locked. The core entry holds the
+        handle mutex across the whole bounded read, and that mutex is self._lock (_HandleLock), so
+        the read is that lock's critical section without a `with` here, as for every native Gpu read
+        (the ports of nvbackend's _synchronized methods included). A caller that needs this read
+        ordered inside its own multi-call sequence holds self._lock around the sequence; the entry
+        inside then only adds a level (recursive per thread).
+
+        DC_E_BUFFER (a captured payload larger than dc_cpc_metadata's arrays, which every understood
+        size group fits) is raised as a malformed ClientPowerError naming the buffer, so a caller that
+        handles ClientPowerError still sees the read fail."""
+        from .client_power_runtime import ClientPowerError
+        m, error = self._CpcMetadata(), _Error()
+        m.size, error.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(_Error)
+        status = load().dc_cpc_read_metadata(self._handle, ctypes.addressof(m), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status == DC_E_BUFFER:
+            raise ClientPowerError("malformed", "Client-power metadata does not fit the native read's buffers "
+                                                "(dc_cpc_read_metadata returned DC_E_BUFFER)")
+        if status != DC_OK:
+            _raise(status)
+        return self._cp_metadata_dict(m)
+
+    def _cp_metadata_dict(self, m):
+        """read_metadata()'s dict from a dc_cpc_metadata, key order included."""
+        binding = {
+            "client_index": m.client_index,
+            "native_index": m.native_index,
+            "semantic_role": m.semantic_role,
+            "client": m.client,
+            "units": _text(m.units),
+            "minimum_mw": m.minimum_mw,
+            "rated_mw": m.rated_mw,
+            "maximum_mw": m.maximum_mw,
+        }
+        if m.layout:
+            binding["layout"] = self._CP_LAYOUTS[m.layout]
+        if m.native_layout:
+            binding["native_layout"] = self._CP_NATIVE_LAYOUTS[m.native_layout]
+        if m.has_native_info_stride:
+            binding["native_info_stride"] = m.native_info_stride
+        return {
+            "schema": m.schema,
+            "stable_reads": m.stable_reads,
+            "identity": {"slot": _text(m.slot), "architecture": m.architecture, "device_id": m.device_id,
+                         "subsystem_id": m.subsystem_id},
+            "binding": binding,
+            "info_hex": bytes(m.info[:m.info_size]).hex(),
+            "role_info_hex": bytes(m.role_info[:m.role_info_size]).hex(),
+            "native_info_hex": bytes(m.native_info[:m.native_info_size]).hex(),
+        }
+
+    _cp_observation = None
+
+    @classmethod
+    def _cp_observation_type(cls):
+        """dc_cpc_observation, built on first use: its dc_arbitration_report is native_power_arbitration's
+        ctypes struct, and that module imports this one."""
+        if cls._cp_observation is None:
+            from .native_power_arbitration import _Report
+
+            class _CpcObservation(ctypes.Structure):  # dc_cpc_observation
+                _fields_ = [("size", ctypes.c_uint32), ("metadata", cls._CpcMetadata),
+                            ("requested_mw", ctypes.c_uint32), ("control_size", ctypes.c_uint32),
+                            ("native_control_size", ctypes.c_uint32), ("control", ctypes.c_uint8 * 808),
+                            ("native_control", ctypes.c_uint8 * 13876), ("has_arbitration", ctypes.c_int32),
+                            ("arbitration", _Report), ("has_arbitration_error", ctypes.c_int32),
+                            ("arbitration_error", ctypes.c_char * 1024)]
+            cls._cp_observation = _CpcObservation
+        return cls._cp_observation
+
+    def _cp_read(self):
+        """ClientPowerController.read: Python's dict, key order included, or ClientPowerError.
+
+        "arbitration" is power_arbitration.decode's dict, rebuilt by native_power_arbitration.report_dict
+        (the conversion its decode() uses), or None; "arbitration_error" is then the text.
+        Locking and DC_E_BUFFER as _cp_read_metadata."""
+        from .client_power_runtime import ClientPowerError
+        o, error = self._cp_observation_type()(), _Error()
+        o.size, error.size = ctypes.sizeof(o), ctypes.sizeof(_Error)
+        o.metadata.size, o.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(o.arbitration)
+        status = load().dc_cpc_read(self._handle, ctypes.addressof(o), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            self._cp_raise(error)
+        if status == DC_E_BUFFER:
+            raise ClientPowerError("malformed", "Client-power read does not fit the native read's buffers "
+                                                "(dc_cpc_read returned DC_E_BUFFER)")
+        if status != DC_OK:
+            _raise(status)
+        return self._cp_reading_dict(o)
+
+    def _cp_reading_dict(self, o):
+        """read()'s dict from a dc_cpc_observation, key order included."""
+        from .native_power_arbitration import report_dict
+        arbitration = None
+        if o.has_arbitration:
+            arbitration = report_dict(o.arbitration)
+        return {
+            **self._cp_metadata_dict(o.metadata),
+            "requested_mw": o.requested_mw,
+            "control_hex": bytes(o.control[:o.control_size]).hex(),
+            "native_control_hex": bytes(o.native_control[:o.native_control_size]).hex(),
+            "arbitration": arbitration,
+            "arbitration_error": _text(o.arbitration_error) if o.has_arbitration_error else None,
+        }
+
+    # ---- the request SET with its compensating restoration (set_request, _rollback; increment A7) - #
+
+    _CPC_ROLLBACK_ERROR_MAX = 4096
+    _CP_ROLLBACK_INLINE = _CPC_ROLLBACK_ERROR_MAX  # the struct's room; a test lowers it to reach the fetch
+    _CP_TEST_LOOKUPS = {None: 0, "fail": 1, "changed": 2}  # DC_CPC_TEST_LOOKUP_*
+    _CP_INVALID_REQUEST = "Power request must be positive whole uint32 milliwatts below the missing-client sentinel"
+    _cp_set_result = None
+
+    @classmethod
+    def _cp_set_result_type(cls):
+        """dc_cpc_set_result (and its dc_cpc_rollback), built on first use around dc_cpc_observation."""
+        if cls._cp_set_result is None:
+            observation = cls._cp_observation_type()
+
+            class _CpcRollback(ctypes.Structure):  # dc_cpc_rollback
+                _fields_ = [("size", ctypes.c_uint32), ("attempted", ctypes.c_int32), ("verified", ctypes.c_int32),
+                            ("has_error", ctypes.c_int32), ("error_length", ctypes.c_uint32),
+                            ("error", ctypes.c_char * cls._CPC_ROLLBACK_ERROR_MAX), ("has_readback", ctypes.c_int32),
+                            ("readback", observation)]
+
+            class _CpcSetResult(ctypes.Structure):  # dc_cpc_set_result
+                _fields_ = [("size", ctypes.c_uint32), ("before", observation), ("after", observation),
+                            ("has_rollback", ctypes.c_int32), ("rollback", _CpcRollback)]
+            cls._cp_set_result = _CpcSetResult
+        return cls._cp_set_result
+
+    def _cp_sized(self, o):
+        """Set a dc_cpc_observation's caller-set sizes."""
+        o.size, o.metadata.size, o.arbitration.size = (ctypes.sizeof(o), ctypes.sizeof(self._CpcMetadata),
+                                                       ctypes.sizeof(o.arbitration))
+
+    def _cp_rollback_error(self, rollback):
+        """The rollback's full error text: the struct's, or dc_cpc_rollback_error_get's when it was cut.
+        The caller holds self._lock (the handle mutex) since its dc_cpc_set_request (the core keeps the
+        text per handle, and the next set_request clears or replaces it), so no other thread's call
+        lands between the request and this fetch; the fetch repeats while the kept text outgrows the
+        buffer, and never repeats the request."""
+        if rollback.error_length < self._CP_ROLLBACK_INLINE:
+            return _text(rollback.error)
+        library, needed = load(), ctypes.c_size_t(rollback.error_length + 1)
+        while True:
+            buffer = ctypes.create_string_buffer(needed.value)
+            status = library.dc_cpc_rollback_error_get(self._handle, buffer, len(buffer), ctypes.byref(needed))
+            if status == DC_OK and needed.value <= len(buffer):
+                return _text(buffer.value)
+            if needed.value <= len(buffer):  # a refusal the size does not explain
+                _raise(status)
+
+    def _cp_test_lookup(self, nth, mode):
+        """TEST SEAM (dc_hook_test_cpc_binding): make the nth client-power target lookup from now fail
+        ("fail") or return a changed identity ("changed"); None disarms. Parity tests only."""
+        status = load().dc_hook_test_cpc_binding(self._handle, nth, self._CP_TEST_LOOKUPS[mode])
+        if status != DC_OK:
+            _raise(status)
+
+    def _cp_set_request(self, mw):
+        """ClientPowerController.set_request: {"before", "after"} (two read() dicts), or the exception
+        Python raises: ClientPowerError(kind, message, rollback) with rollback None when no SET was
+        dispatched (a bare ValueError stays one), else the dict {"attempted", "verified", "error",
+        "readback"} with readback None or a read() dict, and rm_status None.
+
+        The request is refused with Python's text before the call, as Python refuses it before the
+        lock: anything but an int (a bool included) or a value outside 0 < mw < MISSING. The core
+        then runs the whole sequence under the handle's mutex (the GPU lock of Python's `with
+        self.gpu._lock`), the policy writer's peer restorations included, and calls no Python code. The core
+        keeps a long rollback text per handle for a second call, so self._lock, which is that same
+        mutex (recursive per thread), is held around the request and that fetch, as _policy_outcome
+        does: another thread's set_request cannot clear or replace the text in between.
+
+        Python's BaseException branch (a KeyboardInterrupt during the SET or the read-back, given the
+        detail as a note and the rollback as an attribute) is not reachable: nothing interrupts the
+        core call. DC_E_BUFFER (a reading larger than dc_cpc_observation, which every size group fits)
+        is raised as a malformed ClientPowerError naming it; the request may then have been written."""
+        from .client_power_runtime import MISSING, ClientPowerError
+        if type(mw) is not int or not 0 < mw < MISSING:
+            raise ClientPowerError("invalid", self._CP_INVALID_REQUEST)
+        r, error = self._cp_set_result_type()(), _Error()
+        r.size, error.size = ctypes.sizeof(r), ctypes.sizeof(_Error)
+        for o in (r.before, r.after, r.rollback.readback):
+            self._cp_sized(o)
+        r.rollback.size = ctypes.sizeof(r.rollback)
+        with self._lock:
+            status = load().dc_cpc_set_request(self._handle, mw, ctypes.addressof(r), ctypes.byref(error))
+            rb = r.rollback
+            text = self._cp_rollback_error(rb) if status == DC_E_FAILED and r.has_rollback and rb.has_error else None
+        if status == DC_OK:
+            return {"before": self._cp_reading_dict(r.before), "after": self._cp_reading_dict(r.after)}
+        if status == DC_E_FAILED:
+            message = _text(error.message)
+            if r.has_rollback:
+                rollback = {"attempted": bool(rb.attempted), "verified": bool(rb.verified), "error": text,
+                            "readback": self._cp_reading_dict(rb.readback) if rb.has_readback else None}
+                kind = self._ERROR_KINDS.get(error.kind, "transient")
+                raise ClientPowerError(kind, message, rollback)
+            if error.kind == DC_ERR_INVALID and message == self._CP_INVALID_REQUEST:
+                raise ClientPowerError("invalid", message)  # the core's own range check (refused above)
+            self._cp_raise(error)
+        if status == DC_E_BUFFER:
+            raise ClientPowerError("malformed", "Client-power set_request does not fit the native buffers "
+                                                "(dc_cpc_set_request returned DC_E_BUFFER)")
+        _raise(status)
+
+    def arch_name(self):
+        from .nvbackend import GPU
+        return GPU.ARCH_NAMES.get(self.arch() or -1)
+
+    def vf_curve_applicable(self):
+        """Kepler uses ordinary clock offsets, not the V/F table (nvbackend.GPU.vf_curve_applicable)."""
+        from .nvbackend import GPU
+        return self.arch() != GPU.ARCH_KEPLER
+
+    def capabilities(self):
+        """The non-identity keys of nvbackend.GPU.static."""
+        c = _Capabilities()
+        c.size = ctypes.sizeof(_Capabilities)
+        status = load().dc_gpu_capabilities_get(self._handle, ctypes.byref(c))
+        if status != DC_OK:
+            _raise(status)
+        s = {}
+        for bit, key in enumerate(_C_BITS):
+            if c.present & (1 << bit):
+                s[key] = getattr(c, key)
+        if c.mem_clock_count:
+            s["mem_clocks"] = list(c.mem_clocks[:min(c.mem_clock_count, 512)])
+        s["mem_type"] = _text(c.mem_type)
+        s.setdefault("mem_div", None)
+        for key in ("core_off_range", "mem_off_range"):
+            r = getattr(c, key)
+            s[key] = (r.low, r.high, r.current) if r.present else None
+        return s
+
+    def read(self):
+        """One telemetry tick with nvbackend.GPU.read()'s keys.
+
+        pl_requested_mw is read_power_limit_mw, as nvbackend's _read_power: NVML's configured
+        request, else (NVAPI live) the live client-power request, whose read and bookkeeping run
+        inside the tick. When that live read succeeded (t.pl_from_live), self.static re-syncs as
+        after read_live_power_request: a pl_* key that is None (or absent) takes the core's value.
+        Only then: a key left None stays None until a live read succeeds, as in Python.
+
+        Not yet provided by the core (the Python backend still reads them): the Turing legacy
+        clock-lock fallback, nvvdd_live_mv.
+        """
+        t = _Telemetry()
+        t.size = ctypes.sizeof(_Telemetry)
+        status = load().dc_gpu_read_telemetry(self._handle, ctypes.byref(t))
+        if status != DC_OK:
+            _raise(status)
+        if t.pl_from_live:
+            self._pl_resync()
+        present = {key for bit, key in enumerate(_T_BITS) if t.present & (1 << bit)}
+        d = {}
+        for key in ("core", "mem", "video", "xbar", "core_off", "mem_off", "temp_edge", "pl_requested_mw",
+                    "power_w", "pl_now_mw", "pwr_gpu_pct", "pwr_board_pct", "pl_target_pct", "vcore_mv", "num_fans",
+                    "util_gpu", "util_fb", "util_vid", "util_bus", "event_mask", "perf_decrease", "pcie_gen",
+                    "pcie_width", "pstate", "vboost_pct", "core_p0max", "mem_p0max", "energy_j", "vf_lock_mv",
+                    "temp_delta"):
+            if key in present:
+                d[key] = getattr(t, key)
+        if "temp_hotspot" in present:
+            d["temp_hotspot"] = t.temp_hotspot
+            d["temp_sensors"] = list(t.temp_sensors[:t.temp_sensor_count])
+        if "temp_delta" in present:
+            # Python: hotspot (float) - edge (int)
+            d["temp_delta"] = t.temp_delta
+        d["fans"] = [(f.duty if f.has_duty else None, f.rpm if f.has_rpm else None) for f in t.fans[:t.fan_count]]
+        if "pcie_err" in present:
+            per = {}
+            for name, value in zip(PCIE_ERR_NAMES, t.pcie_err):
+                if value.present:
+                    per[name] = value.d if value.type == 0 else (value.s if value.type in (4, 5) else value.u)
+            total = per.get("correctable", 0) + per.get("non_fatal", 0) + per.get("fatal", 0)
+            d["pcie_err_total"] = total
+            d["pcie_err"] = per
+            since = t.pcie_err_since
+            d["pcie_err_since"] = int(since) if isinstance(total, int) and float(since).is_integer() else since
+        if "vf_locked_domains" in present:
+            d["vf_locked_domains"] = list(t.vf_locked_domains[:t.vf_locked_count])
+        if "clk_lock_mhz" in present:
+            d["clk_lock_mhz"] = (t.clk_lock_min_mhz, t.clk_lock_max_mhz)
+        if "priv_clocks" in present:
+            d["priv_clocks"] = list(t.priv_clocks)
+            d["clk_domains"], d["clk_domains_err"] = self.read_clock_domains(
+                d["priv_clocks"], core_mhz=d.get("core"), mem_nvml=d.get("mem"))
+        else:
+            d["clk_domains"], d["clk_domains_err"] = None, PRIV_UNAVAIL
+        if self.clkdom_is_blackwell():
+            d["clkdom_offsets"], d["clkdom_offsets_err"] = self.read_clk_domain_offsets()
+        return d
+
+    # ---- fan control (nvbackend.GPU.read_fan_control_state .. restore_fan_control_state) -------- #
+
+    def read_fan_control_state(self):
+        """Requested levels/policies per fan, separate from spinning RPM, or None."""
+        state = _FanState()
+        state.size = ctypes.sizeof(_FanState)
+        status = load().dc_gpu_fan_state_get(self._handle, ctypes.byref(state))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        fans = []
+        for row in state.fans[:state.count]:
+            fan = {"id": row.id, "level": row.level, "policy": row.policy, "default_policy": row.default_policy,
+                   "manual": bool(row.manual), "min": row.min, "max": row.max}
+            if row.has_rpm:
+                fan["rpm"] = row.rpm
+            fans.append(fan)
+        return {"source": _text(state.source), "fans": fans}
+
+    def read_fan_manual(self):
+        """True/False when every fan shares that policy; None for unknown/mixed."""
+        value = ctypes.c_int32()
+        status = load().dc_gpu_fan_manual_get(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return bool(value.value)
+
+    def fan_capabilities(self):
+        """Capabilities shared by UI, profiles, and the writer entry points."""
+        c = _FanCapabilities()
+        c.size = ctypes.sizeof(_FanCapabilities)
+        status = load().dc_gpu_fan_capabilities_get(self._handle, ctypes.byref(c))
+        if status != DC_OK:
+            _raise(status)
+        return {"manual": bool(c.manual), "auto": bool(c.automatic), "source": _text(c.source),
+                "min": c.min, "max": c.max}
+
+    @staticmethod
+    def _outcome(outcome):
+        return bool(outcome.ok), outcome.message.decode(errors="replace")
+
+    def set_fan(self, pct):
+        outcome = _Outcome()
+        status = load().dc_gpu_fan_set(self._handle, int(pct), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def reset_fan(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_fan_reset(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def restore_fan_control_state(self, state):
+        """Restore each fan's requested duty and policy using current bindings.
+
+        The snapshot is nvbackend's dict; its shape checks travel as flags so
+        the core refuses with the same text, in the same order."""
+        snapshot = _FanSnapshot()
+        snapshot.size = ctypes.sizeof(_FanSnapshot)
+        snapshot.is_mapping = isinstance(state, dict)
+        if snapshot.is_mapping:
+            source = state.get("source")
+            snapshot.source = source.encode() if isinstance(source, str) else b""
+            wanted = state.get("fans")
+            if isinstance(wanted, list):
+                snapshot.count = len(wanted)
+                for row, old in zip(snapshot.fans, wanted):
+                    _fill_snapshot_row(row, old)
+        outcome = _Outcome()
+        status = load().dc_gpu_fan_restore(self._handle, ctypes.byref(snapshot), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    # ---- voltage boost (nvbackend.GPU.read_voltage_boost / set_voltage_boost) ------------------ #
+
+    def read_voltage_boost(self):
+        value = ctypes.c_int32()
+        status = load().dc_gpu_voltage_boost_get(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def set_voltage_boost(self, pct):
+        """0..100 % of the VBIOS over-voltage headroom; read-modify-write."""
+        outcome = _Outcome()
+        status = load().dc_gpu_voltage_boost_set(self._handle, int(pct), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    # ---- V/F point lock and frequency lock (nvbackend.GPU.*vf_lock* / *clk_lock*) -------------- #
+
+    @staticmethod
+    def _optional_int(value):
+        return (1, int(value)) if value is not None else (0, 0)
+
+    def read_vf_lock_status(self, domain=None):
+        """(point lock, error), distinguishing unlocked from unreadable."""
+        s = _VfLockStatus()
+        has_domain, domain = self._optional_int(domain)
+        status = load().dc_gpu_vf_lock_status(self._handle, has_domain, domain, ctypes.byref(s))
+        if status != DC_OK:
+            _raise(status)
+        error = _text(s.error) or None
+        if not s.locked:
+            return None, error
+        lock = s.lock
+        return {"domain": lock.domain, "lockMode": lock.lock_mode, "volt_uV": lock.volt_uv,
+                "volt_mv": lock.volt_uv / 1000.0, "count": lock.count}, None
+
+    def read_vf_lock(self):
+        return self.read_vf_lock_status()[0]
+
+    def read_clk_lock(self):
+        """The driver's current NVML frequency lock as (min_mhz, max_mhz), or None."""
+        low, high = ctypes.c_uint32(), ctypes.c_uint32()
+        status = load().dc_gpu_clk_lock_get(self._handle, ctypes.byref(low), ctypes.byref(high))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return (low.value, high.value)
+
+    def read_clk_lock_status(self):
+        """(frequency range, error), distinguishing unlocked from unknown."""
+        s = _ClkLockStatus()
+        status = load().dc_gpu_clk_lock_status(self._handle, ctypes.byref(s))
+        if status != DC_OK:
+            _raise(status)
+        error = _text(s.error) or None
+        return ((s.min_mhz, s.max_mhz) if s.locked else None), error
+
+    def set_vf_lock(self, volt_uv, domain=None):
+        outcome = _Outcome()
+        has_domain, domain = self._optional_int(domain)
+        status = load().dc_gpu_vf_lock_set(self._handle, int(volt_uv), has_domain, domain, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def vf_lock_recovery_pending(self):
+        return bool(load().dc_gpu_vf_lock_recovery_pending(self._handle))
+
+    def recover_vf_lock(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_lock_recover(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def clear_vf_lock(self, domain=None, expected_uv=None):
+        outcome = _Outcome()
+        has_domain, domain = self._optional_int(domain)
+        has_expected, expected_uv = self._optional_int(expected_uv)
+        status = load().dc_gpu_vf_lock_clear(self._handle, has_domain, domain, has_expected, expected_uv,
+                                             ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def vf_lock_self_test(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_lock_self_test(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    # ---- V/F curve (nvbackend.GPU.vfp_layout .. _vf_delta_snapshot) ---------------------------- #
+
+    def vfp_layout(self, force=False):
+        """This card's probed V/F table shape (VfpLayout), or None."""
+        layout = _VfLayout()
+        layout.size = ctypes.sizeof(_VfLayout)
+        status = load().dc_gpu_vf_layout(self._handle, 1 if force else 0, ctypes.byref(layout))
+        if status == DC_E_UNAVAILABLE:
+            self._vfp_layout_error = _text(layout.error)
+            return None
+        if status != DC_OK:
+            _raise(status)
+        self._vfp_layout_error = ""
+        return VfpLayout(layout.n_entries, list(layout.gpu_idx[:layout.gpu_count]),
+                         list(layout.other_idx[:layout.other_count]), layout.freq_div, _text(layout.notes))
+
+    def read_vf_curve(self):
+        """(points, err): the GPU points as {idx, volt_mv, freq_mhz, delta_khz} dicts, or an error."""
+        curve = _VfCurve()
+        curve.size = ctypes.sizeof(_VfCurve)
+        status = load().dc_gpu_vf_curve_read(self._handle, ctypes.byref(curve))
+        if status != DC_OK:
+            _raise(status)
+        if not curve.count:
+            return None, _text(curve.error)
+        return [{"idx": p.idx, "volt_mv": p.volt_mv, "freq_mhz": p.freq_mhz, "delta_khz": p.delta_khz}
+                for p in curve.points[:curve.count]], None
+
+    def read_vfp_other_rows(self):
+        rows = _VfOtherRows()
+        rows.size = ctypes.sizeof(_VfOtherRows)
+        status = load().dc_gpu_vf_other_rows(self._handle, ctypes.byref(rows))
+        if status != DC_OK:
+            _raise(status)
+        return [{"idx": r.idx, "volt_mv": r.volt_mv, "value": r.value, "kind": "memory" if r.memory else "unknown"}
+                for r in rows.rows[:rows.count]]
+
+    def apply_vf_deltas(self, new_deltas):
+        """new_deltas maps idx -> absolute delta_khz; only differing GPU rows are written."""
+        items = [(int(idx), int(delta)) for idx, delta in new_deltas.items()]
+        array = (_VfDelta * max(1, len(items)))()
+        for k, (idx, delta) in enumerate(items):
+            array[k].idx, array[k].delta_khz = idx, delta
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_deltas_apply(self._handle, array, len(items), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def rephase_deltas(self):
+        """(ok, message): every delta onto one phase of this card's grid (nvbackend.GPU.rephase_deltas)."""
+        outcome = _Outcome()
+        status = load().dc_gpu_rephase_deltas(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def reset_vf_curve(self):
+        outcome = _Outcome()
+        status = load().dc_gpu_vf_curve_reset(self._handle, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def vf_delta_snapshot(self):
+        """{"freq_div", "deltas": {idx: delta_khz}} or None (nvbackend.GPU._vf_delta_snapshot)."""
+        snapshot = _VfDeltaSnapshot()
+        snapshot.size = ctypes.sizeof(_VfDeltaSnapshot)
+        status = load().dc_gpu_vf_delta_snapshot(self._handle, ctypes.byref(snapshot))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return {"freq_div": snapshot.freq_div,
+                "deltas": {d.idx: d.delta_khz for d in snapshot.deltas[:snapshot.count]}}
+
+    # ---- clock offsets, frequency lock, clock grid (nvbackend.GPU.set_clock_offset ..) --------- #
+
+    def mem_offset_scale(self):
+        """(scale, unit): NVML mem-offset units per slider unit and the slider's unit."""
+        s = _MemOffsetScale()
+        status = load().dc_gpu_mem_offset_scale(self._handle, ctypes.byref(s))
+        if status != DC_OK:
+            _raise(status)
+        return s.scale, _text(s.unit)
+
+    def memory_offset_step_units(self):
+        return load().dc_gpu_memory_offset_step_units(self._handle)
+
+    def clock_step_khz(self):
+        """This card's core-clock grid in kHz (VF_STEP_KHZ when it cannot be measured)."""
+        step, measured = ctypes.c_uint32(), ctypes.c_int32()
+        status = load().dc_gpu_clock_step_khz(self._handle, ctypes.byref(step), ctypes.byref(measured))
+        if status != DC_OK:
+            _raise(status)
+        return step.value
+
+    def step_is_measured(self):
+        step, measured = ctypes.c_uint32(), ctypes.c_int32()
+        status = load().dc_gpu_clock_step_khz(self._handle, ctypes.byref(step), ctypes.byref(measured))
+        if status != DC_OK:
+            _raise(status)
+        return bool(measured.value)
+
+    def max_rise_khz(self):
+        khz = ctypes.c_uint32()
+        status = load().dc_gpu_max_rise_khz(self._handle, ctypes.byref(khz))
+        if status != DC_OK:
+            _raise(status)
+        return khz.value
+
+    def lockable_clocks_by_mem(self):
+        """[(mem_mhz, [graphics clocks])], one row per memory clock that answers."""
+        count = ctypes.c_size_t()
+        status = load().dc_gpu_lockable_clocks(self._handle, None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        rows = (_ClockRow * max(1, count.value))()
+        status = load().dc_gpu_lockable_clocks(self._handle, rows, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return [(row.mem_mhz, list(row.graphics[:min(row.count, 512)])) for row in rows[:count.value]]
+
+    def set_clock_offset(self, ctype, mhz, preserve_curve=True):
+        """ctype 0 = core (MHz, snapped to this card's grid), 2 = memory (true MHz for a known GDDR
+        type, else effective). The Python-type checks stay here; the core does the rest."""
+        if type(preserve_curve) is not bool:
+            return False, "preserve_curve must be a bool"
+        if type(ctype) is not int or ctype not in (0, 2):
+            return False, "clock offset type must be 0 (core) or 2 (memory)"
+        if type(mhz) not in (int, float):
+            return False, "clock offset must be a finite number, not a bool or string"
+        try:
+            finite = math.isfinite(mhz)
+        except OverflowError:
+            finite = False
+        if not finite:
+            return False, "clock offset must be a finite number"
+        if not -(1 << 31) <= mhz < (1 << 31):
+            return False, "clock offset exceeds the driver's signed 32-bit range"
+        outcome = _Outcome()
+        status = load().dc_gpu_clock_offset_set(self._handle, ctype, float(mhz), 1 if preserve_curve else 0,
+                                                ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def lock_gpu_clocks(self, mn_mhz, mx_mhz):
+        outcome = _Outcome()
+        status = load().dc_gpu_clocks_lock(self._handle, int(mn_mhz), int(mx_mhz), ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def last_clock_lock_request(self):
+        low, high = ctypes.c_uint32(), ctypes.c_uint32()
+        status = load().dc_gpu_clocks_last_lock(self._handle, ctypes.byref(low), ctypes.byref(high))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return (low.value, high.value)
+
+    def reset_gpu_clocks(self):
+        return self._reset_gpu_clocks()
+
+    def _reset_gpu_clocks(self, allow_pascal_noop=False):
+        outcome = _Outcome()
+        status = load().dc_gpu_clocks_reset(self._handle, 1 if allow_pascal_noop else 0, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    # ---- RM escape transport, layer 0 (nvbackend.GPU._legacy_clk_escape) ----------------------- #
+
+    _ESCAPE_FIELDS = ("hAdapter", "hDevice", "Type", "Flags", "hContext")
+
+    def _legacy_clk_escape(self, packet, fields):
+        """Issue one raw escape with `packet` (a ctypes buffer, used in place) and the captured
+        `fields` (hAdapter is replaced by the adapter at the paired PCI slot). The NTSTATUS, or
+        None when no escape was issued; `last_escape_error` then says why."""
+        f = _EscapeFields(*(int(fields.get(name, 0)) for name in self._ESCAPE_FIELDS))
+        status, error = ctypes.c_int32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        rc = load().dc_rm_escape_raw(self._handle, ctypes.addressof(packet), ctypes.sizeof(packet), ctypes.byref(f),
+                                     ctypes.byref(status), ctypes.byref(error))
+        if rc == DC_E_UNAVAILABLE:
+            self.last_escape_error = _error_record(error)
+            return None
+        if rc != DC_OK:
+            _raise(rc)
+        self.last_escape_error = None
+        return status.value
+
+    # ---- RM escape transport, layers 1 and 2 (the hook captures and the transport cache) ------- #
+
+    _TRANSPORT_POWER, _TRANSPORT_LEGACY_CLK = 1, 2
+
+    def _transport_get(self, kind):
+        t = _RmTransport()
+        t.size = ctypes.sizeof(_RmTransport)
+        status = load().dc_rm_transport_get(self._handle, kind, ctypes.byref(t))
+        if status != DC_OK:
+            _raise(status)
+        return _transport_value(t)
+
+    def _transport_set(self, kind, value):
+        status = load().dc_rm_transport_set(self._handle, kind, ctypes.byref(_transport_struct(value)))
+        if status != DC_OK:
+            _raise(status)
+
+    @property
+    def _current_limit_transport(self):
+        """The cached power transport (header, fields) or None. Assignment stores it unvalidated,
+        as a fixture does; the next use validates it."""
+        return self._transport_get(self._TRANSPORT_POWER)
+
+    @_current_limit_transport.setter
+    def _current_limit_transport(self, value):
+        self._transport_set(self._TRANSPORT_POWER, value)
+
+    @property
+    def _legacy_clk_transport(self):
+        return self._transport_get(self._TRANSPORT_LEGACY_CLK)
+
+    @_legacy_clk_transport.setter
+    def _legacy_clk_transport(self, value):
+        self._transport_set(self._TRANSPORT_LEGACY_CLK, value)
+
+    @property
+    def _current_limit_layout_choice(self):
+        has_choice, choice = ctypes.c_int32(), ctypes.c_uint32()
+        status = load().dc_rm_layout_choice_get(self._handle, ctypes.byref(has_choice), ctypes.byref(choice))
+        if status != DC_OK:
+            _raise(status)
+        return choice.value if has_choice.value else None
+
+    @_current_limit_layout_choice.setter
+    def _current_limit_layout_choice(self, value):
+        status = load().dc_rm_layout_choice_set(self._handle, 0 if value is None else 1,
+                                                0 if value is None else int(value))
+        if status != DC_OK:
+            _raise(status)
+
+    @property
+    def _current_limit_observed_transport(self):
+        """What the last power capture saw: {} or the command / sizes record."""
+        o = _RmObserved()
+        o.size = ctypes.sizeof(_RmObserved)
+        status = load().dc_rm_observed_get(self._handle, ctypes.byref(o))
+        if status != DC_OK:
+            _raise(status)
+        if not o.seen:
+            return {}
+        return {"command": f"0x{o.command_id:08X}", "command_id": o.command_id,
+                "packet_bytes": o.packet_bytes, "parameter_bytes": o.parameter_bytes}
+
+    def _capture(self, kind):
+        t = _RmTransport()
+        t.size = ctypes.sizeof(_RmTransport)
+        status = load().dc_rm_capture(self._handle, kind, ctypes.byref(t))
+        if status != DC_OK:
+            _raise(status)
+        return _transport_value(t)
+
+    def _capture_current_limit_transport(self):
+        """One PowerPolInfo call under the hook: (header, fields) of its power GET, or None."""
+        return self._capture(self._TRANSPORT_POWER)
+
+    def _capture_legacy_clk_transport(self):
+        """One VoltRailsCtlGet call under the hook: (header, fields) of its escape, or None."""
+        return self._capture(self._TRANSPORT_LEGACY_CLK)
+
+    def _current_limit_profile_supported(self):
+        supported = ctypes.c_int32()
+        status = load().dc_rm_profile_supported(self._handle, ctypes.byref(supported))
+        if status != DC_OK:
+            _raise(status)
+        return bool(supported.value)
+
+    def _current_limit_generation_policies(self):
+        from . import native_power_layouts
+        return native_power_layouts.generation_policies(self.arch())
+
+    def _rm_power_transport(self):
+        """The cached power transport or a fresh capture, validated; raises as nvbackend does."""
+        t, error = _RmTransport(), _Error()
+        t.size, error.size = ctypes.sizeof(_RmTransport), ctypes.sizeof(_Error)
+        status = load().dc_rm_power_transport(self._handle, ctypes.byref(t), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return _transport_value(t)
+
+    def _current_limit_transport_layouts(self):
+        """(layout, *fallbacks) for the captured power GET; raises as nvbackend does."""
+        from . import native_power_layouts as tables
+        rows = (tables._PowerLayout * tables.DC_POWER_LAYOUTS_MAX)()
+        for row in rows:
+            row.size = ctypes.sizeof(tables._PowerLayout)
+        count, error = ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_rm_power_layouts(self._handle, ctypes.cast(rows, ctypes.c_void_p),
+                                            tables.DC_POWER_LAYOUTS_MAX, ctypes.byref(count), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return tuple(tables._layout_dict(rows[i]) for i in range(min(count.value, tables.DC_POWER_LAYOUTS_MAX)))
+
+    def _legacy_clk_limit_records(self):
+        """RM GET 0x20802077 through the legacy transport: two 82-word records, or None."""
+        records, available = (ctypes.c_uint32 * (2 * 82))(), ctypes.c_int32()
+        status = load().dc_legacy_clk_records(self._handle, records, ctypes.byref(available))
+        if status != DC_OK:
+            _raise(status)
+        if not available.value:
+            return None
+        return [list(records[0:82]), list(records[82:164])]
+
+    def _rail_write_locked(self, control_version, rail_mask, records, boost):
+        """nvbackend.GPU._write_rail_records_locked after its Python preconditions (the profile,
+        the supported rails, the boost read): one VoltRailsCtlGet under the hook, the recognized
+        GET read back, exactly one SET with the prepared records. Returns (done, status) and sets
+        _volt_rail_write_error, _volt_rail_write_protocol and _volt_rail_observed_packets as the
+        Python does."""
+        request = _RailWriteRequest()
+        request.size = ctypes.sizeof(_RailWriteRequest)
+        request.control_version, request.rail_mask, request.boost = int(control_version), int(rail_mask), int(boost)
+        items = list(records.items())
+        if len(items) > 2:
+            raise ValueError("requested_mask must exactly match the record rails")
+        request.record_count = len(items)
+        for rail, values in items:
+            if len(tuple(values)) != 4:  # the Python precondition: (False, None), attributes untouched
+                return False, None
+        for position, (rail, values) in enumerate(items):
+            record = tuple(values)
+            # The ABI record carries int32 values and a c_int32 array wraps silently, so the range
+            # check of rail_transport._validated_records happens here. The refusal is the one
+            # prepare_write would give inside the hook, but no GET is issued for it.
+            if any(not _is_plain_int(value) or not -(1 << 31) <= value <= (1 << 31) - 1 for value in record):
+                self._volt_rail_observed_packets = []
+                self._volt_rail_write_protocol = None
+                self._volt_rail_write_error = ("Could not preserve the current native rail record: "
+                                               f"rail {rail} record values must be signed int32 integers")
+                return False, None
+            request.records[position].rail = int(rail)
+            request.records[position].values[:] = record
+        result = _RailWriteResult()
+        result.size = ctypes.sizeof(_RailWriteResult)
+        status = load().dc_rail_write_locked(self._handle, ctypes.byref(request), ctypes.byref(result))
+        if status != DC_OK:
+            _raise(status)
+        self._take_rail_write_result(result)
+        return bool(result.done), (result.status if result.has_status else None)
+
+    def _take_rail_write_result(self, result):
+        """Set _volt_rail_observed_packets, _volt_rail_write_error and _volt_rail_write_protocol from
+        a dc_rail_write_result (a locked write that ran sets all three, as the Python does)."""
+        self._volt_rail_observed_packets = [result.observed[i].value.decode(errors="replace")
+                                            for i in range(min(result.observed_count, 8))]
+        self._volt_rail_write_error = _text(result.error) or None
+        self._volt_rail_write_protocol = None
+        if result.has_protocol:
+            self._volt_rail_write_protocol = {"get_command": f"0x{result.get_command:08X}",
+                                              "set_command": f"0x{result.set_command:08X}",
+                                              "packet_size": result.packet_size,
+                                              "getter_version": f"0x{result.getter_version:08X}"}
+
+    def _write_rail_records(self, records):
+        """nvbackend.GPU._write_rail_records: the preconditions, the settle decision, the locked
+        write and the verified identity re-send, under the process-wide rail hook mutex
+        (druta.native_rails.write_rail_records)."""
+        from . import native_rails
+        return native_rails.write_rail_records(self, records)
+
+    def _verify_rail_records(self, records, boost):
+        """nvbackend.GPU._verify_rail_records (druta.native_rails.verify_rail_records)."""
+        from . import native_rails
+        return native_rails.verify_rail_records(self, records, boost)
+
+    def set_volt_rail_limits(self, rail, **limits):
+        """nvbackend.GPU.set_volt_rail_limits (druta.native_rails.set_volt_rail_limits); the session
+        flags volt_limits_write_enabled and voltage_xoc_enabled are read at the call."""
+        from . import native_rails
+        return native_rails.set_volt_rail_limits(self, rail, limits)
+
+    def set_volt_rail_limits_raw(self, rail, **limits_uv):
+        """nvbackend.GPU.set_volt_rail_limits_raw (druta.native_rails.set_volt_rail_limits_raw)."""
+        from . import native_rails
+        return native_rails.set_volt_rail_limits_raw(self, rail, limits_uv)
+
+    def reset_volt_rail_limits(self, rail=None, fields=None):
+        """nvbackend.GPU.reset_volt_rail_limits (druta.native_rails.reset_volt_rail_limits): this
+        session's first-read values, never factory defaults."""
+        from . import native_rails
+        return native_rails.reset_volt_rail_limits(self, rail, fields)
+
+    # ---- the hold-headroom runtime (nvbackend.GPU.*hold_headroom*; increment R6) -------------- #
+    #
+    # The record and the four state attributes live in the core as this session's process memory:
+    # never persisted, never reapplied after a driver restart (the crash marker is druta.py's, written
+    # by the before_write hook). The attributes are properties over the core so druta.py's getattr /
+    # assignment of them reaches it. Divergences: druta.native_rails' module docstring.
+
+    _foreign_hold_headroom = None  # another window's raise, set by druta.py (Python's getattr default)
+
+    def hold_headroom_grain_mv(self):
+        """nvbackend.GPU.hold_headroom_grain_mv (druta.native_rails.hold_headroom_grain_mv)."""
+        from . import native_rails
+        return native_rails.hold_headroom_grain_mv(self)
+
+    def hold_headroom_architecture(self):
+        """nvbackend.GPU.hold_headroom_architecture: True, False or None (arch() unread)."""
+        from . import native_rails
+        return native_rails.hold_headroom_architecture(self)
+
+    def hold_headroom_rail_unavailable(self, rail=0):
+        """nvbackend.GPU.hold_headroom_rail_unavailable (druta.native_rails)."""
+        from . import native_rails
+        return native_rails.hold_headroom_rail_unavailable(self, rail)
+
+    def hold_headroom_overwritten(self, limits=None):
+        """nvbackend.GPU.hold_headroom_overwritten (druta.native_rails)."""
+        from . import native_rails
+        return native_rails.hold_headroom_overwritten(self, limits)
+
+    def hold_headroom_record(self):
+        """nvbackend.GPU.hold_headroom_record: the active raise's record (a new dict), or None."""
+        from . import native_rails
+        return native_rails.hold_record(self)
+
+    def apply_hold_headroom(self, hold_mv, margin_mv, rail=0, before_write=None):
+        """nvbackend.GPU.apply_hold_headroom (druta.native_rails.apply_hold_headroom); the session flag
+        voltage_xoc_enabled is read at the call. before_write runs under the handle lock."""
+        from . import native_rails
+        return native_rails.apply_hold_headroom(self, hold_mv, margin_mv, rail, before_write)
+
+    def hold_headroom_live_ok(self, record=None, live_mv=None):
+        """nvbackend.GPU.hold_headroom_live_ok (druta.native_rails.hold_headroom_live_ok)."""
+        from . import native_rails
+        return native_rails.hold_headroom_live_ok(self, record, live_mv)
+
+    def restore_hold_headroom(self, force=False):
+        """nvbackend.GPU.restore_hold_headroom (druta.native_rails.restore_hold_headroom)."""
+        from . import native_rails
+        return native_rails.restore_hold_headroom(self, force)
+
+    def user_rail_limits(self, cur=None):
+        """nvbackend.GPU.user_rail_limits (druta.native_rails.user_rail_limits)."""
+        from . import native_rails
+        return native_rails.user_rail_limits(self, cur)
+
+    def adopt_foreign_hold_headroom(self, record):
+        """nvbackend.GPU.adopt_foreign_hold_headroom (druta.native_rails.adopt_foreign_hold_headroom)."""
+        from . import native_rails
+        return native_rails.adopt_foreign_hold_headroom(self, record)
+
+    @property
+    def _hold_headroom(self):
+        from . import native_rails
+        return native_rails.hold_record(self)
+
+    @_hold_headroom.setter
+    def _hold_headroom(self, record):
+        from . import native_rails
+        native_rails.set_hold_record(self, record)
+
+    def _hold_state(name):  # noqa: N805 - a property factory used in the class body only
+        def get(self):
+            from . import native_rails
+            return native_rails.hold_state(self)[name]
+
+        def set_(self, value):
+            from . import native_rails
+            native_rails.set_hold_state(self, **{name: value})
+        return property(get, set_)
+
+    _hold_headroom_grain = _hold_state("_hold_headroom_grain")
+    _hold_headroom_offset_mv = _hold_state("_hold_headroom_offset_mv")
+    _hold_headroom_unread = _hold_state("_hold_headroom_unread")
+    _hold_headroom_live_trip = _hold_state("_hold_headroom_live_trip")
+    del _hold_state
+
+    # ---- current-policy operations on the transport (nvbackend.GPU._current_limit_*) --------- #
+
+    _CL_COMMANDS = (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)
+
+    @staticmethod
+    def _current_limit_capacity(layout):
+        """Indices bounded by the known buffers and their 32-bit occupancy mask."""
+        from . import native_power_layouts as tables
+        row, capacity = _layout_struct(layout), ctypes.c_uint32()
+        status = load().dc_cl_capacity(ctypes.byref(row), ctypes.byref(capacity))
+        if status != DC_OK:
+            _raise(status)
+        return capacity.value
+
+    def _cl_words(self, name, *args):
+        """Call a word-returning dc_cl_* function; the words as a list, or the Python exception."""
+        library = load()
+        out = (ctypes.c_uint32 * _cl_max_words())()
+        count, error = ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = getattr(library, name)(self._handle, *args, out, len(out), ctypes.byref(count), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return list(out[:min(count.value, len(out))])
+
+    def _current_limit_abi(self):
+        """The current-policy layout: the stored choice, the only candidate, or the first the driver's
+        read-only info probe accepts; raises as nvbackend does."""
+        from . import native_power_layouts as tables
+        row, index, error = tables._PowerLayout(), ctypes.c_uint32(), _Error()
+        row.size, error.size = ctypes.sizeof(tables._PowerLayout), ctypes.sizeof(_Error)
+        status = load().dc_cl_abi(self._handle, ctypes.byref(row), ctypes.byref(index), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return tables._layout_dict(row)
+
+    def _current_limit_probe_info(self, layout):
+        """Read-only info GET used to choose between same-sized transports."""
+        row = _layout_struct(layout)
+        return self._cl_words("dc_cl_probe_info", ctypes.byref(row))
+
+    def _current_limit_rm(self, command, params=None, policy_mask=None, *, any_live_policy=False):
+        """Only the four measured policy operations, on this live GPU client."""
+        if params is not None:
+            params = list(params)
+            # nvbackend packs the words into a c_uint32 array when it builds the packet: a float or
+            # a str is refused there with this TypeError. An out-of-range int is refused here
+            # instead of wrapped, so no word the caller did not mean reaches the driver.
+            for word in params:
+                if not _is_plain_int(word):
+                    raise TypeError(f"'{type(word).__name__}' object cannot be interpreted as an integer")
+            if any(not 0 <= word <= 0xFFFFFFFF for word in params):
+                raise ValueError("current-policy parameters are 32-bit words")
+            buffer = (ctypes.c_uint32 * max(len(params), 1))(*params)
+        else:
+            buffer = None
+        has_mask = type(policy_mask) is int and 0 <= policy_mask <= 0xFFFFFFFF
+        return self._cl_words("dc_cl_rm", int(command) & 0xFFFFFFFF, buffer, 0 if params is None else len(params),
+                              1 if has_mask else 0, policy_mask if has_mask else 0, 1 if any_live_policy else 0)
+
+    def _power_policy_table(self):
+        """(layout, info, control, status) from one validated read of the driver's whole policy table;
+        control and status are None when the mask is empty."""
+        from . import native_power_layouts as tables
+        row, error = tables._PowerLayout(), _Error()
+        row.size, error.size = ctypes.sizeof(tables._PowerLayout), ctypes.sizeof(_Error)
+        status = load().dc_cl_policy_table(self._handle, ctypes.byref(row), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return self._last_policy_table
+
+    @property
+    def _last_policy_table(self):
+        from . import native_power_layouts as tables
+        library = load()
+        row, present = tables._PowerLayout(), ctypes.c_int32()
+        row.size = ctypes.sizeof(tables._PowerLayout)
+        status = library.dc_cl_table_layout(self._handle, ctypes.byref(row), ctypes.byref(present))
+        if status != DC_OK:
+            _raise(status)
+        if not present.value:
+            return None
+        blocks = []
+        for block in range(3):
+            out = (ctypes.c_uint32 * _cl_max_words())()
+            count, has = ctypes.c_uint32(), ctypes.c_int32()
+            status = library.dc_cl_table_get(self._handle, block, out, len(out), ctypes.byref(count), ctypes.byref(has))
+            if status != DC_OK:
+                _raise(status)
+            blocks.append(list(out[:min(count.value, len(out))]) if has.value else None)
+        return (tables._layout_dict(row), blocks[0], blocks[1], blocks[2])
+
+    @_last_policy_table.setter
+    def _last_policy_table(self, value):
+        if value is not None:
+            raise ValueError("the last policy table is read from the driver; only None can be assigned")
+        status = load().dc_cl_table_reset(self._handle)
+        if status != DC_OK:
+            _raise(status)
+
+    @property
+    def _power_policy_mask(self):
+        mask = ctypes.c_uint32()
+        status = load().dc_cl_policy_mask_get(self._handle, ctypes.byref(mask))
+        if status != DC_OK:
+            _raise(status)
+        return mask.value
+
+    @_power_policy_mask.setter
+    def _power_policy_mask(self, value):
+        status = load().dc_cl_policy_mask_set(self._handle, int(value or 0) & 0xFFFFFFFF)
+        if status != DC_OK:
+            _raise(status)
+
+    # ---- the policy rows, the getter and the verified setter (nvbackend.GPU._current_limit_state and up) #
+
+    _CL_ERROR, _CL_READ_ERROR = 0, 1
+    _CL_MAX_ROWS = 32  # one row per policy bit at most
+
+    # ---- the live power request (nvbackend.GPU.read_live_power_request, increment A6) ------------- #
+    # The core keeps GPU._live_power_last / _live_power_error / _live_power_error_kind / _board_policy
+    # on the handle (dc_cpc_live_state); the properties below read them, and _board_policy writes.
+
+    _cp_live_state = None
+
+    @classmethod
+    def _cp_live_state_type(cls):
+        """dc_cpc_live_state, built on first use (it holds a dc_cpc_observation)."""
+        if cls._cp_live_state is None:
+            class _CpcLiveState(ctypes.Structure):  # dc_cpc_live_state
+                _fields_ = [("size", ctypes.c_uint32), ("has_last", ctypes.c_int32),
+                            ("last", cls._cp_observation_type()), ("has_error", ctypes.c_int32),
+                            ("error_kind", ctypes.c_int32), ("error", ctypes.c_char * 1024),
+                            ("board_policy", ctypes.c_int32)]
+            cls._cp_live_state = _CpcLiveState
+        return cls._cp_live_state
+
+    def read_live_power_request(self):
+        """nvbackend.GPU.read_live_power_request: (observation, None), or (None, the error text).
+
+        The core reads on the handle's sticky controller and keeps the bookkeeping (a transient
+        failure keeps the last observation, any other drops it), the board policy and the back-fill
+        of the handle's absent pl_min_mw / pl_def_mw / pl_max_mw capabilities. self.static then
+        reflects that store: a key that is None (or absent) there takes the core's value. Never
+        raises for a failed read, as Python's catches every exception."""
+        o, error = self._cp_observation_type()(), _Error()
+        o.size, error.size = ctypes.sizeof(o), ctypes.sizeof(_Error)
+        o.metadata.size, o.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(o.arbitration)
+        status = load().dc_cpc_live_read(self._handle, ctypes.addressof(o), ctypes.byref(error))
+        if status == DC_E_FAILED:
+            return None, _text(error.message)
+        if status == DC_E_BUFFER:  # unreachable: every size group's payloads fit dc_cpc_observation
+            return None, "Client-power read does not fit the native read's buffers (dc_cpc_live_read returned DC_E_BUFFER)"
+        if status != DC_OK:
+            _raise(status)
+        observation = self._cp_reading_dict(o)
+        self._pl_resync()
+        return observation, None
+
+    def _pl_resync(self):
+        """After a successful live read in the core: a pl_* key that is None (or absent) in
+        self.static takes the handle store's value (read_live_power_request's back-fill)."""
+        capabilities = self.capabilities()
+        for key in ("pl_min_mw", "pl_def_mw", "pl_max_mw"):
+            if self.static.get(key) is None and capabilities.get(key) is not None:
+                self.static[key] = capabilities[key]
+
+    def _cp_live(self):
+        s = self._cp_live_state_type()()
+        s.size, s.last.size = ctypes.sizeof(s), ctypes.sizeof(s.last)
+        s.last.metadata.size, s.last.arbitration.size = ctypes.sizeof(self._CpcMetadata), ctypes.sizeof(s.last.arbitration)
+        status = load().dc_cpc_live_state_get(self._handle, ctypes.addressof(s))
+        if status != DC_OK:
+            _raise(status)
+        return s
+
+    @property
+    def _live_power_last(self):
+        """GPU._live_power_last: the last successful observation's dict, or None."""
+        s = self._cp_live()
+        return self._cp_reading_dict(s.last) if s.has_last else None
+
+    @property
+    def _live_power_error(self):
+        s = self._cp_live()
+        return _text(s.error) if s.has_error else None
+
+    @property
+    def _live_power_error_kind(self):
+        """The Python kind: the ClientPowerError's, or "transient" for any other failure."""
+        s = self._cp_live()
+        return self._ERROR_KINDS.get(s.error_kind, "transient") if s.has_error else None
+
+    @property
+    def _board_policy(self):
+        policy = self._cp_live().board_policy
+        return None if policy < 0 else policy
+
+    @_board_policy.setter
+    def _board_policy(self, value):
+        """A native policy index (0 .. 2**31 - 1) or None."""
+        if value is not None and (type(value) is not int or not 0 <= value <= 0x7FFFFFFF):
+            raise ValueError(f"board policy must be a policy index or None, not {value!r}")
+        status = load().dc_cpc_board_policy_set(self._handle, -1 if value is None else value)
+        if status != DC_OK:
+            _raise(status)
+
+    def _confirm_derived_clamp(self):
+        """The dc_cl_confirm_fn: the read_live_power_request branch of _current_limit_state, on the
+        info and control words the core hands over. The caller keeps the returned object alive for
+        the duration of the call it is passed to."""
+        def confirm(_context, _policy, _requested_ma, _effective_ma, info, info_count, control, control_count):
+            try:
+                observed, error = self.read_live_power_request()
+                if error or observed is None:
+                    return 0
+                binding = observed.get("binding", {})
+                return int(bytes.fromhex(observed.get("role_info_hex", ""))[4:5] == b"\x30"
+                           and type(observed.get("requested_mw")) is int
+                           and type(binding.get("maximum_mw")) is int
+                           and observed["requested_mw"] > binding["maximum_mw"]
+                           and observed.get("native_info_hex") == ctypes.string_at(info, info_count * 4).hex()
+                           and observed.get("native_control_hex") == ctypes.string_at(control, control_count * 4).hex())
+            except Exception:
+                # nvbackend lets such an exception escape _current_limit_state (get_current_limits
+                # then reports its text); inside the callback it would vanish, so it refuses instead
+                return 0
+        return CL_CONFIRM(confirm)
+
+    def _cl_rows(self, name, *args):
+        out = (_CurrentRow * self._CL_MAX_ROWS)()
+        for row in out:
+            row.size = ctypes.sizeof(_CurrentRow)
+        count = ctypes.c_uint32()
+        status = getattr(load(), name)(self._handle, *args, out, len(out), ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return [_row_dict(out[i]) for i in range(min(count.value, len(out)))]
+
+    def _current_limit_state(self):
+        """(rows, control) of one validated table read; raises as nvbackend does. Resets
+        _current_limit_unavailable first either way."""
+        confirm = self._confirm_derived_clamp()
+        rows = (_CurrentRow * self._CL_MAX_ROWS)()
+        for row in rows:
+            row.size = ctypes.sizeof(_CurrentRow)
+        control = (ctypes.c_uint32 * _cl_max_words())()
+        count, control_count, has_control = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_int32()
+        error = _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_cl_state(self._handle, confirm, None, rows, len(rows), ctypes.byref(count), control,
+                                    len(control), ctypes.byref(control_count), ctypes.byref(has_control),
+                                    ctypes.byref(error))
+        if status == DC_E_FAILED:
+            _raise_error(error)
+        if status != DC_OK:
+            _raise(status)
+        return ([_row_dict(rows[i]) for i in range(min(count.value, len(rows)))],
+                list(control[:min(control_count.value, len(control))]) if has_control.value else None)
+
+    @property
+    def _current_limit_unavailable(self):
+        out = (_CurrentUnavailable * self._CL_MAX_ROWS)()
+        for item in out:
+            item.size = ctypes.sizeof(_CurrentUnavailable)
+        count = ctypes.c_uint32()
+        status = load().dc_cl_unavailable(self._handle, out, len(out), ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        items = []
+        for i in range(min(count.value, len(out))):
+            item = {"policy": out[i].policy, "label": _text(out[i].label), "present": bool(out[i].present)}
+            if out[i].present:
+                item["unsupported"] = bool(out[i].unsupported)
+            item["error"] = _text(out[i].error)
+            items.append(item)
+        return items
+
+    def get_current_limits(self):
+        """Supported current policies in mA; empty on an unvalidated adapter."""
+        confirm = self._confirm_derived_clamp()
+        return self._cl_rows("dc_cl_get_current_limits", confirm, None)
+
+    @property
+    def _current_limit_last_rows(self):
+        return self._cl_rows("dc_cl_last_rows")
+
+    def _cl_text(self, which):
+        library, needed = load(), ctypes.c_size_t()
+        status = library.dc_cl_error_get(self._handle, which, None, 0, ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        buffer = ctypes.create_string_buffer(max(needed.value, 1))
+        status = library.dc_cl_error_get(self._handle, which, buffer, len(buffer), ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode(errors="replace")
+
+    @property
+    def _current_limit_error(self):
+        return self._cl_text(self._CL_ERROR)
+
+    @property
+    def _current_limit_read_error(self):
+        return self._cl_text(self._CL_READ_ERROR)
+
+    @property
+    def _current_limit_established(self):
+        mask = ctypes.c_uint32()
+        status = load().dc_cl_established_get(self._handle, ctypes.byref(mask))
+        if status != DC_OK:
+            _raise(status)
+        return {policy for policy in range(32) if mask.value >> policy & 1}
+
+    @_current_limit_established.setter
+    def _current_limit_established(self, value):
+        policies = set(value or ())
+        if any(not _is_plain_int(policy) or not 0 <= policy < 32 for policy in policies):
+            raise ValueError("established current policies are policy indices below 32")
+        status = load().dc_cl_established_set(self._handle, sum(1 << policy for policy in policies))
+        if status != DC_OK:
+            _raise(status)
+
+    def current_limit_diagnostics(self):
+        """Last GET outcome only; contains no client handles and performs no writes."""
+        choice, layout = self._current_limit_layout_choice, None
+        if choice is not None and self._current_limit_transport is not None:
+            try:
+                candidates = self._current_limit_transport_layouts()
+                layout = candidates[choice] if choice < len(candidates) else None
+            except ValueError:
+                layout = None
+        return {
+            "build": "current-visibility-v3",
+            "driver": self.static.get("driver"),
+            "vbios": self.static.get("vbios"),
+            "generation": self.arch(),
+            "expected_policies": self._current_limit_generation_policies(),
+            "transport": self._current_limit_observed_transport,
+            # which same-sized layout the info probe chose, by its info size
+            "layout_info_bytes": (layout or {}).get("sizes", {}).get(0x2080A618),
+            "error": self._current_limit_error,
+            "read_error": self._current_limit_read_error,
+            "policies": self._current_limit_last_rows,
+            "unavailable_policies": self._current_limit_unavailable,
+        }
+
+    def set_current_limit_ma(self, policy, ma, *, pin=True):
+        """Change one policy and verify stored AND effective limits; (ok, message) as nvbackend's."""
+        if type(policy) is not int or policy not in self._current_limit_generation_policies():
+            return False, "not a supported current policy"
+        if type(ma) is not int:
+            return False, "current limit must be an integer number of milliamps"
+
+        def int64(value):  # beyond int64 is beyond every policy range: the core's refusal is the same
+            return max(-(1 << 63), min(value, (1 << 63) - 1))
+        confirm = self._confirm_derived_clamp()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(4096)
+        status = load().dc_cl_set_current_limit_ma(self._handle, confirm, None, int64(policy), int64(ma),
+                                                   1 if pin else 0, ctypes.byref(ok), message, len(message),
+                                                   ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return bool(ok.value), message.value.decode(errors="replace")
+
+    def _set_current_limit_ma(self, policy, ma):
+        return self.set_current_limit_ma(policy, ma, pin=False)
+
+    @property
+    def _power_policy_pins(self):
+        policies, values = (ctypes.c_uint32 * 32)(), (ctypes.c_int64 * 32)()
+        count = ctypes.c_uint32()
+        status = load().dc_cl_pins_get(self._handle, policies, values, 32, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {policies[i]: values[i] for i in range(min(count.value, 32))}
+
+    @_power_policy_pins.setter
+    def _power_policy_pins(self, value):
+        items = list((value or {}).items())
+        if any(not _is_plain_int(policy) or not 0 <= policy < 32 or not _is_plain_int(ma)
+               or not -(1 << 63) <= ma < (1 << 63) for policy, ma in items):
+            raise ValueError("power policy pins map policy indices below 32 to integer milliamps")
+        policies = (ctypes.c_uint32 * max(len(items), 1))(*[policy for policy, _ in items])
+        values = (ctypes.c_int64 * max(len(items), 1))(*[ma for _, ma in items])
+        status = load().dc_cl_pins_set(self._handle, policies, values, len(items))
+        if status != DC_OK:
+            _raise(status)
+
+    # ---- every policy in the table (nvbackend.GPU._power_policy_rows / read_power_policies, B2) -- #
+    #
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_policies.py):
+    # - power_policy_unwritable_reason refuses what dc_policy_row cannot carry instead of truncating
+    #   or wrapping it: bounds that are not plain ints within int64 (floats and bools: TypeError;
+    #   beyond int64: OverflowError), and a truthy maybe_board that is not a str, holds a NUL or is
+    #   96 UTF-8 bytes or more (ValueError). Python compares and formats them as given. It reads
+    #   every key it passes, in Python's order, so a missing key raises KeyError even where Python
+    #   returns from an earlier check; a bound is refused even where Python answers before it.
+    # - a static pl_* value or a board reading whose int() or == raises is taken as unequal to every
+    #   driver word; Python raises from the comparison when its loop reaches it.
+    # - _power_policy_rows on a layout with a negative offset or stride: Python indexes from the end
+    #   of the block; dc_power_layout holds unsigned words, so the core reports IndexError.
+    # - a failure inside the core (only allocation throws there) is a MemoryError from
+    #   read_power_policies and _power_policy_rows, with the core's fixed text.
+
+    _POLICY_UNITS = {"mW": 0, "mA": 1}
+    _ABSENT = object()
+
+    @staticmethod
+    def _policy_word(value):
+        """(1, int) for a value equal to an int64, else (1, -1): equal to no driver word (all >= 0).
+        A value whose int() or == raises is taken as unequal too (Python raises when it compares)."""
+        try:
+            whole = int(value)
+            if whole == value and -(1 << 63) <= whole < (1 << 63):
+                return 1, whole
+        except Exception:                                               # noqa: BLE001 - see above
+            pass
+        return 1, -1
+
+    def _cl_statics_fill(self, s):
+        """The three pl_* keys of self.static as dc_cl_statics tri-states, read now (the dict is the
+        binding's: an absent key and a None value mean different things to pl_min_mw)."""
+        st = getattr(self, "static", None) or {}
+        for name in ("pl_min", "pl_def", "pl_max"):
+            value = st.get(name + "_mw", self._ABSENT)
+            state, word = (0, 0) if value is self._ABSENT else (1, 0) if value is None else (2, None)
+            if word is None:
+                _, word = self._policy_word(value)
+                if word < 0:
+                    state, word = 1, 0  # equal to no row's range word: as unequal as None
+            setattr(s, name + "_state", state)
+            setattr(s, name + "_mw", word)
+        s.size = ctypes.sizeof(_ClStatics)
+        return s
+
+    @staticmethod
+    def _policy_rows_buffer():
+        out = (_PolicyRow * 32)()
+        for row in out:
+            row.size = ctypes.sizeof(_PolicyRow)
+        return out
+
+    @staticmethod
+    def _policy_row_dict(r):
+        return {"policy": r.policy, "type": r.type, "channel": r.channel,
+                "unit": {0: "mW", 1: "mA"}.get(r.unit), "minimum": r.minimum, "default": r.default_value,
+                "maximum": r.maximum, "requested": r.requested, "limit": r.limit, "value": r.value,
+                "pinned": r.pinned if r.has_pinned else None, "named_current": bool(r.named_current),
+                "maybe_board": _text(r.maybe_board), "consistent": bool(r.consistent),
+                "in_range": bool(r.in_range), "board": bool(r.board), "writable": bool(r.writable)}
+
+    @staticmethod
+    def _policy_amount(value, unit):
+        """nvbackend.GPU._policy_amount for integer amounts within +-2**53 (every driver word)."""
+        if not _is_plain_int(value) or not -(1 << 53) <= value <= (1 << 53):
+            raise ValueError("policy amounts are integers within +-2**53")
+        buffer, needed = ctypes.create_string_buffer(64), ctypes.c_size_t()
+        status = load().dc_cl_policy_amount(value, Gpu._POLICY_UNITS.get(unit, -1), buffer, len(buffer),
+                                            ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode()
+
+    @staticmethod
+    def power_policy_unwritable_reason(row):
+        """Why the full list does not write this row (nvbackend's order of checks).
+
+        The keys are read in Python's order (board, maybe_board with .get as Python does,
+        named_current, unit, minimum, maximum, consistent). Recorded divergences: every key is read,
+        so a missing one raises KeyError even where Python returns from an earlier check; minimum
+        and maximum must be plain ints within int64 (TypeError / OverflowError, where Python compares
+        floats, bools and larger ints as given), checked even where Python answers before them; a
+        truthy maybe_board must be a str without NUL, under 96 UTF-8 bytes (ValueError, where Python
+        formats any value). Rows from read_power_policies and _power_policy_rows always qualify."""
+        def bound(key):
+            value = row[key]
+            if not _is_plain_int(value):
+                raise TypeError(f"power policy {key} must be an int, not {type(value).__name__}")
+            if not -(1 << 63) <= value < (1 << 63):
+                raise OverflowError(f"power policy {key} does not fit a 64-bit integer")
+            return value
+        r = _PolicyRow()
+        r.size = ctypes.sizeof(_PolicyRow)
+        r.board = 1 if row["board"] else 0
+        maybe, text = row.get("maybe_board"), b""
+        if maybe:
+            if not isinstance(maybe, str) or "\0" in maybe:
+                raise ValueError("maybe_board must be a text without NUL")
+            text = maybe.encode()
+            if len(text) >= _PolicyRow.maybe_board.size:
+                raise ValueError("maybe_board text does not fit dc_policy_row")
+        r.maybe_board = text
+        r.named_current = 1 if row["named_current"] else 0
+        unit = row["unit"]
+        r.unit = -1 if unit is None else Gpu._POLICY_UNITS.get(unit, 2) if isinstance(unit, str) else 2
+        r.minimum = bound("minimum")
+        r.maximum = bound("maximum")
+        r.consistent = 1 if row["consistent"] else 0
+        buffer, needed = ctypes.create_string_buffer(256), ctypes.c_size_t()
+        status = load().dc_cl_policy_unwritable_reason(ctypes.byref(r), buffer, len(buffer), ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode()
+
+    @staticmethod
+    def _policy_rows_walk(layout, info, control, status, named):
+        """nvbackend's _power_policy_rows loop over the caller's own objects, every subscript and
+        `p in named` in its order, the values discarded: a short or None block (or a str named)
+        raises Python's own exception here, before anything reaches the core. Returns the named
+        mask: bit p is Python's `p in named` for each policy the table's mask selects."""
+        mask, named_mask = info[1], 0
+        for p in range(32):
+            if not mask >> p & 1:
+                continue
+            meta = (layout["info"][0] + p * layout["info"][1]) // 4
+            state = (layout["status"][0] + p * layout["status"][1]) // 4
+            record = (layout["control"][0] + p * layout["control"][1]) // 4
+            kind = info[meta + 1] & 255
+            minimum, default, maximum = info[meta + 2:meta + 5]
+            control[record + 1], status[state + 1], status[state + 2]  # noqa: B018 - Python's reads
+            if p in named:
+                named_mask |= 1 << p
+            status[state] & 255 == kind and control[record] == kind  # noqa: B015 - `consistent`'s reads
+        return named_mask
+
+    def _power_policy_rows(self, layout, info, control, status, named=frozenset(), board_mw=None):
+        """One dict per policy in the table, as the adapter reports it; a unique board candidate is
+        remembered as _board_policy. The table is walked first as Python's loop subscripts it (a
+        short slice raises the unpack's ValueError, a None block TypeError, a missing word
+        IndexError, a str `named` TypeError, each with Python's text and nothing stored), and
+        `named` is Python's membership. The layout's "sizes" is not read, as in Python."""
+        def words(block):
+            block = list(block or ())
+            return (ctypes.c_uint32 * max(len(block), 1))(*block), len(block)
+        mask = self._policy_rows_walk(layout, info, control, status, named)
+        row = _layout_struct(layout, records_only=True)
+        (i, ni), (c, nc), (s, ns) = words(info), words(control), words(status)
+        has_board, board = (0, 0) if board_mw is None else self._policy_word(board_mw)
+        out, count = self._policy_rows_buffer(), ctypes.c_uint32()
+        result = load().dc_cl_policy_rows(self._handle, ctypes.byref(row), i, ni, c, nc, s, ns, mask,
+                                          ctypes.byref(self._cl_statics_fill(_ClStatics())), has_board, board,
+                                          out, len(out), ctypes.byref(count))
+        if result == DC_E_RANGE:  # the core's own bounds check (a negative layout word, see above)
+            raise IndexError("list index out of range")
+        if result == DC_E_FAILED:  # the core's guard: only allocation throws there
+            raise MemoryError("native core: allocation failed")
+        if result != DC_OK:
+            _raise(result)
+        return [self._policy_row_dict(out[k]) for k in range(min(count.value, len(out)))]
+
+    def _policy_inputs(self, failure):
+        """The dc_cl_policy_inputs_fn of read_power_policies: read_power_limit_mw (its exception is
+        Python's None), then the static pl_* keys. Any other exception (one Python lets escape: a
+        KeyboardInterrupt from the reading, an AttributeError from a `static` without .get) is
+        appended to `failure` and the callback returns 1, so the core abandons the call there
+        (DC_E_CALLER: no rows, nothing stored or written) and the caller raises it. The caller keeps
+        the object alive for the call."""
+        def inputs(_context, has_board_mw, board_mw, statics):
+            try:
+                try:
+                    value = self.read_power_limit_mw()  # the native reader (A8), on the holding thread
+                except Exception:                                       # noqa: BLE001 - Python's None
+                    value = None
+                has_board_mw[0], board_mw[0] = (0, 0) if value is None else self._policy_word(value)
+                self._cl_statics_fill(statics.contents)
+            except BaseException as exc:                                # noqa: BLE001 - raised by the caller
+                failure.append(exc)
+                return 1
+            return 0
+        return CL_POLICY_INPUTS(inputs)
+
+    def read_power_policies(self):
+        """(rows, error): every policy in the driver's table, as nvbackend.GPU.read_power_policies.
+        Read-only apart from the bookkeeping it shares with get_current_limits and _board_policy.
+
+        The core calls back where Python calls read_power_limit_mw (its exception is Python's None),
+        then reads the static pl_* keys and _board_policy, so a reader that changes them is seen.
+        Recorded divergence: a static value or a reading whose int() or == raises is treated as
+        unequal to every driver word; Python raises from the comparison. Any other exception in
+        the callback stops the core where Python's raise would (DC_E_CALLER: no rows built, no
+        board policy stored) and is raised here, as Python raises it out of read_power_policies."""
+        confirm = self._confirm_derived_clamp()
+        failure = []
+        callback = self._policy_inputs(failure)
+        out, count, error = self._policy_rows_buffer(), ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = load().dc_cl_power_policies_read(self._handle, confirm, None, callback, None, out, len(out),
+                                                  ctypes.byref(count), ctypes.byref(error))
+        if failure:  # DC_E_CALLER: the core stopped where the callback raised
+            raise failure[0]
+        if status == DC_E_FAILED and error.kind == DC_ERR_TRANSIENT:  # the core's guard: allocation
+            raise MemoryError(_text(error.message))
+        if status == DC_E_FAILED:
+            return [], _text(error.message)
+        if status == DC_E_RANGE:
+            raise IndexError("list index out of range")
+        if status != DC_OK:
+            _raise(status)
+        return [self._policy_row_dict(out[k]) for k in range(min(count.value, len(out)))], None
+
+    # ---- writing one policy and keeping the user's values (nvbackend.GPU._write_policy_limit, ------ #
+    # ---- _pin, set_power_policy, _reapply_power_policy_pins; increment B3) ----------------------- #
+    #
+    # The pins are the core's process state (dc_cl_pins_*): session-only, never persisted, and
+    # forgotten with the process, so a driver restart is never followed by a re-application.
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_policy_write.py):
+    # - _write_policy_limit takes a plain-int value within int64 (TypeError / ValueError otherwise;
+    #   Python compares a float and lets ctypes refuse it inside its try). set_power_policy and
+    #   _reapply_power_policy_pins only ever pass such values. A policy that is not a plain int
+    #   within int64 is refused here exactly as Python refuses it (after the table read).
+    # - set_power_policy with a policy that is not a plain int within int64 runs Python's steps
+    #   over the native pieces (read_power_policies, set_current_limit_ma, _write_policy_limit):
+    #   the ABI carries only int64 policies, and such a policy never reaches a write. The policy
+    #   gates are Python's `type(policy) is int`: an int subclass (an IntEnum, a bool) takes the
+    #   same path and is refused as Python refuses it; set_power_policy's value gate is Python's
+    #   `type(value) is int` too. _write_policy_limit's VALUE has no type gate in Python (an int
+    #   subclass is compared, formatted and packed as its int), so it keeps accepting one.
+    # - an exception Python lets escape read_power_policies inside set_power_policy (a
+    #   KeyboardInterrupt from read_power_limit_mw, an AttributeError from a `static` without
+    #   .get) stops the core before any write, pin or board store (DC_E_CALLER) and is raised here.
+    # - nvbackend's message is its return value; here a text longer than the first buffer is
+    #   fetched from the handle with a second call (dc_cl_policy_message_get). Both calls run under
+    #   self._lock, the handle mutex itself, so no other thread's call (through this binding or any
+    #   other caller of the core) can replace the kept message in between, and the fetch repeats
+    #   while the text outgrows the buffer.
+    # - an allocation failure inside the core (the ABI guard) is a MemoryError with the core's text.
+
+    _POLICY_MESSAGE = 4096  # the first buffer; a longer text is fetched with dc_cl_policy_message_get
+
+    def _policy_outcome(self, function, *args, failure=()):
+        """(ok, message) of one B3 call. DC_E_RANGE is the IndexError Python lets escape; an
+        exception the inputs callback appended to `failure` (DC_E_CALLER) is raised as Python raises it.
+
+        A text longer than the first buffer is the handle's kept message, read by a second call
+        (never by repeating a write). Each entry takes the handle mutex for itself only, so another
+        thread's B3 call could replace the kept text between the two; nvbackend has no such window
+        (its message is the return value). self._lock is that mutex (recursive per thread; the UI's
+        write_tuning_action holds it too) and is held around the call and the fetch, which closes the
+        window for every caller of the core, and the fetch repeats while the kept text outgrows the
+        buffer. The inputs callback runs on this thread under the same mutex."""
+        library = load()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(self._POLICY_MESSAGE)
+        with self._lock:
+            try:
+                status = function(self._handle, *args, ctypes.byref(ok), message, len(message),
+                                  ctypes.byref(needed))
+            finally:
+                if failure:
+                    raise failure[0]
+            if status == DC_E_RANGE:
+                raise IndexError("list index out of range")
+            if status == DC_E_FAILED:  # the core's guard: only allocation throws there
+                raise MemoryError("native core: allocation failed")
+            if status != DC_OK:
+                _raise(status)
+            while needed.value > len(message):  # never repeat a write to fetch its text
+                message = ctypes.create_string_buffer(needed.value)
+                status = library.dc_cl_policy_message_get(self._handle, message, len(message),
+                                                          ctypes.byref(needed))
+                if status != DC_OK:
+                    _raise(status)
+        return bool(ok.value), message.value.decode(errors="replace")
+
+    @staticmethod
+    def _int64(value):
+        return _is_plain_int(value) and -(1 << 63) <= value < (1 << 63)
+
+    def _write_policy_limit(self, policy, value):
+        """Change one policy's limit word, SET with only it selected, read back; (ok, message) as
+        nvbackend's, replaying the original record on any failure (see the core)."""
+        if type(policy) is not int or not self._int64(policy):  # Python reads the table, then refuses it
+            try:
+                table = self._power_policy_table()
+            except Exception as exc:                                    # noqa: BLE001 - Python's text
+                return False, f"policy {policy}: the policy table could not be read ({exc}); nothing written"
+            table[1][1]  # noqa: B018 - Python's `mask = info[1]`
+            return False, f"policy {policy} is not in the driver's table"
+        if not _is_plain_int(value):
+            raise TypeError(f"policy limit must be an int, not {type(value).__name__}")
+        if not self._int64(value):
+            raise ValueError("policy limit does not fit a 64-bit integer")
+        return self._policy_outcome(load().dc_cl_write_policy_limit, policy, value)
+
+    def _pin(self, policy, value):
+        self._power_policy_pins = {**(self._power_policy_pins or {}), policy: value}
+
+    def set_power_policy(self, policy, value, *, pin=True, allow_named=False):
+        """Write one policy of the full list within its own range and verify; (ok, message) as
+        nvbackend's. pin records it as the user's value (re-applied after board-limit writes); a
+        named current policy goes through set_current_limit_ma when allow_named."""
+        if type(policy) is not int or not self._int64(policy):  # Python's `type(policy) is not int` path
+            return self._set_power_policy_steps(policy, value, pin, allow_named)
+        whole = type(value) is int
+        clamped = max(-(1 << 63), min(value, (1 << 63) - 1)) if whole else 0
+        confirm, failure = self._confirm_derived_clamp(), []
+        callback = self._policy_inputs(failure)
+        return self._policy_outcome(load().dc_cl_set_power_policy, confirm, None, callback, None, policy,
+                                    1 if whole else 0, clamped, 1 if pin else 0, 1 if allow_named else 0,
+                                    failure=failure)
+
+    def _set_power_policy_steps(self, policy, value, pin, allow_named):
+        """nvbackend's set_power_policy over the native pieces, for a policy the ABI cannot carry."""
+        rows, error = self.read_power_policies()
+        if error:
+            return False, error
+        row = next((r for r in rows if r["policy"] == policy), None)
+        if row is None:
+            return False, f"policy {policy} is not in the driver's table"
+        if row["named_current"]:
+            if not allow_named:
+                return False, f"policy {policy} is set with its current-limit slider"
+            if type(value) is not int:
+                return False, f"policy {policy} must be a whole number of milliamps"
+            return self.set_current_limit_ma(policy, value, pin=pin)
+        if not row["writable"]:
+            return False, f"policy {policy}: {self.power_policy_unwritable_reason(row)}"
+        if type(value) is not int or not row["minimum"] <= value <= row["maximum"]:
+            return False, (f"policy {policy} must be between "
+                           f"{self._policy_amount(row['minimum'], row['unit'])} and "
+                           f"{self._policy_amount(row['maximum'], row['unit'])}")
+        ok, message = self._write_policy_limit(policy, value)
+        if ok and pin:
+            self._pin(policy, value)
+        return ok, message
+
+    def _reapply_power_policy_pins(self, board_mw=None):
+        """After a board-limit write: put back every value the user set that the driver
+        recalculated; (ok, note) as nvbackend's, note "" when nothing moved."""
+        has_board, board = (0, 0) if board_mw is None else self._policy_word(board_mw)
+        return self._policy_outcome(load().dc_cl_reapply_pins, has_board, board)
+
+    # ---- the board power limit (nvbackend.GPU.POWER_LIMIT_XOC_MAX_MW, _normal_power_bounds_mw, ---- #
+    # ---- _power_request_bounds_mw, power_limit_bounds_mw, _read_power_limit_nvml, ----------------- #
+    # ---- read_power_limit_mw, set_power_limit_mw, _set_power_limit_nvml; increment A8) ---------- #
+    #
+    # The core composes the native NVML request reader, the live read (A6), the live SET with its
+    # compensation (A7) and the pin re-application (B3) under the handle mutex; it calls no Python
+    # code. self.static stays the binding's dict: its pl_* keys go in as dc_cl_statics, read at the
+    # call, and a live read inside the call that fills an absent or None key from the core's
+    # capability store (dc_cpc_live_read's back-fill) comes back the same way, and is set here as
+    # read_live_power_request sets it. Nothing is persisted: the NVML write and the live SET are the
+    # user's request of this session, and a driver restart is never followed by a re-application.
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_limit.py):
+    # - a static pl_* value that is not equal to an int64 (a float with a fraction, a string) is taken
+    #   as None by the core (_cl_statics_fill, B2's rule): Python would compare or return it as given.
+    # - the back-fill comes from the core's capability store, as native.read_live_power_request's
+    #   (A6): where the store already held an NVML value and the dict held None, that value is used,
+    #   where Python takes the live binding's.
+    # - set_power_limit_mw's text can exceed the first buffer (the pin note, the live SET's rollback
+    #   detail): it is then fetched with dc_pl_message_get, both calls under self._lock (the handle
+    #   mutex itself) as _policy_outcome's. The core's set runs wholly under that mutex (Python's callees lock
+    #   one at a time), so a concurrent telemetry sweep sees the live bookkeeping before or after it.
+    # - _set_power_limit_nvml takes an int within int64 (TypeError / ValueError otherwise; Python's
+    #   u32(mw) packs any int modulo 2**32 and raises TypeError for a float), and a missing setter
+    #   export or a dead NVML is AttributeError, as Python's attribute access raises.
+    # - an exception inside the live SET before its dispatch (only allocation can throw) reaches the
+    #   ABI guard as MemoryError, where Python returns "live power request failed: {exc}".
+
+    _PL_KEYS = ("pl_min_mw", "pl_def_mw", "pl_max_mw")
+    _PL_MESSAGE = 4096  # the first buffer; a longer text is fetched with dc_pl_message_get
+
+    def _pl_statics(self):
+        """The pl_* keys as dc_cl_statics. Unlike _cl_statics_fill (which compares them with driver
+        words, all >= 0), a negative int is kept: the power-limit bounds use the number itself. A
+        value not equal to an int64 is None (a recorded divergence: Python uses it as given)."""
+        s = _ClStatics()
+        st = getattr(self, "static", None) or {}
+        for name, key in zip(("pl_min", "pl_def", "pl_max"), self._PL_KEYS):
+            value = st.get(key, self._ABSENT)
+            state, word = (0, 0) if value is self._ABSENT else (1, 0) if value is None else (2, None)
+            if word is None:
+                try:
+                    whole = int(value)
+                    if whole == value and -(1 << 63) <= whole < (1 << 63):
+                        word = whole
+                except Exception:                                       # noqa: BLE001 - see above
+                    pass
+                if word is None:
+                    state, word = 1, 0
+            setattr(s, name + "_state", state)
+            setattr(s, name + "_mw", word)
+        s.size = ctypes.sizeof(_ClStatics)
+        return s
+
+    def _pl_backfill(self, before, after):
+        """Set the pl_* keys the core's live read filled (A6's re-sync, at the same point)."""
+        for name, key in zip(("pl_min", "pl_def", "pl_max"), self._PL_KEYS):
+            if getattr(after, name + "_state") == 2 and getattr(before, name + "_state") != 2 \
+                    and self.static.get(key) is None:
+                self.static[key] = getattr(after, name + "_mw")
+
+    def _pl_call(self, function, *args):
+        """function(handle, statics, *args) with the live back-fill applied afterwards."""
+        statics = self._pl_statics()
+        before = _ClStatics.from_buffer_copy(statics)
+        status = function(self._handle, ctypes.byref(statics), *args)
+        self._pl_backfill(before, statics)
+        return status
+
+    @staticmethod
+    def _pl_check(status, error=None):
+        if status == DC_E_FAILED:  # the core's guard: only allocation throws there
+            raise MemoryError(_text(error.message) if error is not None else "native core: allocation failed")
+        if status != DC_OK:
+            _raise(status)
+
+    def _normal_power_bounds_mw(self):
+        low, high = ctypes.c_int64(), ctypes.c_int64()
+        self._pl_check(load().dc_pl_normal_bounds(ctypes.byref(self._pl_statics()), ctypes.byref(low),
+                                                  ctypes.byref(high)))
+        return low.value, high.value
+
+    def _power_request_bounds_mw(self, current, *, xoc, live):
+        """current widens the range only when it is a plain int (Python's `type(current) is int`)
+        with 0 < current < 0xFFFFFFFF; the core applies the range gate."""
+        whole = type(current) is int and -(1 << 63) <= current < (1 << 63)
+        low, high = ctypes.c_int64(), ctypes.c_int64()
+        self._pl_check(load().dc_pl_request_bounds(ctypes.byref(self._pl_statics()), 1 if whole else 0,
+                                                   current if whole else 0, 1 if xoc else 0, 1 if live else 0,
+                                                   ctypes.byref(low), ctypes.byref(high)))
+        return low.value, high.value
+
+    def power_limit_bounds_mw(self, *, xoc=None):
+        """Current request bounds, independent of original-BIOS color provenance."""
+        if xoc is None:
+            xoc = bool(getattr(self, "voltage_xoc_enabled", False))
+        low, high, error = ctypes.c_int64(), ctypes.c_int64(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = self._pl_call(load().dc_pl_bounds, 1 if xoc else 0, ctypes.byref(low), ctypes.byref(high),
+                               ctypes.byref(error))
+        self._pl_check(status, error)
+        return low.value, high.value
+
+    def _read_power_limit_nvml(self):
+        """Configured NVML request only; never substitute enforced telemetry."""
+        has, mw = ctypes.c_int32(), ctypes.c_uint32()
+        self._pl_check(load().dc_pl_read_nvml(self._handle, ctypes.byref(has), ctypes.byref(mw)))
+        return mw.value if has.value else None
+
+    def read_power_limit_mw(self):
+        """Configured power request in mW (NVML, else the live request while NVAPI is live), or None.
+        No `with self._lock` here: the entry takes the handle mutex, which is self._lock, and
+        read_power_policies' inputs callback calls it on the thread that already holds it."""
+        has, mw, error = ctypes.c_int32(), ctypes.c_uint32(), _Error()
+        error.size = ctypes.sizeof(_Error)
+        status = self._pl_call(load().dc_pl_read, ctypes.byref(has), ctypes.byref(mw), ctypes.byref(error))
+        self._pl_check(status, error)
+        return mw.value if has.value else None
+
+    def set_power_limit_mw(self, mw):
+        """(ok, message) as nvbackend's: the NVML write with exact readback for a normal request, the
+        live client-power SET (with its single compensation) outside the normal range or without a
+        usable NVML request; the user's policy pins re-applied after a board write."""
+        if type(mw) not in (int, float):
+            return False, "power limit must be a finite number in whole milliwatts"
+        try:
+            valid = math.isfinite(mw) and 0 < mw < (1 << 32) and int(mw) == mw
+        except OverflowError:
+            valid = False
+        if not valid:
+            return False, "power limit must be a finite number in whole milliwatts"
+        mw = int(mw)
+        xoc = 1 if getattr(self, "voltage_xoc_enabled", False) else 0
+        library = load()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(self._PL_MESSAGE)
+        with self._lock:
+            status = self._pl_call(library.dc_pl_set, mw, xoc, ctypes.byref(ok), message, len(message),
+                                   ctypes.byref(needed))
+            if status == DC_E_RANGE:  # _reapply_power_policy_pins' IndexError
+                raise IndexError("list index out of range")
+            self._pl_check(status)
+            while needed.value > len(message):  # never repeat a write to fetch its text
+                message = ctypes.create_string_buffer(needed.value)
+                self._pl_check(library.dc_pl_message_get(self._handle, message, len(message), ctypes.byref(needed)))
+        return bool(ok.value), message.value.decode(errors="replace")
+
+    def _set_power_limit_nvml(self, mw):
+        """The NVML write and its read-back alone: (ok, message, configured mW)."""
+        if not isinstance(mw, int):
+            raise TypeError(f"int expected instead of {type(mw).__name__}")
+        if not -(1 << 63) <= mw < (1 << 63):
+            raise ValueError("power limit does not fit a 64-bit integer")
+        out, has, got = _Outcome(), ctypes.c_int32(), ctypes.c_uint32()
+        status = self._pl_call(load().dc_pl_set_nvml, int(mw), ctypes.byref(out), ctypes.byref(has), ctypes.byref(got))
+        if status == DC_E_UNAVAILABLE:
+            raise AttributeError("nvmlDeviceSetPowerManagementLimit")
+        self._pl_check(status)
+        ok, text = self._outcome(out)
+        return ok, text, (got.value if has.value else None)
+
+    # ---- stock and max-all over the policy list, and the native effective board limit ------------ #
+    # ---- (nvbackend.GPU.stock_power_policy, max_all_power_policies, read_native_power_limit_mw; --- #
+    # ---- increment B4) --------------------------------------------------------------------------- #
+    #
+    # The core composes the A8 board-limit pieces with the B2/B3 policy pieces under the handle mutex
+    # and calls no Python code: the derived-clamp confirmation of _current_limit_state and
+    # read_power_policies' inputs are answered in the core through the same native live read the
+    # binding's callbacks (_confirm_derived_clamp, _policy_inputs) make. The pins dropped or cleared
+    # here are the core's process state: nothing is persisted, and a driver restart is never followed
+    # by a re-application. self.static's pl_* keys go in and come back as _pl_call's.
+    # Recorded divergences from nvbackend (each pinned by tests/test_native_power_policy_ops.py):
+    # - stock_power_policy formats str(policy) before the call (Python formats it only for a message)
+    #   and maps a policy that is not a plain int within int64 to the first index 0..31 equal to it
+    #   (else -1) for the pin drop and the row lookups, where Python hashes and compares the object
+    #   itself; an object whose == or hash is inconsistent with an index can therefore differ. An
+    #   unhashable policy raises TypeError where Python's pins.pop raises (only when a pin exists).
+    # - the static rule of A8 (_pl_statics): a pl_* value not equal to an int64 is None to the core.
+    #   max_all_power_policies runs Python's steps over the native methods when pl_max_mw is present
+    #   and not a plain int (type int) within int64, so such a top is offered to set_power_limit_mw
+    #   as Python offers it.
+    # - power_limit_bounds_mw inside max_all_power_policies can only fail natively by allocation,
+    #   which is caught as Python's `except Exception` (the nominal top stays).
+    # - stock and max-all run wholly under the handle mutex (Python's callees lock one at a time);
+    #   self._lock (the handle mutex) is held around each call and its text fetches, as
+    #   set_power_limit_mw's.
+    # - texts longer than the first buffers are fetched from the handle (dc_pl_message_get,
+    #   dc_pl_step_text_get), never by repeating a call.
+    # Every text goes both ways as UTF-8 with surrogatepass and comes back by its reported length, not
+    # ctypes' .value, so a str(policy) holding a NUL or a lone surrogate reaches the message as
+    # nvbackend formats it (as native_rails carries its texts).
+
+    _PL_MAX_STEPS = 33  # DC_PL_MAX_STEPS: the board limit and one step per policy of a 32-bit mask
+
+    @staticmethod
+    def _pl_text(raw, needed):
+        """A sized text the core wrote: its bytes by the reported length (needed counts the NUL),
+        surrogatepass undoing the name's encoding; anything else that does not decode is replaced."""
+        data = bytes(raw[:max(needed - 1, 0)])
+        try:
+            return data.decode("utf-8", "surrogatepass")
+        except UnicodeDecodeError:
+            return data.decode("utf-8", "replace")
+
+    def stock_power_policy(self, policy):
+        """Stock: drop the user's value and give the policy back to the driver; (ok, message) as
+        nvbackend's. The rated default is written, then the board limit is sent again (or the live
+        board request is verified unchanged) so the driver re-derives what it couples to it."""
+        # Python's pins.pop on a copy of the pins: an unhashable policy raises TypeError there, and
+        # only when a pin exists (an empty dict's pop never hashes its key)
+        dict(self._power_policy_pins or {}).pop(policy, None)
+        whole = type(policy) is int and self._int64(policy)
+        if whole:
+            index = policy
+        else:
+            index = -1
+            for candidate in range(32):
+                try:
+                    if candidate == policy:
+                        index = candidate
+                        break
+                except Exception:                                       # noqa: BLE001 - see above
+                    break
+        name = f"{policy}".encode("utf-8", "surrogatepass")
+        library = load()
+        ok, needed = ctypes.c_int32(), ctypes.c_size_t()
+        message = ctypes.create_string_buffer(self._PL_MESSAGE)
+        with self._lock:
+            status = self._pl_call(library.dc_pl_stock_power_policy, index, 1 if whole else 0, name, len(name),
+                                   ctypes.byref(ok), message, len(message), ctypes.byref(needed))
+            if status == DC_E_RANGE:  # read_power_policies' / _write_policy_limit's / the pins' IndexError
+                raise IndexError("list index out of range")
+            if status == DC_E_UNAVAILABLE:  # _set_power_limit_nvml's attribute access
+                raise AttributeError("nvmlDeviceSetPowerManagementLimit")
+            self._pl_check(status)
+            while needed.value > len(message):  # never repeat a write to fetch its text
+                message = ctypes.create_string_buffer(needed.value)
+                self._pl_check(library.dc_pl_message_get(self._handle, message, len(message), ctypes.byref(needed)))
+        return bool(ok.value), self._pl_text(message.raw, needed.value)
+
+    def _pl_step_text(self, index, field, raw, needed, capacity):
+        """One step's label or message: the entry's own buffer (raw bytes), else the handle's kept text."""
+        size = ctypes.c_size_t(needed)
+        while size.value > capacity:
+            buffer = ctypes.create_string_buffer(size.value)
+            capacity = len(buffer)
+            self._pl_check(load().dc_pl_step_text_get(self._handle, index, field, buffer, capacity,
+                                                      ctypes.byref(size)))
+            raw = buffer.raw
+        return self._pl_text(raw, size.value)
+
+    def max_all_power_policies(self):
+        """Clear the user's values, raise the board limit to its maximum (with XOC to the live request
+        envelope), then every other policy still below its own maximum to that maximum; a named
+        current policy to the maximum its own slider allows. [(step, ok, message)] as nvbackend's."""
+        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
+        if top is not None and not (type(top) is int and self._int64(top)):
+            return self._max_all_power_policies_steps()
+        library = load()
+        steps = (_PolicyStep * self._PL_MAX_STEPS)()
+        for step in steps:
+            step.size = ctypes.sizeof(_PolicyStep)
+        count = ctypes.c_uint32()
+        xoc = 1 if getattr(self, "voltage_xoc_enabled", False) else 0
+        with self._lock:
+            status = self._pl_call(library.dc_pl_max_all, xoc, steps, len(steps), ctypes.byref(count))
+            if status == DC_E_RANGE:  # set_power_limit_mw's / read_power_policies' / the writer's IndexError
+                raise IndexError("list index out of range")
+            self._pl_check(status)
+            out = []
+            for k in range(min(count.value, len(steps))):
+                s = steps[k]
+                raw = bytes(s)  # the c_char fields' attribute access would stop at a NUL
+                label = raw[_PolicyStep.label.offset:_PolicyStep.label.offset + _PolicyStep.label.size]
+                text = raw[_PolicyStep.message.offset:_PolicyStep.message.offset + _PolicyStep.message.size]
+                out.append((self._pl_step_text(k, 0, label, s.label_needed, _PolicyStep.label.size),
+                            bool(s.ok),
+                            self._pl_step_text(k, 1, text, s.message_needed, _PolicyStep.message.size)))
+        return out
+
+    def _max_all_power_policies_steps(self):
+        """nvbackend's max_all_power_policies over the native methods, for a pl_max_mw the ABI
+        cannot carry as Python uses it."""
+        self._power_policy_pins = {}
+        steps = []
+        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
+        if getattr(self, "voltage_xoc_enabled", False):
+            try:
+                extended = self.power_limit_bounds_mw()[1]
+            except Exception:                                           # noqa: BLE001 - Python's
+                extended = None
+            if type(extended) is int and extended > (top or 0):
+                top = extended
+        if top:
+            steps.append(("power limit", *self.set_power_limit_mw(top)))
+        rows, error = self.read_power_policies()
+        if error:
+            return steps + [("power policies", False, error)]
+        currents = {r["policy"]: r for r in getattr(self, "_current_limit_last_rows", None) or []}
+        for row in rows:
+            if row["board"]:
+                continue
+            if row["named_current"]:
+                current = currents.get(row["policy"])
+                if current is None:
+                    continue
+                ceiling = (current["maximum_ma"] if getattr(self, "voltage_xoc_enabled", False)
+                           else max(current["normal_maximum_ma"], current["limit_ma"]))
+                ceiling = min(ceiling, current["maximum_ma"])
+                if current["requested_ma"] < ceiling:
+                    steps.append((current["label"], *self.set_current_limit_ma(row["policy"], ceiling, pin=False)))
+                continue
+            if not row["writable"] or row["requested"] >= row["maximum"]:
+                continue
+            steps.append((f"policy {row['policy']}", *self._write_policy_limit(row["policy"], row["maximum"])))
+        return steps
+
+    def read_native_power_limit_mw(self):
+        """(mW, None) from fresh role-bound native effective STATUS, independent of NVML, or
+        (None, error). Never a substitute for the configured-request readback."""
+        library = load()
+        has, value, needed = ctypes.c_int32(), ctypes.c_uint32(), ctypes.c_size_t()
+        error = ctypes.create_string_buffer(1024)
+        with self._lock:
+            status = self._pl_call(library.dc_pl_native_power_limit, ctypes.byref(has), ctypes.byref(value), error,
+                                   len(error), ctypes.byref(needed))
+            self._pl_check(status)
+            while needed.value > len(error):
+                error = ctypes.create_string_buffer(needed.value)
+                self._pl_check(library.dc_pl_message_get(self._handle, error, len(error), ctypes.byref(needed)))
+        if has.value:
+            return value.value, None
+        return None, self._pl_text(error.raw, needed.value)
+
+    # ---- per-domain clock-offset control block (nvbackend.GPU.clkdom_* and the rail offsets) --- #
+
+    def _list_u32(self, function):
+        count = ctypes.c_size_t()
+        status = function(self._handle, None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        values = (ctypes.c_uint32 * max(1, count.value))()
+        status = function(self._handle, values, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return list(values[:count.value])
+
+    def clkdom_ok(self):
+        return bool(load().dc_gpu_clkdom_ok(self._handle))
+
+    def clkdom_is_blackwell(self):
+        return bool(load().dc_gpu_clkdom_is_blackwell(self._handle))
+
+    def clkdom_domains(self):
+        """Accepted control indices, probed one bit at a time and cached until refresh."""
+        return self._list_u32(load().dc_gpu_clkdom_domains)
+
+    def clkdom_layout(self):
+        """The validated nvbackend.ClkDomLayout for this card, or None."""
+        from .nvbackend import ClkDomLayout
+        layout = _ClkDomLayout()
+        layout.size = ctypes.sizeof(_ClkDomLayout)
+        status = load().dc_gpu_clkdom_layout(self._handle, ctypes.byref(layout))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return ClkDomLayout(name=_text(layout.name), version=layout.version, size=layout.block_size,
+                            header=layout.header, stride=layout.stride, mask_dword=layout.mask_dword,
+                            mode=layout.mode, freq_khz=layout.freq_khz,
+                            nvvdd_uv=layout.nvvdd_uv if layout.has_nvvdd_uv else None,
+                            msvdd_uv=layout.msvdd_uv if layout.has_msvdd_uv else None)
+
+    @staticmethod
+    def _error_tuple(error):
+        return (_text(error.kind), _text(error.text)) if error.has_error else None
+
+    @property
+    def _clkdom_capability_error(self):
+        error = _ClkDomError()
+        error.size = ctypes.sizeof(_ClkDomError)
+        status = load().dc_gpu_clkdom_capability_error(self._handle, ctypes.byref(error))
+        if status != DC_OK:
+            _raise(status)
+        return self._error_tuple(error)
+
+    @property
+    def _clkdom_probe_errors(self):
+        count = ctypes.c_size_t()
+        status = load().dc_gpu_clkdom_probe_errors(self._handle, None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        rows = (_ClkDomProbeError * max(1, count.value))()
+        status = load().dc_gpu_clkdom_probe_errors(self._handle, rows, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {row.domain: _text(row.text) for row in rows[:count.value]}
+
+    @property
+    def _clkdom_offset_read_pending(self):
+        return bool(load().dc_gpu_clkdom_offset_read_pending(self._handle))
+
+    def clkdom_controls_for_ui(self, rows=None):
+        return self._list_u32(load().dc_gpu_clkdom_controls_for_ui)
+
+    def clkdom_control_polarity(self, control):
+        value = ctypes.c_int32()
+        status = load().dc_gpu_clkdom_control_polarity(self._handle, int(control), ctypes.byref(value))
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    @staticmethod
+    def _table_key(value):
+        """A Python dict lookup key that equals an int, as an int; None for any other key
+        (nvbackend looks these tables up with the raw argument, so 2.0 finds 2 and "2" does not)."""
+        if isinstance(value, bool) or _is_plain_int(value):
+            return int(value)
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        return None
+
+    def clkdom_control_label(self, control):
+        key = self._table_key(control)
+        if key is None:
+            return f"{'control' if self.clkdom_is_blackwell() else 'domain'} {control}"
+        buffer = ctypes.create_string_buffer(64)
+        needed = ctypes.c_size_t()
+        status = load().dc_gpu_clkdom_control_label(self._handle, key, buffer, 64, ctypes.byref(needed))
+        if status != DC_OK:
+            _raise(status)
+        return buffer.value.decode()
+
+    def clkdom_step_mhz(self):
+        value = ctypes.c_uint32()
+        status = load().dc_gpu_clkdom_step_mhz(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def clkdom_delta_inert(self, domain=None):
+        key = None if domain is None else self._table_key(domain)
+        if domain is not None and key is None:
+            return None
+        value = ctypes.c_int32()
+        has = 0 if domain is None else 1
+        status = load().dc_gpu_clkdom_delta_inert(self._handle, has, 0 if domain is None else key,
+                                                  ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return bool(value.value)
+
+    def clkdom_offset_slider_offered(self, control):
+        return bool(load().dc_gpu_clkdom_offset_slider_offered(self._handle, int(control)))
+
+    def clkdom_delta_clears_ceiling(self, domain):
+        key = self._table_key(domain)
+        if key is None:
+            return None
+        value = ctypes.c_int32()
+        status = load().dc_gpu_clkdom_delta_clears_ceiling(self._handle, key, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return bool(value.value)
+
+    def clkdom_pairing(self, rows=None):
+        """{control index: private domain} for THIS card, or {} if unknown."""
+        has_rows = 0 if rows is None else 1
+        live = [r["domain"] for r in (rows or []) if r.get("prog_mhz")]
+        live_array = (ctypes.c_uint32 * max(1, len(live)))(*live)
+        function = load().dc_gpu_clkdom_pairing
+        count = ctypes.c_size_t()
+        status = function(self._handle, has_rows, live_array, len(live), None, 0, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        pairs = (_ClkDomPair * max(1, count.value))()
+        status = function(self._handle, has_rows, live_array, len(live), pairs, count.value, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {pair.control: pair.domain for pair in pairs[:count.value]}
+
+    def clkdom_measurements(self):
+        """Read-only Blackwell physical clock measurements in kHz ({} elsewhere)."""
+        rows = (_ClkDomMeasurement * 8)()
+        count = ctypes.c_size_t()
+        status = load().dc_gpu_clkdom_measurements(self._handle, rows, 8, ctypes.byref(count))
+        if status != DC_OK:
+            _raise(status)
+        return {_text(row.name): (row.value_khz if row.has_value else None) for row in rows[:count.value]}
+
+    def read_clk_domain_offsets(self):
+        """({domain: {mode, freq_khz, msvdd_uv}}, err)."""
+        out = _ClkDomRequests()
+        out.size = ctypes.sizeof(_ClkDomRequests)
+        status = load().dc_gpu_clkdom_requests(self._handle, ctypes.byref(out))
+        if status == DC_E_UNAVAILABLE:
+            return None, _text(out.error)
+        if status != DC_OK:
+            _raise(status)
+        return {row.domain: {"mode": row.mode, "freq_khz": row.freq_khz,
+                             "msvdd_uv": row.msvdd_uv if row.has_msvdd_uv else None}
+                for row in out.rows[:out.count]}, None
+
+    def read_xbar_offset_mhz(self):
+        value = ctypes.c_double()
+        status = load().dc_gpu_clkdom_xbar_offset_mhz(self._handle, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def set_clk_domain_offset(self, domain, mhz):
+        """Read-modify-write exactly one dword of the control block (Python-type checks here)."""
+        if type(domain) is not int or not 0 <= domain < 32:
+            return False, "clock domain must be an integer control index"
+        if type(mhz) not in (int, float):
+            return False, "clock-domain offset must be a finite number"
+        try:
+            value = float(mhz)
+        except OverflowError:
+            return False, "clock-domain offset exceeds the signed 32-bit kHz range"
+        outcome = _Outcome()
+        status = load().dc_gpu_clkdom_offset_set(self._handle, domain, value, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def rail_offset_capability(self, rail=1, domain=None):
+        """A readable request field, not evidence of a physical rail response."""
+        if type(rail) is not int or rail not in (0, 1):
+            return {"available": False, "domain": domain, "value_mv": None, "experimental": rail == 1,
+                    "reason": "unknown rail offset index"}
+        if domain is not None and (type(domain) is not int or not 0 <= domain < 32):
+            return {"available": False, "domain": domain, "value_mv": None, "experimental": rail == 1,
+                    "reason": "invalid clock-control index"}
+        out = _RailOffsetCapability()
+        out.size = ctypes.sizeof(_RailOffsetCapability)
+        status = load().dc_gpu_rail_offset_capability(self._handle, rail, 0 if domain is None else 1,
+                                                      0 if domain is None else domain, ctypes.byref(out))
+        if status != DC_OK:
+            _raise(status)
+        return {"available": bool(out.available), "domain": out.domain if out.has_domain else None,
+                "value_mv": out.value_mv if out.has_value else None, "experimental": bool(out.experimental),
+                "reason": _text(out.reason)}
+
+    def read_rail_offset_mv(self, domain=0, rail=0):
+        """The selected rail's stored request in mV, not measured VOUT."""
+        if rail != 0:
+            capability = self.rail_offset_capability(rail, domain)
+            return capability["value_mv"] if capability["available"] else None
+        if type(domain) is not int or not 0 <= domain < 32:
+            return None
+        value = ctypes.c_double()
+        status = load().dc_gpu_rail_offset_read(self._handle, domain, rail, ctypes.byref(value))
+        if status == DC_E_UNAVAILABLE:
+            return None
+        if status != DC_OK:
+            _raise(status)
+        return value.value
+
+    def set_rail_offset_mv(self, mv, domain=0, rail=0):
+        """Offset the core rail (rail 0) or store an MSVDD request (rail 1, opt-in)."""
+        if rail == 1:
+            return self._set_msvdd_offset_mv(mv, domain)
+        if type(rail) is not int or rail != 0:
+            return False, "unknown rail offset index"
+        if type(domain) is not int or not 0 <= domain < 32:
+            return False, "clock-control index must be an integer from 0 to 31"
+        if type(mv) not in (int, float):
+            return False, "NVVDD offset must be a finite number"
+        try:
+            value = float(mv)
+        except OverflowError:
+            return False, "NVVDD offset exceeds the signed 32-bit microvolt range"
+        outcome = _Outcome()
+        status = load().dc_gpu_rail_offset_set(self._handle, value, domain, rail, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def _set_msvdd_offset_mv(self, mv, domain, *, reset=False):
+        if type(domain) is not int or not 0 <= domain < 32:
+            return False, "clock-control index must be an integer from 0 to 31"
+        if type(mv) not in (int, float):
+            return False, "MSVDD offset must be a finite number"
+        try:
+            value = float(mv)
+        except OverflowError:
+            return False, "MSVDD offset exceeds the signed 32-bit microvolt range"
+        outcome = _Outcome()
+        if reset:
+            status = load().dc_gpu_msvdd_offset_reset(self._handle, domain, ctypes.byref(outcome))
+        else:
+            status = load().dc_gpu_rail_offset_set(self._handle, value, domain, 1, ctypes.byref(outcome))
+        if status != DC_OK:
+            _raise(status)
+        return self._outcome(outcome)
+
+    def reset_msvdd_offset_mv(self, domain=0):
+        """Explicitly clear a stored MSVDD request, including after XOC is off."""
+        return self._set_msvdd_offset_mv(0, domain, reset=True)
+
+    @property
+    def msvdd_write_enabled(self):
+        return self._clkdom_flags()[0]
+
+    @msvdd_write_enabled.setter
+    def msvdd_write_enabled(self, value):
+        self._set_clkdom_flags(bool(value), self.voltage_xoc_enabled)
+
+    @property
+    def voltage_xoc_enabled(self):
+        return self._clkdom_flags()[1]
+
+    @voltage_xoc_enabled.setter
+    def voltage_xoc_enabled(self, value):
+        self._set_clkdom_flags(self.msvdd_write_enabled, bool(value))
+
+    def _clkdom_flags(self):
+        msvdd, xoc = ctypes.c_int32(), ctypes.c_int32()
+        status = load().dc_gpu_clkdom_flags_get(self._handle, ctypes.byref(msvdd), ctypes.byref(xoc))
+        if status != DC_OK:
+            _raise(status)
+        return bool(msvdd.value), bool(xoc.value)
+
+    def _set_clkdom_flags(self, msvdd, xoc):
+        status = load().dc_gpu_clkdom_flags_set(self._handle, 1 if msvdd else 0, 1 if xoc else 0)
+        if status != DC_OK:
+            _raise(status)
+
+    def retry_clock_capabilities(self, *, now=None):
+        """At most two delayed, read-only retries of failed clock discovery; True on recovery."""
+        if now is not None:
+            now = float(now)
+            if not math.isfinite(now):
+                raise ValueError("clock capability retry time must be finite")
+        changed = ctypes.c_int32()
+        status = load().dc_gpu_retry_clock_capabilities(self._handle, 0 if now is None else 1,
+                                                        0.0 if now is None else now, ctypes.byref(changed))
+        if status != DC_OK:
+            _raise(status)
+        return bool(changed.value)
+
+    def refresh_capabilities(self):
+        """Release the clock-control discovery caches for one deliberate, read-only retry."""
+        previous = _ClkDomError()
+        previous.size = ctypes.sizeof(_ClkDomError)
+        status = load().dc_gpu_refresh_capabilities(self._handle, ctypes.byref(previous))
+        if status != DC_OK:
+            _raise(status)
+        return {"previous_clock_error": self._error_tuple(previous), "retry_pending": True}
+
+    # ---- private clock-domain rows (nvbackend.GPU.read_clock_domains) --------------------------- #
+
+    def read_clock_domains(self, pc=None, core_mhz=None, mem_nvml=None):
+        """(rows, err): every populated domain of the private getter, named
+        against this card. `pc` is a payload already in hand (the ``priv_clocks``
+        list of read(), or nvbackend's _AllClocksPriv) or None to read one now."""
+        words = _priv_words(pc)
+        has_core, core = _optional_u32(core_mhz)
+        has_mem, mem = _optional_u32(mem_nvml)
+        out = _ClockDomains()
+        out.size = ctypes.sizeof(_ClockDomains)
+        status = load().dc_gpu_clock_domains(self._handle, words, has_core, core, has_mem, mem, ctypes.byref(out))
+        if status == DC_E_UNAVAILABLE:
+            return None, PRIV_UNAVAIL
+        if status != DC_OK:
+            _raise(status)
+        return _clock_domain_rows(out), None
+
+
+# ---- reset all (nvbackend.GPU.reset_all; increment G3) ------------------------------------------ #
+#
+# One core call composes every knob in Python's order under the handle lock (drutacore/reset.h).
+# Session-only: the policy pins are dropped first, the driver's values and this session's first-read
+# rail limits are restored, nothing is persisted or re-applied after a GPU driver restart.
+
+RESET_STEPS_MAX = 140    # DC_RESET_STEPS_MAX
+RESET_MESSAGE_MAX = 4096  # DC_RESET_MESSAGE_MAX: a longer message is fetched with dc_gpu_reset_message_get
+
+
+class _ResetStep(ctypes.Structure):  # dc_reset_step
+    _fields_ = [("size", ctypes.c_uint32), ("name", ctypes.c_char * 64), ("ok", ctypes.c_int32),
+                ("message_length", ctypes.c_uint32), ("message", ctypes.c_char * RESET_MESSAGE_MAX)]
+
+
+# dc_reset_statics_fn: (context, const dc_cl_statics* before, dc_cl_statics* statics) -> 0, or 1 raised
+RESET_STATICS = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p, ctypes.POINTER(_ClStatics),
+                                 ctypes.POINTER(_ClStatics))
+
+_SIGNATURES.update({
+    # rail_writes is a druta.native_rails._SetterWrites (dc_rails_setter_writes), passed by address
+    "dc_gpu_reset_all": (ctypes.c_int32, [ctypes.c_void_p, CL_CONFIRM, ctypes.c_void_p, CL_POLICY_INPUTS,
+                                          ctypes.c_void_p, RESET_STATICS, ctypes.c_void_p, ctypes.c_int32,
+                                          ctypes.POINTER(_ResetStep), ctypes.c_uint32,
+                                          ctypes.POINTER(ctypes.c_uint32), ctypes.c_void_p, ctypes.POINTER(_Error)]),
+    "dc_gpu_reset_message_get": (ctypes.c_int32, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_char_p,
+                                                  ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]),
+})
+
+Gpu.LOCK_STEP = "clock lock"           # nvbackend.GPU.LOCK_STEP: the front ends drop a lock banner
+Gpu.VF_LOCK_STEP = "v/f point lock"    # only when the step of that name succeeded
+Gpu.P0_LOCK_STEP = "legacy P0 hold"
+
+
+def _reset_statics(gpu, failure):
+    """The dc_reset_statics_fn: with before NULL, GPU.static's pl_* keys as _pl_statics reads them;
+    with before set, set_power_limit_mw's live back-fill applied to the dict (_pl_backfill). An
+    exception Python lets escape (a `static` without .get, a KeyboardInterrupt) is kept in
+    `failure` and reported as 1: the core stops there (DC_E_CALLER) and reset_all raises it."""
+    def statics(_context, before, out):
+        try:
+            if not before:
+                ctypes.memmove(out, ctypes.byref(gpu._pl_statics()), ctypes.sizeof(_ClStatics))
+            else:
+                gpu._pl_backfill(before.contents, out.contents)
+        except BaseException as exc:                                    # noqa: BLE001 - raised by the caller
+            failure.append(exc)
+            return 1
+        return 0
+    return RESET_STATICS(statics)
+
+
+def _reset_all(self):
+    """[ResetStep(name, (ok, message))] as nvbackend.GPU.reset_all, in its order, with its texts.
+
+    Raises where Python's reset_all raises out of a callee the core reaches through the caller: the
+    static keys or read_power_limit_mw's caller-side reading (the callback's own exception), the
+    IndexError set_power_limit_mw, read_power_policies and _write_policy_limit let escape, and
+    MemoryError for the core's allocation guard. The steps so far are then lost, as in Python,
+    while everything already written stays written. Recorded divergences: DESIGN-TRANSPORT.md
+    (reset_all)."""
+    from . import native_rails
+    from .nvbackend import ResetStep
+    library = load()
+    failure = []
+    confirm = self._confirm_derived_clamp()
+    inputs = self._policy_inputs(failure)
+    statics = _reset_statics(self, failure)
+    steps = (_ResetStep * RESET_STEPS_MAX)()
+    for step in steps:
+        step.size = ctypes.sizeof(_ResetStep)
+    count, error = ctypes.c_uint32(), _Error()
+    error.size = ctypes.sizeof(_Error)
+    writes = native_rails._new(native_rails._SetterWrites)
+    xoc = 1 if getattr(self, "voltage_xoc_enabled", False) else 0
+    out = []
+    with self._lock:
+        status = library.dc_gpu_reset_all(self._handle, confirm, None, inputs, None, statics, None, xoc, steps,
+                                          len(steps), ctypes.byref(count), ctypes.byref(writes),
+                                          ctypes.byref(error))
+        # the rail writer's attributes first, whatever the status: Python set them inside
+        # _write_rail_records before any later raise
+        native_rails._take_writes(self, writes)
+        if failure:  # DC_E_CALLER: the core stopped where the callback raised
+            raise failure[0]
+        if status == DC_E_RANGE:
+            raise IndexError("list index out of range")
+        if status == DC_E_FAILED:  # the core's guard: only allocation throws there
+            raise MemoryError(_text(error.message))
+        if status != DC_OK:
+            _raise(status)
+        for index in range(min(count.value, len(steps))):
+            step, length = steps[index], steps[index].message_length
+            if length < RESET_MESSAGE_MAX:  # exactly message_length bytes (a NUL inside is kept)
+                message = ctypes.string_at(ctypes.addressof(step) + _ResetStep.message.offset, length)
+            else:  # longer than the buffer: the text kept on the handle, never a second reset
+                needed = ctypes.c_size_t()
+                buffer = ctypes.create_string_buffer(length + 1)
+                st = library.dc_gpu_reset_message_get(self._handle, index, buffer, len(buffer), ctypes.byref(needed))
+                if st != DC_OK:
+                    _raise(st)
+                message = buffer.raw[:length]
+            out.append(ResetStep(_text(step.name), (bool(step.ok), message.decode(errors="replace"))))
+    return out
+
+
+Gpu.reset_all = _reset_all
+
+
+def _error_record(error):
+    """A dc_error as a dict with the Python exception's kind and text."""
+    return {"kind": ("none", "transient", "invalid", "unsupported", "identity", "malformed", "unstable",
+                     "readback")[error.kind],
+            "fixed": bool(error.fixed),
+            "ntstatus": error.ntstatus if error.has_ntstatus else None, "rm_status": error.rm_status,
+            "message": _text(error.message)}
+
+
+def _raise_error(error):
+    """Raise the exception a dc_error stands for (DESIGN-TRANSPORT.md 3.6): CurrentLimitUnsupported
+    for a fixed property, ValueError (with .fixed) for a failed read."""
+    from .nvbackend import CurrentLimitUnsupported
+    message = _text(error.message)
+    if error.kind == DC_ERR_UNSUPPORTED:
+        raise CurrentLimitUnsupported(message)
+    exc = ValueError(message)
+    if error.fixed:  # nvbackend sets .fixed only on the rejections that are a property of the layout
+        exc.fixed = True
+    raise exc
+
+
+def _row_dict(row):
+    """A dc_current_row as nvbackend's get_current_limits returns it."""
+    return {"policy": row.policy, "label": _text(row.label), "channel": row.channel,
+            "minimum_ma": row.minimum_ma, "maximum_ma": row.maximum_ma, "normal_maximum_ma": row.normal_maximum_ma,
+            "default_ma": row.default_ma, "limit_ma": row.limit_ma, "requested_ma": row.requested_ma,
+            "value_ma": row.value_ma}
+
+
+def _transport_value(t):
+    """A dc_rm_transport as nvbackend keeps it: (header words, fields dict), or None."""
+    if not t.captured:
+        return None
+    header = list(t.header[:min(t.header_count, 17)])
+    return header, {name: getattr(t.fields, name) for name in Gpu._ESCAPE_FIELDS}
+
+
+def _transport_struct(value):
+    """The dc_rm_transport for a (header, fields) pair or None. A header of another length is
+    stored with its length so the next use rejects it as Python does; its words beyond 17 are
+    not kept."""
+    t = _RmTransport()
+    t.size = ctypes.sizeof(_RmTransport)
+    if value is None:
+        return t
+    header, fields = value
+    header = [int(word) for word in header]
+    if any(not 0 <= word <= 0xFFFFFFFF for word in header):
+        raise ValueError("a transport header holds 32-bit packet words")
+    t.captured = 1
+    t.header_count = min(len(header), 0xFFFFFFFF)
+    for index, word in enumerate(header[:17]):
+        t.header[index] = word
+    for name in Gpu._ESCAPE_FIELDS:
+        setattr(t.fields, name, int(fields.get(name, 0)))
+    return t
+
+
+def _cl_max_words():
+    """The largest policy packet any layout sizes, in words (dc_cl_max_words)."""
+    return load().dc_cl_max_words()
+
+
+def _layout_struct(layout, records_only=False):
+    """A Python layout dict (the _CURRENT_LIMIT_LAYOUTS shape) as a dc_power_layout row.
+    records_only: just the three (offset, stride) pairs, all that _power_policy_rows reads (Python's
+    never reads "sizes", "commands" or the mask words, so a layout without them is accepted)."""
+    from . import native_power_layouts as tables
+    row = tables._PowerLayout()
+    row.size = ctypes.sizeof(tables._PowerLayout)
+    row.info_base, row.info_stride = layout["info"]
+    row.status_base, row.status_stride = layout["status"]
+    row.control_base, row.control_stride = layout["control"]
+    if records_only:
+        return row
+    sizes = layout["sizes"]
+    for index, command in enumerate(tables.POWER_GET_COMMANDS):
+        row.sizes[index] = int(sizes.get(command, 0))
+    if "commands" in layout:
+        row.has_commands = 1
+        for index, command in enumerate(tables.POWER_GET_COMMANDS):
+            row.commands[index] = int(layout["commands"].get(command, 0))
+    if "status_mask_word" in layout:
+        row.has_status_mask_word, row.status_mask_word = 1, int(layout["status_mask_word"])
+    if "control_mask_word" in layout:
+        row.has_control_mask_word, row.control_mask_word = 1, int(layout["control_mask_word"])
+    return row
+
+
+def hook_test_entry(escape_address):
+    """The thunk body (dc_hook_test_entry): forwards to the served D3DKMTEscape; its NTSTATUS."""
+    return load().dc_hook_test_entry(escape_address)
+
+
+def hook_test_state():
+    """{installed, patched, calls} of the process-wide hook session."""
+    installed, patched, calls = ctypes.c_int32(), ctypes.c_int32(), ctypes.c_uint32()
+    status = load().dc_hook_test_state(ctypes.byref(installed), ctypes.byref(patched), ctypes.byref(calls))
+    if status != DC_OK:
+        _raise(status)
+    return {"installed": bool(installed.value), "patched": bool(patched.value), "calls": calls.value}
+
+
+def hook_test_fail_protect(fail):
+    """Make the buffer patcher's begin() fail (Python's VirtualProtect failure)."""
+    load().dc_hook_test_fail_protect(1 if fail else 0)
+
+
+def hook_thunk(address, target, pointer_bytes):
+    """The hook's thunk bytes for a pointer width (pure)."""
+    out, size = (ctypes.c_uint8 * 14)(), ctypes.c_uint32()
+    status = load().dc_hook_thunk(address, target, pointer_bytes, out, ctypes.byref(size))
+    if status != DC_OK:
+        _raise(status)
+    return bytes(out[:size.value])
+
+
+def escape_capability():
+    """gdi32's D3DKMT* exports as a capability record (nvbackend.GPU._legacy_clk_gdi, but
+    reporting WHAT is missing instead of None). Never raises for a missing capability."""
+    c = _EscapeCapability()
+    c.size = ctypes.sizeof(_EscapeCapability)
+    status = load().dc_escape_capability_get(ctypes.byref(c))
+    if status != DC_OK:
+        _raise(status)
+    out = {name: bool(getattr(c, name)) for name in (
+        "gdi32_loaded", "escape", "query_adapter_info", "close_adapter", "enum_adapters2", "enum_adapters",
+        "open_from_display_name", "open_from_hdc", "complete")}
+    out["method"] = ("none", "enum2", "enum", "gdi_display_name", "hdc", "device_interface")[c.method]
+    out["patch_bytes"] = c.patch_bytes
+    out["detail"] = _text(c.detail)
+    return out
+
+
+PRIV_UNAVAIL = "private NvAPI_GPU_GetAllClocks (0x1BD69F49) did not answer"
+
+
+def _optional_u32(value):
+    """(has, value) for a Python int-or-None argument that the ABI takes as a flag and a u32."""
+    if value is None:
+        return 0, 0
+    if not _is_plain_int(value) or not 0 <= value <= 0xFFFFFFFF:
+        raise ValueError("expected None or an unsigned 32-bit integer")
+    return 1, value
+
+
+def _priv_words(pc):
+    """A (c_uint32 * 288) array for the ABI, or None to let the core read the getter."""
+    if pc is None:
+        return None
+    if hasattr(pc, "w"):  # nvbackend._AllClocksPriv
+        pc = list(pc.w)
+    words = list(pc)
+    if len(words) != PRIV_CLK_WORDS:
+        raise ValueError(f"private clock payload must hold {PRIV_CLK_WORDS} words")
+    return (ctypes.c_uint32 * PRIV_CLK_WORDS)(*words)
+
+
+def _clock_domain_rows(out):
+    rows = []
+    for row in out.rows[:out.count]:
+        rows.append({"domain": row.domain, "name": row.name.decode(), "grade": row.grade.decode(),
+                     "kind": row.kind.decode(), "prog_khz": row.prog_khz, "meas_khz": row.meas_khz,
+                     "flags": row.flags, "srcid": row.srcid, "scale": row.scale,
+                     "prog_mhz": row.prog_mhz if row.has_prog_mhz else None,
+                     "meas_mhz": row.meas_mhz if row.has_meas_mhz else None,
+                     "delta_mhz": row.delta_mhz if row.has_delta_mhz else None})
+    return rows
+
+
+def classify_clock_domains(words, core_mhz=None, mem_nvml=None, architecture=None):
+    """read_clock_domains' row loop over `words` followed by
+    nvbackend.classify_domain_names(rows, core_mhz, mem_nvml, blackwell=architecture == 10, architecture),
+    without a GPU. Returns the rows as dicts with the Python keys."""
+    payload = _priv_words(words)
+    if payload is None:
+        raise ValueError("a private clock payload is required")
+    has_core, core = _optional_u32(core_mhz)
+    has_mem, mem = _optional_u32(mem_nvml)
+    has_arch, arch = _optional_u32(architecture)
+    out = _ClockDomains()
+    out.size = ctypes.sizeof(_ClockDomains)
+    status = load().dc_clock_domains_classify(payload, PRIV_CLK_WORDS, has_core, core, has_mem, mem, has_arch, arch,
+                                              ctypes.byref(out))
+    if status != DC_OK:
+        _raise(status)
+    return _clock_domain_rows(out)
+
+
+def _fill_snapshot_row(row, old):
+    if not isinstance(old, dict):
+        return
+    manual = old.get("manual")
+    row.has_manual = isinstance(manual, bool)
+    row.manual = bool(manual) if row.has_manual else 0
+    fan_id = old.get("id")
+    row.has_id = _is_plain_int(fan_id) and 0 <= fan_id <= 0xFFFFFFFF
+    row.id = fan_id if row.has_id else 0
+    level = old.get("level")
+    row.level_valid = (not isinstance(level, bool) and isinstance(level, (int, float))
+                       and float(level).is_integer() and 0 <= level <= 100)
+    row.level = int(level) if row.level_valid else 0
+    policy = old.get("policy")
+    row.has_policy = _is_plain_int(policy) and 0 <= policy <= 0xFFFFFFFF
+    row.policy = policy if row.has_policy else 0

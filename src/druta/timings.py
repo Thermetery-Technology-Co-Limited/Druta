@@ -1451,6 +1451,14 @@ def _verdict(cycles, ratios, clock_ratios, f):
 #  standalone check:  python timings.py                                        #
 # ============================================================================ #
 if __name__ == "__main__":
+    from . import gpu_backend
+    from .gpu_backend import BackendRefused, consume_argv, open_gpu
+    try:
+        consume_argv(sys.argv)
+        gpu_backend.request()
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        raise SystemExit(2)
     av = available()
     print(f"nvtune : {av.exe or '(not found)'}")
     print(f"driver : {DRIVER_SERVICE} {av.driver}")
@@ -1462,11 +1470,18 @@ if __name__ == "__main__":
           f"   inferred: {ft.inferred_registers() or 'none'}"
           f"   aliases: {ft.aliases}")
     try:
-        from .nvbackend import GPU, slot_from_argv
-        g = GPU(slot_from_argv())
+        from .nvbackend import slot_from_argv
+        g = open_gpu(slot_from_argv())
+    except BackendRefused as e:
+        print(f"GPU backend refused: {e}", file=sys.stderr)
+        raise SystemExit(1)
     except Exception as e:
         print(f"(no GPU backend: {e})")
         g = None
+    else:
+        pinned = gpu_backend.choice()
+        if pinned is not None and pinned.source == "--backend" and pinned.kind == "python" and pinned.reason:
+            print(gpu_backend.describe(), file=sys.stderr)   # --backend auto fell back to Python
     s = snapshot(g)
     if not s.ok:
         print("\nsnapshot failed:\n" + s.error)

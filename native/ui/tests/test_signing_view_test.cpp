@@ -1,0 +1,12 @@
+// Copyright (C) 2026 Thermetery Technology Co Limited
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "test_signing_view.h"
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+using namespace druta::ui;
+#define CHECK(x) do{if(!(x)){std::fprintf(stderr,"%d: %s\n",__LINE__,#x);std::abort();}}while(false)
+std::vector<TestSigningViewIntent> frame(TestSigningViewState& s,const char* label=nullptr,std::string* text=nullptr){ImGui::GetIO().DisplaySize={1400,1000};if(label){auto* w=ImGui::FindWindowByName("Test signing setup###druta_test_signing");CHECK(w);ImGui::ActivateItemByID(ImHashStr(label,0,w->ID));}ImGui::NewFrame();ImGui::SetWindowSize("Test signing setup###druta_test_signing",ImVec2(1100,900),ImGuiCond_Always);if(text)ImGui::LogToBuffer();auto out=draw_test_signing(s);if(text){*text=ImGui::GetCurrentContext()->LogBuffer.c_str();ImGui::LogFinish();}ImGui::Render();return out;}
+int main(){ImGui::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.f/60;unsigned char* pixels;int w,h;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);TestSigningViewState s;CHECK(frame(s).empty());s.open=true;auto first=frame(s);CHECK(first.size()==1&&first[0]==TestSigningViewIntent::refresh&&frame(s).empty());CHECK(frame(s,"Accept risk and enable test signing").empty());TestSigningStatus status;status.administrator=true;status.secure_boot=true;s.status=status;CHECK(frame(s,"Accept risk and enable test signing").empty());s.status->secure_boot.reset();auto enabled=frame(s,"Accept risk and enable test signing");CHECK(enabled.size()==1&&enabled[0]==TestSigningViewIntent::enable);s.status->administrator.reset();CHECK(frame(s,"Accept risk and disable test signing").empty());s.status->administrator=true;s.busy=true;CHECK(frame(s,"Refresh status").empty()&&frame(s,"Accept risk and disable test signing").empty());s.busy=false;CHECK(frame(s,"Refresh status").size()==1);TestSigningResult fail;fail.ok=false;fail.message="partial failure";s.result=fail;std::string failed_text;auto failed_intents=frame(s,nullptr,&failed_text);CHECK(failed_intents.empty()&&failed_text.find("partial failure")!=std::string::npos&&failed_text.find("Reboot now")==std::string::npos);s.result->ok=true;frame(s);auto reboot=frame(s,"Reboot now");CHECK(reboot.size()==1&&reboot[0]==TestSigningViewIntent::reboot);s.open=false;CHECK(frame(s).empty());s.open=true;first=frame(s);CHECK(first.size()==1&&first[0]==TestSigningViewIntent::refresh);ImGui::DestroyContext();std::puts("Test signing view passed");}

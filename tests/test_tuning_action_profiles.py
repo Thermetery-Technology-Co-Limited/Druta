@@ -24,7 +24,7 @@ class GPU:
     def slot(self):
         return "slot"
 
-    def _offset_range(self, kind):
+    def clock_offset_range(self, kind):
         return (-200, 200, self.memory)
 
     def mem_offset_scale(self):

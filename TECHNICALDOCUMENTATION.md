@@ -349,8 +349,7 @@ A later 16-stop sweep over a 1468-unit range tightened both: domain 16 is
 `0.966808 × GPC` (R2 0.99993), domain 17 `0.8466 × GPC` (R2 0.9997). The reason
 that mattered is that the original 0.962–0.970 band was wide enough to contain
 **two different VBIOS fields** — the 97% slave ratio byte and the 3695/3822
-`freq_max` pair — and only the tighter number tells them apart. See *Why Pascal
-gets no per-domain knob*.
+`freq_max` pair — and only the tighter number tells them apart. See *Pascal live per-domain offsets*.
 
 **TU102's XBAR law**, measured there and nowhere else: with the clock locked at
 1800 MHz and vcore swept 912.5 → 1068.75 mV, XBAR never moved off 1725 MHz — it
@@ -424,7 +423,81 @@ refuses every mask bit above 9, and a third-party tool exposes exactly five
 controllable domains — core, memory, XBAR, SYS, video — which cannot be
 arranged as 0/1/2/4/5.
 
-### Why Pascal gets no per-domain knob
+### Pascal clock controls in the native GUI
+
+Druta reads the selected adapter's running VBIOS. For the supported Pascal HAL 2
+clock tables, it locates the GPC master program and its XBAR and SYS dependents.
+The master program contains two independently editable ratio bytes. XBAR and
+SYS each accept whole-percent requests from 1% through 200% of GPC. A version
+0x50 performance table can also supply an individual maximum per domain and
+performance state. Druta edits only the maximum bits of a selected entry.
+The editor divides the stored double-rate MHz by two for display. For each
+qualified state, the absolute MHz sliders extend to twice the domain's
+original clock-program ceiling, up to the 14-bit encoding limit.
+
+In Daily tuning and Classic Control, the ratio rows estimate target MHz as
+`P0 GPC V/F peak MHz × ratio / 100`. Druta picks the highest GPC frequency
+among V/F points whose voltage is at or below the reported effective NVVDD
+limit. The applied P0 curve already includes the applied offset. The preview
+uses any staged curve edits and adds the difference between a staged core
+offset and the applied offset. The estimate follows the P0 curve while the GPU
+idles and while other performance states are selected. If the curve or voltage
+limit is unavailable, the editor omits the estimate. The per-state ceilings
+remain independent settings and GPU Boost can affect the actual clock.
+
+The Kepler and Maxwell editor recognizes the nine-clock, four-byte-record
+PERF 4.x layout captured in the GTX 770 and GM107 samples. GPC2CLK, XBAR2CLK
+and SYS2CLK occupy slots 0, 1 and 4. Each per-state edit updates the low
+14 bits of that domain's word in doubled MHz and preserves its flags and all
+other records. The editable range comes from the original image's targets
+for that domain across states. Decoder tests cover those captures. Physical
+clock movement on those two architectures still needs an on-card measurement.
+
+On the MSI GTX 1050 Ti Gaming X (GP107, driver 581.80), the following P0
+measurements used separate before, edited and restored runs. These are physical
+clock-counter readings except where the row gives throughput.
+
+| Selected change | Before | Edited | Restored |
+|---|---:|---:|---:|
+| GPC maximum, 1911.5 to 1600 MHz | 1843.7 MHz | 1671.0 MHz | 1835.5 MHz |
+| XBAR maximum, 1860 to 1500 MHz | 1681.4 MHz | 1594.7 MHz | 1681.7 MHz |
+| SYS maximum, 1708.5 to 1350 MHz | 1543.9 MHz | 1430.2 MHz | 1543.9 MHz |
+| H.264 decode under the same SYS change | 736.5 fps | 687.0 fps | 736.5 fps |
+
+The clock maxima are nominal firmware settings. A physical clock can differ
+from the selected value. During the XBAR trial, GPC and SYS stayed within
+0.4 MHz across phases. Separate trials moved the physical XBAR and SYS counters
+by editing their respective master-program ratios. The separate NVDCLK entry
+showed no measurable H.264 decode response on this board. Other performance
+states are selectable wherever their table entries qualify. The physical tests
+above used P0.
+
+On the same GP107, separate P0 trials held the programmed GPC clock at
+1518.5 MHz and changed one ratio at a time. The peer domain retained its
+stock ratio (98% XBAR or 90% SYS). Each reported percentage is the median
+of 32 paired physical domain and GPC clock readings.
+
+| Ratio request | Measured GPC | Measured selected clock | Selected clock / GPC |
+|---|---:|---:|---:|
+| XBAR 101% | 1521.33 MHz | 1534.19 MHz | 100.84% |
+| XBAR 105% | 1521.61 MHz | 1587.74 MHz | 104.35% |
+| SYS 101% | 1521.70 MHz | 1534.47 MHz | 100.84% |
+| SYS 105% | 1522.41 MHz | 1589.41 MHz | 104.39% |
+
+Each trial returned to the original running image. At 100% on both domains,
+the median ratios before and after the trials were within 0.02 percentage
+points of GPC parity. The highest request tested on this board was 105%.
+The release build independently applied 105% XBAR with SYS at its stock 90%.
+The measured XBAR/GPC ratio was 104.40%. Native Restore recovered the exact
+stock image, and the temporary registry entries were clear after both operations.
+
+The native Apply and Restore test on the same card independently read back a
+P0 XBAR driver ceiling of 1911, 1556.5 and 1911 MHz for the three phases.
+Every other returned P0, P5 and P8 bound stayed unchanged. The original
+managed registry values were present during the edited phase and after
+Restore, and the restored 256000-byte running image matched the original.
+
+### Pascal live per-domain offsets
 
 There are docuementations floating around the internet saying that values
 of XBAR/SYSCLK/etc. are "NAFLL (noise-aware frequency locked loops)"s for Pascal. 
@@ -435,7 +508,7 @@ I was inveigled by that thought and was gonna write it off, but then I
 dug into the BIOS and found that for TU102 also classified XBAR/SYS/etc. 
 as NAFLLs in the BIOS. 
 
-**Because it's hard coded by the BIOS** GP102's clock programming table
+GP102's clock programming table
 reserves four slave slots per program and populates two of them inside GPC's
 program — `dom 1 (XBAR) = 97%`, `dom 3 (SYS) = 90%`. There are no such slots for Turing.
 The same search over GP102 finds all three as a positive control. 
@@ -475,7 +548,7 @@ cannot produce an additive constant, so TU102's XBAR has its own programmed
 target that *tracks* GPC rather than being derived from it, and a per-domain
 delta lands on that target 1:1. Pascal's has nowhere to land.
 
-**Which VBIOS field is actually load-bearing.** The sweep separates two readings
+**Stock GP102 clock ratios.** The sweep compares two predictions
 that a single sample could not:
 
 | hypothesis | predicts | vs measured 0.966808 |
@@ -483,22 +556,23 @@ that a single sample could not:
 | slave ratio byte `0x61` = 97% | 0.970000 | off by 0.003192 |
 | `freq_max` pair 3695/3822 | 0.966771 | **off by 0.000037** |
 
-The `freq_max` pair wins by 86x. **The 97% slave-ratio byte is not the number
-the hardware uses.** The value XBAR is actually derived from lives at
+On the stock GP102 image the `freq_max` pair fits the measured slope 86 times
+more closely. The two fields compared in that sweep were
 
 ```
-0x08449   XBAR program 25 freq_max = 0x0E6F = 3695   <- the operative field
-0x082F7   XBAR slave ratio byte    = 0x61   = 97     <- not this one
+0x08449   XBAR program 25 freq_max = 0x0E6F = 3695
+0x082F7   XBAR slave ratio byte    = 0x61   = 97
 ```
 
 with one caveat the sweep narrows but cannot remove: 3695 looks *derived* from
 97%. This card's clock grid is 12.657 MHz — 25.314 in 2x units — and 3695 is
 exactly 146 grid steps, while 0.97 x 3822 = 3707.34 is not on the grid at all.
 So NVIDIA plausibly computed the percentage and snapped down, which makes the
-two fields related by construction. But 3695 is what is *stored*, it is what the
-runtime demonstrably uses, and nothing needs to re-derive it at init.
+two fields related by construction. The stock-image sweep alone cannot isolate
+the contribution of each field. The GP107 ratio edits above tested that question
+by changing one field at a time.
 
-**The route to that field is closed, and both ends were tested.** Every nvflash
+**Physical VBIOS flash experiments on GP102.** Every nvflash
 we can find refuses a modified image — and refuses a card's own *unmodified*
 dump as well, which says the tool wants its distribution container rather than
 merely unedited content. More decisively, an independent GP102
@@ -509,10 +583,9 @@ silicon validates its VBIOS at boot. A programmer changes who does the writing,
 not whether the card will run the result. (Recoverable by writing the stock
 image back the same way.)
 
-So the field above is where the number lives, and it is not reachable. **On
-GP102 the only lever on XBAR is GPC** — raise it and XBAR follows at 97%. The
-identification is still worth recording, because it explains what the domain
-does and why the knob reads target-only, but it is not a route to anything.
+With that stock GP102 image, changing GPC moved XBAR proportionally. The
+GP107 tests above use the driver's per-adapter image override during
+initialization. That path leaves the flashed BIOS intact.
 
 Two domains corroborate the table decode without having been looked for: private
 domain 20 sits constant at 540, which is the clocks table's `FIXED 540 MHz`
@@ -546,12 +619,12 @@ drives. GP102 has eight: GPC0-5, SYS, XBAR. **No VIDEO NAFLL and no LTC NAFLL
 exist on the part**, which is why controls 5 and 9 are refused there and why
 domains 5/6 are `FIXED 600`/`FIXED 540` instead.
 
-So on Pascal the only lever that exists is GPC — raise it and XBAR follows at
-97%. The four negative avenues stand (private control block records the offset
-and the hardware ignores it; 108k BAR0 dwords surveyed across two clock states,
-four moved, none a frequency; the propagation-ratio interface returns nothing;
-no Maxwell-style clock-states array), and the reason all four are negative is
-that on this part XBAR is not a thing you set, it is a thing that is computed.
+The GP102 tests found four unsuccessful live paths. The private control block
+stored the offset without moving XBAR. The BAR0 survey found four changing
+dwords in 108k across two clock states and none represented a frequency. The
+propagation-ratio interface returned no data, and the Maxwell-style clock-state
+array was absent. Druta keeps those live offset controls separate from the
+firmware ceilings and ratios verified on GP107.
 
 Reading BAR0 on these parts, the `0xBADF` sentinels are worth decoding rather
 than lumping together — the code is bits 31:8:
@@ -773,12 +846,11 @@ The consequence is the one that matters for this tool: VBIOS, kernel memory,
 BAR0 and the control block are all *host* surfaces, and the consumer is signed
 PMU firmware. The four closed routes failed for one reason, not four.
 
-**Druta therefore ships no per-domain clock knob on Pascal.** A knob appears
+**The live offset panel keeps Pascal XBAR and SYS read-only.** A live offset knob appears
 only where moving it was measured to move the card's *measured* clock. The
 control→domain correspondence on GP102 is real (control 1 does drive domain
 16's target, control 3 domain 17's) and is kept in `nvbackend` as
-`CLKDOM_PAIR_PASCAL_TARGET_ONLY` so nobody re-derives it — but it is not a
-shipped control. Note also that `nvmlDeviceSetGpuLockedClocks` is unsupported
+`CLKDOM_PAIR_PASCAL_TARGET_ONLY` so nobody re-derives it — but that stored offset cannot adjust the physical clock. The native GUI uses the firmware editor described above. Note also that `nvmlDeviceSetGpuLockedClocks` is unsupported
 on GP102, so stabilising that card for measurement needs the V/F point lock.
 
 The geometry self-checks: `0x124 + 32 * 0x304 = 24996`, exactly the size the
@@ -1276,8 +1348,214 @@ stock` zeroes the table, which is not the same as putting a previous state back.
 
 # Timings
 
-Decodes and edits the framebuffer-partition memory timing registers through
-`nvtune`.
+The register editor reads and edits framebuffer-partition timing registers
+through `nvtune`. The native GUI also offers **Timings → BIOS memory timing**
+on Pascal. It can change 22 documented timing fields in the P0 memory-clock
+band's firmware row and check their programmed values through the NVIDIA
+driver. One selected-device refresh loads the edits.
+
+The firmware editor matches the current memory band and two controller
+readings to a unique Memory Tweak Table row. Each sample must begin and end
+at P0 at the same memory clock. CONFIG1 and CONFIG3 identify the row. Fields
+from CONFIG0, CONFIG2, CONFIG4 and CONFIG5 also require two matching readings
+of their register. Each editable field must match its stored ROM bits.
+Multiple edits to one word are merged into the original ROM word using only
+their selected masks. After the complete running image matches, Druta clears
+the temporary registry records and checks the reviewed controller words at
+the original P0 clock. Missing evidence keeps verification pending. Existing
+tFAW-only receipts retain their original CONFIG1/CONFIG3 proof.
+
+| Controller word | Editable BIOS fields |
+|---|---|
+| CONFIG0 | tRC, tRFC, tRAS, tRP |
+| CONFIG1 | tWL, tRCDRD, tRCDWR. tCL is displayed read-only. |
+| CONFIG2 | RPRE, WPRE, CDLR, tWR, W2R_BUS, R2W_BUS |
+| CONFIG3 | PDEX, PDEN2PDEX, tFAW, AOND, tCCDL, tCCDS |
+| CONFIG4 | tREFI, tRRD |
+| CONFIG5 | WRCRC |
+
+TIMING22's two refresh fields (RFCSBA and RFCSBR), R2P and RDCRC have public
+ROM definitions. Their end-to-end Pascal controller mappings remain unverified.
+The six-word editor preserves their stored values along with training,
+voltage and reserved fields. Register ranges describe the encoding. Stability
+and the physical effect depend on the selected adapter and memory band.
+[NVIDIA memory tweak table](https://nvidia.github.io/open-gpu-doc/MemoryTweakTable/MemoryTweakTable.html)
+and [nvtune's register mapping notes](https://github.com/sebastianmarrufo/nvtune/blob/df5df6cfd0b99a5bd0440c768014f452c66cea1d/tool/src/regs.cpp#L88-L98).
+
+## Hardware verification on the MSI GTX 1050 Ti
+
+On the tested GP107 with driver 581.80, the controller confirmed writes and
+restoration for all 20 timings the editor offered at P0 and 3504 MHz. An
+earlier trial verified tFAW at **28 → 29 → 28**. The table gives the raw
+controller values from the 19 subsequent single-field trials. Fields sharing
+a row had identical readings in separate trials.
+[Earlier tFAW trial](experiments/firmware-tfaw-20261119.json) ·
+[19 single-field trials and controller captures](experiments/gp107-p0-individual-bios-timings-20261120.json).
+
+| Controller word | Timing | Before | Applied | Restored |
+|---|---|---:|---:|---:|
+| CONFIG0 | tRC | 71 | 72 | 71 |
+| CONFIG0 | tRFC | 193 | 194 | 193 |
+| CONFIG0 | tRAS | 44 | 45 | 44 |
+| CONFIG0 | tRP | 27 | 28 | 27 |
+| CONFIG1 | tWL | 5 | 6 | 5 |
+| CONFIG1 | tRCDRD | 27 | 28 | 27 |
+| CONFIG1 | tRCDWR | 22 | 23 | 22 |
+| CONFIG2 | RPRE, WPRE | 0 | 1 | 0 |
+| CONFIG2 | CDLR | 9 | 10 | 9 |
+| CONFIG2 | tWR | 28 | 29 | 28 |
+| CONFIG2 | W2R_BUS, R2W_BUS | 8 | 9 | 8 |
+| CONFIG3 | PDEX | 10 | 11 | 10 |
+| CONFIG3 | PDEN2PDEX | 5 | 6 | 5 |
+| CONFIG3 | AOND | 0 | 1 | 0 |
+| CONFIG4 | tREFI | 6 | 5 | 6 |
+| CONFIG4 | tRRD | 7 | 8 | 7 |
+| CONFIG5 | WRCRC | 13 | 14 | 13 |
+
+All 57 captures began and ended at P0 and 3504 MHz. Only the selected bits
+moved across the six controller words in each trial. All six words and the
+complete running BIOS image returned to baseline before the next trial.
+The final check found zero staged override records. The sweep verified
+controller programming and restoration on this card at this operating point.
+Long-duration stability and performance were outside its scope.
+
+tCL stayed read-only and measured 22 throughout. tCCDL and tCCDS remain
+untested on this card because CONFIG3's high byte was 0x22 in the firmware
+row and 0x00 on the controller, so the editor withheld both fields.
+[GP107 timing inventory](experiments/pascal-p0-bios-timing-inventory-20261120.json).
+
+## Session firmware override experiment for tFAW
+
+The P0 trial used the driver's temporary ROM records and a selected GPU
+restart to change one bit of tFAW in a Memory Tweak Table entry. Each phase
+checked the complete running image and independently sampled the memory
+controller's CONFIG3. Both sides of each timing sample had to report P0
+and the same memory clock. CONFIG1, which contains tCL, was read for
+comparison. The test ran without nvtune or a VBIOS flash.
+
+| Card on driver 581.80 | State and reported memory clock | Tweak row | Requested tFAW | Controller tFAW before / edited / restored | tCL throughout |
+|---|---|---:|---:|---:|---:|
+| GTX 1050 Ti, GP107 | P0, 3504 MHz | 9 | 29 | 28 / 29 / 28 | 22 |
+| RTX 3070 Ti, GA104 | P0, 9501 MHz | 0 | 21 | 20 / 20 / 20 | 30 |
+
+Both cards loaded the edited image and returned to the exact original image.
+Only the GTX 1050 Ti changed the programmed controller timing. A short
+CUDA copy workload reached P0 on the 1050 Ti. A Direct3D graphics workload
+reached P0 on the 3070 Ti.
+The evidence file
+also retains earlier P8 and P2 trials as historical records.
+[Trial records and full-image digests](experiments/firmware-tfaw-20261119.json).
+
+### Where the GA104 tFAW override stops
+
+The two supplied ROMs both use the version 0x11 memory clock table to select
+a row in the version 0x20 memory tweak table. Their headers declare different
+record sizes. The largest difference is in the clock-band and strap map.
+
+| ROM structure | GTX 1050 Ti (GP107) | RTX 3070 Ti (GA104) |
+|---|---:|---:|
+| Memory clock table, total bytes | 806 | 7,046 |
+| Clock-band base record | 20 bytes | 86 bytes |
+| Strap columns per band × bytes per column | 10 × 11 | 14 × 44 |
+| Nonzero frequency ranges | 6 | 7, plus 3 zero-range entries |
+| Memory tweak table, rows × bytes per row | 64 × 68 | 65 × 76 |
+| BIT M memory-control pointer block | 25 bytes | 41 bytes |
+
+On this 3070 Ti, the two P0 strap columns matching the observed timings are
+byte-identical and both select row 0. Its first six CONFIG words occur together
+only once in the entire ROM file. All six matched the live controller before
+the edit at P0 and 9501 MHz. Separate training records are present on both
+cards. How GA104 uses the additional bytes is unresolved.
+[Reproducible ROM comparison](experiments/ga104_memory_layout_20261119.py) ·
+[Decoded layouts](experiments/ga104-memory-layout-20261119.json).
+
+The 12 GA104 rows with populated CONFIG words all use a tFAW divisible by
+four. To test whether the earlier 20 → 21 result came from rounding, a second
+trial requested 20 → 24 → 20. The driver returned the exact edited image with
+CONFIG3 `0x2300314c`. The independent controller read returned
+`0x2300294c` (20 cycles) in all three phases. All six broadcast CONFIG words
+matched their original values throughout, including tCL at 30. Each sample
+was bracketed by P0 at 9501 MHz. The two selected-device restarts completed,
+the original image was restored and the temporary registry record was cleared.
+[P0 readbacks and image hashes](experiments/ga104-p0-tfaw24-20261119.json).
+
+These measurements place the discrepancy between the driver-visible timing
+image and the programmed P0 controller words. Rounding to a multiple of four
+cannot by itself explain the second result. Ampere firmware can program VRAM
+timings during device initialization before the host driver starts. An earlier
+firmware snapshot or a separate runtime source could therefore explain the
+observations. The trial did not identify the component that supplies P0 timings
+on this Windows driver. [Linux kernel description of Ampere device initialization](https://docs.kernel.org/gpu/nova/core/devinit.html).
+
+### Which memory profile matches the 3070 Ti at P0?
+
+On this GA104, two read-only configuration queries gave different results.
+The strap bits used by Nouveau read 0 twice (`0x101000 = 0x00400080`).
+NVIDIA's framebuffer `RAM_CFG` query returned 2 twice. NVIDIA describes this
+field as implementation-dependent. The following comparison uses the supplied
+ROM's clock band containing the recorded P0 memory clock of 9501 MHz.
+[Board readbacks](experiments/ga104-strap-capacity-20261119.json) ·
+[Nouveau strap and group lookup](https://github.com/torvalds/linux/blob/v6.18/drivers/gpu/drm/nouveau/nvkm/subdev/bios/ramcfg.c#L27-L75) ·
+[NVIDIA framebuffer query definition](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/common/sdk/nvidia/inc/ctrl/ctrl2080/ctrl2080fb.h#L111-L119).
+
+| ROM group | Empirical density per device | Timing row | tFAW (cycles) | tRFC (cycles) |
+|---|---:|---:|---:|---:|
+| 0 | 8 Gbit | 8 | 16 | 165 |
+| 1 and 2 | 8 Gbit | 0 | 20 | 262 |
+| 3 | 16 Gbit | 8 | 16 | 165 |
+| 6 and 7 | 16 Gbit | 38 and 19 | Zeroed records | Zeroed records |
+
+Groups 0 and 3 share the same timing row despite their different density
+codes. All six controller CONFIG words in the baseline P0 recording equal
+row 0. Interpreting the driver's value of 2 as a group predicts that row.
+Using the Nouveau strap and group lookup gives row 8. Groups 1 and 2 both
+fit the baseline, and the firmware's own selection procedure remains unknown.
+The earlier 20 → 24 → 20 image trial therefore edited a row that matches
+the controller in all six words, yet its tFAW never reached the sampled P0
+controller state. [Profile and timing map](experiments/ga104-memory-layout-20261119.json) ·
+[P0 controller readings](experiments/ga104-p0-tfaw24-20261119.json).
+
+With the baseline image restored, two P0 samples at 9501 MHz reproduced all six
+row 0 words at each of FBPA 0, 2 and 3 as well as broadcast. tFAW was 20 cycles
+throughout. These three partitions have individually identified readbacks on
+this board. FBPA 1 remains unverified. Only broadcast was sampled while the
+24-cycle image was active in the earlier trial.
+[Stock P0 readings by partition](experiments/ga104-p0-partition-baseline-20261120.json).
+
+Two subsequent tests compared the lifetime of the temporary override on this
+3070 Ti (driver 581.80). Both loaded the exact image requesting 24 cycles.
+One cleared the registry record after the driver returned that image. The
+other kept it in place through the first P0 measurement, a drop to 810 MHz,
+and the return to P0. Each six-word timing sample was bracketed by P0 at
+9501 MHz. Only clock and state were observed during the departure.
+
+| Override during the P0 reads | First P0 tFAW | After return to P0 | Restored tFAW |
+|---|---:|---:|---:|
+| Record already removed | 20 | 20 | 20 |
+| Record still present | 20 | 20 | 20 |
+
+Broadcast and FBPA 0, 2 and 3 agreed on every sample. All six words matched
+the baseline, including tCL at 30. Both trials restored the complete original
+image and cleared the managed registry records. FBPA 1 remains unverified.
+The sole stock 24-cycle row sets tCL to 32 and differs from row 0 in 24 bytes
+outside tFAW. Each of row 0's six CONFIG words appears literally just once
+in the supplied full ROM. These observations rule out a second literal copy
+of those words and leave packed values and an earlier snapshot possible.
+[Partition readings, image checks and stock ROM comparison](experiments/ga104-p0-tfaw-partition-trials-20261120.json).
+
+NVIDIA's open display driver identifies the framebuffer Falcon (FBFLCN) as a
+participant in runtime memory-clock switching. Its public description covers
+the handshake with the display engine. The input that supplies tFAW at P0 on
+this Windows driver remains unidentified. [NVIDIA display control](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/a4b95f6a2db0bba10ccaccef79190a3c18dcf14a/src/common/sdk/nvidia/inc/ctrl/ctrlc372/ctrlc372chnc.h#L211-L219).
+
+GA10x also exposes an independent capacity measurement. NVIDIA's driver reads
+the usable framebuffer size published by VBIOS Devinit. This 3070 Ti returned
+8192 MiB there and the same total through the driver's physical RAM query and
+NVML. On a board with a density change, comparing those measurements can show
+whether the smaller capacity is already present at the end of initialization.
+The size alone cannot identify which timing row firmware uses.
+[NVIDIA Devinit capacity reader](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.78.08/src/nvidia/src/kernel/gpu/mem_sys/arch/ampere/kern_mem_sys_ga102.c#L34-L47) ·
+[Read-only collector](experiments/ga10x_capacity_handoff.py).
 
 ## A cycle count is not a time until you know its clock
 

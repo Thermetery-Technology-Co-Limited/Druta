@@ -87,10 +87,13 @@ def _fields(inspection, changes):
     if len(tables) != 1 or not isinstance(fields, list):
         raise PowerWeightError("Missing unique power table")
     table = tables[0]
-    if (table.get("version") != 0x40 or table.get("header_size") not in (0x38, 0x3d)
-            or table.get("stride") != 0x66 or type(table.get("offset")) is not int
-            or type(table.get("count")) is not int or table.get("size") != table["header_size"] + table["count"] * 0x66):
+    shape = (table.get("version"), table.get("header_size"), table.get("stride"))
+    short_v30 = shape == vbios_fields.POWER_V30_SHORT_SHAPE
+    if ((not short_v30 and shape not in ((0x40, 0x38, 0x66), (0x40, 0x3D, 0x66)))
+            or type(table.get("offset")) is not int or type(table.get("count")) is not int
+            or table.get("size") != table["header_size"] + table["count"] * table["stride"]):
         raise PowerWeightError("Unsupported power table geometry")
+    relationship_stride = 14 if short_v30 else 18
 
     def field(key):
         found = [f for f in fields if isinstance(f, dict) and f.get("key") == key]
@@ -103,11 +106,11 @@ def _fields(inspection, changes):
         i, item = int(KEY.fullmatch(key)[1]), field(key)
         target = item.get("target_policy")
         count = item.get("relationship_count")
-        offset = table["offset"] + table["size"] + 18 * i
+        offset = table["offset"] + table["size"] + relationship_stride * i
         if (type(count) is not int or not i < count <= 255 or type(target) is not int
                 or not 0 <= target < min(table["count"], 32)
                 or item.get("relationship_index") != i or item.get("relationship_kind") != 1
-                or item.get("relationship_stride") != 18 or item.get("relationship_offset") != offset
+                or item.get("relationship_stride") != relationship_stride or item.get("relationship_offset") != offset
                 or item.get("offsets") != [offset + 2] or item.get("encoding") != "H"
                 or item.get("width") != 2 or item.get("scale") != 4096 or item.get("mask") is not None
                 or item.get("units") != "multiplier" or item.get("capability") != "editable"):
@@ -115,17 +118,20 @@ def _fields(inspection, changes):
         policy = field(f"power.{target}.default")
         runtime = policy.get("runtime_binding", {})
         kind = runtime.get("vbios_type")
-        translated = vbios_fields.power_runtime_type(0x40, kind)
+        translated = (vbios_fields.POWER_V30_SHORT_RUNTIME_TYPES.get(kind) if short_v30
+                      else vbios_fields.power_runtime_type(table["version"], kind))
         if (runtime.get("policy_index") != target or translated is None
                 or runtime.get("runtime_type") != translated or runtime.get("units") not in ("mW", "mA")
                 or type(runtime.get("channel")) is not int):
             raise PowerWeightError("Target BIOS policy has no understood runtime translation")
         limits = []
-        row = table["offset"] + table["header_size"] + target * 0x66
+        row = table["offset"] + table["header_size"] + target * table["stride"]
+        limit_base = row + (2 if short_v30 else 13)
+        capability = "read-only" if short_v30 else "editable"
         for ordinal, role in enumerate(("minimum", "default", "maximum")):
             p = field(f"power.{target}.{role}")
-            if (p.get("offsets") != [row + 13 + ordinal * 4] or p.get("encoding") != "I"
-                    or p.get("capability") != "editable" or p.get("runtime_binding") != runtime
+            if (p.get("offsets") != [limit_base + ordinal * 4] or p.get("encoding") != "I"
+                    or p.get("capability") != capability or p.get("runtime_binding") != runtime
                     or type(p.get("current")) is not int):
                 raise PowerWeightError("Target policy limit binding differs")
             limits.append(p["current"])
@@ -147,11 +153,9 @@ def _check(observation, binding, raw):
     try:
         _identity(observation.get("identity"))
         packet = bytes.fromhex(observation["info_hex"])
-        if len(packet) != 20512:
-            raise ValueError("invalid INFO size")
         parsed = power_relationships.decode(
-            {"info": (0xCC, 0x104), "sizes": {0x2080A618: 20512}},
-            struct.unpack("<5128I", packet),
+            power_relationships.packet_layout(len(packet)),
+            struct.unpack(f"<{len(packet) // 4}I", packet),
         )
         if not parsed.get("available") or parsed["relationships"] != observation.get("relationships"):
             raise ValueError("INFO records do not match packet")
@@ -223,11 +227,12 @@ def verify(observation, saved, *, restore=False):
     try:
         expected = bytearray.fromhex(saved["before"]["info_hex"])
         actual = bytes.fromhex(observation["info_hex"])
-        if len(expected) != 20512 or len(actual) != 20512:
+        if len(actual) != len(expected):
             raise ValueError("invalid INFO size")
         if not restore:
             for entry in saved["selected"].values():
-                struct.pack_into("<H", expected, 0x41D0 + entry["binding"]["index"] * 0x24 + 6, entry["after_raw"])
+                offset = power_relationships.weight_offset(len(expected), entry["binding"]["index"])
+                struct.pack_into("<H", expected, offset, entry["after_raw"])
         if actual != expected:
             raise PowerWeightError("Unselected INFO bytes or selected weight differ")
     except (KeyError, TypeError, ValueError, struct.error) as exc:

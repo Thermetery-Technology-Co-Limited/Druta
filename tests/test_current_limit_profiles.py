@@ -10,6 +10,7 @@ from druta.nvbackend import GPU
 def fixture():
     return SimpleNamespace(
         static={"name": "fixture"},
+        MAX_ABS_DELTA_KHZ=GPU.MAX_ABS_DELTA_KHZ,
         read=Mock(return_value={}),
         mem_offset_scale=Mock(return_value=(1, "")),
         read_fan_control_state=Mock(return_value=None),

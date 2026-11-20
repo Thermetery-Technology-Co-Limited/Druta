@@ -239,9 +239,9 @@ def run_worker(input_path, result_path):
         "payload": None,
     }
     try:
-        from .nvbackend import GPU
+        from .gpu_backend import open_gpu
 
-        gpu = GPU(target.slot)
+        gpu = open_gpu(target.slot)
         ro = _ro()
         if ro.bind_target(gpu) != target:
             raise WorkerError("identity", "Fresh replay worker identifies another adapter")
