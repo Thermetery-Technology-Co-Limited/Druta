@@ -354,6 +354,7 @@ DC_API dc_status DC_CALL dc_cpc_set_request(dc_gpu* handle, int64_t mw, dc_cpc_s
         druta::LockGuard guard(handle->gpu.lock());  // set_request: `with self.gpu._lock`, the peer writes included
         const druta::backend::CpPeerWriter peer{druta::abi::write_peer, handle};
         druta::backend::CpSetResult r = handle->cp.set_request(mw, peer);
+        if (r.after || r.rollback) handle->pl.record_live_dispatch();
         const bool success = r.before && r.after;
         if (success ? !reading_fits(*r.before) || !reading_fits(*r.after)
                     : r.rollback && r.rollback->readback && !reading_fits(*r.rollback->readback))

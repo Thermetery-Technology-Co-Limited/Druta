@@ -86,6 +86,12 @@ struct Snapshot {
     std::optional<std::pair<std::uint32_t, std::uint32_t>> clk_lock_mhz;
 };
 
+struct PowerBounds {
+    std::int64_t low = 0, high = 0;
+
+    bool contains(std::int64_t mw) const { return low <= mw && mw <= high; }
+};
+
 struct OffsetRange {
     std::int32_t low, high, current;
 };
@@ -138,12 +144,11 @@ public:
     // nullopt when NVAPI is down, the interface is absent, the status is nonzero or the value is 0.
     std::optional<double> read_vcore_mv();
     std::optional<std::uint32_t> read_power_limit_nvml();
+    std::optional<PowerBounds> read_power_bounds_nvml(bool& transient);
     // The enforced limit only; a successful zero is retained, as in read_power's pl_now_mw.
     std::optional<std::uint32_t> read_enforced_power_limit();
-    // read_power's pl_requested_mw: GPU.read_power_limit_mw (the NVML request, else the live
-    // request while NVAPI is live; PowerLimit::read, installed by the handle). Unset, the NVML
-    // request alone (a Telemetry without the client-power layer, as the self-test builds). The
-    // argument is set true when the value came from a live read that succeeded.
+    // The handle installs PowerLimit::read for configured requests. The argument is set
+    // for a fresh client-power read. A standalone Telemetry uses NVML.
     std::function<std::optional<std::uint32_t>(bool& from_live)> power_limit_reader;
     std::vector<std::uint32_t> supported_nvml_clocks(const char* function, std::optional<std::uint32_t> selector);
 
@@ -151,6 +156,7 @@ public:
     std::optional<double> pcie_baseline;
 
 private:
+    std::optional<PowerBounds> nvml_power_bounds_;
     std::optional<std::uint32_t> arch_cache_;
     const char* arch_source_ = nullptr;  // a static string; see arch_source()
 

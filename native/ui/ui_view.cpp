@@ -804,7 +804,9 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
         else if(correction.active) ImGui::TextColored(amber,"x%.4g %s",correction.factor,correction.exact?"uniform":"estimate");
     }
     ImGui::TableNextColumn();
-    const bool editable = control.writable && draft.initialized && snapshot.data.connected && !snapshot.opening && !snapshot.busy;
+    const bool power = id == ControlId::power;
+    const bool editable = control.writable && draft.initialized && snapshot.data.connected && !snapshot.opening && !snapshot.busy
+        && (!power || (control.availability == Availability::available && control.low && control.high));
     const bool ranged = control.low && control.high && std::isfinite(*control.low) && std::isfinite(*control.high) && *control.low < *control.high;
     bool edited = false, editing = false;
     if (!classic) {
@@ -878,7 +880,8 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
         state.classic_power_request = ViewState::ClassicPowerRequest{snapshot.generation, snapshot.completed_actions,
             snapshot.log.empty() ? 0 : snapshot.log.back().id, requested_w};
     };
-    ImGui::BeginDisabled(!editable || !state.controls_unlocked || !in_range);
+    const bool power_noop = power && control.current && draft.value == *control.current;
+    ImGui::BeginDisabled(!editable || !state.controls_unlocked || (!in_range && !power_noop));
     if (ImGui::Button("Apply", ImVec2(classic ? -1.0f : 0.0f, 0))) {
         state.commands.push_back({Command::Operation::apply, id, draft.value});
         power_request(draft.value);

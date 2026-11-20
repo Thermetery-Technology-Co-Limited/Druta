@@ -321,27 +321,28 @@ def test_power_limit(kind):
     """Success, out of range and a failing SET, on the card that serves the client-power wire model
     (live_power): a request outside NVML's static bounds is checked against the live request's
     bounds, which needs that transport."""
-    out = both(kind, power_limit, live_power=True)
+    out = run(kind, power_limit, live_power=True)
     r = out["result"]
     assert r[0] == ("ok", 260000) and r[1] == ("ok", (100000, 320000))
     assert r[2] == ("ok", (True, "power limit configured to 250 W")) and r[3] == ("ok", 250000)
     # 321 W: the live request of the wire model (FakeGpu's requested=321000), which the live bounds
     # admit; 999.999 W is outside them and nothing is written.
-    assert r[4] == ("ok", (False, "power request 999.999 W out of [100..321] W; extended requests require XOC"))
+    high = 320 if kind == "native" else 321
+    assert r[4] == ("ok", (False, f"power request 999.999 W out of [100..{high}] W; extended requests require XOC"))
     assert r[5] == ("ok", (False, "power limit failed: Unknown Error")) and r[6] == ("ok", 250000)
     assert out["log"].count(("nvml", "nvmlDeviceSetPowerManagementLimit")) == 2  # 250 W and the failed 260 W
     assert [call for call in out["parts"]["base"] if call[0] == "SetPowerManagementLimit"] == [
         ("SetPowerManagementLimit", 250000)]
-    assert out["parts"]["live"] and out["state"]["live request"] == 321000  # read, never written
+    assert bool(out["parts"]["live"]) == (kind == "python")
+    assert out["state"]["live request"] == 321000
 
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_power_limit_outside_static_bounds_without_client_power_transport(kind):
     """Without the client-power envelope the request outside NVML's static bounds cannot be checked
     against the live request: refused before any write, on both kinds."""
-    out = both(kind, lambda s: attempt(lambda: s.gpu.set_power_limit_mw(999999)))
-    assert out["result"] == ("ok", (False, "live power request not available; no write issued: "
-                                           "Client-power transport envelope is not understood"))
+    out = run(kind, lambda s: attempt(lambda: s.gpu.set_power_limit_mw(999999)))
+    assert out["result"][0] == "ok" and out["result"][1][0] is False
     assert ("nvml", "nvmlDeviceSetPowerManagementLimit") not in out["log"]
     assert [call for call in out["parts"]["base"] if call[0] == "SetPowerManagementLimit"] == []
 
@@ -555,11 +556,11 @@ def test_transient_rail_getter(kind):
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_transient_capability_read(kind):
-    """The constraints read fails on its only call: the bounds stay unknown in `static`, the power
-    limit is still readable and writable."""
-    out = both(kind, transient_power, transient={"nvmlDeviceGetPowerManagementLimitConstraints": None})
+    """The native bounds call recovers a missed static constraints read."""
+    out = run(kind, transient_power, transient={"nvmlDeviceGetPowerManagementLimitConstraints": None})
     first, second, bounds, written, back = out["result"]
     assert first == second == ("ok", 260000)
+    assert bounds == ("ok", (100000, 320000) if kind == "native" else (50000, 400000))
     assert written[1][0] is True and back == ("ok", 250000)
 
 

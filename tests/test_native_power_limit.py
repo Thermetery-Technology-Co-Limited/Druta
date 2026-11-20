@@ -22,17 +22,15 @@ nvbackend.GPU twin of the same fake driver. Two rigs:
    current-limit transport the fake serves (no layout choice is seeded on either side, so both
    probe it) and, with PeerCoupledGpu, the writer's SET.
 
-Every case compares on both sides: the outcome (value, (ok, message) with its full text, or the
-exception), the NVML log (each getter read and each setter write with its value), the gdi escape
-log, the fake's own command log and live request, the live bookkeeping (_live_power_last,
-_live_power_error, _live_power_error_kind, _board_policy), the static pl_* keys and the pins.
+Parity cases compare outputs, driver logs, statics, live bookkeeping and pins. Native-only
+cases assert the board request contract where probe and ownership behavior differs from Python.
 
 Recorded divergences (asserted below as the binding's behaviour where reachable):
 - A static pl_* value that is not equal to an int64 is None to the core (B2's _cl_statics_fill);
   Python compares or returns it as given (AbiTests.test_a_non_integer_static_is_none).
 - The live back-fill comes from the core's capability store (A6's contract): where that store
   already held an NVML value and the dict held None, the store's value is used, Python takes the
-  live binding's. These rigs export no NVML constraints, so both are the binding's.
+  live binding's. The capability fixtures specify explicitly when NVML constraints are available.
 - _set_power_limit_nvml takes only an int within int64 (TypeError / ValueError), and a dead NVML or
   a missing setter export is AttributeError before any call.
 - The stock_* cases of tests/test_live_power_backend.py belong to increment B4 and are not here.
@@ -66,6 +64,7 @@ if not native.available():
 PL = ("pl_min_mw", "pl_def_mw", "pl_max_mw")
 GET, SET_LIMIT, ENFORCED = ("nvmlDeviceGetPowerManagementLimit", "nvmlDeviceSetPowerManagementLimit",
                             "nvmlDeviceGetEnforcedPowerLimit")
+CONSTRAINTS = "nvmlDeviceGetPowerManagementLimitConstraints"
 INVALID = "power limit must be a finite number in whole milliwatts"
 BACKEND_STATIC = {"pl_min_mw": 200000, "pl_def_mw": 321000, "pl_max_mw": 550000}
 
@@ -93,6 +92,8 @@ class NvmlPower:
         self.log = []
         self.read_status = self.after_status = self.write_status = 0
         self.echo = True
+        self.reported_mw = None
+        self.constraints_status = 0
         self.writes = 0
 
         @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
@@ -116,11 +117,20 @@ class NvmlPower:
         if enforced is not None:
             self.exports[ENFORCED] = get_enforced
 
+    def add_constraints(self, low, high):
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        def constraints(_device, minimum, maximum):
+            write_u32(minimum, low)
+            write_u32(maximum, high)
+            return self.constraints_status
+        self.exports[CONSTRAINTS] = constraints
+
     def read(self):
         """(status, value) of one getter read, logged."""
         status = self.after_status if self.writes else self.read_status
         self.log.append(("get", status))
-        return status, (0 if status else self.model().requested & 0xFFFFFFFF)
+        value = self.model().requested if self.reported_mw is None else self.reported_mw
+        return status, (0 if status else value & 0xFFFFFFFF)
 
     def write(self, value):
         """The setter's status for one write of value, logged."""
@@ -175,12 +185,13 @@ class NvmlOnlyCase(unittest.TestCase):
     def tearDown(self):
         native.set_export_resolver(None)
 
-    def both(self, action, *, setup=None, remove=()):
+    def both(self, action, *, setup=None, remove=(), native_only=False):
         """action(gpu) on the twin, then on the core, each over a fresh PowerDriver and NVML table."""
         runs = []
-        for kind in ("python", "native"):
+        for kind in (("native",) if native_only else ("python", "native")):
             driver = PowerDriver()
             power = NvmlPower(lambda driver=driver: driver, enforced=349200)
+            power.add_constraints(100000, 400000)
             card = Card(with_nvapi=False)
             card.nvml.exports.update(power.exports)
             for name in remove:
@@ -203,7 +214,8 @@ class NvmlOnlyCase(unittest.TestCase):
                 runs.append((result, list(power.log), driver.requested, static_of(gpu), bookkeeping(gpu)))
             finally:
                 opened.close()
-        self.assertEqual(runs[0], runs[1])
+        if not native_only:
+            self.assertEqual(runs[0], runs[1])
         return runs[0]
 
 
@@ -241,7 +253,7 @@ class PowerLimitReadbackTests(NvmlOnlyCase):
         for name, setup, remove in (("status", status, ()), ("missing", None, (GET,)), ("zero", zero, ())):
             with self.subTest(failure=name):
                 (value, nvml, swept, (_, (ok, message))), log, requested, *_ = self.both(action, setup=setup,
-                                                                                    remove=remove)
+                                                                                    remove=remove, native_only=True)
                 self.assertIsNone(value)
                 self.assertIsNone(nvml)
                 self.assertEqual(swept, {"pl_now_mw": 349200})
@@ -252,7 +264,7 @@ class PowerLimitReadbackTests(NvmlOnlyCase):
     def test_exact_configured_request_verifies_despite_lagging_enforced_limit(self):
         for request in (350000, 349200, 349000, 355000, 350001, 100000, 400000):
             with self.subTest(request=request):
-                (ok, message), log, requested, *_ = self.both(lambda gpu, r=request: gpu.set_power_limit_mw(r))
+                (ok, message), log, requested, *_ = self.both(lambda gpu, r=request: gpu.set_power_limit_mw(r), native_only=True)
                 self.assertTrue(ok, message)
                 self.assertEqual(requested, request)
                 self.assertEqual(message, f"power limit configured to {request/1000:g} W")
@@ -266,7 +278,7 @@ class PowerLimitReadbackTests(NvmlOnlyCase):
             with self.subTest(setting=setting):
                 def setup(power, _card, setting=setting, value=value):
                     setattr(power, setting, value)
-                (ok, message), log, *_ = self.both(lambda gpu: gpu.set_power_limit_mw(350000), setup=setup)
+                (ok, message), log, *_ = self.both(lambda gpu: gpu.set_power_limit_mw(350000), setup=setup, native_only=True)
                 self.assertFalse(ok)
                 if setting == "after_status":  # the readback failed: NVML-only, no live fallback
                     expected = "power limit was sent, but configured-limit readback failed"
@@ -278,13 +290,13 @@ class PowerLimitReadbackTests(NvmlOnlyCase):
                   99999, 400001, 0, -1, 1 << 32, (1 << 32) - 1, 2.0**32, 1e300, 10**30)
         for value in values:
             with self.subTest(value=repr(value)[:40]):
-                (ok, message), log, requested, *_ = self.both(lambda gpu, v=value: gpu.set_power_limit_mw(v))
+                (ok, message), log, requested, *_ = self.both(lambda gpu, v=value: gpu.set_power_limit_mw(v), native_only=True)
                 self.assertFalse(ok)
                 self.assertNotIn("set", [entry[0] for entry in log])
                 self.assertEqual(requested, 360000)
 
     def test_a_whole_float_is_written_as_its_int(self):
-        (ok, message), log, requested, *_ = self.both(lambda gpu: gpu.set_power_limit_mw(350000.0))
+        (ok, message), log, requested, *_ = self.both(lambda gpu: gpu.set_power_limit_mw(350000.0), native_only=True)
         self.assertTrue(ok, message)
         self.assertEqual(requested, 350000)
 
@@ -325,9 +337,40 @@ class PowerLimitReadbackTests(NvmlOnlyCase):
         def action(gpu):
             return (gpu._normal_power_bounds_mw(), gpu.power_limit_bounds_mw(), gpu.power_limit_bounds_mw(xoc=True),
                     getattr(gpu, "_live_power_error_kind", None), getattr(gpu, "_live_power_last", None))
-        result, log, *_ = self.both(action)
+        result, log, *_ = self.both(action, native_only=True)
         self.assertEqual(result[0], (100000, 400000))
-        self.assertEqual(result[1], (100000, 400000))  # pl_def_mw missing: a live read is tried and fails
+        self.assertEqual(result[1:], ((100000, 400000), (100000, 400000), None, None))
+
+    def test_placeholder_does_not_supply_missing_hardware_constraints(self):
+        def action(gpu):
+            return gpu.read_power_limit_mw(), outcome(gpu.power_limit_bounds_mw), gpu.set_power_limit_mw(350000)
+        (requested, bounds, (ok, message)), log, *_ = self.both(
+            action, remove=(CONSTRAINTS,), native_only=True)
+        self.assertEqual(requested, 360000)
+        self.assertEqual(bounds[0], "NotImplementedError")
+        self.assertFalse(ok)
+        self.assertIn("bounds unavailable", message)
+        self.assertNotIn("set", [entry[0] for entry in log])
+
+    def test_temporary_constraints_are_retried_without_authorizing_the_placeholder(self):
+        fixture = []
+        def setup(power, _card):
+            fixture.append(power)
+            power.constraints_status = 9
+
+        def action(gpu):
+            first = outcome(gpu.power_limit_bounds_mw)
+            refused = gpu.set_power_limit_mw(350000)
+            fixture[0].constraints_status = 0
+            return first, refused, gpu.power_limit_bounds_mw(), gpu.set_power_limit_mw(350000)
+
+        (first, refused, recovered, written), log, *_ = self.both(action, setup=setup, native_only=True)
+        self.assertEqual(first[0], "RuntimeError")
+        self.assertIn("temporarily unreadable", first[1])
+        self.assertFalse(refused[0])
+        self.assertEqual(recovered, (100000, 400000))
+        self.assertTrue(written[0])
+        self.assertEqual([entry for entry in log if entry[0] == "set"], [("set", 350000)])
 
 
 # ---- rig 2: the live rig (tests/test_live_power_backend.py) ----------------------------------------
@@ -372,14 +415,18 @@ class LiveSetRig(SetRig):
 
 
 class LiveCase(MetadataCase):
-    def run_both(self, rig, action, *, static=BACKEND_STATIC, xoc=False, pins=None, nvml=None, remove=()):
+    def run_both(self, rig, action, *, static=BACKEND_STATIC, xoc=False, pins=None, nvml=None, remove=(),
+                 native_only=False):
         """action(side, power) on the twin, then on the core, each with a fresh fake. pins: the session
         pins (none by default: the re-application returns before any read, as BackendGpu's Mock)."""
         runs = []
-        for kind in ("python", "native"):
+        for kind in (("native",) if native_only else ("python", "native")):
             rig.fresh()
             rig.calls = []
             power = NvmlPower(lambda: rig.fake)
+            low, high = static.get("pl_min_mw"), static.get("pl_max_mw")
+            if type(low) is int and type(high) is int and 0 < low <= high < cp.MISSING:
+                power.add_constraints(low, high)
             exports = dict(rig.card.nvml.exports)
             rig.card.nvml.exports.update(power.exports)
             for name in remove:
@@ -421,11 +468,15 @@ class LiveCase(MetadataCase):
                 rig.card.nvml.exports.clear()
                 rig.card.nvml.exports.update(exports)
             self.assertEqual(rig.errors, [], f"the {kind} run raised inside the fake driver")
-        for name, python, core in zip(("result", "nvml log", "gdi calls", "fake calls", "requested", "state"),
-                                      *runs, strict=True):
-            self.assertEqual(python, core, f"Python and native {name} differ")
+        if not native_only:
+            for name, python, core in zip(("result", "nvml log", "gdi calls", "fake calls", "requested", "state"),
+                                          *runs, strict=True):
+                self.assertEqual(python, core, f"Python and native {name} differ")
         result, nvml_log, _, fake_calls, requested, state = runs[0]
         return result, nvml_log, fake_calls, requested, state
+
+    def run_native(self, rig, action, **kwargs):
+        return self.run_both(rig, action, native_only=True, **kwargs)
 
 
 def nvml_writes(log):
@@ -502,10 +553,10 @@ class NormalRouteTests(LiveCase):
 
     def test_partial_static_set_uses_actual_range_before_route_selection(self):
         rig = live_rig(configure=limits(180123, 321000, 680456))
-        result, log, fake_calls, now, state = self.run_both(rig, steps(set_mw(600000)), static={})
+        result, log, fake_calls, now, state = self.run_both(rig, steps(set_mw(600000)), static={}, native_only=True)
         self.assertTrue(result[0][1][0], result)
-        self.assertEqual(nvml_writes(log), [600000])
-        self.assertFalse(sets(fake_calls))
+        self.assertFalse(nvml_writes(log))
+        self.assertEqual(len(sets(fake_calls)), 1)
         self.assertEqual(state["static"], {"pl_min_mw": 180123, "pl_def_mw": 321000, "pl_max_mw": 680456})
 
 
@@ -537,28 +588,27 @@ class BoundsTests(LiveCase):
         self.assertEqual(state["kind"], "transient")
         self.assertIsNotNone(state["last"])
 
-    def test_transient_bounds_keep_a_readable_nvml_request(self):
-        # the last live observation stands in for the request only when NVML has none: here NVML
-        # reads the moved request and the live read fails transiently
+    def test_transient_live_bounds_stay_nominal_when_nvml_moves(self):
+        # The live route owns the request. Its last metadata still supplies nominal bounds.
         def move(_gpu, power):
             power.model()._update(600000)
         rig = live_rig(lambda: FakeGpu(requested=800000),
                        configure=faults(((cp.INFO, 3), {"nt": -1}), ((cp.INFO, 4), {"nt": -1})), recapture=True)
-        result, log, fake_calls, now, state = self.run_both(rig, steps(bounds(), move, bounds()))
-        self.assertEqual(result, [("ok", (200000, 800000)), ("ok", None), ("ok", (200000, 600000))])
+        result, log, fake_calls, now, state = self.run_both(rig, steps(bounds(), move, bounds()), native_only=True)
+        self.assertEqual(result, [("ok", (200000, 550000)), ("ok", None), ("ok", (200000, 550000))])
         self.assertEqual(state["kind"], "transient")
         self.assertEqual(state["last"]["requested_mw"], 800000)
 
-    def test_bounds_only_retains_observed_extended_endpoint_during_transient_loss_of_both_getters(self):
+    def test_bounds_retain_nominal_limits_during_transient_loss_of_both_getters(self):
         rig = live_rig(lambda: FakeGpu(requested=800000),
                        configure=faults(*[((cp.INFO, k), {"nt": -1}) for k in (3, 4, 5, 6)]), recapture=True)
 
         def lose(_gpu, power):
             power.read_status = 9
         result, log, fake_calls, *_ = self.run_both(
-            rig, steps(bounds(xoc=False), lose, bounds(xoc=False), read_limit))
-        self.assertEqual(result[0], ("ok", (200000, 800000)))
-        self.assertEqual(result[2], ("ok", (200000, 800000)))
+            rig, steps(bounds(xoc=False), lose, bounds(xoc=False), read_limit), native_only=True)
+        self.assertEqual(result[0], ("ok", (200000, 550000)))
+        self.assertEqual(result[2], ("ok", (200000, 550000)))
         self.assertEqual(result[3], ("ok", None))
         self.assertFalse(nvml_writes(log) or sets(fake_calls))
 
@@ -566,7 +616,7 @@ class BoundsTests(LiveCase):
         for prior in (0, cp.MISSING):
             with self.subTest(prior=prior):
                 rig = live_rig(lambda prior=prior: FakeGpu(requested=prior))
-                result, log, fake_calls, *_ = self.run_both(rig, steps(bounds(), set_mw(600000)), xoc=True)
+                result, log, fake_calls, *_ = self.run_native(rig, steps(bounds(), set_mw(600000)), xoc=True)
                 self.assertEqual(result[0], ("ok", (200000, 550000)))
                 ok, message = result[1][1]
                 self.assertFalse(ok)
@@ -584,10 +634,10 @@ class BoundsTests(LiveCase):
                 self.assertFalse(nvml_writes(log) or sets(fake_calls))
 
     def test_live_metadata_does_not_replace_existing_normal_static_values(self):
-        result, _, _, _, state = self.run_both(live_rig(), steps(read_live, bounds()),
+        result, _, _, _, state = self.run_both(live_rig(), steps(read_live, bounds()), native_only=True,
                                                static=dict(BACKEND_STATIC, pl_min_mw=0))
         self.assertEqual(state["static"]["pl_min_mw"], 0)
-        self.assertEqual(result[1], ("ok", (1, 550000)))  # low = max(1, 0)
+        self.assertEqual(result[1], ("ok", (200000, 550000)))  # usable client hardware range
 
     def test_refresh_releases_sticky_power_capability_without_a_write(self):
         def refresh(gpu, _power):
@@ -605,7 +655,7 @@ class LiveRouteTests(LiveCase):
     def test_transient_first_probe_recovers_and_optional_status_does_not_gate_extension(self):
         events = [((cp.INFO, 1), {"nt": -1})] + [((cp.NATIVE_STATUS, k), {"rm": 0x56}) for k in range(1, 9)]
         rig = live_rig(configure=faults(*events), recapture=True)
-        result, log, fake_calls, now, state = self.run_both(rig, steps(bounds(), set_mw(600001)), xoc=True)
+        result, log, fake_calls, now, state = self.run_native(rig, steps(bounds(), set_mw(600001)), xoc=True)
         self.assertEqual(result[0], ("ok", (1, 1999000)))
         self.assertTrue(result[1][1][0], result[1])
         self.assertIsNone(state["last"]["arbitration"])
@@ -628,6 +678,62 @@ class LiveRouteTests(LiveCase):
                 self.assertFalse(nvml_writes(log))
                 self.assertEqual(state["pins"], {2: 87000})  # never re-applied
                 self.assertFalse(has_command(fake_calls, 0x2080E61B))
+
+    def test_client_owner_beats_stale_nvml_and_recovers_without_writing(self):
+        def action(side, power):
+            gpu = side.gpu
+            power.reported_mw = 321000  # NVML is readable and never echoes client SETs
+            self.assertEqual(gpu.read_power_limit_mw(), 321000)
+            self.assertTrue(gpu.set_power_limit_mw(999000)[0])
+            self.assertEqual(gpu.read_power_limit_mw(), 999000)
+            self.assertEqual(sweep_power(gpu)["pl_requested_mw"], 999000)
+            gpu.voltage_xoc_enabled = False
+            self.assertEqual(gpu.power_limit_bounds_mw(), (180123, 680456))
+            fake = power.model()
+            for k in range(1, 5):
+                fake.faults[(cp.INFO, fake.counts[cp.INFO] + k)] = {"nt": -1}
+            self.assertIsNone(gpu.read_power_limit_mw())
+            self.assertFalse(gpu.set_power_limit_mw(625001)[0])  # no fresh owner reading
+            self.assertEqual(gpu.read_power_limit_mw(), 999000)
+            self.assertFalse(gpu.set_power_limit_mw(900000)[0])
+            self.assertTrue(gpu.set_power_limit_mw(999000)[0])
+            self.assertTrue(gpu.set_power_limit_mw(625001)[0])
+            self.assertEqual(gpu.read_power_limit_mw(), 625001)
+            self.assertEqual(gpu._read_power_limit_nvml(), 321000)
+
+        rig = live_rig(configure=limits(180123, 321000, 680456), recapture=True)
+        _, log, fake_calls, now, _ = self.run_native(rig, action, xoc=True)
+        self.assertEqual(now, 625001)
+        self.assertEqual(len(sets(fake_calls)), 2)
+        self.assertFalse(nvml_writes(log))
+
+    def test_nvml_verification_cannot_use_an_echo_from_the_client_route(self):
+        def action(side, power):
+            power.after_status = 9
+            ok, message = side.gpu.set_power_limit_mw(322001)
+            self.assertFalse(ok)
+            self.assertIn("readback failed", message)
+            self.assertIsNone(side.gpu.read_power_limit_mw())
+            power.after_status = 0
+            self.assertEqual(side.gpu.read_power_limit_mw(), 322001)
+
+        _, log, fake_calls, now, _ = self.run_native(live_rig(), action)
+        self.assertEqual(now, 322001)
+        self.assertEqual(nvml_writes(log), [322001])
+        self.assertFalse(has_command(fake_calls, cp.INFO) or sets(fake_calls))
+
+    def test_v30_unpinned_policy_stays_driver_derived(self):
+        def action(side, power):
+            fake = power.model()
+            self.assertTrue(side.gpu.set_power_limit_mw(600000)[0])
+            self.assertFalse(fake.peer_writes)
+
+        rig = LiveSetRig(PeerCoupledGpu, accepted=COUPLED_ACCEPTED, recapture=True)
+        _, log, fake_calls, now, state = self.run_native(rig, action, xoc=True)
+        self.assertEqual(now, 600000)
+        self.assertEqual(state["pins"], {})
+        self.assertEqual(len(sets(fake_calls)), 1)
+        self.assertFalse(nvml_writes(log))
 
     def test_v30_live_request_reapplies_user_pins_and_reports_failure(self):
         # the definition is a v30 role (ROLE_INFO byte 4 == 0x30): the real writer re-applies the
@@ -670,22 +776,18 @@ class LiveRouteTests(LiveCase):
         self.assertTrue(state["pins"])
         self.assertFalse(nvml_writes(log))
 
-    def test_missing_client_value_is_refused_where_the_bounds_would_allow_it(self):
-        # pl_max_mw above 2**32 and xoc off: the live bounds reach past 0xFFFFFFFF, so only the
-        # missing-client check refuses 0xFFFFFFFF on the live route (no NVML setter)
-        static = {"pl_min_mw": 200000, "pl_def_mw": 321000, "pl_max_mw": 1 << 33}
-        result, log, fake_calls, now, _ = self.run_both(live_rig(), steps(bounds(), set_mw(0xFFFFFFFF)),
-                                                        static=static, remove=(SET_LIMIT,))
-        self.assertEqual(result[0], ("ok", (200000, 1 << 33)))
-        self.assertEqual(result[1], ("ok", (False, "power request 4.29497e+06 W out of [200..8.58993e+06] W; "
-                                                   "extended requests require XOC")))
+    def test_static_values_cannot_widen_a_qualified_client_range(self):
+        static = dict(BACKEND_STATIC, pl_max_mw=1 << 33)
+        result, log, fake_calls, now, _ = self.run_both(
+            live_rig(), steps(bounds(), set_mw(0xFFFFFFFF)), static=static, remove=(SET_LIMIT,), native_only=True)
+        self.assertEqual(result, [("ok", (200000, 550000)), ("ok", (False, INVALID))])
         self.assertFalse(sets(fake_calls) or nvml_writes(log))
         self.assertEqual(now, 321000)
 
     def test_first_extension_requires_existing_xoc_opt_in(self):
         for requested in (199999, 550001, 999000, 1999000):
             with self.subTest(requested=requested):
-                result, log, fake_calls, *_ = self.run_both(live_rig(), steps(set_mw(requested)))
+                result, log, fake_calls, *_ = self.run_native(live_rig(), steps(set_mw(requested)))
                 (_, (ok, message)), = result
                 self.assertFalse(ok)
                 self.assertEqual(message, f"power request {requested/1000:g} W out of [200..550] W; "
@@ -695,7 +797,7 @@ class LiveRouteTests(LiveCase):
     def test_requests_above_software_envelope_do_not_dispatch(self):
         for requested in (1999001, 0xFFFFFFFE, 0xFFFFFFFF):
             with self.subTest(requested=requested):
-                result, log, fake_calls, *_ = self.run_both(live_rig(), steps(set_mw(requested)), xoc=True)
+                result, log, fake_calls, *_ = self.run_native(live_rig(), steps(set_mw(requested)), xoc=True)
                 self.assertFalse(result[0][1][0])
                 self.assertFalse(nvml_writes(log) or sets(fake_calls))
 
@@ -707,30 +809,26 @@ class LiveRouteTests(LiveCase):
                 self.assertEqual(log, [])
                 self.assertEqual(fake_calls, [])
 
-    def test_xoc_off_carryover_allows_only_staying_or_moving_toward_normal(self):
-        for current, expected, allowed, denied in ((800000, (200000, 800000), 700000, 800001),
-                                                   (1999000, (200000, 1999000), 1500000, 1999001),
-                                                   (100000, (100000, 550000), 150000, 99999)):
+    def test_xoc_off_retains_the_exact_request_and_rejects_other_outside_values(self):
+        for current, outside in ((999000, 900000), (1999000, 1500000), (100000, 150000)):
             with self.subTest(current=current):
-                rig = live_rig(lambda current=current: FakeGpu(requested=current))
-                result, log, fake_calls, *_ = self.run_both(rig, steps(
-                    bounds(), set_mw(denied), set_mw(current), set_mw(allowed), bounds(), set_mw(321000), bounds(),
-                    set_mw(322000)))
-                self.assertEqual(result[0], ("ok", expected))
-                self.assertFalse(result[1][1][0])
-                self.assertTrue(result[2][1][0] and result[3][1][0])
-                self.assertEqual(result[4], ("ok", (min(200000, allowed), max(550000, allowed))))
-                self.assertTrue(result[5][1][0])
-                self.assertEqual(result[6], ("ok", (200000, 550000)))
-                self.assertTrue(result[7][1][0], result[7])
-                self.assertEqual(len(sets(fake_calls)), 3)
-                self.assertEqual(nvml_writes(log), [322000])
+                rig = live_rig(lambda: FakeGpu(requested=current))
+                result, log, fake_calls, now, _ = self.run_both(rig, steps(
+                    bounds(), read_limit, set_mw(outside), set_mw(current), set_mw(321001), read_limit),
+                    native_only=True)
+                self.assertEqual(result[:2], [("ok", (200000, 550000)), ("ok", current)])
+                self.assertFalse(result[2][1][0])
+                self.assertTrue(result[3][1][0] and result[4][1][0])
+                self.assertEqual(result[5], ("ok", 321001))
+                self.assertEqual(now, 321001)
+                self.assertEqual(len(sets(fake_calls)), 1)
+                self.assertFalse(nvml_writes(log))
 
     def test_live_return_to_normal_does_not_depend_on_nvml_getter_or_setter(self):
         def nvml(power):
             power.read_status = 9
         rig = live_rig(lambda: FakeGpu(requested=800000))
-        result, log, fake_calls, now, _ = self.run_both(rig, steps(read_limit, set_mw(321000)), nvml=nvml,
+        result, log, fake_calls, now, _ = self.run_native(rig, steps(read_limit, set_mw(321000)), nvml=nvml,
                                                         remove=(SET_LIMIT,))
         self.assertEqual(result[0], ("ok", 800000))
         self.assertTrue(result[1][1][0], result[1])
@@ -741,7 +839,7 @@ class LiveRouteTests(LiveCase):
         for missing in ("getter", "setter", "both"):
             with self.subTest(missing=missing):
                 remove = {"getter": (GET,), "setter": (SET_LIMIT,), "both": (GET, SET_LIMIT)}[missing]
-                result, log, fake_calls, now, state = self.run_both(
+                result, log, fake_calls, now, state = self.run_native(
                     live_rig(), steps(set_mw(322001)), remove=remove, pins=lambda fake: {fake.native_peer: 87000})
                 self.assertTrue(result[0][1][0], result)
                 self.assertEqual(now, 322001)
@@ -753,7 +851,7 @@ class LiveRouteTests(LiveCase):
         for event in ({"ignore": True}, {"rm": 0x55}, {"raise": RuntimeError("partial SET")}):
             with self.subTest(event=repr(event)):
                 rig = LiveSetRig(FakeGpu, accepted=MODERN, recapture=True, configure=faults(((cp.SET, 1), event)))
-                result, log, fake_calls, now, state = self.run_both(rig, steps(set_mw(600000), read_limit), xoc=True)
+                result, log, fake_calls, now, state = self.run_native(rig, steps(set_mw(600000), read_limit), xoc=True)
                 (_, (ok, message)), read = result
                 self.assertFalse(ok)
                 self.assertTrue(message.startswith("live power request failed: "), message)
@@ -766,7 +864,7 @@ class LiveRouteTests(LiveCase):
     def test_failed_live_rollback_is_reported_without_an_extra_nvml_write(self):
         rig = LiveSetRig(FakeGpu, accepted=MODERN, recapture=True,
                          configure=faults(((cp.SET, 1), {"rm": 0x55}), ((cp.SET, 2), {"ignore": True, "rm": 0x56})))
-        result, log, fake_calls, now, state = self.run_both(rig, steps(set_mw(600000), read_limit), xoc=True)
+        result, log, fake_calls, now, state = self.run_native(rig, steps(set_mw(600000), read_limit), xoc=True)
         (_, (ok, message)), read = result
         self.assertFalse(ok)
         self.assertIn("restoration was not verified", message)
@@ -776,7 +874,7 @@ class LiveRouteTests(LiveCase):
 
     def test_transient_write_preflight_does_not_use_cached_capability_as_a_request(self):
         rig = live_rig(configure=faults(((cp.INFO, 3), {"nt": -1}), ((cp.INFO, 4), {"nt": -1})), recapture=True)
-        result, log, fake_calls, *_ = self.run_both(rig, steps(bounds(), set_mw(600000)), xoc=True)
+        result, log, fake_calls, *_ = self.run_native(rig, steps(bounds(), set_mw(600000)), xoc=True)
         self.assertEqual(result[0], ("ok", (1, 1999000)))
         (_, (ok, message)) = result[1]
         self.assertFalse(ok)
@@ -788,7 +886,7 @@ class LiveRouteTests(LiveCase):
             with self.subTest(target=target):
                 rig = live_rig(configure=faults(((cp.INFO, 1), {"nt": -1}), ((cp.INFO, 2), {"nt": -1})),
                                recapture=True)
-                result, log, fake_calls, _, state = self.run_both(rig, steps(set_mw(target)), xoc=True,
+                result, log, fake_calls, _, state = self.run_native(rig, steps(set_mw(target)), xoc=True,
                                                                  remove=(GET,))
                 (_, (ok, message)), = result
                 self.assertFalse(ok)
@@ -821,7 +919,7 @@ class TelemetryTests(LiveCase):
         for static in (NONE_STATIC, {}):
             for after in (bounds(), set_mw(322000)):
                 with self.subTest(static=static, after=after):
-                    result, log, fake_calls, now, state = self.run_both(
+                    result, log, fake_calls, now, state = self.run_native(
                         live_rig(lambda: FakeGpu(requested=321000)), steps(tick, statics_now, heal, after, statics_now),
                         nvml=failing_getter, static=static)
                     self.assertEqual(result[0], ("ok", 321000))
@@ -942,9 +1040,12 @@ class PureTests(unittest.TestCase):
             for current in currents:
                 for xoc in (False, True, 0, 1, None, "x"):
                     for live in (False, True):
-                        python, core = self.both(static, lambda g, c=current, x=xoc, lv=live:
-                                                 g._power_request_bounds_mw(c, xoc=x, live=lv))
-                        self.assertEqual(python, core, (static, current, xoc, live))
+                        _, core = self.both(static, lambda g, c=current, x=xoc, lv=live:
+                                            g._power_request_bounds_mw(c, xoc=x, live=lv))
+                        low = max(1, static.get("pl_min_mw", 50000))
+                        high = static.get("pl_max_mw", 400000)
+                        expected = (1, min(0xFFFFFFFE, max(high, 1999000))) if xoc and live else (low, high)
+                        self.assertEqual(core, ("ok", expected), (static, current, xoc, live))
         # the extended envelope is capped at 0xFFFFFFFE however large the normal maximum
         for high in (0xFFFFFFFF, 1 << 40):
             python, core = self.both({"pl_min_mw": 100000, "pl_max_mw": high},
@@ -956,7 +1057,7 @@ class PureTests(unittest.TestCase):
 class FormattingTests(LiveCase):
     def test_out_of_envelope_messages_format_as_pythons_g(self):
         values = (1999001, 2000000, 12345678, 123456789, 4294967294, 2147483647, 99999999, 2345678)
-        result, *_ = self.run_both(live_rig(), steps(*[set_mw(v) for v in values]), xoc=True)
+        result, *_ = self.run_native(live_rig(), steps(*[set_mw(v) for v in values]), xoc=True)
         for value, (_, (ok, message)) in zip(values, result, strict=True):
             self.assertFalse(ok)
             self.assertEqual(message, f"power request {value/1000:g} W out of [0.001..1999] W; extended requests require XOC")

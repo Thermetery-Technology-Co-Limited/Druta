@@ -3237,8 +3237,7 @@ class Gpu(FrontendSurface):
         return low.value, high.value
 
     def _power_request_bounds_mw(self, current, *, xoc, live):
-        """current widens the range only when it is a plain int (Python's `type(current) is int`)
-        with 0 < current < 0xFFFFFFFF; the core applies the range gate."""
+        """Compatibility helper over static keys. The current request does not widen the range."""
         whole = type(current) is int and -(1 << 63) <= current < (1 << 63)
         low, high = ctypes.c_int64(), ctypes.c_int64()
         self._pl_check(load().dc_pl_request_bounds(ctypes.byref(self._pl_statics()), 1 if whole else 0,
@@ -3254,6 +3253,10 @@ class Gpu(FrontendSurface):
         error.size = ctypes.sizeof(_Error)
         status = self._pl_call(load().dc_pl_bounds, 1 if xoc else 0, ctypes.byref(low), ctypes.byref(high),
                                ctypes.byref(error))
+        if status == DC_E_UNAVAILABLE:
+            if error.kind == DC_ERR_UNSUPPORTED:
+                raise NotImplementedError(_text(error.message))
+            raise RuntimeError(_text(error.message))
         self._pl_check(status, error)
         return low.value, high.value
 
@@ -3264,7 +3267,7 @@ class Gpu(FrontendSurface):
         return mw.value if has.value else None
 
     def read_power_limit_mw(self):
-        """Configured power request in mW (NVML, else the live request while NVAPI is live), or None.
+        """Configured power request in mW on the established route, or None.
         No `with self._lock` here: the entry takes the handle mutex, which is self._lock, and
         read_power_policies' inputs callback calls it on the thread that already holds it."""
         has, mw, error = ctypes.c_int32(), ctypes.c_uint32(), _Error()

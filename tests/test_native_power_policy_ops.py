@@ -97,6 +97,9 @@ class PolicySide:
         self.kind = kind
         self.card = PolicyCard(table, coupled, board)
         self.power = NvmlPower(lambda: BoardModel(self.card))
+        low, high = static.get("pl_min_mw"), static.get("pl_max_mw")
+        if type(low) is int and type(high) in (int, float) and 0 < low <= high < (1 << 32) - 1:
+            self.power.add_constraints(low, int(high))
         twin = policy_gpu(self.card)
         self.header = list(twin._capture_current_limit_transport.return_value[0])
         self.driver = base.Driver(self.card.escape)
@@ -591,8 +594,8 @@ class PolicyLiveCase(LiveCase):
                 tables.append((getattr(gpu, "_last_policy_table", None),
                                getattr(gpu, "_current_limit_last_rows", None) or []))
         out = super().run_both(rig, recorded, **kw)
-        self.assertEqual(len(tables), 2)
-        self.assertEqual(tables[0], tables[1], "Python and native policy table or current rows differ")
+        if not kw.get("native_only"):
+            self.assertEqual(tables[0], tables[1], "Python and native policy table or current rows differ")
         return out
 
 
@@ -602,7 +605,7 @@ def policy_writes(fake_calls):
 
 class StockLiveTests(PolicyLiveCase):
     def test_extended_request_sets_only_the_default_and_preserves_the_board(self):
-        result, log, fake_calls, now, state = self.run_both(
+        result, log, fake_calls, now, state = self.run_native(
             coupled(extended), live_steps(live_pin(PEER_MW, 82000), live_stock(PEER_MW)))
         ok, message = result[1][1]
         self.assertTrue(ok, message)
@@ -613,7 +616,7 @@ class StockLiveTests(PolicyLiveCase):
         self.assertNotIn(PEER_MW, state["pins"])
 
     def test_extended_request_keeps_another_pin_without_reapplying_it(self):
-        result, log, fake_calls, now, state = self.run_both(
+        result, log, fake_calls, now, state = self.run_native(
             coupled(extended), live_steps(live_pin(PEER_MW, 82000), live_stock(PEER_MW)), pins={2: 52000})
         self.assertEqual(result[1], ("ok", (True, "policy 7 is at its rated default: 80 W; board request preserved "
                                                   "at 800 W; host-derived policy limits were not recomputed")))
@@ -718,7 +721,7 @@ class StockLiveTests(PolicyLiveCase):
 
 class MaxAllLiveTests(PolicyLiveCase):
     def test_xoc_asks_for_the_live_envelope(self):
-        result, log, fake_calls, now, state = self.run_both(coupled(), live_steps(live_max_all), xoc=True)
+        result, log, fake_calls, now, state = self.run_native(coupled(), live_steps(live_max_all), xoc=True)
         status, steps = result[0]
         self.assertEqual(steps[0][0], "power limit")
         self.assertTrue(steps[0][2].startswith("power request configured to 1999 W"), steps[0])

@@ -94,11 +94,11 @@ DC_API dc_status DC_CALL dc_pl_normal_bounds(const dc_cl_statics* statics, int64
     return DC_OK;
 }
 
-DC_API dc_status DC_CALL dc_pl_request_bounds(const dc_cl_statics* statics, int32_t has_current, int64_t current,
+DC_API dc_status DC_CALL dc_pl_request_bounds(const dc_cl_statics* statics, int32_t /*has_current*/, int64_t /*current*/,
                                               int32_t xoc, int32_t live, int64_t* low, int64_t* high) {
     if (!statics_ok(statics) || !low || !high) return DC_E_ARGUMENT;
     const druta::backend::PowerBounds b = druta::backend::power_request_bounds(
-        get_statics(*statics), druta::abi::optional_arg(has_current, current), xoc != 0, live != 0);
+        get_statics(*statics), xoc != 0, live != 0);
     *low = b.low;
     *high = b.high;
     return DC_OK;
@@ -110,10 +110,21 @@ DC_API dc_status DC_CALL dc_pl_bounds(dc_gpu* handle, dc_cl_statics* statics, in
     return guarded(error, [&]() -> dc_status {
         druta::LockGuard guard(handle->gpu.lock());
         StaticTriState st = get_statics(*statics);
-        const druta::backend::PowerBounds b = handle->pl.bounds(st, xoc != 0);
+        const auto result = handle->pl.bounds(st, xoc != 0);
         put_statics(st, statics);
-        *low = b.low;
-        *high = b.high;
+        if (!result.range) {
+            const bool transient = result.error_kind == druta::backend::RmErrorKind::transient;
+            put_error(transient ? "Hardware power request bounds temporarily unreadable"
+                                : "Hardware power request bounds unavailable",
+                      transient ? DC_ERR_TRANSIENT : DC_ERR_UNSUPPORTED, error);
+            return DC_E_UNAVAILABLE;
+        }
+        if (st.pl_def.kind == StaticKey::Kind::value) {
+            statics->pl_def_state = DC_CL_STATIC_VALUE;
+            statics->pl_def_mw = st.pl_def.value;
+        }
+        *low = result.range->low;
+        *high = result.range->high;
         put_error("", DC_ERR_NONE, error);
         return DC_OK;
     });
@@ -185,9 +196,7 @@ DC_API dc_status DC_CALL dc_pl_set_nvml(dc_gpu* handle, dc_cl_statics* statics, 
         druta::LockGuard guard(handle->gpu.lock());
         druta::backend::Nvml& nv = handle->gpu.nvml;
         if (!nv.ok || !nv.has("nvmlDeviceSetPowerManagementLimit")) return DC_E_UNAVAILABLE;
-        StaticTriState st = get_statics(*statics);
-        const druta::backend::NvmlLimitSet r = handle->pl.set_nvml(mw, st);
-        put_statics(st, statics);
+        const druta::backend::NvmlLimitSet r = handle->pl.set_nvml(mw);
         druta::abi::put_outcome({r.ok, r.message}, out);
         put_reading(r.got, has_got, got);
         return DC_OK;

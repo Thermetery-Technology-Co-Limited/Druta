@@ -37,16 +37,15 @@ namespace druta::backend {
 // GPU.POWER_LIMIT_XOC_MAX_MW: the software request envelope, not a physical ceiling.
 inline constexpr std::int64_t kPowerLimitXocMaxMw = 1999000;
 
-struct PowerBounds {
-    std::int64_t low = 0, high = 0;
+struct PowerBoundsResult {
+    std::optional<PowerBounds> range;
+    RmErrorKind error_kind = RmErrorKind::none;
 };
 
 // _normal_power_bounds_mw over the caller's static keys (absent and None alike fall back).
 PowerBounds normal_power_bounds(const StaticTriState& st);
-// _power_request_bounds_mw(current, xoc=, live=): current is Python's `current` when
-// `type(current) is int` holds (nullopt otherwise: None, a float, a bool); the binding applies
-// that gate, the range gate 0 < current < 0xFFFFFFFF is applied here.
-PowerBounds power_request_bounds(const StaticTriState& st, std::optional<std::int64_t> current, bool xoc, bool live);
+// Historical pure helper. The active request never widens the writable interval.
+PowerBounds power_request_bounds(const StaticTriState& st, bool xoc, bool live);
 // f"{mw/1000:g}" for the watt figures of the messages (mw within +-2**53, where the quotient is exact).
 std::string watts_g(std::int64_t mw);
 
@@ -111,19 +110,18 @@ public:
     // pl_* keys (st, when given) take the handle store's values after its back-fill: the keys the
     // binding re-syncs from capabilities() after the call (A6's contract).
     CpRead<CpReading> live_read(StaticTriState* st);
-    // read_power_limit_mw: NVML, else (NVAPI live) the live request, else nullopt. *from_live (when
-    // given) is set true when the value came from a live read that succeeded, untouched otherwise.
+    // Configured request on the established route. With no owner, prefer NVML.
+    // from_live is set only for a successful live read.
     std::optional<std::uint32_t> read(StaticTriState* st, bool* from_live = nullptr);
-    // power_limit_bounds_mw(xoc=): xoc is the caller's flag (the binding defaults it to
-    // voltage_xoc_enabled).
-    PowerBounds bounds(StaticTriState& st, bool xoc);
-    // set_power_limit_mw(mw): mw is the binding's int; outside 0 < mw < 2**32 it is refused with
-    // Python's text before any read. xoc is bool(voltage_xoc_enabled). peer is
-    // GPU._write_policy_limit for the A7 compensation. The caller holds the handle lock.
+    // Writable range from the selected route's hardware evidence.
+    PowerBoundsResult bounds(StaticTriState& st, bool xoc);
+    // Validate exact milliwatts against the selected route before dispatch. The caller holds
+    // the handle lock and provides the policy writer for the client controller's compensation.
     PowerLimitSet set(std::int64_t mw, bool xoc, StaticTriState& st, const CpPeerWriter& peer);
-    // _set_power_limit_nvml(mw): the write with ctypes' u32 packing, then read_power_limit_mw. The
-    // caller has checked that the setter export exists (Python's attribute access raises otherwise).
-    NvmlLimitSet set_nvml(std::int64_t mw, StaticTriState& st);
+    // A direct client-power SET can establish the route before the next board read.
+    void record_live_dispatch() { owner_ = Owner::live; }
+    // Raw NVML write with u32 packing and same-route verification.
+    NvmlLimitSet set_nvml(std::int64_t mw);
 
     // stock_power_policy(policy): drop the pin first (before any validation, as Python does), write
     // the rated default, then preserve the live board request or re-send the NVML board limit.
@@ -146,6 +144,20 @@ public:
     std::vector<PolicyStep> steps;
 
 private:
+    struct RequestState {
+        std::optional<PowerBounds> nominal, live_range;
+        std::optional<std::uint32_t> nvml_current;
+        CpRead<CpReading> live;
+        bool use_live = false;
+        RmErrorKind bounds_error = RmErrorKind::unsupported;
+    };
+    RequestState inspect(StaticTriState& st, bool xoc, std::optional<std::int64_t> desired = std::nullopt);
+    bool live_owns_request() const;
+
+    // Keep the route of a verified or potentially dispatched board SET for this handle.
+    enum class Owner { unknown, nvml, live };
+    Owner owner_ = Owner::unknown;
+
     PolicyWriteResult reapply(std::optional<std::int64_t> board_mw);
 
     // The context of the two in-core callbacks below: this object and the caller's static keys.

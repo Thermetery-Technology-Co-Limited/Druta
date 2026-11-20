@@ -7,26 +7,23 @@
  * read_power_limit_mw, set_power_limit_mw and _set_power_limit_nvml: dc_pl_*. Included by
  * drutacore.h; do not include directly.
  *
- * The configured request is NVML's nvmlDeviceGetPowerManagementLimit (status 0 and a nonzero value),
- * never the enforced limit. When it is unreadable and NVAPI is live, the live client-power request
- * (dc_cpc_live_read's read with its bookkeeping) stands in. A request outside the normal range, a
- * return from outside it, a missing NVML setter, or an unreadable NVML request goes to the live
- * client-power SET (dc_cpc_set_request's, with its single compensation); otherwise NVML's
- * nvmlDeviceSetPowerManagementLimit writes it and the request is read back exactly. After an NVML
- * write, and after a live SET whose definition is a v30 role (ROLE_INFO byte 4 == 0x30), the user's
- * policy pins are re-applied (dc_cl_reapply_pins'). No driver version, board, device, subsystem or
- * VBIOS identity is consulted. Everything is session-only: nothing is stored for, or re-applied
- * after, a GPU driver restart.
+ * Configured request and write verification use the established NVML or live client-power
+ * route. With no live owner, a fresh ordinary request uses NVML when its getter, setter and
+ * constraints are available. A qualified client-power write establishes live ownership for
+ * the handle, including a return to the nominal range. If the owner cannot be read, the
+ * configured request is unavailable. Enforced power has its own getter.
  *
- * The caller owns GPU.static: `statics` carries its pl_min_mw / pl_def_mw / pl_max_mw as read at the
- * call (dc_cl_statics, DC_CL_STATIC_*; absent and None are alike here). A successful live read inside
- * a call back-fills the handle's capability store (dc_gpu_capabilities_get) where a key is absent
- * there, as dc_cpc_live_read does; a key the caller passed absent or None then takes the store's
- * value for the rest of the call, and the entries taking a non-const statics write it back
- * (DC_CL_STATIC_VALUE with that value) so the caller can update its dict at the point Python's
- * read_live_power_request does. A key the caller passed with a value is never changed. The normal
- * range falls back to 50000 / 400000 mW for a missing key: Python's values, kept for parity, not
- * device facts.
+ * Board writes require hardware bounds from NVML constraints or the qualified live layout.
+ * XOC permits an extended request on the qualified client route. The existing request is
+ * readable outside that range and can match without writing. An uncertain SET is never
+ * retried on a second route. The live controller retains its own verified compensation.
+ *
+ * Only explicit session pins are considered for reapplication after an NVML board SET or
+ * a live board SET with a v30 role definition. The v40 path verifies unchanged peer control
+ * bytes. Unpinned policies remain driver-derived.
+ *
+ * `statics` carries the caller's compatibility keys (dc_cl_statics). Successful reads can
+ * back-fill absent fields. The handle's writable ranges use driver evidence directly.
  *
  * Every entry taking a dc_gpu holds the handle lock for the whole call (recursive: a callback of
  * another entry may call these). Returns: DC_OK; DC_E_ARGUMENT for a NULL handle or pointer or a
@@ -45,25 +42,26 @@ extern "C" {
 
 /* _normal_power_bounds_mw: (pl_min_mw or 50000, pl_max_mw or 400000). Pure. */
 DC_API dc_status DC_CALL dc_pl_normal_bounds(const dc_cl_statics* statics, int64_t* low, int64_t* high);
-/* _power_request_bounds_mw(current, xoc=, live=): has_current 0 is a current that is not an int
- * (None, a float, a bool: Python's `type(current) is int` is the caller's); a current outside
- * 0 < current < 0xFFFFFFFF does not widen the range. Pure. */
+/* Pure request-range helper. The historical has_current and current arguments are reserved.
+ * This helper retains the static defaults of dc_pl_normal_bounds. */
 DC_API dc_status DC_CALL dc_pl_request_bounds(const dc_cl_statics* statics, int32_t has_current, int64_t current,
                                               int32_t xoc, int32_t live, int64_t* low, int64_t* high);
-/* power_limit_bounds_mw(xoc=): xoc is the caller's flag (Python defaults it to voltage_xoc_enabled).
- * May run a live read (its bookkeeping and back-fill included); a transient live failure with a last
- * observation still counts as live. */
+/* Writable board request bounds. DC_E_UNAVAILABLE with DC_ERR_UNSUPPORTED or DC_ERR_TRANSIENT
+ * describes unavailable or temporarily unreadable evidence. The active request never widens
+ * this interval. When using client bounds, the returned static default belongs to that route. */
 DC_API dc_status DC_CALL dc_pl_bounds(dc_gpu* gpu, dc_cl_statics* statics, int32_t xoc, int64_t* low,
                                       int64_t* high, dc_error* error);
 /* _read_power_limit_nvml: *has 0 is None. No live read. */
 DC_API dc_status DC_CALL dc_pl_read_nvml(dc_gpu* gpu, int32_t* has, uint32_t* mw);
-/* read_power_limit_mw: NVML, else (NVAPI live) the live request; *has 0 is None. */
+/* Configured board request on the established route. *has 0 means unavailable. */
 DC_API dc_status DC_CALL dc_pl_read(dc_gpu* gpu, dc_cl_statics* statics, int32_t* has, uint32_t* mw,
                                     dc_error* error);
 /* set_power_limit_mw(mw): *ok and the message NUL-terminated within `capacity` (*needed its full
  * length plus the terminator), as dc_cl_reapply_pins. mw is the caller's int, already refused unless
- * it is a whole finite number (Python's type gate); outside 0 < mw < 2**32 the core refuses it with
- * Python's text before any read. xoc is bool(voltage_xoc_enabled). The message can exceed any fixed
+ * it is a whole finite number (Python's type gate). The core accepts positive values below the
+ * missing-client sentinel and validates the active request range before writing. A successful
+ * result includes exact verification on the write route or a fresh match without dispatch.
+ * xoc is bool(voltage_xoc_enabled). The message can exceed any fixed
  * buffer (it carries the re-application note, which joins one policy-writer text per pin, and the
  * live SET's error with its rollback detail), and this call writes: never repeat it to fetch a longer
  * text; read it with dc_pl_message_get. DC_E_RANGE is the IndexError Python lets escape from the pin
@@ -75,8 +73,8 @@ DC_API dc_status DC_CALL dc_pl_set(dc_gpu* gpu, dc_cl_statics* statics, int64_t 
  * per thread: a caller that sets from several threads serializes each call with its fetch by
  * holding dc_gpu_lock across both (the Python binding's `with self._lock` is that mutex). */
 DC_API dc_status DC_CALL dc_pl_message_get(dc_gpu* gpu, char* out, size_t capacity, size_t* needed);
-/* _set_power_limit_nvml(mw): the NVML write of u32(mw) (ctypes' packing: mw modulo 2**32), then
- * read_power_limit_mw (live fallback included) compared with mw. *has_got 0 is got None. The message
+/* Raw NVML helper: writes u32(mw) and verifies with the NVML configured getter.
+ * Applications should use dc_pl_set for route selection and hardware bounds. *has_got 0 is got None. The message
  * is "power limit failed: " + NVML's error string (truncated to dc_outcome's buffer, never reached
  * by NVML's own texts) or one of Python's fixed texts. DC_E_UNAVAILABLE: NVML is not live or has no
  * setter export (Python's attribute access raises); nothing is written. */
