@@ -156,10 +156,6 @@ public:
 bool power_relationship_layout_supported(const PowerRelationshipLayout& layout) {
  return relationship_geometry(layout)!=nullptr;
 }
-bool power_relationship_layout_supports_override(const PowerRelationshipLayout& layout) {
- const auto* geometry=relationship_geometry(layout);
- return geometry&&geometry->format!=RelationshipFormat::legacy;
-}
 PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout& layout,const Bytes& info){
  PowerRelationshipReport out;const auto* geometry=relationship_geometry(layout);if(!geometry){out.reason="Policy INFO geometry/command unrecognized";return out;}if(info.size()!=layout.info_size){out.reason="Policy INFO packet invalid/incomplete";return out;}
  const bool compact_info=geometry->format==RelationshipFormat::compact;
@@ -206,7 +202,10 @@ const PowerRelationshipRecord& checked(const PowerRelationshipReport& report,con
 bool identity_equal(const PowerRelationshipIdentity& a,const PowerRelationshipIdentity& b){return a.slot==b.slot&&a.architecture==b.architecture&&a.device_id==b.device_id&&a.subsystem_id==b.subsystem_id;}
 }
 PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRelationshipIdentity& identity,const PowerRelationshipLayout& layout,const Bytes& info,const std::vector<PowerWeightRequest>& requests){
- PowerWeightPlan out;try{const auto* geometry=relationship_geometry(layout);require(geometry,"Validated relationship INFO required");require(geometry->format!=RelationshipFormat::legacy,"This relationship INFO layout supports inspection only");identity_valid(identity);require(!requests.empty()&&requests.size()<=32,"Select relationship weights");const auto inspection=inspect_power_weight_image(image);require(inspection.ok&&inspection.relationships_available,"Unique supported image relationship table required");const auto report=decode_power_relationships(layout,info);require(report.available,"Validated relationship INFO required");
+ PowerWeightPlan out;try{const auto* geometry=relationship_geometry(layout);require(geometry,"Validated relationship INFO required");identity_valid(identity);require(!requests.empty()&&requests.size()<=32,"Select relationship weights");const auto inspection=inspect_power_weight_image(image);require(inspection.ok&&inspection.relationships_available,"Unique supported image relationship table required");
+  if(geometry->format==RelationshipFormat::legacy)
+   require(inspection.table_version==0x30&&inspection.stride==0x42,"Legacy relationship INFO requires the matching V30 ROM table");
+  const auto report=decode_power_relationships(layout,info);require(report.available,"Validated relationship INFO required");
   auto state=std::make_shared<PowerWeightPlan::State>();state->identity=identity;auto next_image=std::make_shared<Bytes>(image),next_info=std::make_shared<Bytes>(info);std::set<uint32_t> seen;
   for(const auto& request:requests){require(request.index<32&&seen.insert(request.index).second,"Duplicate or out-of-capacity relationship selection");const auto wanted=power_weight_raw(request.multiplier);const auto r=std::find_if(inspection.relationships.begin(),inspection.relationships.end(),[&](const auto& row){return row.index==request.index;});require(r!=inspection.relationships.end()&&r->qualified&&r->kind==1,"Selected image relationship or target unqualified");const auto& policy=inspection.policies[r->target];require(policy.qualified&&policy.metadata,"Selected image target metadata unqualified");if(request.expected_raw)require(*request.expected_raw==r->weight_raw,"Selected expected image weight changed");
    PowerWeightSelection selected{r->index,r->offset,r->target,r->weight_raw,wanted,*policy.metadata};checked(report,selected,selected.before_raw);state->selected.push_back(selected);

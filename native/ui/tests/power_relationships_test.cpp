@@ -20,12 +20,11 @@ PowerCase power_case(uint8_t header=0x38){PowerCase c;c.image=fixture(true,0x99a
  c.info[0x41d0+1]=9;word(c.info,0x41d0+6,4096);c.info[0x41d0+31*0x24+1]=2;word(c.info,0x41d0+31*0x24+6,6144);
  c.info[0xcc+0xb9]=1;word(c.info,0xcc+0xbc,0);word(c.info,0xcc+0xbe,0);word(c.info,0xcc+0x104+0x34,31);word(c.info,0xcc+3*0x104+0x34,31);word(c.info,0xcc+3*0x104+0x36,31);c.info[0x5000]=0xab;return c;}
 void short_v30_tests() {
- const PowerRelationshipLayout layout{0x2080a618,20000,0xcc,0xfc};
+ const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},{0x20802618,5520,0x3c,0x84}};
  const PowerRelationshipIdentity identity{"0000:7b:00.0",5,0x5678,0xbeef0001};
  // Put the table near the end of its owner so a bogus relationship count
  // cannot be mistaken for another table or data beyond the image.
  constexpr size_t table=0x5e00,first=table+0x2c,second=first+0x42,relation=second+0x42;
- constexpr size_t target_info=0xcc+0xfc,relation_info=0x3fd0;
  auto rom=fixture(false,0x5678);
  dword(rom,0x22c,table);
  const uint8_t header[]={0x30,0x2c,0x42,2,0,0,0,0,14,2};
@@ -37,41 +36,52 @@ void short_v30_tests() {
  rom[relation]=1;rom[relation+1]=1;word(rom,relation+2,4096);
  rom[relation+14]=2;rom[relation+15]=1;
 
- std::vector<uint8_t> info(layout.info_size);
- dword(info,4,3);
- dword(info,0x3fcc,3);
- info[0xcc]=0x30;info[0xcc+0xb1]=1;
- info[target_info]=0x30;info[target_info+4]=4;info[target_info+5]=7;info[target_info+6]=1;
- dword(info,target_info+8,20000);dword(info,target_info+12,350780);dword(info,target_info+16,390000);
- info[relation_info+1]=1;word(info,relation_info+6,4096);
- info[relation_info+0x24]=1;info[relation_info+0x24+1]=1;
-
  const auto parsed=inspect_power_weight_image(rom);
  check(parsed.ok&&parsed.relationships_available&&parsed.policies.size()==2&&parsed.relationships.size()==2,
        "Read both short V30 policies and their following relationship records");
  if(!parsed.ok||!parsed.relationships_available)return;
  check(parsed.policies[0].bios_type==1&&parsed.policies[1].bios_type==5&&parsed.relationships[0].qualified,
        "The next record's class bits do not alter the current policy");
- const auto report=decode_power_relationships(layout,info);
- check(report.available&&report.relationships.size()==2&&report.source_references.size()==1&&
-       report.source_references.front().relationships==std::vector<uint32_t>{0},
-       "Compact INFO decodes source, weight and target independently");
- const std::vector<PowerWeightRequest> requests={{0,4097.0/4096,4096}};
- const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
- check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==relation+2,
-       "A matching short V30 weight qualifies for the same override workflow");
- if(plan.ok) {
-  auto expected_rom=rom,expected_info=info;
-  word(expected_rom,relation+2,4097);word(expected_info,relation_info+6,4097);
-  check(*plan.expected_image==expected_rom&&*plan.expected_info==expected_info&&
-        verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom).ok,
-        "Only the selected V30 image and compact INFO weight words change");
+ for(const auto& layout:layouts) {
+  const bool legacy=layout.info_command==0x20802618;
+  const size_t target_info=layout.policy_base+layout.policy_stride;
+  const size_t relation_info=legacy?0x10c0:0x3fd0;
+  const size_t weight_offset=legacy?4:6;
+  std::vector<uint8_t> info(layout.info_size);
+  dword(info,4,3);
+  dword(info,relation_info-4,3);
+  info[layout.policy_base]=0x30;
+  if(!legacy)info[layout.policy_base+0xb1]=1;
+  info[target_info]=0x30;info[target_info+4]=4;info[target_info+5]=7;info[target_info+6]=1;
+  dword(info,target_info+8,20000);dword(info,target_info+12,350780);dword(info,target_info+16,390000);
+  info[relation_info+1]=1;word(info,relation_info+weight_offset,4096);
+  info[relation_info+0x24]=1;info[relation_info+0x24+1]=1;
+
+  const auto report=decode_power_relationships(layout,info);
+  check(report.available&&report.relationships.size()==2,"Both INFO layouts decode the short V30 weight and target");
+  if(!legacy)check(report.source_references.size()==1&&
+        report.source_references.front().relationships==std::vector<uint32_t>{0},"Compact INFO also decodes the source range");
+  const std::vector<PowerWeightRequest> requests={{0,4097.0/4096,4096}};
+  const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
+  check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==relation+2,
+        "Matching V30 weight and target qualify for override Preview");
+  if(plan.ok) {
+   auto expected_rom=rom,expected_info=info;
+   word(expected_rom,relation+2,4097);word(expected_info,relation_info+weight_offset,4097);
+   check(*plan.expected_image==expected_rom&&*plan.expected_info==expected_info&&
+         verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom).ok&&
+         verify_power_relationship_weights(plan,identity,layout,info,&rom,true).ok,
+         "Apply and Restore project only the selected V30 image and INFO weight word");
+   expected_info.back()^=1;
+   check(!verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom).ok,
+         "Unselected bytes remain part of the independent activation proof");
+  }
+  check(!plan_power_relationship_weights(rom,identity,layout,info,{{1,1,{}}}).ok,
+        "Opaque relation kind is inspectable but cannot produce a patch");
+  info[target_info+5]^=1;
+  check(!plan_power_relationship_weights(rom,identity,layout,info,requests).ok,
+        "A mismatched target channel disqualifies the weight");
  }
- check(!plan_power_relationship_weights(rom,identity,layout,info,{{1,1,{}}}).ok,
-       "Opaque relation kind is inspectable but cannot produce a patch");
- info[target_info+5]^=1;
- check(!plan_power_relationship_weights(rom,identity,layout,info,requests).ok,
-       "A mismatched target channel disqualifies the weight");
  rom[table+9]=255;
  const auto oversized=inspect_power_weight_image(rom);
  check(oversized.ok&&!oversized.relationships_available,"Out-of-image V30 relationship extent is rejected");
@@ -125,10 +135,10 @@ void legacy_info_tests() {
                          PowerRelationshipLayout{0x20802618,5520,0xcc,0x84},
                          PowerRelationshipLayout{0x20802618,5520,0x3c,0x88}})
   check(!decode_power_relationships(invalid,info).available,"Legacy INFO requires the exact command and policy geometry");
- const auto plan=plan_power_relationship_weights({},PowerRelationshipIdentity{"0000:7b:01.1",6,0x1234,0x87654321},
-                                                layout,info,{{1,1.25,5301}});
- check(!power_relationship_layout_supports_override(layout)&&!plan.ok&&plan.patches.empty()&&
-       plan.message.find("inspection only")!=std::string::npos,"Legacy INFO never qualifies an override plan");
+ const auto mismatched=power_case();
+ const auto plan=plan_power_relationship_weights(mismatched.image,mismatched.identity,layout,info,{{1,1.25,5301}});
+ check(!plan.ok&&plan.patches.empty()&&plan.message.find("V30 ROM table")!=std::string::npos,
+       "Legacy INFO refuses a V40 ROM even when its relationship table is valid");
 }
 void power_tests(){PowerRelationshipLayout layout;
  for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}){auto c=power_case(header);const auto original=c.image,info=c.info;const auto image=inspect_power_weight_image(c.image);const auto report=decode_power_relationships(layout,c.info);

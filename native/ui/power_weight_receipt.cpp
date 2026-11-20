@@ -252,7 +252,7 @@ PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
   version=table.selector_version;oem=table.selector_oem;
   patches=clock_patches(r.image,out.clock_plan.image);
  } else {
-  require(r.previous_clocks.empty()&&power_relationship_layout_supports_override(r.layout)&&r.info.size()==r.layout.info_size&&!r.requests.empty()&&r.requests.size()<=32,
+  require(r.previous_clocks.empty()&&power_relationship_layout_supported(r.layout)&&r.info.size()==r.layout.info_size&&!r.requests.empty()&&r.requests.size()<=32,
           "Weight receipt evidence geometry invalid");
   out.plan=plan_power_relationship_weights(r.image,r.identity,r.layout,r.info,r.requests);
   require(out.plan.ok,out.plan.message.c_str());
@@ -396,7 +396,7 @@ PowerWeightReceipt decode_weight_receipt(const std::string& bytes) {
  } else {
   const auto& l=j["layout"];keys(l,{"info_command","info_size","policy_base","policy_stride"});
   r.layout={number(l["info_command"]),number(l["info_size"]),number(l["policy_base"]),number(l["policy_stride"])};
-  require(power_relationship_layout_supports_override(r.layout),"Weight receipt evidence geometry invalid");
+  require(power_relationship_layout_supported(r.layout),"Weight receipt evidence geometry invalid");
   r.info=unhex(j["info"],r.layout.info_size);
   for(const auto& q:j["requests"]) {
    keys(q,{"index","after_raw","before_raw"});

@@ -129,7 +129,7 @@ driver `30.0.14.7212` with device status 0. A fresh NVAPI process identified
 | XOC switched off again | 100–320 W, with the configured request still 260 W |
 | Power policy read | 13 rows returned successfully |
 | Power relationships | The updated decoder read 11 records and 9 weights. The nine weights and their targets matched the running ROM |
-| BIOS relationship weight override | The 5520-byte INFO layout is read-only. Preview and activation are unavailable |
+| BIOS relationship weight override | Preview, Apply and Restore passed with the 5520-byte INFO layout and a matching V30 ROM |
 
 The native UI backend supplied these bounds during the same session using
 `druta-ui-actions-live-check`. Only the session XOC flag changed. No power request
@@ -140,17 +140,22 @@ The driver reported INFO command `0x20802618`, size 5520 bytes, policy base
 the `0x24`-byte records start at `0x10C0`. Type-zero records store the
 unsigned Q4.12 weight at `+0x04`. The decoder exposes each occupied record
 and its target policy. Legacy source-policy references and other relationship
-types remain uninterpreted. Override support remains limited to the qualified
-20,000- and 20,512-byte INFO layouts.
+types remain uninterpreted. An override on this layout requires a V30 power
+table with `0x42`-byte rows and agreement between the ROM and INFO on the
+selected relationship's target, current weight, policy type, channel, units
+and limits.
 
 Firmware clock and timing overrides in the native UI cover earlier
 architectures. The persistent DIFR configuration editor is unavailable in this
 build.
 
 The 23-phase live UI smoke test and 197 focused Python tests passed on the
-original build. The rebuilt parser passed nine native relationship and override
-test suites and a separate live read on the same adapter. No BIOS override or
-power request was applied. Windows 7 with 472.12 remains outside this run.
+original build. The updated build passed nine native relationship and override
+test suites. A live transaction changed relationship 5 from 4096 to 4097 and
+restored 4096. Fresh processes verified the full loaded ROM, INFO packet
+and managed registry after both selected-device refreshes. Windows did not
+reboot, the active recovery pointer was cleared, and the configured board
+power request stayed at 260 W. Windows 7 with 472.12 remains outside this run.
 
 ## 1.9.05 Turing compatibility and power readback
 
