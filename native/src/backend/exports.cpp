@@ -38,6 +38,8 @@ public:
     std::unique_ptr<ExportSource> open_nvapi(std::string& error) override { return open("nvapi", error); }
     std::unique_ptr<ExportSource> open_nvml(std::string& error) override { return open("nvml", error); }
     std::unique_ptr<ExportSource> open_gdi32(std::string& error) override { return open("gdi32", error); }
+    std::unique_ptr<ExportSource> open_user32(std::string& error) override { return open("user32", error); }
+    std::unique_ptr<ExportSource> open_cfgmgr32(std::string& error) override { return open("cfgmgr32", error); }
 
 private:
     std::unique_ptr<ExportSource> open(const char* library, std::string& error) {
@@ -45,8 +47,8 @@ private:
             std::string which(library);
             if (which == "nvapi")
                 error = (kProcessBits == 64 ? "nvapi64.dll" : "nvapi.dll") + std::string(" not loadable: not provided by the test resolver");
-            else if (which == "gdi32")
-                error = "gdi32.dll not loadable: not provided by the test resolver";
+            else if (which == "gdi32" || which == "user32" || which == "cfgmgr32")
+                error = which + ".dll not loadable: not provided by the test resolver";
             else
                 error = std::to_string(kProcessBits) + "-bit process; not provided by the test resolver";
             return nullptr;
@@ -171,9 +173,20 @@ public:
     // gdi32 is a system DLL present on every Windows; which D3DKMT* exports it
     // has is the capability (XPDM images have none).
     std::unique_ptr<ExportSource> open_gdi32(std::string& error) override {
-        win::DynLib lib(L"gdi32.dll");
+        return open_system_dll(L"gdi32.dll", error);
+    }
+    std::unique_ptr<ExportSource> open_user32(std::string& error) override {
+        return open_system_dll(L"user32.dll", error);
+    }
+    std::unique_ptr<ExportSource> open_cfgmgr32(std::string& error) override {
+        return open_system_dll(L"cfgmgr32.dll", error);
+    }
+
+private:
+    static std::unique_ptr<ExportSource> open_system_dll(const wchar_t* name, std::string& error) {
+        win::DynLib lib(name);
         if (!lib.ok()) {
-            error = "gdi32.dll not loadable: Windows error " + std::to_string(lib.error());
+            error = narrow(name) + " not loadable: Windows error " + std::to_string(lib.error());
             return nullptr;
         }
         return std::make_unique<DllSource>(std::move(lib));
@@ -194,6 +207,14 @@ public:
     }
     std::unique_ptr<ExportSource> open_gdi32(std::string& error) override {
         error = "gdi32.dll not loadable: the graphics kernel interface exists on Windows only";
+        return nullptr;
+    }
+    std::unique_ptr<ExportSource> open_user32(std::string& error) override {
+        error = "user32.dll not loadable: display enumeration exists on Windows only";
+        return nullptr;
+    }
+    std::unique_ptr<ExportSource> open_cfgmgr32(std::string& error) override {
+        error = "cfgmgr32.dll not loadable: Windows Configuration Manager exists on Windows only";
         return nullptr;
     }
 };

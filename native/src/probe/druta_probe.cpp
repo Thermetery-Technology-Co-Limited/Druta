@@ -16,14 +16,18 @@
 // (or in %TEMP%). Send that file back.
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <vector>
 
 #include "core/slot.h"
+#include "win/d3dkmt.h"
+#include "win/display_interfaces.h"
 #include "win/dynlib.h"
 
 namespace {
@@ -155,8 +159,9 @@ struct Export {
 const Export kDriverModelExports[] = {
     {L"gdi32.dll", "D3DKMTOpenAdapterFromHdc", "WDDM (Vista+): adapter handle from a display DC"},
     {L"gdi32.dll", "D3DKMTOpenAdapterFromGdiDisplayName", "WDDM (Vista+): adapter handle from a display name"},
-    {L"gdi32.dll", "D3DKMTEnumAdapters", "WDDM 1.1 (Windows 7+): adapter enumeration"},
-    {L"gdi32.dll", "D3DKMTEnumAdapters2", "WDDM 1.2 (Windows 8+): what Druta's transport capture uses"},
+    {L"gdi32.dll", "D3DKMTOpenAdapterFromDeviceName", "WDDM (Vista+): adapter handle from a PnP interface"},
+    {L"gdi32.dll", "D3DKMTEnumAdapters", "fixed-array enumeration (documented from Windows 8; probe only)"},
+    {L"gdi32.dll", "D3DKMTEnumAdapters2", "primary adapter enumeration (Windows 8+)"},
     {L"gdi32.dll", "D3DKMTQueryAdapterInfo", "adapter identity for driver escapes"},
     {L"gdi32.dll", "D3DKMTEscape", "driver escapes"},
     {L"gdi32.dll", "D3DKMTCloseAdapter", "driver escapes"},
@@ -195,6 +200,8 @@ const Export kWindowsExports[] = {
     {L"setupapi.dll", "SetupDiCallClassInstaller", "GPU device restart (SetupAPI path)"},
     {L"cfgmgr32.dll", "CM_Locate_DevNodeW", "GPU device restart"},
     {L"cfgmgr32.dll", "CM_Get_DevNode_Status", "GPU device restart"},
+    {L"cfgmgr32.dll", druta::win::kInterfaceSize, "PnP display adapter lookup"},
+    {L"cfgmgr32.dll", druta::win::kInterfaceList, "PnP display adapter lookup"},
     {L"advapi32.dll", "OpenSCManagerW", "nvtune service status"},
     {L"advapi32.dll", "QueryServiceStatus", "nvtune service status"},
     {L"advapi32.dll", "RegOpenKeyExW", "registry overrides"},
@@ -236,15 +243,22 @@ void report_driver_model(Report& out) {
     report_exports(out, "Graphics kernel exports (driver model)", kDriverModelExports,
                    sizeof kDriverModelExports / sizeof kDriverModelExports[0]);
     DynLib gdi(L"gdi32.dll");
+    DynLib user(L"user32.dll");
+    DynLib cfg(L"cfgmgr32.dll");
     const char* model;
     if (!gdi.ok() || !gdi.has("D3DKMTEscape"))
-        model = "XPDM: no D3DKMT escape path; driver escapes are not possible on this image";
+        model = "D3DKMT escape unavailable (expected on XPDM)";
+    else if (!gdi.has("D3DKMTQueryAdapterInfo") || !gdi.has("D3DKMTCloseAdapter"))
+        model = "WDDM escape present; adapter query or close API unavailable";
     else if (gdi.has("D3DKMTEnumAdapters2"))
-        model = "WDDM 1.2 or later: the transport capture path Druta uses today exists";
-    else if (gdi.has("D3DKMTEnumAdapters"))
-        model = "WDDM 1.1 (Windows 7): escapes exist; adapters must be opened by display name or DC";
+        model = "WDDM escape present; Druta adapter lookup: D3DKMTEnumAdapters2";
+    else if (gdi.has("D3DKMTOpenAdapterFromGdiDisplayName") && user.has("EnumDisplayDevicesW"))
+        model = "WDDM escape present; Druta adapter lookup: GDI display name";
+    else if (gdi.has("D3DKMTOpenAdapterFromDeviceName") && cfg.has(druta::win::kInterfaceSize) &&
+             cfg.has(druta::win::kInterfaceList))
+        model = "WDDM escape present; Druta adapter lookup: PnP device interface";
     else
-        model = "WDDM 1.0 (Vista): escapes exist; adapters must be opened by display name or DC";
+        model = "WDDM escape present; Druta adapter lookup unavailable";
     out.line("-> %s", model);
 }
 
@@ -379,47 +393,31 @@ void report_escape_entry(Report& out) {
 
 // ---- D3DKMT adapter enumeration -----------------------------------------------------------------
 //
-// Local layouts (no DDK headers). Every D3DKMT entry point is NTSTATUS NTAPI fn(void*).
-
-struct KmtAdapterInfo {
-    std::uint32_t hAdapter;
-    std::uint32_t LuidLow;
-    std::int32_t LuidHigh;
-    std::uint32_t NumOfSources;
-    std::int32_t bPresentMoveRegionsPreferred;
-};
-struct KmtEnumAdapters2 {
-    std::uint32_t NumAdapters;
-    KmtAdapterInfo* pAdapters;
-};
-struct KmtEnumAdapters {
-    std::uint32_t NumAdapters;
-    KmtAdapterInfo Adapters[16];
-};
-struct KmtQueryAdapterInfo {
-    std::uint32_t hAdapter;
-    std::uint32_t Type;
-    void* pPrivateDriverData;
-    std::uint32_t PrivateDriverDataSize;
-};
-struct KmtCloseAdapter {
-    std::uint32_t hAdapter;
-};
-struct KmtAdapterAddress {
-    std::uint32_t BusNumber;
-    std::uint32_t DeviceNumber;
-    std::uint32_t FunctionNumber;
-};
-static_assert(sizeof(KmtAdapterInfo) == 20, "D3DKMT_ADAPTERINFO");
-static_assert(sizeof(KmtEnumAdapters2) == (sizeof(void*) == 8 ? 16 : 8), "D3DKMT_ENUMADAPTERS2");
-static_assert(sizeof(KmtEnumAdapters) == 324, "D3DKMT_ENUMADAPTERS");
-static_assert(sizeof(KmtQueryAdapterInfo) == (sizeof(void*) == 8 ? 24 : 16), "D3DKMT_QUERYADAPTERINFO");
-static_assert(sizeof(KmtCloseAdapter) == 4, "D3DKMT_CLOSEADAPTER");
-static_assert(sizeof(KmtAdapterAddress) == 12, "D3DKMT_ADAPTERADDRESS");
-
-constexpr std::uint32_t kKmtAdapterAddress = 6;  // KMTQAITYPE_ADAPTERADDRESS
+namespace kmt = druta::win;
 
 unsigned long ntstatus_bits(LONG status) { return static_cast<unsigned long>(status) & 0xFFFFFFFFul; }
+
+void describe_pci(kmt::KmtFn query, std::uint32_t handle, char (&address)[96]) {
+    if (!query) {
+        std::snprintf(address, sizeof address, "? (no D3DKMTQueryAdapterInfo)");
+        return;
+    }
+    kmt::D3DKMT_ADAPTERADDRESS pci{};
+    kmt::D3DKMT_QUERYADAPTERINFO request{handle, kmt::KMTQAITYPE_ADAPTERADDRESS, &pci, sizeof pci};
+    LONG status = query(&request);
+    if (status == 0)
+        std::snprintf(address, sizeof address, "%02X:%02X.%X", pci.BusNumber, pci.DeviceNumber, pci.FunctionNumber);
+    else
+        std::snprintf(address, sizeof address, "? (type 6 NTSTATUS 0x%08lX)", ntstatus_bits(status));
+}
+
+bool close_adapter(Report& out, kmt::KmtFn close, std::uint32_t handle) {
+    kmt::D3DKMT_CLOSEADAPTER request{handle};
+    LONG status = close(&request);
+    if (status == 0) return true;
+    out.line("D3DKMTCloseAdapter(0x%08X): NTSTATUS 0x%08lX", handle, ntstatus_bits(status));
+    return false;
+}
 
 void report_kmt_adapters(Report& out) {
     out.section("D3DKMT adapters (read-only)");
@@ -428,13 +426,12 @@ void report_kmt_adapters(Report& out) {
         out.line("gdi32.dll: not loadable (error %lu)", gdi.error());
         return;
     }
-    using KmtFn = LONG(NTAPI*)(void*);
-    auto enum2 = gdi.get<KmtFn>("D3DKMTEnumAdapters2");
-    auto enum1 = gdi.get<KmtFn>("D3DKMTEnumAdapters");
-    auto query = gdi.get<KmtFn>("D3DKMTQueryAdapterInfo");
-    auto close = gdi.get<KmtFn>("D3DKMTCloseAdapter");
+    auto enum2 = gdi.get<kmt::KmtFn>("D3DKMTEnumAdapters2");
+    auto enum1 = gdi.get<kmt::KmtFn>("D3DKMTEnumAdapters");
+    auto query = gdi.get<kmt::KmtFn>("D3DKMTQueryAdapterInfo");
+    auto close = gdi.get<kmt::KmtFn>("D3DKMTCloseAdapter");
     if (!enum2 && !enum1) {
-        out.line("no D3DKMTEnumAdapters2 or D3DKMTEnumAdapters; enumeration not possible on this image");
+        out.line("D3DKMTEnumAdapters2 and D3DKMTEnumAdapters unavailable; see the display-name lookup below");
         return;
     }
     if (!close) {
@@ -443,10 +440,10 @@ void report_kmt_adapters(Report& out) {
         return;
     }
 
-    std::vector<KmtAdapterInfo> adapters;
+    std::vector<kmt::D3DKMT_ADAPTERINFO> adapters;
     LONG status = 0;
     if (enum2) {
-        KmtEnumAdapters2 request{};
+        kmt::D3DKMT_ENUMADAPTERS2 request{};
         request.NumAdapters = 0;
         request.pAdapters = nullptr;
         LONG count_status = enum2(&request);
@@ -461,7 +458,7 @@ void report_kmt_adapters(Report& out) {
             out.line("D3DKMTEnumAdapters2 count query: NTSTATUS 0x%08lX; using a 16-entry array",
                      ntstatus_bits(count_status));
         }
-        adapters.assign(capacity, KmtAdapterInfo{});
+        adapters.assign(capacity, kmt::D3DKMT_ADAPTERINFO{});
         request.NumAdapters = capacity;
         request.pAdapters = adapters.data();
         status = enum2(&request);
@@ -472,7 +469,7 @@ void report_kmt_adapters(Report& out) {
         adapters.resize(request.NumAdapters < capacity ? request.NumAdapters : capacity);
         out.line("D3DKMTEnumAdapters2: %u adapter(s)", request.NumAdapters);
     } else {
-        KmtEnumAdapters request{};
+        kmt::D3DKMT_ENUMADAPTERS request{};
         request.NumAdapters = 16;
         status = enum1(&request);
         if (status != 0) {
@@ -485,40 +482,106 @@ void report_kmt_adapters(Report& out) {
     }
 
     for (std::size_t i = 0; i < adapters.size(); ++i) {
-        const KmtAdapterInfo& item = adapters[i];
+        const kmt::D3DKMT_ADAPTERINFO& item = adapters[i];
         char address[96];
-        if (!query) {
-            std::snprintf(address, sizeof address, "? (no D3DKMTQueryAdapterInfo)");
-        } else {
-            KmtAdapterAddress pci{};
-            KmtQueryAdapterInfo request{};
-            request.hAdapter = item.hAdapter;
-            request.Type = kKmtAdapterAddress;
-            request.pPrivateDriverData = &pci;
-            request.PrivateDriverDataSize = sizeof pci;
-            LONG st = query(&request);
-            if (st == 0)
-                std::snprintf(address, sizeof address, "%02X:%02X.%X", pci.BusNumber, pci.DeviceNumber,
-                              pci.FunctionNumber);
-            else
-                std::snprintf(address, sizeof address, "? (type 6 NTSTATUS 0x%08lX)", ntstatus_bits(st));
-        }
+        describe_pci(query, item.hAdapter, address);
         out.line("adapter %u: handle=0x%08X luid=%08lX:%08X sources=%u pci=%s", static_cast<unsigned>(i),
                  item.hAdapter, static_cast<unsigned long>(static_cast<std::uint32_t>(item.LuidHigh)), item.LuidLow,
                  item.NumOfSources, address);
     }
     // Every handle the successful enumeration returned is closed, whatever the queries did.
     std::size_t close_failures = 0;
-    for (const KmtAdapterInfo& item : adapters) {
-        KmtCloseAdapter request{item.hAdapter};
-        LONG st = close(&request);
-        if (st != 0) {
-            ++close_failures;
-            out.line("D3DKMTCloseAdapter(0x%08X): NTSTATUS 0x%08lX", item.hAdapter, ntstatus_bits(st));
-        }
-    }
+    for (const auto& item : adapters)
+        if (!close_adapter(out, close, item.hAdapter)) ++close_failures;
     out.line("closed %u of %u handle(s)", static_cast<unsigned>(adapters.size() - close_failures),
              static_cast<unsigned>(adapters.size()));
+}
+
+// Exercise the display-name lookup even when EnumAdapters2 exists so the
+// two sets of PCI addresses and adapter LUIDs can be compared on one machine.
+void report_display_adapters(Report& out) {
+    out.section("GDI display-name adapter lookup (read-only)");
+    DynLib user(L"user32.dll"), gdi(L"gdi32.dll");
+    auto enumerate = user.get<kmt::EnumDisplayDevicesFn>("EnumDisplayDevicesW");
+    auto open = gdi.get<kmt::KmtFn>("D3DKMTOpenAdapterFromGdiDisplayName");
+    auto query = gdi.get<kmt::KmtFn>("D3DKMTQueryAdapterInfo");
+    auto close = gdi.get<kmt::KmtFn>("D3DKMTCloseAdapter");
+    if (!enumerate || !open || !query || !close) {
+        if (!enumerate) out.line("user32!EnumDisplayDevicesW unavailable");
+        if (!open) out.line("gdi32!D3DKMTOpenAdapterFromGdiDisplayName unavailable");
+        if (!query) out.line("gdi32!D3DKMTQueryAdapterInfo unavailable");
+        if (!close) out.line("gdi32!D3DKMTCloseAdapter unavailable");
+        return;
+    }
+
+    unsigned int opened = 0, closed = 0;
+    for (std::uint32_t index = 0;; ++index) {
+        kmt::DisplayDeviceW display{};
+        display.cb = sizeof display;
+        if (!enumerate(nullptr, index, &display, 0)) break;
+        auto end = std::find(std::begin(display.DeviceName), std::end(display.DeviceName), u'\0');
+        if (end == std::begin(display.DeviceName) || end == std::end(display.DeviceName)) {
+            out.line("display %u: empty or unterminated GDI name", index);
+            continue;
+        }
+        std::string name = narrow(std::wstring(std::begin(display.DeviceName), end));
+        kmt::D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME request{};
+        std::copy(std::begin(display.DeviceName), end, request.DeviceName);
+        LONG status = open(&request);
+        if (status != 0 || !request.hAdapter) {
+            out.line("display %u: %s open NTSTATUS 0x%08lX, no usable handle", index, name.c_str(), ntstatus_bits(status));
+            continue;
+        }
+        ++opened;
+        char address[96];
+        describe_pci(query, request.hAdapter, address);
+        out.line("display %u: %s handle=0x%08X luid=%08X:%08X source=%u pci=%s", index, name.c_str(),
+                 request.hAdapter, static_cast<std::uint32_t>(request.LuidHigh), request.LuidLow, request.VidPnSourceId, address);
+        if (close_adapter(out, close, request.hAdapter)) ++closed;
+    }
+    out.line("closed %u of %u display-name handle(s)", closed, opened);
+}
+
+void report_device_interfaces(Report& out) {
+    out.section("PnP device-interface adapter lookup (read-only)");
+    DynLib cfg(L"cfgmgr32.dll"), gdi(L"gdi32.dll");
+    auto size = cfg.get<kmt::InterfaceSizeFn>(kmt::kInterfaceSize);
+    auto list = cfg.get<kmt::InterfaceListFn>(kmt::kInterfaceList);
+    auto open = gdi.get<kmt::KmtFn>("D3DKMTOpenAdapterFromDeviceName");
+    auto query = gdi.get<kmt::KmtFn>("D3DKMTQueryAdapterInfo");
+    auto close = gdi.get<kmt::KmtFn>("D3DKMTCloseAdapter");
+    if (!size || !list || !open || !query || !close) {
+        if (!size) out.line("cfgmgr32!%s unavailable", kmt::kInterfaceSize);
+        if (!list) out.line("cfgmgr32!%s unavailable", kmt::kInterfaceList);
+        if (!open) out.line("gdi32!D3DKMTOpenAdapterFromDeviceName unavailable");
+        if (!query) out.line("gdi32!D3DKMTQueryAdapterInfo unavailable");
+        if (!close) out.line("gdi32!D3DKMTCloseAdapter unavailable");
+        return;
+    }
+    std::vector<std::u16string> paths;
+    std::string error = kmt::display_interface_paths(size, list, paths);
+    if (!error.empty()) {
+        out.line("%s", error.c_str());
+        return;
+    }
+    unsigned int opened = 0, closed = 0;
+    for (const auto& path : paths) {
+        std::string name = narrow(std::wstring(path.begin(), path.end()));
+        kmt::D3DKMT_OPENADAPTERFROMDEVICENAME request{};
+        request.pDeviceName = path.c_str();
+        LONG status = open(&request);
+        if (status != 0 || !request.hAdapter) {
+            out.line("%s open NTSTATUS 0x%08lX, no usable handle", name.c_str(), ntstatus_bits(status));
+            continue;
+        }
+        ++opened;
+        char address[96];
+        describe_pci(query, request.hAdapter, address);
+        out.line("%s handle=0x%08X luid=%08X:%08X pci=%s", name.c_str(), request.hAdapter,
+                 static_cast<std::uint32_t>(request.LuidHigh), request.LuidLow, address);
+        if (close_adapter(out, close, request.hAdapter)) ++closed;
+    }
+    out.line("closed %u of %u device-interface handle(s)", closed, opened);
 }
 
 // ---- NVAPI --------------------------------------------------------------------------------------
@@ -881,6 +944,8 @@ int main() {
     report_driver_model(out);
     report_escape_entry(out);
     report_kmt_adapters(out);
+    report_display_adapters(out);
+    report_device_interfaces(out);
     report_exports(out, "Windows exports Druta binds", kWindowsExports, sizeof kWindowsExports / sizeof kWindowsExports[0]);
     report_nvapi(out);
     report_nvml(out);

@@ -365,17 +365,14 @@ EscapeResult escape_raw(Gpu&, void* packet, uint32_t size, const EscapeFields& f
 
 Rules:
 
-1. **Faithful default: `Enum2`.** It is the only method main implements, and it behaves exactly as described
-   in 2.2.
-2. **Fallback methods, added in a separate increment after `Enum2` parity.** The fallbacks are selected by
-   export presence only, never by a Windows or driver version:
-   - `Enum` uses `D3DKMTEnumAdapters` with a fixed 16-entry array, and the same loop as `Enum2`.
-   - `GdiDisplayName` and `Hdc` walk `EnumDisplayDevicesW` and open each `\\.\DISPLAYn`. They query type 6 on
-     each opened handle, de-duplicate matches by LUID, and close every handle.
-
-   A method that is present but fails at run time does not fall through to the next one; this is the NVML
-   v1/v2 rule in `backend/nvml.cpp`. None of the fallbacks has a Python counterpart, and none is tested on
-   hardware (section 5).
+1. The native core prefers `D3DKMTEnumAdapters2` when exported. Section 2.2 describes this path.
+2. When that export is absent, the core enumerates display names with `EnumDisplayDevicesW` and opens
+   them with `D3DKMTOpenAdapterFromGdiDisplayName`. It queries the PCI address before selecting a handle,
+   recognizes outputs of one adapter by their common nonzero LUID, and closes every successful open.
+   If display names yield no selected PCI match, it can open present display device interfaces with
+   `D3DKMTOpenAdapterFromDeviceName`. This covers adapters without a usable display name. An
+   ambiguous PCI match stops the lookup before the driver request is issued.
+   The standalone probe reports each method's PCI addresses independently, including on newer Windows.
 3. **No `D3DKMTOpenAdapterFromLuid`.** It needs a LUID that only enumeration supplies. The public
    documentation also suggests it is absent on Windows 7. That is an educated guess; the probe lists the
    export, so a probe report can confirm it.
@@ -979,10 +976,11 @@ x64 patch bytes, and the `escape_slot` table.
 3. The rail splice installs its hook without `_legacy_clk_gdi()` and needs only `D3DKMTEscape`. Should the
    native version keep that narrower check, or require the complete capability? The default is to keep
    Python's behaviour, because the splice never uses the adapter APIs.
-4. Do `D3DKMTEnumAdapters` (documented for Windows 7) and `OpenAdapterFromGdiDisplayName` / `FromHdc`
-   (documented for Vista) enumerate an NVIDIA adapter that has no display attached? Does type 6
-   (`KMTQAITYPE_ADAPTERADDRESS`) answer on WDDM 1.0/1.1? The method order and the LUID de-duplication are
-   educated guesses from public documentation. A probe report from Vista or 7 is the first evidence.
+4. Which GPU PCI addresses do the adapter-opening APIs expose on the target Vista or Windows 7 driver?
+   Compare the read-only probe with the NVAPI inventory, including secondary GPUs. Microsoft documents
+   both enumeration APIs from Windows 8 and the display-name opener from Vista.
+   [Enumeration requirements](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtenumadapters)
+   · [Display-name requirements](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtopenadapterfromgdidisplayname)
 5. What are the first bytes of `D3DKMTEscape` in Vista and Windows 7 gdi32 (x64, x86, WOW64)? Does the
    14-byte or 5-byte overwrite stay inside one stub? This is unknown. The probe should dump 16 bytes there,
    read-only, before any hook runs on such an image.

@@ -4,6 +4,7 @@
 #include "profile_io.h"
 #include "../src/core/sha256.h"
 #include <windows.h>
+#include <shlobj.h>
 #include <algorithm>
 #include <atomic>
 #include <cstring>
@@ -43,7 +44,27 @@ std::optional<std::string> read_bytes(const std::wstring& path){File f(CreateFil
 void atomic_write(const std::wstring& path,const std::string& bytes,bool replace){require(bytes.size()<=power_weight_receipt_max_bytes,"Weight receipt exceeds storage bound");const auto tmp=path+L".tmp-"+wide(new_id());{File file(CreateFileW(tmp.c_str(),GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr));win(file.h!=INVALID_HANDLE_VALUE,"Create weight journal temporary");try{DWORD wrote=0;win(WriteFile(file.h,bytes.data(),static_cast<DWORD>(bytes.size()),&wrote,nullptr)!=0&&wrote==bytes.size(),"Write weight journal");win(FlushFileBuffers(file.h)!=0,"Flush weight journal");}catch(...){CloseHandle(file.h);file.h=INVALID_HANDLE_VALUE;DeleteFileW(tmp.c_str());throw;}}
  if(!MoveFileExW(tmp.c_str(),path.c_str(),MOVEFILE_WRITE_THROUGH|(replace?MOVEFILE_REPLACE_EXISTING:0))){const auto e=GetLastError();DeleteFileW(tmp.c_str());SetLastError(e);win(false,"Commit weight journal");}}
 Json pointer(const PowerWeightReceipt& r){return Json{{"format","druta.power-weight-active"},{"version",1},{"id",r.id},{"slot",r.identity.slot},{"uuid",r.uuid}};}
-std::optional<std::string> pointer_id(const std::wstring& path,const std::string& slot,const std::string& uuid){auto bytes=read_bytes(path);if(!bytes)return {};auto j=parse(*bytes);keys(j,{"format","version","id","slot","uuid"});require(string(j["format"],64)=="druta.power-weight-active"&&number(j["version"])==1&&string(j["slot"],23)==slot&&string(j["uuid"],160)==uuid,"Weight active pointer identity invalid");const auto id=string(j["id"],32);require(std::regex_match(id,std::regex("^[0-9a-f]{32}$")),"Weight active receipt id invalid");return id;}
+std::optional<std::string> pointer_id(const std::wstring& path,const std::string& slot,const std::string& uuid,
+                                      std::string* predecessor=nullptr) {
+ auto bytes=read_bytes(path);if(!bytes)return {};
+ auto j=parse(*bytes);
+ static const std::regex id_pattern("^[0-9a-f]{32}$");
+ const auto version=number(j.at("version"));
+ if(version==2) {
+  keys(j,{"format","version","id","slot","uuid","predecessor"});
+  const auto prior=string(j.at("predecessor"),32);
+  require(std::regex_match(prior,id_pattern),"Invalid prior clock receipt id");
+  if(predecessor)*predecessor=prior;
+ } else {
+  keys(j,{"format","version","id","slot","uuid"});
+  require(version==1,"Unsupported weight pointer version");
+ }
+ require(string(j.at("format"),64)=="druta.power-weight-active"&&string(j.at("slot"),23)==slot&&
+         string(j.at("uuid"),160)==uuid,"Weight active pointer identity invalid");
+ const auto id=string(j.at("id"),32);
+ require(std::regex_match(id,id_pattern),"Weight active receipt id invalid");
+ return id;
+}
 }
 namespace {
 std::vector<PowerWeightRegistryPatch> clock_patches(const std::vector<uint8_t>& before,
@@ -76,20 +97,40 @@ PowerWeightReceipt captured_receipt(const PowerWeightCapture& c) {
  r.image=c.image;r.before=*c.registry;
  return r;
 }
+// Up to 16 performance states for each of three clock domains, two shared
+// ratios, and the timing fields recognized in this build.
+size_t maximum_clock_edits() { return 16*3 + 2 + pascal_timing_fields().size(); }
 const char* domain_name(PascalClockDomain domain) {
+ if(const auto* timing=pascal_timing_field(domain))return timing->key;
  switch(domain) {
   case PascalClockDomain::gpc:return "gpc";
   case PascalClockDomain::xbar:return "xbar";
   case PascalClockDomain::sys:return "sys";
+  default:throw std::runtime_error("Unknown Pascal clock domain");
  }
- throw std::runtime_error("Unknown Pascal clock domain");
 }
 PascalClockDomain domain_value(const Json& value) {
- const auto name=string(value,8);
+ const auto name=string(value,24);
  if(name=="gpc")return PascalClockDomain::gpc;
  if(name=="xbar")return PascalClockDomain::xbar;
  if(name=="sys")return PascalClockDomain::sys;
- throw std::runtime_error("Unknown Pascal clock domain");
+ for(const auto& field:pascal_timing_fields())if(name==field.key&&field.writable)return field.domain;
+ throw std::runtime_error("Unknown or read-only Pascal clock or timing field");
+}
+
+constexpr const char* timing_word_keys[]{"config0","config1","config2","config3","config4","config5"};
+void merge_timing_baseline(std::optional<PascalTimingSample>& baseline,const PascalTimingSample& sample) {
+ require((sample.present&0x0a)==0x0a && !(sample.present&~0x3f),
+         "Missing or unknown P0 timing controller words");
+ if(!baseline){baseline=sample;return;}
+ require(baseline->memory_mhz==sample.memory_mhz,"P0 memory clock changed between timing edits");
+ for(unsigned word=0;word<std::size(timing_word_keys);++word) {
+  const auto bit=1u<<word;
+  if(!(sample.present&bit))continue;
+  require(!(baseline->present&bit)||baseline->word(word)==sample.word(word),
+          "P0 controller fingerprint changed between timing edits");
+  baseline->set_word(word,sample.word(word));
+ }
 }
 
 bool same_clock_field(const PascalClockEdit& a,const PascalClockEdit& b) {
@@ -97,7 +138,7 @@ bool same_clock_field(const PascalClockEdit& a,const PascalClockEdit& b) {
 }
 bool same_clock_edits(const std::vector<PascalClockEdit>& a,const std::vector<PascalClockEdit>& b) {
  return std::equal(a.begin(),a.end(),b.begin(),b.end(),[](const auto& lhs,const auto& rhs) {
-  return same_clock_field(lhs,rhs)&&lhs.expected==rhs.expected&&lhs.value==rhs.value;
+  return same_clock_field(lhs,rhs)&&lhs.expected==rhs.expected&&lhs.value==rhs.value&&lhs.timing_sample==rhs.timing_sample;
  });
 }
 bool same_registry(const PowerWeightRegistrySnapshot& a,const PowerWeightRegistrySnapshot& b) {
@@ -119,21 +160,65 @@ bool revisable(const PowerWeightReceipt& active) {
 }
 Json encode_clock_edits(const std::vector<PascalClockEdit>& edits) {
  Json out=Json::array();
- for(const auto& q:edits)out.push_back({{"domain",domain_name(q.domain)},{"pstate",q.pstate},
-                                       {"before_raw",q.expected},{"after_raw",q.value}});
- return out;
-}
-std::vector<PascalClockEdit> decode_clock_edits(const Json& rows) {
- require(rows.is_array()&&!rows.empty()&&rows.size()<=50,"Clock receipt request inventory invalid");
- std::vector<PascalClockEdit> out;
- for(const auto& q:rows) {
-  keys(q,{"domain","pstate","after_raw","before_raw"});
-  const int pstate=q["pstate"].is_number_integer()&&q["pstate"]==-1?-1:static_cast<int>(number(q["pstate"],15));
-  out.push_back({domain_value(q["domain"]),pstate,static_cast<int>(number(q["before_raw"],16383)),
-                 static_cast<int>(number(q["after_raw"],16383))});
+ for(const auto& q:edits) {
+  Json entry={{"domain",domain_name(q.domain)},{"pstate",q.pstate},{"before_raw",q.expected},{"after_raw",q.value}};
+  if(q.timing_sample) {
+   const auto& sample=*q.timing_sample;
+   Json p0={{"memory_mhz",sample.memory_mhz}};
+   for(unsigned word=0;word<std::size(timing_word_keys);++word)if(sample.present&(1u<<word))p0[timing_word_keys[word]]=sample.word(word);
+   entry["p0"]=std::move(p0);
+  }
+  out.push_back(std::move(entry));
  }
  return out;
 }
+std::vector<PascalClockEdit> decode_clock_edits(const Json& rows) {
+ require(rows.is_array()&&!rows.empty()&&rows.size()<=maximum_clock_edits(),"Clock receipt request inventory invalid");
+ std::vector<PascalClockEdit> out;
+ for(const auto& q:rows) {
+  const auto domain=domain_value(q.at("domain"));
+  std::optional<PascalTimingSample> timing;
+  if(const auto* field=pascal_timing_field(domain)) {
+   keys(q,{"domain","pstate","after_raw","before_raw","p0"});
+   const auto& p0=q.at("p0");
+   require(p0.is_object(),"Invalid P0 controller sample");
+   PascalTimingSample sample{};
+   sample.memory_mhz=static_cast<int>(number(p0.at("memory_mhz"),16383));
+   sample.present=0;
+   size_t matched=1;
+   for(unsigned word=0;word<std::size(timing_word_keys);++word) {
+    const auto* key=timing_word_keys[word];
+    if(p0.contains(key)){sample.set_word(word,number(p0.at(key)));++matched;}
+   }
+   require(matched==p0.size()&&(sample.present&0x0a)==0x0a&&(sample.present&(1u<<field->word)),
+           "P0 fingerprint contains unexpected or missing controller words");
+   timing=sample;
+  } else keys(q,{"domain","pstate","after_raw","before_raw"});
+  const int pstate=q["pstate"].is_number_integer()&&q["pstate"]==-1?-1:static_cast<int>(number(q["pstate"],15));
+  const uint32_t bound=timing?INT32_MAX:16383;
+  out.push_back({domain,pstate,static_cast<int>(number(q["before_raw"],bound)),
+                 static_cast<int>(number(q["after_raw"],bound)),timing});
+ }
+ return out;
+}
+}
+
+std::optional<PascalTimingSample> receipt_timing_sample(const PowerWeightReceipt& r, PascalTimingPhase phase) {
+ std::optional<PascalTimingSample> baseline;
+ for(const auto* edits:{&r.previous_clocks,&r.clocks}) {
+  for(const auto& edit:*edits) {
+   const auto* field=pascal_timing_field(edit.domain);
+   if(!field)continue;
+   require(field->writable&&edit.timing_sample&&(edit.timing_sample->present&(1u<<field->word)),
+           "Timing edit requires a writable field and its P0 controller word");
+   merge_timing_baseline(baseline,*edit.timing_sample);
+  }
+ }
+ if(!baseline||phase==PascalTimingPhase::original)return baseline;
+ const auto& edits=phase==PascalTimingPhase::previous?r.previous_clocks:r.clocks;
+ for(const auto& edit:edits)
+  if(pascal_timing_field(edit.domain))*baseline=with_pascal_timing(*baseline,edit.domain,edit.value);
+ return baseline;
 }
 
 PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
@@ -149,7 +234,7 @@ PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
  uint32_t version=0;uint8_t oem=0;
  std::vector<PowerWeightRegistryPatch> patches;
  if(r.is_pascal_clocks()) {
-  require(clock_override_architecture(r.identity.architecture)&&r.requests.empty()&&r.info.empty()&&r.clocks.size()<=50,
+  require(clock_override_architecture(r.identity.architecture)&&r.requests.empty()&&r.info.empty()&&r.clocks.size()<=maximum_clock_edits(),
           "Clock receipt geometry or architecture invalid");
   const auto table=inspect_pascal_clocks(r.image,r.identity.architecture);
   require(table.ok,table.message.c_str());
@@ -157,12 +242,13 @@ PowerWeightReceiptDerived derive_weight_receipt(const PowerWeightReceipt& r) {
   out.clock_plan=plan_pascal_clocks(r.image,r.clocks,r.identity.architecture);
   require(out.clock_plan.ok,out.clock_plan.message.c_str());
   if(!r.previous_clocks.empty()) {
-   require(r.previous_clocks.size()<=50,"Previous Pascal clock receipt geometry invalid");
+   require(r.previous_clocks.size()<=maximum_clock_edits(),"Previous Pascal clock receipt geometry invalid");
    auto previous=plan_pascal_clocks(r.image,r.previous_clocks,r.identity.architecture);
    require(previous.ok,previous.message.c_str());
    require(previous.image!=r.image&&previous.image!=out.clock_plan.image,"Clock revision requires a distinct running image");
    out.clock_source_image=std::move(previous.image);
   }
+  receipt_timing_sample(r,PascalTimingPhase::original);
   version=table.selector_version;oem=table.selector_oem;
   patches=clock_patches(r.image,out.clock_plan.image);
  } else {
@@ -201,18 +287,38 @@ PowerWeightReceipt make_weight_receipt(const PowerWeightCapture& c,const std::ve
 PowerWeightReceipt make_pascal_clock_receipt(const PowerWeightCapture& c,const std::vector<PascalClockEdit>& edits) {
  require(!edits.empty(),"Select at least one Pascal clock change");
  auto r=captured_receipt(c);r.clocks=edits;
+ if(auto needed=receipt_timing_sample(r,PascalTimingPhase::original))
+  require(c.timing_sample&&matches_pascal_timing(*c.timing_sample,*needed),"P0 controller timing or memory clock changed since review");
  derive_weight_receipt(r);return r;
 }
 PowerWeightReceipt revise_pascal_clock_receipt(const PowerWeightCapture& c,const PowerWeightReceipt& active,
                                                const std::vector<PascalClockEdit>& edits) {
  require(revisable(active),"Verify or restore the previous clock override before editing");
  const auto previous=derive_weight_receipt(active);
+ if(auto inherited=receipt_timing_sample(active,PascalTimingPhase::applied))
+  require(c.timing_sample&&matches_pascal_timing(*c.timing_sample,*inherited),"Editing this active timing override requires all of its previously reviewed CONFIG words at the original P0 memory clock. Read P0 BIOS timings again when those words are available.");
  auto r=captured_receipt(c);
  require(same_clock_target(active,r),"Clock revision target differs from the active override");
  require(c.image==previous.clock_plan.image&&c.image!=active.image,
          "The running image differs from the verified clock override");
  require(same_registry(active.before,r.before),"The clock override's original registry settings changed");
  const auto original=inspect_pascal_clocks(active.image,active.identity.architecture);
+ auto timing_baseline=receipt_timing_sample(active,PascalTimingPhase::original);
+ for(const auto& edit:edits) {
+  if(!pascal_timing_field(edit.domain))continue;
+  require(edit.timing_sample&&c.timing_sample&&matches_pascal_timing(*c.timing_sample,*edit.timing_sample),
+          "P0 controller timing or memory clock changed since review");
+  // The reviewed sample describes the running revision. Undo every active
+  // timing edit in this sample before adding newly observed words to the
+  // original baseline (including revisions of old tFAW-only receipts).
+  auto original_sample=*edit.timing_sample;
+  for(const auto& prior:active.clocks) {
+   const auto* field=pascal_timing_field(prior.domain);
+   if(field&&(original_sample.present&(1u<<field->word)))
+    original_sample=with_pascal_timing(original_sample,prior.domain,prior.expected);
+  }
+  merge_timing_baseline(timing_baseline,original_sample);
+ }
  const auto wanted=plan_pascal_clocks(c.image,edits,active.identity.architecture,&original);
  require(wanted.ok,wanted.message.c_str());
  require(wanted.image!=c.image,"The selected clocks already match the running image");
@@ -222,13 +328,20 @@ PowerWeightReceipt revise_pascal_clock_receipt(const PowerWeightCapture& c,const
  r.before=active.before;
  r.previous_clocks=active.clocks;
  r.clocks=active.clocks;
+ for(auto& retained:r.clocks)if(pascal_timing_field(retained.domain))retained.timing_sample=timing_baseline;
  for(const auto& edit:edits) {
-  const auto field=std::find_if(original.fields.begin(),original.fields.end(),[&](const auto& row) {
-   return row.domain==edit.domain&&row.pstate==edit.pstate;
-  });
-  require(field!=original.fields.end(),"Selected clock field is missing from the original image");
-  const PascalClockEdit rebased{edit.domain,edit.pstate,field->current,edit.value};
   const auto existing=std::find_if(r.clocks.begin(),r.clocks.end(),[&](const auto& row){return same_clock_field(row,edit);});
+  auto rebased=edit;
+  if(pascal_timing_field(edit.domain)) {
+   rebased.expected=pascal_timing_value(*timing_baseline,edit.domain);
+   rebased.timing_sample=timing_baseline;
+  } else {
+   const auto field=std::find_if(original.fields.begin(),original.fields.end(),[&](const auto& row) {
+    return row.domain==edit.domain&&row.pstate==edit.pstate;
+   });
+   require(field!=original.fields.end(),"Selected clock field is missing from the original image");
+   rebased.expected=field->current;
+  }
   if(existing==r.clocks.end())r.clocks.push_back(rebased);
   else *existing=rebased;
  }
@@ -276,7 +389,7 @@ PowerWeightReceipt decode_weight_receipt(const std::string& bytes) {
  const auto& w=j["windows"];keys(w,{"slot","instance_id","driver_key"});
  r.windows={string(w["slot"],23),string(w["instance_id"],32768),string(w["driver_key"],512)};
  r.image=unhex(j["image"],0xfa000);
- require(j["requests"].is_array()&&!j["requests"].empty()&&j["requests"].size()<=(clock?50u:32u),"Receipt request inventory invalid");
+ require(j["requests"].is_array()&&!j["requests"].empty()&&j["requests"].size()<=(clock?maximum_clock_edits():32u),"Receipt request inventory invalid");
  if(clock) {
   r.clocks=decode_clock_edits(j["requests"]);
   if(version==2)r.previous_clocks=decode_clock_edits(j["previous_requests"]);
@@ -300,11 +413,29 @@ PowerWeightReceipt decode_weight_receipt(const std::string& bytes) {
  r.refresh_requested=j["refresh_requested"].get<bool>();r.uncertain=j["uncertain"].get<bool>();r.restoring=j["restoring"].get<bool>();
  derive_weight_receipt(r);return r;
 }
-std::wstring power_weight_receipt_directory(){DWORD n=GetEnvironmentVariableW(L"LOCALAPPDATA",nullptr,0);require(n>1&&n<=32768,"LOCALAPPDATA unavailable for weight journal");std::wstring root(n,0);const auto got=GetEnvironmentVariableW(L"LOCALAPPDATA",root.data(),n);require(got&&got<n,"LOCALAPPDATA changed during resolution");root.resize(got);return (std::filesystem::path(root)/L"Druta"/L"power-weights").wstring();}
+std::wstring power_weight_receipt_directory() {
+ const auto n=GetEnvironmentVariableW(L"LOCALAPPDATA",nullptr,0);
+ std::wstring root;
+ if(n) {
+  require(n>1&&n<=32768,"Invalid LOCALAPPDATA for weight journal");
+  root.resize(n);
+  const auto got=GetEnvironmentVariableW(L"LOCALAPPDATA",root.data(),n);
+  require(got&&got<n,"LOCALAPPDATA changed during resolution");
+  root.resize(got);
+ } else {
+  // XP x64 profiles can have a Local AppData shell folder without this environment variable.
+  wchar_t folder[MAX_PATH]{};
+  require(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_LOCAL_APPDATA,nullptr,SHGFP_TYPE_CURRENT,folder))&&folder[0],
+          "Cannot locate this account's local clock journal");
+  root=folder;
+ }
+ return (std::filesystem::path(root)/L"Druta"/L"power-weights").wstring();
+}
 std::wstring power_weight_receipt_path(const std::wstring& dir,const std::string& id){require(std::regex_match(id,std::regex("^[0-9a-f]{32}$")),"Weight receipt path id invalid");return child(directory(dir,false),L"receipt-"+wide(id)+L".json");}
 std::wstring power_weight_operation_lock_path(const std::wstring& dir,const std::string& id) {
  require(std::regex_match(id,std::regex("^[0-9a-f]{32}$")),"Weight operation lock id invalid");
- return child(directory(dir,false),L"operation-"+wide(id)+L".lock");
+ // A protected boot enrollment can outlive the ordinary per-user receipt folder.
+ return child(directory(dir,true),L"operation-"+wide(id)+L".lock");
 }
 PowerWeightReceipt read_weight_receipt(const std::wstring& dir,const std::string& id){auto bytes=read_bytes(power_weight_receipt_path(dir,id));require(bytes.has_value(),"Weight receipt not found");auto r=decode_weight_receipt(*bytes);require(r.id==id,"Weight receipt filename/id mismatch");return r;}
 void create_weight_receipt(const std::wstring& dir,const PowerWeightReceipt& r){require(r.previous_clocks.empty(),"Clock revisions must replace their verified active receipt");const auto bytes=encode_weight_receipt(r);const auto root=directory(dir,true);StoreLock lock(root);const auto active=active_path(root,r.identity.slot,r.uuid);require(!pointer_id(active,r.identity.slot,r.uuid),"An active weight receipt already exists for this adapter");atomic_write(power_weight_receipt_path(root,r.id),bytes,false);atomic_write(active,pointer(r).dump(),false);}
@@ -331,9 +462,57 @@ void replace_pascal_clock_receipt(const std::wstring& dir,const PowerWeightRecei
          encode_weight_receipt(read_weight_receipt(root,active.id))==previous_bytes,
          "The active clock override changed. Read it again before applying changes");
  atomic_write(power_weight_receipt_path(root,replacement.id),bytes,false);
- atomic_write(path,pointer(replacement).dump(),true);
+ auto next=pointer(replacement);
+ next["version"]=2;next["predecessor"]=active.id;
+ atomic_write(path,next.dump(),true);
+}
+bool unused_clock_preparation(const PowerWeightReceipt& r) {
+ // "writing" is published before the first write intent. Every dispatch first persists its name and uncertainty.
+ return r.is_pascal_clocks() && (r.phase=="prepared" || r.phase=="writing") && r.issued_names.empty() &&
+        !r.refresh_requested && !r.uncertain && !r.restoring;
+}
+void abandon_prepared_clock_receipt(const std::wstring& dir,const PowerWeightReceipt& prepared) {
+ require(unused_clock_preparation(prepared),"Clock trial has already started");
+ const auto root=directory(dir,false);
+ StoreLock lock(root);
+ const auto path=active_path(root,prepared.identity.slot,prepared.uuid);
+ std::string predecessor;
+ require(pointer_id(path,prepared.identity.slot,prepared.uuid,&predecessor)==prepared.id&&
+         encode_weight_receipt(read_weight_receipt(root,prepared.id))==encode_weight_receipt(prepared),
+         "Clock preview has changed since preparation");
+ if(prepared.previous_clocks.empty()) {
+  require(predecessor.empty(),"Unexpected prior clock receipt");
+  win(DeleteFileW(path.c_str())!=0,"Retire unused clock preview");
+  return;
+ }
+ require(!predecessor.empty(),"This older clock revision requires manual verification");
+ const auto prior=read_weight_receipt(root,predecessor);
+ require(revisable(prior)&&prior.id!=prepared.id&&same_clock_target(prior,prepared)&&prior.image==prepared.image&&
+         same_registry(prior.before,prepared.before)&&same_clock_edits(prior.clocks,prepared.previous_clocks),
+         "Previous clock session no longer matches the canceled revision");
+ atomic_write(path,pointer(prior).dump(),true);
 }
 void save_weight_receipt(const std::wstring& dir,const PowerWeightReceipt& r){const auto bytes=encode_weight_receipt(r);const auto root=directory(dir,true);StoreLock lock(root);require(pointer_id(active_path(root,r.identity.slot,r.uuid),r.identity.slot,r.uuid)==std::optional<std::string>(r.id),"Weight journal is not the active receipt");const auto previous=read_weight_receipt(root,r.id);require(previous.identity.slot==r.identity.slot&&previous.uuid==r.uuid,"Weight journal identity changed");auto original=previous,updated=r;original.phase=updated.phase;original.message=updated.message;original.issued_names=updated.issued_names;original.refresh_requested=updated.refresh_requested;original.uncertain=updated.uncertain;original.restoring=updated.restoring;require(encode_weight_receipt(original)==bytes,"Weight journal immutable evidence changed");atomic_write(power_weight_receipt_path(root,r.id),bytes,true);}
 std::optional<PowerWeightReceipt> discover_weight_receipt(const std::wstring& dir,const std::string& slot,const std::string& uuid){const auto root=directory(dir,false);if(GetFileAttributesW(root.c_str())==INVALID_FILE_ATTRIBUTES){const auto e=GetLastError();if(e==ERROR_FILE_NOT_FOUND||e==ERROR_PATH_NOT_FOUND)return {};win(false,"Inspect weight store");}StoreLock lock(root);const auto id=pointer_id(active_path(root,slot,uuid),slot,uuid);if(!id)return {};auto r=read_weight_receipt(root,*id);require(r.identity.slot==slot&&r.uuid==uuid,"Active weight receipt target mismatch");return r;}
+std::vector<PowerWeightReceipt> active_clock_receipts(const std::wstring& dir,const std::string& slot) {
+ const auto root=directory(dir,false);
+ std::vector<PowerWeightReceipt> found;
+ if (!std::filesystem::exists(root)) return found;
+ for (const auto& entry : std::filesystem::directory_iterator(root)) {
+  const auto name=entry.path().filename().wstring();
+  static const std::wregex pattern(L"active-[0-9a-f]{64}\\.json");
+  if (!std::regex_match(name,pattern)) continue;
+  const auto bytes=read_bytes(entry.path().wstring());
+  if (!bytes) continue;
+  const auto pointer=parse(*bytes);
+  const auto stored_slot=string(pointer.at("slot"),23);
+  if (!slot.empty() && stored_slot!=slot) continue;
+  const auto uuid=string(pointer.at("uuid"),160);
+  require(active_path(root,stored_slot,uuid)==entry.path().wstring(),"Clock recovery pointer filename differs from identity");
+  auto receipt=discover_weight_receipt(root,stored_slot,uuid);
+  if (receipt && receipt->is_pascal_clocks()) found.push_back(std::move(*receipt));
+ }
+ return found;
+}
 bool clear_active_weight_receipt(const std::wstring& dir,const PowerWeightReceipt& r){derive_weight_receipt(r);require(r.phase=="removed"&&!r.uncertain,"Only verified removal may clear active weight receipt");const auto root=directory(dir,false);StoreLock lock(root);const auto path=active_path(root,r.identity.slot,r.uuid);const auto id=pointer_id(path,r.identity.slot,r.uuid);if(!id)return false;require(*id==r.id,"Refusing to clear another active weight receipt");const auto saved=read_weight_receipt(root,r.id);require(encode_weight_receipt(saved)==encode_weight_receipt(r),"Persist completed removal before clearing active pointer");win(DeleteFileW(path.c_str())!=0,"Clear active weight pointer");return true;}
 }

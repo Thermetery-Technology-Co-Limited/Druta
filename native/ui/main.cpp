@@ -94,7 +94,8 @@ struct Options {
     bool recovery_helper=false,restart_child=false;uint32_t parent_pid=0;
     std::string slot, expected_uuid,weight_result;
     druta::ui::Page page = druta::ui::Page::daily;
-    bool classic = false, preview = false;
+    std::optional<druta::ui::Presentation> presentation;
+    bool preview = false;
 };
 bool parse_options(Options& o) {
     int count = 0;
@@ -105,7 +106,8 @@ bool parse_options(Options& o) {
         const std::wstring key = args[i];
         if(key==L"--device-recovery-helper")o.recovery_helper=true;
         else if(key==L"--device-restart-child")o.restart_child=true;
-        else if (key == L"--classic") o.classic = true;
+        else if (key == L"--classic" || key == L"--verbose") o.presentation = druta::ui::Presentation::classic;
+        else if (key == L"--focused") o.presentation = druta::ui::Presentation::focused;
         else if (key == L"--preview") o.preview = true;
         else if (i + 1 >= count) valid = false;
         else {
@@ -186,9 +188,10 @@ struct App {
     struct OverridePreparation {
         uint64_t generation, actions;
         druta::ui::Command::Operation operation;
-        bool front, classic;
+        bool front, classic, arm_safe_mode;
     };
     std::optional<OverridePreparation> weight_prepare_pending;
+    std::optional<druta::ui::AppTarget> canceled_clock_refresh;
     std::string weight_initial_receipt,weight_expected_slot,weight_expected_uuid;
     druta::ui::Page weight_reopen_page = druta::ui::Page::advanced;
     druta::ui::PolicyAnnotationCommits annotation_commits;
@@ -742,6 +745,32 @@ struct App {
             app_directory=separator==std::wstring::npos?std::wstring{}:app_executable.substr(0,separator);
             actions.notices=druta::ui::load_bundled_notices(app_directory);
         }
+        if (view.pascal_clock_view.view_recovery_script_requested) {
+            view.pascal_clock_view.view_recovery_script_requested = false;
+            const auto script = app_directory + L"\\Druta-Recovery-Boot.cmd";
+            wchar_t system[MAX_PATH]{};
+            const UINT length = GetSystemDirectoryW(system, MAX_PATH);
+            const DWORD attrs = app_directory.empty() ? INVALID_FILE_ATTRIBUTES : GetFileAttributesW(script.c_str());
+            if (attrs == INVALID_FILE_ATTRIBUTES || (attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+                view.power_weights_view.status = "Druta-Recovery-Boot.cmd is missing from the application folder.";
+            } else if (!length || length >= MAX_PATH) {
+                view.power_weights_view.status = "Could not locate Windows Notepad.";
+            } else {
+                const auto notepad = std::wstring(system) + L"\\notepad.exe";
+                auto args = druta::ui::quote_windows_argument(notepad) + L" " + druta::ui::quote_windows_argument(script);
+                STARTUPINFOW startup{};
+                startup.cb = sizeof(startup);
+                PROCESS_INFORMATION process{};
+                if (CreateProcessW(notepad.c_str(), args.data(), nullptr, nullptr, FALSE, 0, nullptr,
+                                   app_directory.c_str(), &startup, &process)) {
+                    CloseHandle(process.hThread);
+                    CloseHandle(process.hProcess);
+                } else {
+                    view.power_weights_view.status = "Could not open the recovery script in Notepad (Windows error " +
+                                                     std::to_string(GetLastError()) + ").";
+                }
+            }
+        }
         if(recovery_preparation.valid()&&recovery_preparation.wait_for(std::chrono::seconds(0))==std::future_status::ready){
             actions.recovery_preparing=false;
             try{
@@ -812,20 +841,33 @@ struct App {
         }
     }
     void handoff_power_weights(const druta::ui::PowerWeightReceipt& receipt,druta::ui::PowerWeightOperation operation,
-                               bool clock_front, bool classic) {
+                               bool clock_front, bool classic, bool arm_safe_mode = false) {
         using namespace druta::ui;
         const auto current=session?session->snapshot():nullptr;
+        std::string why;
         if(!current||current->busy||current->opening||view.select_slot||receipt.identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&receipt.uuid!=current->data.identity.uuid))
-            throw std::runtime_error("Selected adapter changed or is busy; inspect the saved override again");
-        if(receipt.is_pascal_clocks() && operation!=PowerWeightOperation::verify){
-            std::string why;
-            if(!restart_device_target(*current,why,view.app_actions.administrator)) throw std::runtime_error(why);
+            why="Selected adapter changed or is busy; inspect the saved override again";
+        else if(receipt.is_pascal_clocks() && operation!=PowerWeightOperation::verify)
+            restart_device_target(*current,why,view.app_actions.administrator);
+        const bool clock_apply=receipt.is_pascal_clocks() && operation==PowerWeightOperation::apply;
+        if(!why.empty()) {
+            if(clock_apply) {
+                try{cancel_unused_clock_preparation(receipt);}
+                catch(const std::exception& e){why+=". ";why+=e.what();}
+                if(current && current->selected_slot==receipt.identity.slot && current->data.identity.uuid==receipt.uuid)
+                    canceled_clock_refresh=app_target(*current);
+            }
+            throw std::runtime_error(why);
         }
         PowerWeightHostRequest request;request.receipt_id=receipt.id;request.operation=operation;
         request.parent_pid=GetCurrentProcessId();request.executable=app_executable;request.core=active_core_path;
-        request.classic=receipt.is_pascal_clocks()&&classic;
+        request.classic=classic;
         request.daily=receipt.is_pascal_clocks()&&clock_front;
-        std::string why;if(!launch_power_weight_host(request,why))throw std::runtime_error(why);
+        request.arm_safe_mode=arm_safe_mode;
+        if(!launch_power_weight_host(request,why)) {
+            if(clock_apply)canceled_clock_refresh=app_target(*current);
+            throw std::runtime_error(why);
+        }
         view.power_weights_view.status="Finishing the session; the selected override helper will continue after Druta closes";
         request_close(true);
     }
@@ -833,19 +875,32 @@ struct App {
         using namespace druta::ui;
         if(!session||closing){view.power_weights_intents.clear();return;}
         const auto current=session->snapshot();
+        if(canceled_clock_refresh) {
+            if(!app_target_matches(*canceled_clock_refresh,*current))canceled_clock_refresh.reset();
+            else if(!current->busy&&!current->opening&&!view.select_slot) {
+                Command read;read.operation=view.page==Page::timings?Command::Operation::pascal_timing_read:Command::Operation::pascal_clock_read;
+                if(session->submit(read,current->generation,true)) {
+                    view.power_weights_saved.reset();
+                    canceled_clock_refresh.reset();
+                }
+            }
+        }
         auto selected_receipt=current->data.power_weights?current->data.power_weights->receipt:std::shared_ptr<const PowerWeightReceipt>{};
         if(!selected_receipt&&view.power_weights_saved)selected_receipt=view.power_weights_saved->receipt;
         if(selected_receipt&&(selected_receipt->identity.slot!=current->selected_slot||(current->data.identity.uuid[0]&&selected_receipt->uuid!=current->data.identity.uuid)))selected_receipt.reset();
         if(!weight_initial_receipt.empty()&&!current->opening&&!current->busy){
             sync_power_weights_view(view.power_weights_view,current->data.power_weights.get(),current->generation);
             const auto id=std::move(weight_initial_receipt);weight_initial_receipt.clear();
-            bool clock_result=false;
+            bool clock_result=false,timing_result=false;
             try{auto receipt=read_weight_receipt({},id);if(receipt.identity.slot!=weight_expected_slot||receipt.uuid!=weight_expected_uuid)throw std::runtime_error("Saved override belongs to another startup target");
                 clock_result=receipt.is_pascal_clocks();
+                timing_result=clock_result && weight_reopen_page!=Page::daily && receipt_timing_sample(receipt,PascalTimingPhase::applied).has_value();
                 auto data=std::make_shared<PowerWeightsData>();
                 if(clock_result){
                     auto active=discover_weight_receipt({},receipt.identity.slot,receipt.uuid);
                     data->receipt_from_active_pointer=active.has_value();
+                    if((!active || active->id!=receipt.id) && unused_clock_preparation(receipt))
+                        view.power_weights_view.status=receipt.message.empty()?"Clock changes were canceled before activation":receipt.message;
                     if(active) data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(*active));
                     else if(receipt.phase=="removed") data->receipt=std::make_shared<const PowerWeightReceipt>(std::move(receipt));
                 } else {
@@ -854,8 +909,8 @@ struct App {
                 if(data->receipt) data->receipt_message=data->receipt->phase+": "+data->receipt->message;
                 view.power_weights_saved=std::move(data);
             }catch(const std::exception& e){view.power_weights_view.status=e.what();}
-            view.page=clock_result?weight_reopen_page:Page::advanced;
-            view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result;
+            view.page=timing_result?Page::timings:clock_result?weight_reopen_page:Page::advanced;
+            view.open_power_weights_requested=!clock_result;view.open_pascal_clocks_requested=clock_result&&!timing_result;
             if(clock_result && current->data.connected && !current->busy &&
                current->selected_slot==weight_expected_slot && current->data.identity.uuid==weight_expected_uuid){
                 Command read;
@@ -872,19 +927,22 @@ struct App {
                 try{if(current->last_action_operation!=pending.operation||!current->last_action_ok||!current->data.power_weights||!current->data.power_weights->receipt)
                     throw std::runtime_error("Activation preparation did not complete; inspect the saved override for details");
                     handoff_power_weights(*current->data.power_weights->receipt,PowerWeightOperation::apply,
-                                          pending.front,pending.classic);
+                                          pending.front,pending.classic,pending.arm_safe_mode);
                 }catch(const std::exception& e){view.power_weights_view.status=e.what();}
             }
         }
         auto intents=std::move(view.power_weights_intents);view.power_weights_intents.clear();
         for(auto& intent:intents)try{
             if(closing||weight_prepare_pending||current->busy||view.select_slot)throw std::runtime_error("Wait for the current operation");
-            const bool clock_request = intent.operation == PowerWeightsIntent::Operation::read_clocks ||
+            const bool clock_request = intent.operation == PowerWeightsIntent::Operation::read_clocks || intent.operation == PowerWeightsIntent::Operation::read_firmware_timings ||
                 intent.operation == PowerWeightsIntent::Operation::prepare_clocks;
             if (clock_request && (!view.live || view.live->generation != current->generation))
                 throw std::runtime_error("Selected GPU session changed. Read the clock table again.");
             view.power_weights_view.status.clear();Command command;
             switch(intent.operation){
+            case PowerWeightsIntent::Operation::read_firmware_timings:
+                view.power_weights_saved.reset();
+                command.operation=Command::Operation::pascal_timing_read;break;
             case PowerWeightsIntent::Operation::read_clocks:
                 view.power_weights_saved.reset();
                 command.operation=Command::Operation::pascal_clock_read;break;
@@ -910,7 +968,8 @@ struct App {
             if(!submit_command(command,current->generation))throw std::runtime_error("Session changed before the request was queued");
             if(command.operation==Command::Operation::power_weights_prepare||command.operation==Command::Operation::pascal_clock_prepare){
                 weight_prepare_pending=OverridePreparation{current->generation,current->completed_actions,command.operation,
-                    intent.clock_front,view.presentation==Presentation::classic};
+                    intent.clock_front,view.presentation==Presentation::classic,
+                    command.operation==Command::Operation::pascal_clock_prepare && intent.arm_safe_mode};
                 view.power_weights_view.status="Saving the recovery record before activation...";}
         }catch(const std::exception& e){view.power_weights_view.status=e.what();}
     }
@@ -1480,7 +1539,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
     Options options;
     if (!parse_options(options)) {
-        MessageBoxW(nullptr, L"Options: --width N --height N --scale 1..3 --classic --page daily|curve|advanced|monitor|timings\n"
+        MessageBoxW(nullptr, L"Options: --width N --height N --scale 1..3 --verbose | --classic | --focused --page daily|curve|advanced|monitor|timings\n"
             L"--preview --gpu PCI_SLOT --expect-uuid UUID --core ABSOLUTE_DLL\n--capture FILE.bmp (save and exit)\n--smoke-test DIR (fixtures) or --live-smoke-test DIR (reads only)", L"Druta", MB_ICONERROR); return 2;
     }
     if(options.recovery_helper){
@@ -1495,7 +1554,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     ImGui_ImplWin32_EnableDpiAwareness();
     App app; active = &app;
     app.scale_override = options.scale;
-    app.view.presentation = options.classic ? druta::ui::Presentation::classic : druta::ui::Presentation::focused;
+    // The renderer harness has named captures beginning with its Focused layout.
+    app.view.presentation = options.presentation.value_or(options.smoke_dir.empty() ?
+        druta::ui::default_presentation : druta::ui::Presentation::focused);
+    const bool classic = app.view.presentation == druta::ui::Presentation::classic;
     WNDCLASSEXW wc{sizeof(wc), CS_CLASSDC, window_proc, 0, 0, instance, nullptr,
         LoadCursorW(nullptr, IDC_ARROW), nullptr, nullptr, window_class, nullptr};
     if (!RegisterClassExW(&wc)) return 3;
@@ -1503,14 +1565,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr, nullptr, instance, nullptr);
     if (app.window) {
         app.scale = options.scale > 0 ? options.scale : ImGui_ImplWin32_GetDpiScaleForHwnd(app.window);
-        if (options.classic && !options.width && !options.height) {
+        if (classic && !options.width && !options.height) {
             // Classic follows the released outer-window geometry.
             const auto place = druta::ui::classic_default_window_placement(app.scale, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
             SetWindowPos(app.window, nullptr, place.x, place.y, place.width, place.height, SWP_NOZORDER | SWP_NOACTIVATE);
         } else {
-            const SIZE client = druta::ui::initial_client_pixels({options.width, options.height}, options.classic ? 1.0f : app.scale);
+            const SIZE client = druta::ui::initial_client_pixels({options.width, options.height}, classic ? 1.0f : app.scale);
             app.client_size(client.cx, client.cy,
-                            !options.classic && !options.width, !options.classic && !options.height);
+                            !classic && !options.width, !classic && !options.height);
         }
         RECT client{};
         if (GetClientRect(app.window, &client) && client.right > 0 && client.bottom > 0) {
@@ -1578,7 +1640,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             app.view.live = app.session->snapshot();
             app.consume_annotation_completions();app.save_policy_notes();
             app.poll_profile_library();app.timing_setup.consume(*app.session,app.view,app.window);
-            if(app.weight_prepare_pending||!app.weight_initial_receipt.empty())app.consume_power_weights();
+            if(app.weight_prepare_pending||app.canceled_clock_refresh||!app.weight_initial_receipt.empty())app.consume_power_weights();
             if (app.closing && app.session->finished()) break;
             if (app.closing && app.view.live->close_refused) {
                 app.closing=false;

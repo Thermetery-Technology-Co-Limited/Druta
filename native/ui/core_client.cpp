@@ -2395,11 +2395,18 @@ class Client final : public IBackend {
         publish(); return out;
     }
 public:
-    PowerWeightCapture capture_weight_state(bool registry, bool clock_only=false){
+    PowerWeightCapture capture_weight_state(bool registry, bool clock_only=false, bool timing=false){
         if(!gpu_)throw std::runtime_error("Selected GPU is not open");
         if(clock_only && api_.pascal_clock_capture) return api_.pascal_clock_capture(gpu_,registry);
         if(!clock_only && api_.power_weights.capture) return api_.power_weights.capture(gpu_,registry);
         PowerWeightCaptureApi capture;capture.evidence=api_.voltage_evidence;capture.clock_bind=api_.clock_bind;capture.abi=api_.power_integral.abi;capture.rm=api_.power_integral.rm;
+        if(timing&&clock_only) {
+            capture.telemetry=api_.telemetry;
+            capture.timing_config=[this](dc_gpu* target){
+                ClockGatingService reader(api_.clock_gating,target,opened_);
+                return reader.read_pascal_memory_config();
+            };
+        }
         return make_power_weight_capture(std::move(capture),opened_,clock_only)(gpu_,registry);
     }
     explicit Client(CoreApi api,std::unique_ptr<TimingCudaProcess> workload={}) : api_(api),timing_cuda_(std::move(workload)) {}
@@ -2856,7 +2863,33 @@ public:
             if (prepare && (!last_.pascal_clock_fresh || displayed_clock_image_.empty()))
                 throw std::runtime_error("Read the current clock table first");
 
-            auto c = capture_weight_state(prepare, true);
+            const bool timing_read = cmd.operation == Command::Operation::pascal_timing_read;
+            const bool timing_edit = prepare && std::any_of(cmd.pascal_clock_edits->begin(),cmd.pascal_clock_edits->end(),
+                [](const auto& edit){return pascal_timing_field(edit.domain)!=nullptr;});
+            const auto reviewed=last_.power_weights?last_.power_weights->receipt:nullptr;
+            const bool inherits_timing=prepare && reviewed && reviewed->id==reviewed_owner &&
+                receipt_timing_sample(*reviewed,PascalTimingPhase::applied).has_value();
+            auto c = capture_weight_state(prepare, true, timing_read || timing_edit || inherits_timing);
+            if (timing_edit) {
+                const auto& reviewed_table=last_.pascal_clocks;
+                if (!reviewed_table || !reviewed_table->timing_sample)
+                    throw std::runtime_error("Read P0 BIOS timings and review the available fields before applying changes.");
+                if (!c.timing_sample) {
+                    const auto reason = c.timing_sample_message.empty() ? "A stable P0 timing sample is unavailable." : c.timing_sample_message;
+                    throw std::runtime_error(reason + " Read P0 BIOS timings again before applying changes.");
+                }
+                const auto& expected = *reviewed_table->timing_sample;
+                const auto& actual = *c.timing_sample;
+                if (actual.memory_mhz != expected.memory_mhz)
+                    throw std::runtime_error("The P0 memory clock changed since review. Read P0 BIOS timings again.");
+                if ((actual.present & expected.present) != expected.present)
+                    throw std::runtime_error("A reviewed CONFIG word is unavailable or unstable. Read P0 BIOS timings again and review the available fields.");
+                if (!matches_pascal_timing(actual,expected))
+                    throw std::runtime_error("A P0 controller timing word changed since review. Read P0 BIOS timings again.");
+                for (const auto& edit:*cmd.pascal_clock_edits)
+                    if(pascal_timing_field(edit.domain) && edit.timing_sample!=reviewed_table->timing_sample)
+                        throw std::runtime_error("The reviewed P0 timing differs from the request");
+            }
             if (!clock_override_architecture(c.identity.architecture))
                 throw VoltageEquationEvidenceError("No firmware clock override layout for this architecture", VoltagePolicyAvailability::unsupported);
             if (c.identity.slot != opened_.slot ||
@@ -2897,6 +2930,10 @@ public:
                 if (!table.ok) throw VoltageEquationEvidenceError(table.message, VoltagePolicyAvailability::unsupported);
                 if (table.device_id != c.identity.device_id)
                     throw std::runtime_error("The clock image belongs to another PCI device");
+                if (timing_read) {
+                    if(c.timing_sample)inspect_pascal_timings(table,c.image,c.identity.architecture,*c.timing_sample);
+                    else table.timing_message=c.timing_sample_message.empty()?"A stable P0 controller sample is unavailable":c.timing_sample_message;
+                }
                 displayed_clock_image_ = std::move(c.image);
                 last_.pascal_clocks = std::make_shared<const PascalClockTable>(std::move(table));
                 last_.pascal_clock_fresh = true;
@@ -2974,7 +3011,7 @@ public:
             result.message = last_.power_arbitration->message;
             return result;
         }
-        if (cmd.operation == Command::Operation::pascal_clock_read || cmd.operation == Command::Operation::pascal_clock_prepare)
+        if (cmd.operation == Command::Operation::pascal_clock_read || cmd.operation == Command::Operation::pascal_clock_prepare || cmd.operation == Command::Operation::pascal_timing_read)
             return pascal_clock_action(cmd);
         if(cmd.operation==Command::Operation::power_weights_read||cmd.operation==Command::Operation::power_weights_preview||cmd.operation==Command::Operation::power_weights_prepare||cmd.operation==Command::Operation::power_weights_inspect){
             if(!power_weights_){result.message="Power relationship service unavailable";return result;}
@@ -3264,15 +3301,15 @@ std::unique_ptr<IBackend> create_core_backend(const std::wstring& path) {
     (void)path; return std::make_unique<Client>(CoreApi{});
 #endif
 }
-PowerWeightCapture capture_power_weights_from_core(const std::wstring& path,const std::string& slot,const std::string& uuid,bool registry,bool clock_only){
+PowerWeightCapture capture_power_weights_from_core(const std::wstring& path,const std::string& slot,const std::string& uuid,bool registry,bool clock_only,bool timing){
 #ifdef _WIN32
     if(slot.empty()||uuid.empty())throw VoltageEquationEvidenceError("Weight capture target is incomplete",VoltagePolicyAvailability::invalid);
     Client client(path);std::string why;if(!client.open(slot,why))throw VoltageEquationEvidenceError("Cannot open weight capture target: "+why,VoltagePolicyAvailability::transient);
-    const auto capture=client.capture_weight_state(registry,clock_only);
+    const auto capture=client.capture_weight_state(registry,clock_only,timing);
     if(std::string(capture.adapter.slot)!=slot||std::string(capture.adapter.uuid)!=uuid)throw std::runtime_error("Weight capture adapter differs from selected target");
     const auto closed=client.prepare_close();if(!closed.ok||closed.may_have_changed)throw std::runtime_error("Read-only weight capture did not close cleanly");client.close();return capture;
 #else
-    (void)path;(void)slot;(void)uuid;(void)registry;(void)clock_only;throw std::runtime_error("Weight host requires Windows");
+    (void)path;(void)slot;(void)uuid;(void)registry;(void)clock_only;(void)timing;throw std::runtime_error("Weight host requires Windows");
 #endif
 }
 }

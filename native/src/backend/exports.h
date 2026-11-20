@@ -41,6 +41,8 @@ public:
     virtual std::unique_ptr<ExportSource> open_nvapi(std::string& error) = 0;
     virtual std::unique_ptr<ExportSource> open_nvml(std::string& error) = 0;
     virtual std::unique_ptr<ExportSource> open_gdi32(std::string& error) = 0;
+    virtual std::unique_ptr<ExportSource> open_user32(std::string& error) = 0;
+    virtual std::unique_ptr<ExportSource> open_cfgmgr32(std::string& error) = 0;
 };
 
 // The process-wide loader: the platform default, or the test resolver.
@@ -57,8 +59,8 @@ bool test_resolver_installed();
 // retained sources: its addresses, just like its callback/context, must no longer be in use then.
 void* export_address(const char* library, const char* name);
 
-// Test seam: resolve(context, library, name) with library "nvapi", "nvml" or
-// "gdi32"; name "" asks whether the library loads at all (non-null means yes).
+// Test seam: resolve(context, library, name) with library "nvapi", "nvml",
+// "gdi32", "user32" or "cfgmgr32"; name "" asks whether the library loads at all.
 using ResolveFn = void*(DRUTA_CDECL*)(void* context, const char* library, const char* name);
 void set_export_resolver(ResolveFn resolve, void* context);
 

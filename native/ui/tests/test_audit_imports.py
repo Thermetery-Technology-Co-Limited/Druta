@@ -115,3 +115,32 @@ def test_console_requires_explicit_matching_subsystem(tmp_path):
     assert audit.main([str(executable), "--subsystem", "console"]) == 0
     assert audit.main([str(executable)]) == 1
     assert audit.main([str(executable), "--subsystem", "gui"]) == 1
+
+
+def test_legacy_package_checks_every_target_map_and_delay_import(tmp_path):
+    for build in audit.LEGACY_X64_MAPS:
+        user = "1=SetProcessDPIAware\n" if build != "5.2.3790" else "1=GetDC\n"
+        (tmp_path / (build + ".txt")).write_text(
+            "[kernel32.dll]\n1=GetProcAddress\n2=Sleep\n3\n[d3d9.dll]\n1=Direct3DCreate9\n[user32.dll]\n" + user
+        )
+    exports = audit.read_legacy_exports(tmp_path)
+    xp = {"os_version": (5, 2), "subsystem_version": (5, 2)}
+    assert audit.audit_bytes(image(**xp), legacy_exports=exports)["passed"]
+    delayed = image(delayed=("user32.dll", "SetProcessDPIAware"), **xp)
+    assert audit.audit_bytes(delayed, legacy_exports=exports)["violations"] == [
+        "user32.dll!SetProcessDPIAware is absent from x64 Windows 5.2.3790"
+    ]
+    wrong_machine = audit.audit_bytes(image(machine="i686", **xp), legacy_exports=exports)
+    assert not wrong_machine["passed"]
+    assert not audit.audit_bytes(image(), legacy_exports=exports)["passed"]
+
+
+def test_incomplete_legacy_export_inventory_fails_closed(tmp_path):
+    for build in audit.LEGACY_X64_MAPS:
+        (tmp_path / (build + ".txt")).write_text("[kernel32.dll]\n1=Sleep\n")
+    (tmp_path / "6.0.6000.txt").write_text("[kernel32.dll]\ntruncated row\n")
+    with pytest.raises(ValueError, match="invalid export inventory"):
+        audit.read_legacy_exports(tmp_path)
+    (tmp_path / "6.0.6000.txt").unlink()
+    with pytest.raises(FileNotFoundError):
+        audit.read_legacy_exports(tmp_path)

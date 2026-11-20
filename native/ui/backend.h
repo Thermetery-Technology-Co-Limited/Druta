@@ -185,7 +185,7 @@ struct Command {
         save_full_profile,timings_forget_helper,
         // Python restore_raised_limits_now and the headroom setting turned off:
         // take this session's hold raise off; the hold stays.
-        restore_raised_limits, pascal_clock_read, pascal_clock_prepare };
+        restore_raised_limits, pascal_clock_read, pascal_clock_prepare, pascal_timing_read };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;

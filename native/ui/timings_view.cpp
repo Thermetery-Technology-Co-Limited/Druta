@@ -721,9 +721,9 @@ void draw_setup_screen(TimingsViewState& state,const TimingViewData* data,bool w
     ImGui::PushFont(classic_fonts.heading,26.0f);text_line(kBad,no_exe?"NVTUNE NOT FOUND":"NVTUNE'S DRIVER IS NOT RUNNING");ImGui::PopFont();
     ImGui::Dummy(ImVec2(0,classic_px(6)));
     const float wrap=classic_px(980);
-    frame_wrapped(kText,no_exe?"This tab reads and writes the framebuffer-partition memory timing registers, and it does that through nvtune - a separate "
-        "program with its own kernel driver. Druta cannot reach those registers on its own.":
-        "nvtune.exe was found, but its kernel driver is not running, so nothing can reach BAR0 yet. The driver is signed with a self-signed "
+    frame_wrapped(kText,no_exe?"This register editor uses nvtune to read and write the framebuffer-partition memory timings. nvtune is a separate "
+        "program with its own kernel driver.":
+        "nvtune.exe was found, but its kernel driver is not running. The register editor needs that driver. The driver is signed with a self-signed "
         "test certificate, which Windows will not load unless the machine is in test signing mode.",wrap);
     ImGui::Dummy(ImVec2(0,classic_px(10)));
     // tim_reason is one of the texts relayout() rewraps at the page width.
@@ -738,9 +738,9 @@ void draw_setup_screen(TimingsViewState& state,const TimingViewData* data,bool w
     }else{
         const auto path=data?utf8(data->helper_path):std::string();
         reason="nvtune.exe is present"+(path.empty()?std::string():" ("+path+")")+" but its kernel driver service 'nvtunedrv' is not running (state: "+
-            driver_state+"). It maps the GPU's BAR0 FBPA aperture; without it there is nothing to read. Start it from an elevated prompt:  sc start nvtunedrv";
+            driver_state+"). It maps the GPU's BAR0 FBPA aperture for the nvtune register editor. Start it from an elevated prompt:  sc start nvtunedrv";
     }
-    reason+="\n\nThe tab is read-only either way - nothing here can write a timing register.";
+    reason+="\n\nThe nvtune register editor is unavailable until its helper and driver are ready.";
     frame_wrapped(kWarn,reason,page_wrap());
     ImGui::Dummy(ImVec2(0,classic_px(16)));
     // Released 1.9.1 binds tim_step1 to its 'sel' font (semibold 21).
@@ -758,7 +758,7 @@ void draw_setup_screen(TimingsViewState& state,const TimingViewData* data,bool w
     push_classic_mono();ImGui::SetNextItemWidth(classic_px(560));
     ImGui::InputText("##tim_upstream",upstream,sizeof(upstream),ImGuiInputTextFlags_ReadOnly);ImGui::PopFont();
     ImGui::Dummy(ImVec2(0,classic_px(10)));
-    frame_wrapped(kDim,"Everything else in Druta works without it - only this tab needs BAR0. Its driver is self-signed, so loading it costs "
+    frame_wrapped(kDim,"The nvtune register editor needs its BAR0 driver. Its driver is self-signed, so loading it costs "
         "Secure Boot, Memory Integrity and driver-signature enforcement, machine-wide. Read what the button says before you use it.",wrap);
 }
 // Released 1.9.1 read row: blue held read, cheap re-read, auto-capture.

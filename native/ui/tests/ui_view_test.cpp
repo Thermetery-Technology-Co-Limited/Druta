@@ -239,6 +239,7 @@ void curve_workspace(Presentation presentation) {
 
 void compact_layout() {
     ViewState state;
+    state.presentation = Presentation::focused;
     state.preview = false;
     auto live = snapshot();
     state.live = live;
@@ -261,7 +262,8 @@ void compact_layout() {
 }
 
 void daily_header_hover_conflict() {
-    ViewState state; state.preview = false;
+    ViewState state;
+    state.presentation = Presentation::focused; state.preview = false;
     auto live = snapshot(); state.live = live;
     for (auto& control : live->data.controls) {
         control.current = 0; control.low = -100; control.high = 100;
@@ -595,7 +597,8 @@ void original_classic_layout_and_daily_companions() {
 }
 
 void offset_page_routing_and_gates() {
-    ViewState state; state.preview = false;
+    ViewState state;
+    state.presentation = Presentation::focused; state.preview = false;
     auto live = snapshot(); state.live = live;
     live->data.xoc_known = true;
     ControlState control;
@@ -663,7 +666,8 @@ void offset_page_routing_and_gates() {
 }
 
 void shunt_display_and_raw_power_apply() {
-    ViewState state; state.preview = false;
+    ViewState state;
+    state.presentation = Presentation::focused; state.preview = false;
     auto live = snapshot(); state.live = live;
     auto& power = live->data.controls[static_cast<size_t>(ControlId::power)];
     power.availability = Availability::available; power.writable = true;
@@ -718,7 +722,8 @@ bool workspace_has_background(RiskColor color) {
 }
 
 void weighted_workspace_risk_tint() {
-    ViewState state; state.preview = false;
+    ViewState state;
+    state.presentation = Presentation::focused; state.preview = false;
     auto live = snapshot(); state.live = live;
     live->data.xoc_known = live->data.rail_mode_known = live->data.rail_writable_known = true;
     live->data.rail_writable = true;
@@ -759,6 +764,7 @@ void weighted_workspace_risk_tint() {
 
 void compact_curve_layout() {
     ViewState state;
+    state.presentation = Presentation::focused;
     state.preview = false;
     state.page = Page::curve;
     auto live = snapshot();
@@ -2020,7 +2026,8 @@ void curve_profile_menu() {
 }
 
 void hard_de_flatten_ui() {
-    ViewState state; state.preview=false; auto live=snapshot(); state.live=live;
+    ViewState state;
+    state.presentation = Presentation::focused; state.preview=false; auto live=snapshot(); state.live=live;
     live->data.curve_model_max_rise_khz=45000; live->data.curve_writable=true;
     state.planner_api.hard_deflatten=hard_ui_plan; state.planner_api.predict=hard_ui_predict;
     state.curve_window_open=true; state.controls_unlocked=true; state.hard_floor_mv=900; state.hard_target_mhz=1905;
@@ -2279,6 +2286,7 @@ void timings_navigation_and_commands(Presentation presentation) {
 
 void draft_behavior() {
     ViewState state;
+    state.presentation = Presentation::focused;
     state.preview = false;
     auto live = snapshot();
     state.live = live;
@@ -2349,6 +2357,7 @@ void draft_behavior() {
 
 void explicit_profile_intents_and_stock() {
     ViewState state;
+    state.presentation = Presentation::focused;
     state.preview = false;
     auto live = snapshot();
     state.live = live;
@@ -2426,6 +2435,7 @@ void explicit_profile_intents_and_stock() {
 
 void rendering_and_uncertainty() {
     ViewState state;
+    state.presentation = Presentation::focused;
     state.preview = false;
     auto live = snapshot();
     state.live = live;

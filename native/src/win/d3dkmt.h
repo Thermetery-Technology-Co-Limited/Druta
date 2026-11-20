@@ -35,9 +35,31 @@ struct D3DKMT_ENUMADAPTERS2 {
     D3DKMT_ADAPTERINFO* pAdapters;
 };
 
-struct D3DKMT_ENUMADAPTERS {  // the Windows 7 form: a fixed array (fallback increment)
+struct D3DKMT_ENUMADAPTERS {  // the fixed-array version
     std::uint32_t NumAdapters;
     D3DKMT_ADAPTERINFO Adapters[16];
+};
+
+// Use fixed-width UTF-16 also on hosts whose wchar_t is 32 bits.
+struct DisplayDeviceW {
+    std::uint32_t cb;
+    char16_t DeviceName[32], DeviceString[128];
+    std::uint32_t StateFlags;
+    char16_t DeviceID[128], DeviceKey[128];
+};
+using EnumDisplayDevicesFn = std::int32_t(DRUTA_STDCALL*)(const char16_t*, std::uint32_t, DisplayDeviceW*, std::uint32_t);
+
+struct D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME {
+    char16_t DeviceName[32];
+    std::uint32_t hAdapter, LuidLow;
+    std::int32_t LuidHigh;
+    std::uint32_t VidPnSourceId;
+};
+
+struct D3DKMT_OPENADAPTERFROMDEVICENAME {
+    const char16_t* pDeviceName;
+    std::uint32_t hAdapter, LuidLow;
+    std::int32_t LuidHigh;
 };
 
 struct D3DKMT_QUERYADAPTERINFO {
@@ -61,6 +83,9 @@ static_assert(sizeof(D3DKMT_ADAPTERINFO) == 20);
 static_assert(sizeof(D3DKMT_ADAPTERADDRESS) == 12);
 static_assert(sizeof(D3DKMT_CLOSEADAPTER) == 4);
 static_assert(sizeof(D3DKMT_ENUMADAPTERS) == 324);
+static_assert(sizeof(DisplayDeviceW) == 840);
+static_assert(sizeof(D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME) == 80);
+static_assert(sizeof(D3DKMT_OPENADAPTERFROMDEVICENAME) == (sizeof(void*) == 8 ? 24 : 16));
 static_assert(sizeof(D3DKMT_ESCAPE) == (sizeof(void*) == 8 ? 32 : 28));
 static_assert(sizeof(D3DKMT_ENUMADAPTERS2) == (sizeof(void*) == 8 ? 16 : 8));
 static_assert(sizeof(D3DKMT_QUERYADAPTERINFO) == (sizeof(void*) == 8 ? 24 : 16));

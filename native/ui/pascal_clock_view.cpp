@@ -1,10 +1,12 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "pascal_clock_view.h"
+#include "clock_recovery_boot_bcd.h"
 #include <imgui.h>
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace druta::ui {
 
@@ -12,6 +14,7 @@ namespace {
 const char* domain_name(PascalClockDomain domain, bool state_targets) {
     switch (domain) {
         case PascalClockDomain::gpc: return "GPC";
+        case PascalClockDomain::tfaw: return "tFAW";
         case PascalClockDomain::xbar: return "XBAR";
         case PascalClockDomain::sys: return state_targets ? "SYS" : "SYS / Video";
     }
@@ -61,6 +64,7 @@ void PascalClockViewState::stage(const PascalClockField& field, int raw_value) {
     if (!writable(field) || raw_value < field.minimum || raw_value > field.maximum) return;
     auto it = matching_row(drafts, field.domain, field.pstate);
     if (it != drafts.end() && it->expected != field.current) return;
+    if (raw_value == (it == drafts.end() ? field.current : it->value)) return;
     if (raw_value == field.current) {
         if (it != drafts.end()) drafts.erase(it);
     } else if (it == drafts.end()) {
@@ -69,11 +73,20 @@ void PascalClockViewState::stage(const PascalClockField& field, int raw_value) {
         it->value = raw_value;
     }
     reviewing = false;
+    arm_safe_mode = false;
 }
 
 void PascalClockViewState::discard() {
     drafts.clear();
     reviewing = false;
+    arm_safe_mode = false;
+}
+
+bool PascalClockViewState::has_ratio_edit() const {
+    return std::any_of(drafts.begin(), drafts.end(), [](const PascalClockEdit& edit) {
+        return edit.pstate == -1 && edit.value != edit.expected &&
+               (edit.domain == PascalClockDomain::xbar || edit.domain == PascalClockDomain::sys);
+    });
 }
 
 bool PascalClockViewState::current(const PascalClockTable* table) const {
@@ -86,15 +99,15 @@ bool PascalClockViewState::current(const PascalClockTable* table) const {
     return true;
 }
 
-bool PascalClockViewState::confirm(const PascalClockTable* table, bool enabled,
-                                   std::vector<PascalClockEdit>& output) {
+PascalClockApply PascalClockViewState::confirm(const PascalClockTable* table, bool enabled) {
     if (!enabled || !reviewing || !current(table)) {
         reviewing = false;
-        return false;
+        return {};
     }
-    output = drafts;
+    const bool arm = arm_safe_mode && has_ratio_edit();
+    PascalClockApply output{std::move(drafts), arm};
     discard();
-    return true;
+    return output;
 }
 
 namespace {
@@ -210,9 +223,10 @@ void draw_controls(PascalClockViewState& state, const PascalClockTable& table, b
 }
 }
 
-void draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTable* table,
+PascalClockApply draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTable* table,
                                uint64_t generation, bool edit_enabled, bool apply_enabled,
-                               std::vector<PascalClockEdit>& confirmed, const std::optional<PascalClockReference>& reference) {
+                               const std::optional<PascalClockReference>& reference) {
+    PascalClockApply confirmed;
     state.sync(generation);
     ImGui::PushID("PascalClockSliders");
     if (table && table->ok) draw_controls(state, *table, edit_enabled, reference);
@@ -222,6 +236,17 @@ void draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTab
         if (!can_apply) state.reviewing = false;
         if (!current && table && table->ok)
             ImGui::TextWrapped("Clock values or bounds changed. Discard the drafts and stage the changes again.");
+        if (state.has_ratio_edit() && clock_recovery_boot_supported()) {
+            ImGui::Checkbox("Use recovery boot for this Apply", &state.arm_safe_mode);
+            if (ImGui::Button("View recovery script")) state.view_recovery_script_requested = true;
+            ImGui::TextWrapped("With recovery boot selected, Apply waits for you to run the command shown for this edit. "
+                               "It uses Druta-Recovery-Boot.cmd to set a one-time Safe Mode boot. "
+                               "A successful Apply restores normal startup. If the PC resets, sign in to the same "
+                               "administrator account in Safe Mode and approve cleanup if prompted.");
+        } else if (state.has_ratio_edit()) {
+            state.arm_safe_mode = false;
+            ImGui::TextWrapped("On XP x64, use F8 to enter Safe Mode and run Druta's manual cleanup if the display fails.");
+        }
         ImGui::BeginDisabled(!can_apply || state.reviewing);
         if (ImGui::Button("Review clock changes")) state.reviewing = true;
         ImGui::EndDisabled();
@@ -235,13 +260,20 @@ void draw_pascal_clock_sliders(PascalClockViewState& state, const PascalClockTab
                             ratio ? "ratio" : table->state_targets ? "target" : "maximum",
                             pascal_clock_display_value(edit.pstate, edit.expected),
                             pascal_clock_display_value(edit.pstate, edit.value));
+                if (ratio && reference) {
+                    const auto estimate = pascal_clock_preview(*table, state.drafts, edit.domain, 0, reference->peak_mhz);
+                    if (estimate.nominal_mhz)
+                        ImGui::Text("    Estimated P0 target: %.1f MHz", *estimate.nominal_mhz);
+                }
             }
-            ImGui::TextWrapped("Apply refreshes the selected GPU and clears its current tuning. "
-                               "Druta restores the original registry settings after loading the clocks. "
-                               "The next driver restart clears these changes.");
-            if (ImGui::Button("Apply and refresh selected GPU")) state.confirm(table, can_apply, confirmed);
+            ImGui::TextWrapped("Apply restarts the selected GPU. An unstable clock can leave the display black. "
+                               "Druta records the original settings before applying the edit.");
+            ImGui::TextWrapped("If Windows cannot start normally, open an administrator command prompt in Safe Mode "
+                               "and run druta-ui.exe --recover-clock-overrides from the Druta folder.");
+            if (ImGui::Button("Apply and refresh selected GPU")) confirmed = state.confirm(table, can_apply);
         }
     }
     ImGui::PopID();
+    return confirmed;
 }
 }

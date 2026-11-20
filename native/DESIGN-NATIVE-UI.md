@@ -16,9 +16,9 @@ records the existing Python-interface/C++-backend integration.
 - Keep Windows Vista and Windows 7 in the first-version target, alongside
   modern Windows. Legacy compatibility is an acceptance requirement, not yet
   a demonstrated result for the new executable.
-- Default to **Focused**: Daily, V/F curve, Advanced and Monitor. **Classic**
-  uses a Druta 1.9.1-style composition, with the same application state and
-  retained V/F editor popup; it is not merely a verbose-text setting.
+- Default to **Verbose (Classic)**, the Druta 1.9.1-style composition. The
+  **Skin** menu on the main bar switches to **Focused**. Both layouts share
+  application state and the V/F editor popup.
 - Preserve standalone Python experiments through the existing C ABI and Python
   compatibility facade. Attaching Python to the running UI session is undecided.
 - Preserve the performance policy shipped in PR #83: adaptive visible rendering;
@@ -76,10 +76,11 @@ service also vendors pinned MIT-licensed nlohmann JSON. D3D11 can be evaluated
 later; the first version must
 not need Vista's D3D11 platform update merely to draw.
 
-Qualification targets are Vista SP2 x64, Windows 7 SP1 x64, Windows 10 x64 and
-Windows 11 x64. XP and an x86 UI release remain separate scope decisions;
-choosing D3D9 does not establish support for either. Preserve the core's existing
-architecture support and XP import audit independently of the UI target.
+The standalone GUI targets Windows XP Professional x64 Edition SP2, Vista SP2
+x64, Windows 7 SP1 x64, Windows 10 x64 and Windows 11 x64. The legacy package
+uses the 64-bit NVIDIA libraries. XP x86 and the optional Python plugin are
+outside the legacy GUI qualification scope. See the [build and verification
+status](ui/README.md#standalone-compatibility-on-older-windows).
 
 Audit the compiler/runtime and dependency imports, not just PE subsystem
 versions. Resolve optional newer OS functions conditionally with older

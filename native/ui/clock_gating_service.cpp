@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "clock_gating_service.h"
+#include "voltage_limits_service.h"
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -238,6 +239,28 @@ struct ClockGatingService::Impl {
 };
 ClockGatingService::ClockGatingService(ClockGatingApi api,dc_gpu* gpu,const dc_gpu_identity& identity):impl_(std::make_unique<Impl>(std::move(api),gpu,identity)){}
 ClockGatingService::~ClockGatingService()=default;
+PascalTimingSample ClockGatingService::read_pascal_memory_config() try {
+ auto& p=*impl_;
+ Guard guard(p.api.transport,p.gpu);
+ if(!guard.held)fail("Cannot lock the GPU for the timing read",A::transient);
+ if(p.bind().architecture!=4)fail("The firmware timing read requires Pascal",A::unsupported);
+ // The existing row fingerprint uses CONFIG1 and CONFIG3. Keep their
+ // read available on drivers with partial support for the other four words.
+ constexpr uint32_t config0=0x009a0290;
+ const auto anchors=p.registers({{config0+4,0},{config0+12,0}},false);
+ PascalTimingSample sample{0,anchors[0].value,anchors[1].value};
+ for(const unsigned word:{0u,2u,4u,5u}) {
+  try {
+   const auto row=p.registers({{config0+4*word,0}},true).front();
+   if(row.available)sample.set_word(word,row.value);
+  } catch(const Error& error) {
+   if(error.kind!=A::unsupported&&error.kind!=A::transient)throw;
+  }
+ }
+ return sample;
+} catch(const Error& error) {
+ throw VoltageEquationEvidenceError(error.what(),error.kind);
+}
 void ClockGatingService::set_history_callback(std::function<void()> callback){impl_->history_callback=std::move(callback);}
 bool ClockGatingService::needs_cleanup()const{return impl_->data.needs_cleanup;}
 const ClockGatingData& ClockGatingService::state()const{return impl_->data;}

@@ -13,7 +13,7 @@ static unsigned checks=0;
 template<class F>static void rejects(F f){bool rejected=false;try{f();}catch(const std::exception&){rejected=true;}CHECK(rejected);}
 namespace {
 using Family=ClockGatingFamily;using Mode=ClockGatingMode;using Bytes=std::vector<uint8_t>;
-dc_gpu_identity device{};uint32_t native_arch=0x1B0,native_impl=5,parent=0x5678,next_id=0x60000001;uint64_t supported=7,eligible=7;
+dc_gpu_identity device{};uint32_t generation=10;uint32_t native_arch=0x1B0,native_impl=5,parent=0x5678,next_id=0x60000001;uint64_t supported=7,eligible=7;
 uint32_t pcie_target=1,pcie_gpu=1,pcie_root=1,pcie_width=16,pcie_other=0x80001060,gpu_max=4,root_max=4;
 bool foreign=false,stub=false,free_fails=false,bad_register_geometry=false,ignore_pcie=false,opaque_pcie=false,reject_arb=true;
 bool allocation_nt=false,free_after_delete_error=false,malformed_allocation=false,malformed_free=false;
@@ -25,7 +25,7 @@ uint32_t word(const uint8_t* b,size_t at){uint32_t v;std::memcpy(&v,b+at,4);retu
 std::map<uint32_t,uint32_t> blcg(){return {{0x4041F0,0xC646},{0x409890,0x7F},{0x405BF0,0xC044},{0x407000,0x4000C042}};}
 std::map<uint32_t,uint32_t> slcg(){return {{0x2B409C,0x80000000},{0x2B4090,0x80000000},{0x2A0090,0x80000000},{0x2AA09C,0x80000000},{0x2AA090,0x80000000},{0x2A4090,0x80000000},{0x2AA49C,0x80000000},{0x2AA490,0x80000000},{0x2B0844,1},{0x2B6C3C,1},{0x2B6C7C,1},{0x2B6CBC,1},{0x2B6CFC,1}};}
 dc_status DC_CALL id(const dc_gpu*,dc_gpu_identity* out){*out=device;if(foreign)++out->nvapi_devid;return DC_OK;}dc_status DC_CALL lock(dc_gpu*){return DC_OK;}dc_status DC_CALL unlock(dc_gpu*){return DC_OK;}int32_t DC_CALL arch(uint32_t n){return n>=4&&n<=10;}
-dc_status DC_CALL bind(dc_gpu*,int32_t complete,dc_target* out,dc_error* error){++bind_calls;CHECK(complete==1);if(bind_failure){error->kind=bind_failure;bind_failure=0;return DC_E_FAILED;}out->size=sizeof(*out);std::strcpy(out->slot,device.slot);out->architecture=10;out->device_id=device.nvapi_devid;out->subsystem_id=device.nvapi_subsys;out->handle=device.nvapi_handle;return DC_OK;}
+dc_status DC_CALL bind(dc_gpu*,int32_t complete,dc_target* out,dc_error* error){++bind_calls;CHECK(complete==1);if(bind_failure){error->kind=bind_failure;bind_failure=0;return DC_E_FAILED;}out->size=sizeof(*out);std::strcpy(out->slot,device.slot);out->architecture=generation;out->device_id=device.nvapi_devid;out->subsystem_id=device.nvapi_subsys;out->handle=device.nvapi_handle;return DC_OK;}
 dc_status DC_CALL transport(dc_gpu*,dc_rm_transport* out,dc_error*){out->captured=1;out->header_count=17;out->header[0]=0x4E564441;out->header[1]=0x10002;out->header[2]=72;out->header[3]=0x4E562A2A;out->header[4]=0x0500002B;out->header[6]=71;out->header[12]=0x1234;out->header[13]=parent;out->header[14]=0x2080A612;out->header[15]=4;return DC_OK;}
 void restore_object(Object& object){if(!object.requested)return;if(object.feature==0){eligible=object.enabled?supported:eligible|object.old_eligible;}else if(object.feature==1){for(const auto& pair:object.old_values)values[pair.first]|=pair.second&blcg().at(pair.first);}else if(object.feature==2){for(const auto& pair:slcg())values[pair.first]=0;}object.requested=false;}
 dc_status DC_CALL escape(dc_gpu*,uint8_t* raw,size_t size,const dc_escape_fields*,int32_t* nt,dc_error*){auto* p=reinterpret_cast<uint32_t*>(raw);CHECK(p[2]==size&&p[5]==0&&p[11]==0);*nt=0;const auto type=p[4];
@@ -44,7 +44,7 @@ dc_status DC_CALL escape(dc_gpu*,uint8_t* raw,size_t size,const dc_escape_fields
  else if(command==0x20801823){CHECK(p[15]==420&&word(b,0)==4);const uint32_t answer[]={gpu_max,root_max,(pcie_gpu<<16)|(pcie_width<<20),(pcie_root<<16)|(pcie_width<<20)};for(size_t i=0;i<4;++i)put(b,8+8*i,answer[i]);}
  else{CHECK(command==0x20800122&&p[15]==48);uint64_t pointer;std::memcpy(&pointer,b+24,8);auto* operations=reinterpret_cast<uint8_t*>(uintptr_t(pointer));const auto count=word(b,20);for(uint32_t i=0;i<count;++i){const auto at=32*i,address=word(operations,at+12);CHECK(operations[at]==0&&operations[at+1]==0);const auto value=address==0x85008?pcie_other|(pcie_target<<16):values[address];put(operations,at+20,value);if(address==unavailable_register)operations[at+2]=32;if(bad_register_geometry)operations[at+16]=1;}}
  return DC_OK;}
-void fresh(){device={};device.size=sizeof(device);std::strcpy(device.slot,"0000:09:00.0");std::strcpy(device.uuid,"GPU-other-clock");device.nvapi_ok=device.nvapi_selected=1;device.nvapi_handle=99;device.nvapi_devid=0x4567;device.nvapi_subsys=0xAABBCCDD;native_arch=0x1B0;native_impl=5;parent=0x5678;next_id=0x60000001;supported=eligible=7;pcie_target=pcie_gpu=pcie_root=1;pcie_width=16;pcie_other=0x80001060;gpu_max=root_max=4;foreign=stub=free_fails=bad_register_geometry=ignore_pcie=opaque_pcie=allocation_nt=free_after_delete_error=malformed_allocation=malformed_free=fail_reads_after_release=false;reject_arb=true;failed_reads=bind_failure=bind_calls=requests=releases=frees=allocations=pcie_sets=0;unavailable_register=0;objects.clear();values.clear();for(const auto& pair:blcg())values[pair.first]=pair.second|0x10000000;for(const auto& pair:slcg())values[pair.first]=0;}
+void fresh(){generation=10;device={};device.size=sizeof(device);std::strcpy(device.slot,"0000:09:00.0");std::strcpy(device.uuid,"GPU-other-clock");device.nvapi_ok=device.nvapi_selected=1;device.nvapi_handle=99;device.nvapi_devid=0x4567;device.nvapi_subsys=0xAABBCCDD;native_arch=0x1B0;native_impl=5;parent=0x5678;next_id=0x60000001;supported=eligible=7;pcie_target=pcie_gpu=pcie_root=1;pcie_width=16;pcie_other=0x80001060;gpu_max=root_max=4;foreign=stub=free_fails=bad_register_geometry=ignore_pcie=opaque_pcie=allocation_nt=free_after_delete_error=malformed_allocation=malformed_free=fail_reads_after_release=false;reject_arb=true;failed_reads=bind_failure=bind_calls=requests=releases=frees=allocations=pcie_sets=0;unavailable_register=0;objects.clear();values.clear();for(const auto& pair:blcg())values[pair.first]=pair.second|0x10000000;for(const auto& pair:slcg())values[pair.first]=0;}
 ClockGatingApi api(){ClockGatingApi a;a.transport={id,bind,arch,transport,escape,nullptr,lock,unlock};a.next_object=[] {return next_id++;};a.sleep=[](uint32_t){};return a;}
 ClockGatingRequest request(const ClockGatingService& service,Family family,Mode mode=Mode::released,uint32_t generation=0){const auto& s=service.state().families[size_t(family)];return {family,mode,generation,s.binding,family==Family::pcie?s.target_generation:std::nullopt};}
 }
@@ -103,6 +103,31 @@ static void standalone_history(){
  }
 }
 int main(){
+ fresh();
+ {
+  auto gpu=reinterpret_cast<dc_gpu*>(1);
+  ClockGatingService other(api(),gpu,device);
+  rejects([&]{other.read_pascal_memory_config();});
+  generation=4;
+  values[0x9a0294]=0x2966c296;values[0x9a029c]=0x2200394a;
+  ClockGatingService pascal(api(),gpu,device);
+  values[0x9a0290]=0x6e6b6640;
+  values[0x9a02a4]=0x50;
+  const auto sample=pascal.read_pascal_memory_config();
+  CHECK(sample.present==0x3f && sample.config0==values[0x9a0290] && sample.config1==values[0x9a0294] &&
+        sample.config3==values[0x9a029c] && sample.config5==values[0x9a02a4]);
+  unavailable_register=0x9a0290;
+  values[0x9a02a4]=UINT32_MAX;
+  const auto partial=pascal.read_pascal_memory_config();
+  CHECK(partial.present==0x1e && partial.config1==sample.config1 && partial.config3==sample.config3);
+  unavailable_register=0;
+  values[0x9a029c]=0xBAD00001;
+  rejects([&]{pascal.read_pascal_memory_config();});
+  values[0x9a029c]=0x2200394a;
+  unavailable_register=0x9a0294;
+  rejects([&]{pascal.read_pascal_memory_config();});
+  CHECK(!allocations&&!pcie_sets&&!requests&&!releases&&!frees);
+ }
  standalone_history();
  opposing_modes();
  catalog_contract();

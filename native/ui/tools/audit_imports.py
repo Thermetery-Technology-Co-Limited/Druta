@@ -51,6 +51,36 @@ LIMITATION = (
     "Vista/7 launch, static CRT compatibility, fonts, device reset or rendering."
 )
 
+LEGACY_X64_MAPS = ("5.2.3790", "6.0.6000", "6.1.7600")
+LEGACY_LIMITATION = (
+    "All named imports checked against the YY-Thunks x64 XP/Server 2003, Vista and Windows 7 "
+    "export inventories. Startup, rendering and NVIDIA driver capabilities require real OS tests."
+)
+
+
+def read_legacy_exports(directory: Path):
+    inventories = {}
+    for build in LEGACY_X64_MAPS:
+        path = directory / (build + ".txt")
+        exports = {}
+        names = None
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            if not line:
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                names = exports.setdefault(line[1:-1].lower(), set())
+                continue
+            if names is not None and line.isdecimal():
+                continue  # An ordinal-only export cannot satisfy a named import.
+            ordinal, equals, name = line.partition("=")
+            if names is None or not equals or not ordinal.isdecimal():
+                raise ValueError(f"invalid export inventory {path.name}: {line!r}")
+            names.add(name)
+        if "kernel32.dll" not in exports:
+            raise ValueError(f"missing kernel32.dll in {path.name}")
+        inventories[build] = exports
+    return inventories
+
 
 def _delay_imports(reader, image, optional):
     wide = image.machine == "x86_64"
@@ -103,7 +133,7 @@ def _delay_imports(reader, image, optional):
     raise pe.MalformedError("too many delay-import descriptors")
 
 
-def audit_bytes(data: bytes, subsystem: str = "gui") -> dict:
+def audit_bytes(data: bytes, subsystem: str = "gui", *, legacy_exports=None) -> dict:
     """Audit the requested GUI or console subsystem; malformed input fails closed."""
     if subsystem not in ("gui", "console"):
         raise ValueError("subsystem must be gui or console")
@@ -127,16 +157,29 @@ def audit_bytes(data: bytes, subsystem: str = "gui") -> dict:
     imports = [{"kind": "normal", "dll": dll, "functions": functions}
                for dll, functions in image.imports] + delay
     violations = list(image.problems)
+    legacy = legacy_exports is not None
+    version_limit = (5, 2) if legacy else (6, 0)
+    allowed_dlls = SYSTEM_DLLS
+    if legacy:
+        if image.machine != "x86_64":
+            violations.append("the legacy desktop package requires an x86_64 PE")
+        # The compatibility object uses the system COM allocator.
+        allowed_dlls = SYSTEM_DLLS | {"ole32.dll"}
     for name, version in (("operating system", image.os_version),
                           ("subsystem", image.subsystem_version)):
-        if version is not None and version > (6, 0):
-            violations.append(f"{name} header {version[0]}.{version[1]} exceeds Windows 6.0")
+        if version is not None and version > version_limit:
+            violations.append(f"{name} header {version[0]}.{version[1]} exceeds Windows {version_limit[0]}.{version_limit[1]}")
     if actual_subsystem is not None and actual_subsystem != expected_subsystem:
         violations.append(f"PE subsystem {actual_subsystem} is not Windows {expected_label} ({expected_subsystem})")
     for dependency in imports:
         dll = dependency["dll"]
-        if dll.lower() not in SYSTEM_DLLS:
+        if dll.lower() not in allowed_dlls:
             violations.append(f"unexpected dependency: {dll} ({dependency['kind']} import)")
+        if legacy:
+            for build, exports in legacy_exports.items():
+                missing = set(dependency["functions"]) - exports.get(dll.lower(), set())
+                for name in sorted(missing):
+                    violations.append(f"{dll}!{name} is absent from x64 Windows {build}")
         for function in dependency["functions"]:
             if function in NEWER_STATIC_IMPORTS:
                 violations.append(f"newer API must be dynamically resolved: {dll}!{function}")
@@ -146,7 +189,8 @@ def audit_bytes(data: bytes, subsystem: str = "gui") -> dict:
         "machine": image.machine, "os_version": image.os_version,
         "subsystem_version": image.subsystem_version, "subsystem": actual_subsystem,
         "imports": imports, "passed": not violations, "violations": violations,
-        "limitation": LIMITATION,
+        "legacy_x64_exports": list(legacy_exports) if legacy else [],
+        "limitation": LEGACY_LIMITATION if legacy else LIMITATION,
     }
 
 
@@ -156,14 +200,17 @@ def main(argv=None):
     parser.add_argument("--subsystem", choices=("gui", "console"), default="gui",
                         help="expected Windows subsystem (default: gui)")
     parser.add_argument("--report", type=Path, help="write the full audited import inventory as JSON")
+    parser.add_argument("--legacy-x64-exports", type=Path, metavar="DIR",
+                        help="check every import against the pinned x64 XP, Vista and Windows 7 export maps")
     args = parser.parse_args(argv)
     try:
-        result = audit_bytes(args.executable.read_bytes(), subsystem=args.subsystem)
-        result["executable"] = str(args.executable.resolve())
+        exports = read_legacy_exports(args.legacy_x64_exports) if args.legacy_x64_exports else None
+        result = audit_bytes(args.executable.read_bytes(), subsystem=args.subsystem, legacy_exports=exports)
+        result["executable"] = args.executable.name if exports is not None else str(args.executable.resolve())
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             args.report.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    except OSError as error:
+    except (OSError, ValueError) as error:
         print(f"UI import audit: {error}", file=sys.stderr)
         return 2
     print(f"{'PASS' if result['passed'] else 'FAIL'}: {args.executable}")
@@ -171,7 +218,7 @@ def main(argv=None):
         print(f"  {dependency['kind']}: {dependency['dll']} ({len(dependency['functions'])} functions)")
     for violation in result["violations"]:
         print("  VIOLATION: " + violation)
-    print(LIMITATION)
+    print(result["limitation"])
     return 0 if result["passed"] else 1
 
 

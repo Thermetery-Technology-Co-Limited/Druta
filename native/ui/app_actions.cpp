@@ -159,7 +159,7 @@ std::wstring quote_windows_argument(const std::wstring& argument) {
 std::wstring second_window_command(const std::wstring& executable,const std::wstring& core,const AppTarget& target,bool classic) {
     if(executable.empty() || core.empty() || target.slot.empty() || target.uuid.empty())throw std::invalid_argument("explicit executable, core, slot and UUID required");
     std::vector<std::wstring> args{executable,L"--gpu",ascii(target.slot),L"--expect-uuid",ascii(target.uuid),L"--core",core};
-    if(classic)args.push_back(L"--classic");
+    args.push_back(classic ? L"--classic" : L"--focused");
     std::wstring out;for(const auto& arg:args){if(!out.empty())out.push_back(L' ');out+=quote_windows_argument(arg);}return out;
 }
 std::vector<BundledNotice> load_bundled_notices(const std::wstring& directory) {

@@ -303,6 +303,80 @@ void reopened_pascal_clocks(Presentation presentation) {
           "Restore remains available for the active clock override");
 }
 
+void firmware_timing_page(Presentation presentation) {
+    ViewState state;
+    state.presentation=presentation; state.page=Page::timings; state.preview=false;
+    state.controls_unlocked=true;state.app_actions.administrator=true;
+    auto live=std::make_shared<SessionSnapshot>();
+    live->generation=6;live->selected_slot="0000:15:00.0";live->data.connected=true;
+    std::strcpy(live->data.identity.slot,"0000:15:00.0");
+    std::strcpy(live->data.identity.uuid,"GPU-TEST");
+    state.live=live;
+    live->data.clock_architecture=7;
+    auto text=frame(state);
+    check(text.find("Read P0 BIOS timings")==std::string::npos,"Unqualified generations have no firmware timing request");
+    live->data.clock_architecture=4;
+    auto table=std::make_shared<PascalClockTable>();table->ok=true;
+    table->timing_sample=PascalTimingSample{3504,0x2966c296,0x38aa};
+    table->timing_sample->set_word(0,310u<<8);
+    table->timing_fields={{PascalClockDomain::tfaw,0,28,1,255},
+                          {PascalClockDomain::tcl,0,22,0,127},
+                          {PascalClockDomain::trfc,0,310,1,511}};
+    table->timing_message="A controller word was unavailable.";
+    live->data.pascal_clocks=table;live->data.pascal_clock_fresh=true;
+    text=frame(state);
+    check(text.find("Read P0 BIOS timings")!=std::string::npos && text.find("28 cycles")!=std::string::npos &&
+          text.find("CONFIG3[16:9]")!=std::string::npos && text.find("Read only")!=std::string::npos &&
+          text.find(table->timing_message)!=std::string::npos && state.power_weights_intents.empty(),
+          "Partial adapter results include the supported timings, register locations and read-only tCL without nvtune");
+    auto* w=advanced_window(Presentation::focused);
+    if(!w){check(false,"Timing page workspace missing");return;}
+    const auto click=[&](const char* label){ImGui::ActivateItemByID(w->GetID(label));return frame(state);};
+    click("Read P0 BIOS timings");
+    check(state.power_weights_intents.size()==1&&state.power_weights_intents.front().operation==PowerWeightsIntent::Operation::read_firmware_timings,
+          "Both timing pages explicitly request P0 firmware capture");
+    state.power_weights_intents.clear();
+    auto& draft=state.firmware_timings;
+    const auto increase=[&](PascalClockDomain domain) {
+        const int number=static_cast<int>(domain);
+        const auto row=ImHashData(&number,sizeof(number),w->GetID("firmware-timing-fields"));
+        ImGui::ActivateItemByID(ImHashStr("+",0,ImHashStr("##value",0,row)));
+        frame(state);
+    };
+    increase(PascalClockDomain::tfaw);
+    increase(PascalClockDomain::trfc);
+    increase(PascalClockDomain::tcl);
+    check(draft.changes.size()==2 && draft.changes.at(PascalClockDomain::tfaw)==29 &&
+          draft.changes.at(PascalClockDomain::trfc)==311 && !draft.changes.count(PascalClockDomain::tcl),
+          "Timing input controls increment writable fields and cannot edit tCL");
+    draft.changes[PascalClockDomain::trfc]=512;
+    click("Review BIOS timing changes");
+    check(!draft.reviewing&&state.power_weights_intents.empty(),"An out-of-range sibling blocks the entire reviewed change");
+    draft.changes[PascalClockDomain::trfc]=311;
+    // A read-only field cannot join an Apply even if a stale draft contains it.
+    draft.changes[PascalClockDomain::tcl]=23;
+    text=click("Review BIOS timing changes");
+    check(draft.reviewing&&text.find("tFAW: 28 to 29")!=std::string::npos&&text.find("tRFC: 310 to 311")!=std::string::npos&&
+          text.find("tCL: 22 to 23")==std::string::npos,"Review shows only writable P0 memory-band changes");
+    click("Apply timings and refresh selected GPU");
+    const auto& intents=state.power_weights_intents;
+    check(intents.size()==1 && intents[0].operation==PowerWeightsIntent::Operation::prepare_clocks &&
+          !intents[0].arm_safe_mode && intents[0].clock_edits.size()==2 &&
+          intents[0].clock_edits[0].domain==PascalClockDomain::tfaw && intents[0].clock_edits[0].value==29 &&
+          intents[0].clock_edits[1].domain==PascalClockDomain::trfc && intents[0].clock_edits[1].value==311 &&
+          intents[0].clock_edits[0].timing_sample==table->timing_sample &&
+          intents[0].clock_edits[1].timing_sample==table->timing_sample,
+          "Explicit Apply carries the two reviewed fields and their original P0 fingerprint");
+    state.power_weights_intents.clear();
+    click("Discard timing changes");
+    check(draft.changes.empty() && !draft.reviewing,"Discard clears all proposed firmware changes");
+    draft.changes[PascalClockDomain::trfc]=312;
+    ++live->generation;
+    frame(state);
+    check(draft.changes.empty() && state.power_weights_intents.empty(),"Changing the selected GPU clears firmware timing drafts");
+
+}
+
 void front_page_clocks(Presentation presentation) {
     ViewState state;
     state.preview = false;
@@ -440,11 +514,16 @@ void front_page_clocks(Presentation presentation) {
     ImGui::ActivateItemByID(ImHashStr("Review clock changes", 0, sliders));
     frame(state);
     check(state.pascal_clock_view.reviewing && state.power_weights_intents.empty(), "Front-page Review stages no write");
+    if (classic) {
+        ImGui::ActivateItemByID(ImHashStr("Use recovery boot for this Apply", 0, sliders));
+        frame(state);
+    }
     ImGui::ActivateItemByID(ImHashStr("Apply and refresh selected GPU", 0, sliders));
     frame(state);
     check(state.power_weights_intents.size() == 1 &&
           state.power_weights_intents.front().operation == PowerWeightsIntent::Operation::prepare_clocks &&
           state.power_weights_intents.front().clock_front &&
+          state.power_weights_intents.front().arm_safe_mode == classic &&
           state.power_weights_intents.front().clock_edits.size() == 1 &&
           state.power_weights_intents.front().clock_edits.front().value == 95,
           "Front-page Apply sends the reviewed ratio through the qualified override path");
@@ -551,6 +630,7 @@ int main(){ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO(
     unsigned char* pixels=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
     pages(Presentation::focused);pages(Presentation::classic);classic_hierarchy();
     reopened_pascal_clocks(Presentation::focused);reopened_pascal_clocks(Presentation::classic);
+    firmware_timing_page(Presentation::focused);firmware_timing_page(Presentation::classic);
     front_page_clocks(Presentation::focused);front_page_clocks(Presentation::classic);
     classic_power_policies();section_style();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("Advanced view integration: %d failures\n",failures);return failures?1:0;}

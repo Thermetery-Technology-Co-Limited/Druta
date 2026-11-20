@@ -167,6 +167,83 @@ int main() {
         CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
         store_available = true;
     }
+    {
+        using Domain=PascalClockDomain;
+        receipt.reset();
+        c.image=druta::ui::test::pascal_timing_fixture();
+        c.timing_sample=PascalTimingSample{3504,0x2966c296,0x38aa};
+        CHECK(client->execute(read).ok && !client->read(false).pascal_clocks->timing_sample);
+        Command inspect;
+        inspect.operation=Command::Operation::pascal_timing_read;
+        CHECK(client->execute(inspect).ok && client->read(false).pascal_clocks->timing_sample==c.timing_sample);
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::tfaw,0,28,29,c.timing_sample}});
+        c.timing_sample->memory_mhz++;
+        const auto moved_clock=client->execute(prepare);
+        CHECK(!moved_clock.ok&&!receipt&&moved_clock.message.find("memory clock changed")!=std::string::npos);
+        c.timing_sample->memory_mhz--;
+        CHECK(client->execute(inspect).ok&&client->execute(prepare).ok&&receipt&&writes==0);
+        CHECK(receipt_timing_sample(*receipt,PascalTimingPhase::applied)==with_tfaw(*c.timing_sample,29));
+        c.image=derive_weight_receipt(*receipt).clock_plan.image;
+        receipt->phase="active";
+        CHECK(client->execute(read).ok);
+        const auto previous_id=receipt->id;
+        const auto previous_count=replacements;
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::xbar,-1,95,96}});
+        const auto programmed=with_tfaw(*c.timing_sample,29);
+        c.timing_sample.reset(); // Card is at P8 when the user requests only a clock change.
+        CHECK(!client->execute(prepare).ok && replacements==previous_count && receipt->id==previous_id && receipt->phase=="active");
+        c.timing_sample=programmed;
+        CHECK(client->execute(read).ok&&client->execute(prepare).ok&&replacements==previous_count+1);
+        CHECK(receipt_timing_sample(*receipt,PascalTimingPhase::applied)==programmed);
+        receipt.reset();
+        c.image=druta::ui::test::pascal_timing_fixture();
+        const auto full=druta::ui::test::pascal_full_timing_sample();
+        c.timing_sample=full;
+        CHECK(client->execute(inspect).ok);
+        const int rc=pascal_timing_value(full,Domain::trc);
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::trc,0,rc,rc+1,full}});
+        c.timing_sample->config0^=1;
+        c.timing_sample_message="Two matching controller reads at P0 and the same memory clock";
+        const auto drifted=client->execute(prepare);
+        CHECK(!drifted.ok&&!receipt&&writes==0&&drifted.message.find("timing word changed")!=std::string::npos);
+        c.timing_sample=full;
+        CHECK(client->execute(inspect).ok&&client->execute(prepare).ok&&receipt&&writes==0);
+        CHECK(receipt_timing_sample(*receipt,PascalTimingPhase::applied)==with_pascal_timing(full,Domain::trc,rc+1));
+
+        // The new sample still proves tFAW, but lacks the active tRC word. A
+        // narrower inspection must never weaken the existing receipt on revision.
+        const PascalTimingSample anchors{full.memory_mhz,full.config1,full.config3};
+        c.image=derive_weight_receipt(*receipt).clock_plan.image;
+        receipt->phase="active";
+        const auto full_receipt_id=receipt->id;
+        c.timing_sample=anchors;
+        CHECK(client->execute(inspect).ok);
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::tfaw,0,28,29,anchors}});
+        const auto retained=client->execute(prepare);
+        CHECK(!retained.ok&&retained.message.find("previously reviewed CONFIG words")!=std::string::npos&&
+              receipt->id==full_receipt_id&&receipt->phase=="active"&&writes==0);
+
+        // Without a committed override the user can reread and choose tFAW
+        // from the qualified partial capture. No hidden CONFIG0 is assumed.
+        receipt.reset();c.image=druta::ui::test::pascal_timing_fixture();
+        c.timing_sample=full;
+        CHECK(client->execute(inspect).ok);
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::tfaw,0,28,29,full}});
+        c.timing_sample=anchors;
+        const auto missing_word=client->execute(prepare);
+        CHECK(!missing_word.ok&&!receipt&&missing_word.message.find("CONFIG word is unavailable or unstable")!=std::string::npos&&
+              missing_word.message.find("Read P0 BIOS timings again")!=std::string::npos);
+        CHECK(client->execute(inspect).ok);
+        prepare.pascal_clock_edits=std::make_shared<const std::vector<PascalClockEdit>>(
+            std::vector<PascalClockEdit>{{Domain::tfaw,0,28,29,anchors}});
+        CHECK(client->execute(prepare).ok&&receipt&&receipt_timing_sample(*receipt,PascalTimingPhase::original)==anchors&&writes==0);
+        receipt.reset();
+    }
     c.image_availability = VoltagePolicyAvailability::transient;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
     CHECK(client->read(false).pascal_clock_availability == Availability::transient && client->read(false).pascal_clocks);

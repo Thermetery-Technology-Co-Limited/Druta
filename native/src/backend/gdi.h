@@ -23,14 +23,14 @@
 
 namespace druta::backend {
 
-enum class AdapterMethod : std::int32_t { none = 0, enum2 = 1, enum_ = 2, gdi_display_name = 3, hdc = 4 };
+enum class AdapterMethod : std::int32_t { none = 0, enum2 = 1, enum_ = 2, gdi_display_name = 3, hdc = 4, device_interface = 5 };
 
 // Computed once per loader: export presence does not change while a process runs.
 struct EscapeCapability {
     bool gdi32_loaded = false;
     bool escape = false, query_adapter_info = false, close_adapter = false;
     bool enum_adapters2 = false, enum_adapters = false, open_from_display_name = false, open_from_hdc = false;
-    AdapterMethod method = AdapterMethod::none;  // this increment: Enum2 only (main's path)
+    AdapterMethod method = AdapterMethod::none;
     bool complete() const { return escape && query_adapter_info && close_adapter && method != AdapterMethod::none; }
     std::string detail;  // "" when complete, else exactly what is missing
 };

@@ -18,9 +18,9 @@ results, driver refusals and remaining qualification scope.
 - `src/backend/`: the driver-facing port of `nvbackend.py`: NVML and NVAPI
   binding, enumeration and pairing, telemetry, static capabilities and the
   writers, one feature per file.
-- `src/win/`: run-time binding of Windows DLL exports. The core imports only
-  kernel32 and the C runtime; every other export is a capability looked up at
-  run time, so one binary runs on Windows XP through 11.
+- `src/win/`: run-time binding of Windows driver DLL exports. Legacy OS
+  qualification depends on the specific build. See the [standalone x64 desktop
+  package](ui/README.md#standalone-compatibility-on-older-windows).
 - `src/probe/`: `druta-probe.exe`, a read-only capability report for one
   Windows installation (see the file header). Run it on a legacy machine and
   send back `druta-probe-report.txt`.
@@ -38,13 +38,11 @@ targets. Select MinGW's Win32 thread model for the cross-compiler commands
 (`*-gcc-win32` / `*-g++-win32` on Debian); the POSIX runtime adds imports
 outside the deliberately narrow XP import policy. Wine is optional and only
 smoke-runs the Windows binaries. On a
-Windows host, `cmake -S native -B native/build/msvc` works with MSVC; the
-`v141_xp` toolset is required for a binary that runs on XP.
+Windows host, `cmake -S native -B native/build/msvc` builds the core with MSVC.
+The integrated MSVC project also provides a legacy x64 desktop package.
 
-The Windows binaries link the C runtime statically and import only
-`KERNEL32.dll` and `msvcrt.dll` (PE subsystem version 5.1 = XP). Whether the
-MinGW-w64 runtime itself still starts on XP has not been verified on an XP
-installation; the probe is the first thing to run there.
+The separate MinGW core and probe builds audit their imports against
+`tools/xp-imports.txt`. Their runtime still needs an on-machine XP check.
 
 ## Front-end integration (G4)
 
@@ -165,12 +163,12 @@ algorithm) and integers beyond 2^53. `clkdom_mapping_probe` and
 `clkdom_debug_report` stay in Python: they are diagnostics that write to the
 card and sample over time, which is experiment territory.
 
-The transport's layer 0 reports gdi32's `D3DKMT*` exports as a capability
-record (every export is resolved at run time; `complete` means the
-EnumAdapters2 path of main is available, an older gdi32 with only
-`D3DKMTEnumAdapters` is reported but not yet used) and issues one raw escape
-on the adapter whose PCI address matches the paired slot, closing every
-enumerated handle. Its errors carry a kind (`transient`, `invalid`,
+The transport resolves the WDDM interfaces at run time. It prefers
+`D3DKMTEnumAdapters2`. When that export is missing, it can open GDI display
+names and match the selected PCI bus, device and function. For a GPU without a
+matching display name it can open a present display device interface instead.
+Outputs with the same nonzero adapter LUID count as one GPU. An unavailable or ambiguous target gets
+no request, and every successful open is closed. Its errors carry a kind (`transient`, `invalid`,
 `unsupported`) and whether the condition is fixed for the process.
 
 The hook (layer 1) rewrites the first bytes of `D3DKMTEscape` with a jump
@@ -308,10 +306,9 @@ factory default or a generation constant. `refresh_capabilities` clears the
 four read caches and keeps the reference and the first-read record, as
 `_refresh_volt_rail_capabilities` does.
 
-Not yet ported: the fallback adapter openers for older gdi32 builds
-(`DESIGN-TRANSPORT.md`, increment 5), the remaining Python runtime consumers,
-the GPU restart, and a native UI. The existing Python front ends now support
-the native core through the G4 integration above.
+The standalone [native UI](ui/README.md) includes selected-device restart.
+The Python front ends can also use the native core through the G4 integration
+above.
 
 Text formatting follows Python's `:g` / `:+.2f` through the C runtime's
 `printf`; the rounding of an exact half by an old msvcrt has not been checked

@@ -179,21 +179,20 @@ class FakeNvapi:
         self.query = query
 
 
-def install(nvml=None, nvapi=None, gdi=None):
+def install(nvml=None, nvapi=None, gdi=None, *, user32=None, cfgmgr32=None):
     """Serve the core's driver exports from fakes through native.set_export_resolver.
 
-    nvml: a FakeNvml (or None: "nvml not loadable"); nvapi: a FakeNvapi (or None); gdi: a dict
-    name -> callback for library "gdi32" (or None: "gdi32 not loadable"). (The two-argument form of
-    tests/test_native_identity.py and the three-argument form of tests/test_native_transport.py.)"""
+    nvml and nvapi are FakeNvml and FakeNvapi instances. gdi, user32 and cfgmgr32 map export names
+    to callbacks. None represents an unavailable module."""
     def resolve(library, name):
-        table = {"nvml": nvml, "nvapi": nvapi, "gdi32": gdi}.get(library)
+        table = {"nvml": nvml, "nvapi": nvapi, "gdi32": gdi, "user32": user32, "cfgmgr32": cfgmgr32}.get(library)
         if table is None:
             return None
         if name == "":
             return 1
         if library == "nvapi":
             return ctypes.cast(table.query, ctypes.c_void_p).value if name == "nvapi_QueryInterface" else None
-        fn = (table if library == "gdi32" else table.exports).get(name)
+        fn = (table.exports if library == "nvml" else table).get(name)
         return ctypes.cast(fn, ctypes.c_void_p).value if fn else None
     native.set_export_resolver(resolve)
 

@@ -18,7 +18,7 @@ void check(bool value, const char* message) {
 
 struct Frame {
     std::string text;
-    std::vector<PascalClockEdit> confirmed;
+    PascalClockApply apply;
 };
 
 Frame frame(PascalClockViewState& state, const PascalClockTable* table, uint64_t generation,
@@ -36,7 +36,7 @@ Frame frame(PascalClockViewState& state, const PascalClockTable* table, uint64_t
     ImGui::SetNextWindowSize({1100, 740});
     ImGui::Begin(window);
     ImGui::LogToBuffer();
-    draw_pascal_clock_sliders(state, table, generation, edit, apply, f.confirmed, reference);
+    f.apply = draw_pascal_clock_sliders(state, table, generation, edit, apply, reference);
     f.text = ImGui::GetCurrentContext()->LogBuffer.c_str();
     ImGui::LogFinish();
     ImGui::End();
@@ -53,8 +53,7 @@ void check_clock_column_widths(const PascalClockTable& clocks, float width, cons
     ImGui::LogToBuffer();
     const auto panel = ImGui::GetID("PascalClockSliders");
     PascalClockViewState state;
-    std::vector<PascalClockEdit> confirmed;
-    draw_pascal_clock_sliders(state, &clocks, 1, true, true, confirmed,
+    draw_pascal_clock_sliders(state, &clocks, 1, true, true,
                              PascalClockReference{1800.0, 1037.5, 1056.25});
     const std::string text = ImGui::GetCurrentContext()->LogBuffer.c_str();
     ImGui::LogFinish();
@@ -101,7 +100,7 @@ int main() {
     auto first = frame(state, &table, 10);
     check(state.selected_pstate == 0 && first.text.find("SYS / Video") != std::string::npos,
           "Select P0 by default and display shared SYS / Video");
-    check(first.text.find("all states") != std::string::npos && first.confirmed.empty(), "Show global scope");
+    check(first.text.find("all states") != std::string::npos && first.apply.edits.empty(), "Show global scope");
     check(first.text.find("P0 estimate needs a current V/F curve and NVVDD limit.") != std::string::npos &&
           first.text.find("1798.3 MHz") == std::string::npos,
           "Ratios remain available when the P0 peak is missing");
@@ -128,16 +127,34 @@ int main() {
     check(state.drafts.empty(), "Refuse either ratio above the table's upper bound");
 
     state.stage(table.fields[1], 3601);
+    constexpr const char* recovery = "Use recovery boot for this Apply";
+    check(frame(state, &table, 10).text.find(recovery) == std::string::npos,
+          "Per-state ceilings do not offer a recovery boot");
     state.selected_pstate = 8;
     state.stage(table.fields[0], 279);
     state.stage(table.fields[3], 200);
     state.stage(table.fields[4], 200);
     auto early = frame(state, &table, 10, "Apply and refresh selected GPU");
-    check(early.confirmed.empty() && state.drafts.size() == 4, "Stage changes across states before review");
+    check(early.text.find(recovery) != std::string::npos && !state.arm_safe_mode,
+          "Recovery boot is optional and off as soon as a ratio edit is staged");
+    auto script = frame(state, &table, 10, "View recovery script");
+    check(state.view_recovery_script_requested && !state.arm_safe_mode && script.apply.edits.empty(),
+          "Inspecting the script only requests the text viewer");
+    state.view_recovery_script_requested = false;
+    frame(state, &table, 10, recovery);
+    check(state.arm_safe_mode, "A ratio draft can select recovery before review");
+    check(early.apply.edits.empty() && state.drafts.size() == 4, "Stage changes across states before review");
     auto staged_reference = p0_reference;
     staged_reference.staged = true;
     auto preview = frame(state, &table, 10, "Review clock changes", true, true, staged_reference);
-    check(preview.confirmed.empty() && state.reviewing, "Review does not apply");
+    check(preview.apply.edits.empty() && state.reviewing, "Review does not apply");
+    check(preview.text.find(recovery) != std::string::npos && state.arm_safe_mode,
+          "The same recovery option remains visible at review");
+    frame(state, &table, 10, recovery);
+    check(!state.arm_safe_mode && state.reviewing, "Recovery can be deselected at review");
+    check(preview.text.find("Estimated P0 target: 3670.0 MHz") != std::string::npos &&
+          preview.text.find("--recover-clock-overrides") != std::string::npos,
+          "Clock review shows the projected frequency and Safe Mode recovery before Apply");
     check(preview.text.find("P0  GPC maximum   1911.5 to 1800.5 MHz") != std::string::npos &&
           preview.text.find("P8  GPC maximum   140.0 to 139.5 MHz") != std::string::npos &&
           preview.text.find("All states  XBAR ratio   98% to 200%") != std::string::npos &&
@@ -149,17 +166,18 @@ int main() {
           preview.text.find("Staged P0 V/F peak is") != std::string::npos && state.selected_pstate == 8,
           "Both staged 200 percent ratios still use the P0 peak while viewing P8");
     auto locked = frame(state, &table, 10, "Apply and refresh selected GPU", true, false);
-    check(locked.confirmed.empty() && !state.reviewing && state.drafts.size() == 4, "Locked Apply retains drafts");
+    check(locked.apply.edits.empty() && !state.reviewing && state.drafts.size() == 4, "Locked Apply retains drafts");
     frame(state, &table, 10, "Review clock changes");
     state.stage(table.fields[1], 3603);
     check(!state.reviewing && state.drafts.size() == 4, "Updating a draft requires new review");
     frame(state, &table, 10, "Review clock changes");
     auto applied = frame(state, &table, 10, "Apply and refresh selected GPU");
-    check(applied.confirmed.size() == 4 && applied.confirmed[0].value == 3603 &&
-          applied.confirmed[2].domain == PascalClockDomain::xbar && applied.confirmed[2].pstate == -1 &&
-          applied.confirmed[2].value == 200 &&
-          applied.confirmed[3].domain == PascalClockDomain::sys && applied.confirmed[3].pstate == -1 &&
-          applied.confirmed[3].value == 200 && state.drafts.empty(),
+    check(!applied.apply.arm_safe_mode, "A manual Apply does not request a boot change");
+    check(applied.apply.edits.size() == 4 && applied.apply.edits[0].value == 3603 &&
+          applied.apply.edits[2].domain == PascalClockDomain::xbar && applied.apply.edits[2].pstate == -1 &&
+          applied.apply.edits[2].value == 200 &&
+          applied.apply.edits[3].domain == PascalClockDomain::sys && applied.apply.edits[3].pstate == -1 &&
+          applied.apply.edits[3].value == 200 && state.drafts.empty(),
           "Confirm the reviewed batch once");
 
     state.stage(table.fields[1], 3601);
@@ -167,7 +185,7 @@ int main() {
     stale.fields[1].current = 3820;
     frame(state, &table, 10, "Review clock changes");
     auto mismatch = frame(state, &stale, 10, "Apply and refresh selected GPU");
-    check(mismatch.confirmed.empty() && !state.reviewing && state.drafts.size() == 1, "Refuse a stale preimage");
+    check(mismatch.apply.edits.empty() && !state.reviewing && state.drafts.size() == 1, "Refuse a stale preimage");
     frame(state, nullptr, 10);
     check(state.drafts.size() == 1, "A transient read keeps local drafts");
     frame(state, &stale, 10, "Discard drafts");
@@ -176,10 +194,29 @@ int main() {
     state.stage(table.fields[1], 3601);
     state.stage(table.fields[1], table.fields[1].current);
     check(state.drafts.empty(), "Returning a slider to the read value removes its draft");
+    state.stage(table.fields[3], 100);
+    frame(state, &table, 10, recovery);
+    frame(state, &table, 10, "Review clock changes");
+    auto armed = frame(state, &table, 10, "Apply and refresh selected GPU");
+    check(armed.apply.arm_safe_mode && armed.apply.edits.size() == 1 && !state.arm_safe_mode,
+          "An explicitly opted-in Apply consumes the choice once");
+    state.stage(table.fields[4], 94);
+    frame(state, &table, 10, recovery);
+    state.stage(table.fields[4], 95);
+    check(!state.arm_safe_mode, "Changing the reviewed edit clears the old boot choice");
+    frame(state, &table, 10, recovery);
+    frame(state, &table, 10, "Discard drafts");
+    check(!state.arm_safe_mode && state.drafts.empty(), "Discard clears the boot choice");
+    state.stage(table.fields[4], 94);
+    frame(state, &table, 10, recovery);
+    state.stage(table.fields[4], table.fields[4].current);
+    check(!state.arm_safe_mode && state.drafts.empty(), "Reverting the last ratio clears the boot choice");
     state.stage(table.fields[1], 3601);
+    state.stage(table.fields[3], 100);
+    frame(state, &table, 10, recovery);
     frame(state, &table, 10, "Review clock changes");
     auto switched = frame(state, &table, 11, "Apply and refresh selected GPU");
-    check(switched.confirmed.empty() && state.drafts.empty() && !state.reviewing && state.selected_pstate == 0,
+    check(switched.apply.edits.empty() && state.drafts.empty() && !state.arm_safe_mode && !state.reviewing && state.selected_pstate == 0,
           "A new adapter generation cannot apply previous drafts");
     PascalClockTable partial;
     partial.ok = true;

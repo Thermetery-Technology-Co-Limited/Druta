@@ -22,6 +22,36 @@ bool equal(const PowerWeightRegistrySnapshot& a,const PowerWeightRegistrySnapsho
 void binding(const PowerWeightCapture& c,const PowerWeightReceipt& receipt,const dc_gpu_identity& opened,bool allow_absent){require((allow_absent&&opened.size==0)||(opened.size==sizeof(opened)&&text(opened.uuid)==receipt.uuid&&!receipt.uuid.empty()&&text(opened.slot)==receipt.identity.slot),"Weight transaction opened identity differs or is unavailable");require(!receipt.uuid.empty()&&logical(c.identity,receipt.identity)&&c.windows&&windows(*c.windows,receipt.windows),"Weight transaction current logical/Windows target differs");const auto& id=c.adapter;require(id.size==sizeof(id)&&text(id.uuid)==receipt.uuid&&text(id.slot)==receipt.identity.slot&&text(id.pairing_error).empty()&&id.nvapi_ok&&id.nvapi_selected&&id.nvapi_devid==receipt.identity.device_id&&id.nvapi_subsys==receipt.identity.subsystem_id,"Weight transaction paired UUID/PCI identity changed");require(c.target.size==sizeof(c.target)&&text(c.target.slot)==receipt.identity.slot&&c.target.architecture==receipt.identity.architecture&&c.target.device_id==receipt.identity.device_id&&c.target.subsystem_id==receipt.identity.subsystem_id&&c.target.handle&&c.target.handle==id.nvapi_handle,"Weight transaction capture is not self-paired");require(c.registry_availability==VoltagePolicyAvailability::available&&c.registry.has_value(),"Current selected registry snapshot unavailable");}
 PowerWeightRegistrySnapshot issued_after(const PowerWeightReceipt& receipt,const PowerWeightRegistrySnapshot& after){const auto original=names(receipt.before),projected=names(after);auto out=receipt.before;std::map<std::wstring,bool> seen;for(const auto& name:receipt.issued_names){const auto key=fold(name);require(seen.emplace(key,true).second,"Duplicate issued weight registry name");const auto wanted=projected.find(key),prior=original.find(key);require(wanted!=projected.end()&&(prior==original.end()||prior->second.type!=wanted->second.type||prior->second.bytes!=wanted->second.bytes),"Issued name is outside selected weight delta");auto found=std::find_if(out.begin(),out.end(),[&](const auto& item){return fold(item.name)==key;});if(found==out.end())out.push_back(wanted->second);else *found=wanted->second;}return out;}
 
+void unstage_clock_records(PowerWeightTransactionApi& api,const PowerWeightReceipt& receipt,
+                           const PowerWeightReceiptDerived& derived,
+                           const std::function<PowerWeightRegistrySnapshot()>& read_registry,
+                           bool& may_have_changed) {
+  const auto current=read_registry();
+  const auto wanted=restore_power_weight_registry(receipt.before,issued_after(receipt,derived.after),current);
+  if(!equal(wanted,current)) {
+   require(bool(api.write),"Clock registry cleanup unavailable");
+   // The driver consumes consecutively numbered records. Clearing our record
+   // ahead of a later third-party append would disable that other override.
+   const auto remaining=names(wanted);
+   bool gap=false;
+   constexpr wchar_t hex[]=L"0123456789abcdef";
+   for(unsigned n=0;n<256;++n) {
+    std::wstring name=L"romoverride";name+=hex[n>>4];name+=hex[n&15];
+    if(!remaining.count(name))gap=true;
+    else require(!gap,"Another ROM override follows the staged clock records. Resolve that conflict before cleanup");
+   }
+   // Every name was recorded durably *before* its corresponding addition.
+   const auto owned=[&](const std::wstring& name,std::string& error) {
+    for(const auto& issued:receipt.issued_names)if(fold(issued)==fold(name))return true;
+    error="Clock cleanup refused a registry name outside this receipt";return false;
+   };
+   const auto written=api.write(receipt.windows,current,wanted,owned);
+   may_have_changed|=written.may_have_changed;
+   require(written.ok,written.message.c_str());
+   require(equal(wanted,read_registry()),"Clock registry cleanup readback differs");
+  }
+}
+
 // The driver reads these records once during initialization. Unstage our own
 // additions immediately after dispatch, even when restart or verification fails.
 // A durable receipt covers a host crash between staging and cleanup.
@@ -60,30 +90,7 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
           status.message.empty()?"Clock refresh or verification incomplete":status.message.c_str());
  };
  const auto unstage=[&]() {
-  const auto current=registry();
-  const auto wanted=restore_power_weight_registry(receipt.before,issued_after(receipt,derived.after),current);
-  if(!equal(wanted,current)) {
-   require(bool(api.write),"Clock registry cleanup unavailable");
-   // The driver consumes consecutively numbered records. Clearing our record
-   // ahead of a later third-party append would disable that other override.
-   const auto remaining=names(wanted);
-   bool gap=false;
-   constexpr wchar_t hex[]=L"0123456789abcdef";
-   for(unsigned n=0;n<256;++n) {
-    std::wstring name=L"romoverride";name+=hex[n>>4];name+=hex[n&15];
-    if(!remaining.count(name))gap=true;
-    else require(!gap,"Another ROM override follows the staged clock records. Resolve that conflict before cleanup");
-   }
-   // Every name was recorded durably *before* its corresponding addition.
-   const auto owned=[&](const std::wstring& name,std::string& error) {
-    for(const auto& issued:receipt.issued_names)if(fold(issued)==fold(name))return true;
-    error="Clock cleanup refused a registry name outside this receipt";return false;
-   };
-   const auto written=api.write(receipt.windows,current,wanted,owned);
-   result.may_have_changed|=written.may_have_changed;
-   require(written.ok,written.message.c_str());
-   require(equal(wanted,registry()),"Clock registry cleanup readback differs");
-  }
+  unstage_clock_records(api,receipt,derived,registry,result.may_have_changed);
   cleanup_needed=false;
  };
  try {
@@ -96,6 +103,9 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
            !receipt.uncertain&&!receipt.restoring,"Clock Apply requires an unused preview");
    const auto& source=derived.clock_source_image.empty()?receipt.image:derived.clock_source_image;
    const auto current=capture();
+   const auto previous_timing=receipt_timing_sample(receipt,PascalTimingPhase::previous);
+   if(previous_timing)
+    require(current.timing_sample&&matches_pascal_timing(*current.timing_sample,*previous_timing),"Apply requires the reviewed P0 memory clock and controller timing");
    require(current.image_availability==VoltagePolicyAvailability::available&&current.image==source&&
            equal(*current.registry,receipt.before),"The clock preview is stale. Read the current GPU and preview again");
    require(derived.clock_plan.image!=source,"The selected clocks already match the running image");
@@ -118,6 +128,8 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    const auto staged=capture();
    require(staged.image_availability==VoltagePolicyAvailability::available&&staged.image==source&&
            equal(*staged.registry,derived.after),"Clock pre-restart image or registry differs from staged preview");
+   if(previous_timing)
+    require(staged.timing_sample&&matches_pascal_timing(*staged.timing_sample,*previous_timing),"The GPU left the reviewed P0 timing or memory clock before restart");
    receipt.phase="refresh_pending";receipt.refresh_requested=true;receipt.uncertain=true;persist();
    result.may_have_changed=true;
    boundary(api.restart(receipt.windows));
@@ -151,7 +163,8 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    if(!already_original.ok||already_original.reboot_required||already_original.timed_out||
       already_original.cleanup_pending||already_original.uncertain) {
     // A timeout may leave a verifier running. Do not reset until it is gone.
-    if(already_original.cleanup_pending||already_original.timed_out)boundary(already_original);
+    if(already_original.cleanup_pending||already_original.timed_out||already_original.image_matches_timing_pending)
+     boundary(already_original);
     receipt.phase="remove_refresh_pending";receipt.refresh_requested=true;persist();
     result.may_have_changed=true;boundary(api.restart(receipt.windows));
     boundary(api.fresh_verify(receipt,true));
@@ -181,7 +194,7 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
  } catch(const std::exception& failure) {
   result.message=failure.what();
   if(cleanup_needed) {
-   try { unstage();result.message+=". Staged clock records cleared"; }
+   try { unstage();receipt.phase="clock_unstaged";result.message+=". Staged clock records cleared"; }
    catch(const std::exception& cleanup) { result.cleanup_pending=true;result.message+=". Clock record cleanup pending: "+std::string(cleanup.what()); }
   }
   result.recovery_required=published;
@@ -193,6 +206,41 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
 }
 
 }
+PowerWeightTransactionResult recover_staged_clocks(PowerWeightTransactionApi& api, PowerWeightReceipt receipt) {
+ PowerWeightTransactionResult result;
+ try {
+  require(receipt.is_pascal_clocks(), "Selected receipt does not describe a clock override");
+  const bool pending = receipt.phase == "writing" || receipt.phase == "refresh_pending" ||
+                       receipt.phase == "clock_initializing" || receipt.phase == "removing";
+  if (!pending || receipt.issued_names.empty()) {
+   result.ok = result.no_change = true;
+   result.message = "This clock receipt has no pending registry staging.";
+   return result;
+  }
+  require(bool(api.recovery_registry) && bool(api.persist), "Registry recovery is unavailable");
+  const auto derived = derive_weight_receipt(receipt);
+  const auto read = [&]() {
+   auto snapshot = api.recovery_registry(receipt);
+   require(windows(snapshot.windows, receipt.windows), "Clock recovery Windows target changed");
+   return snapshot.registry;
+  };
+  unstage_clock_records(api, receipt, derived, read, result.may_have_changed);
+  // Keep the receipt for verification by the normal UI on a working driver.
+  receipt.phase = "clock_unstaged";
+  receipt.restoring = receipt.uncertain = true;
+  receipt.message = result.may_have_changed
+      ? "Staged clock records cleared. Reboot normally to reload the saved clock settings."
+      : "The staged clock records were already absent. Live clock verification is pending.";
+  api.persist(receipt, false);
+  result.ok = true;
+  result.message = receipt.message;
+ } catch (const std::exception& e) {
+  result.recovery_required = result.cleanup_pending = true;
+  result.message = e.what();
+ }
+ return result;
+}
+
 bool power_weight_verify_registry(const PowerWeightReceipt& receipt,const PowerWeightRegistrySnapshot& current,bool original,bool staged) {
  try {
   const auto projected=derive_weight_receipt(receipt).after;

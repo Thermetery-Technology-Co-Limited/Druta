@@ -111,8 +111,8 @@ DC_API dc_status DC_CALL dc_rail_packet_summary(const uint8_t* payload, size_t s
 
 /* ---- GPU identity (nvbackend.Nvml / NvAPI / enumerate_gpus / GPU identity) ------------------- */
 
-/* Test seam: serve driver exports from the caller instead of nvapi64.dll / nvml.dll.
- * resolve(context, library, name) with library "nvapi" or "nvml"; name "" asks whether the
+/* Test seam: serve driver and display exports from the caller.
+ * resolve(context, library, name) with library "nvapi", "nvml", "gdi32", "user32" or "cfgmgr32"; name "" asks whether the
  * library loads at all (non-NULL means yes). NULL restores the platform loader. */
 typedef void*(DC_CALL* dc_resolve_fn)(void* context, const char* library, const char* name);
 DC_API void DC_CALL dc_set_export_resolver(dc_resolve_fn resolve, void* context);
@@ -844,7 +844,7 @@ typedef struct dc_escape_capability {
     int32_t gdi32_loaded, escape, query_adapter_info, close_adapter;
     int32_t enum_adapters2, enum_adapters, open_from_display_name, open_from_hdc;
     int32_t complete;
-    int32_t method;          /* 0 none, 1 enum2, 2 enum, 3 gdi display name, 4 hdc */
+    int32_t method;          /* 0 none, 1 enum2, 2 enum, 3 GDI display name, 4 HDC, 5 PnP device interface */
     uint32_t patch_bytes;    /* 14 on x64, 5 on x86: the hook's overwrite */
     char detail[256];        /* "" when complete, else what is missing */
 } dc_escape_capability;

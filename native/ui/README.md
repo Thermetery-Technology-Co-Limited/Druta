@@ -3,7 +3,9 @@
 The native Win32/D3D9 application now has a live Session, Daily tuning, a V/F
 point editor and owned holds, Monitor, qualified Advanced controls, native I2C
 manual commands and a Timings helper workflow. **Focused** and
-**Classic** share drafts, snapshots, command queue and Undo. Classic uses a
+**Classic / Verbose** share drafts, snapshots, command queue and Undo. Druta
+opens in Verbose by default. Choose **Skin → Focused** on the Verbose
+menu bar, or use the layout selector in Focused to switch back. Classic uses a
 composition based on Druta 1.9.1; it is more than a verbose-text option. Both
 presentations retain the resizable V/F editor popup; Classic also embeds the
 editable curve below the tuning controls, as in the Python interface. Opening
@@ -139,6 +141,60 @@ The editor reads back the applied values when it reopens. Further edits keep
 the other session settings. Restore returns to the image captured before the
 first Apply, and Verify closes a saved session after a normal driver restart.
 
+On Vista and later, the Pascal XBAR/SYS ratio review offers **Use recovery
+boot for this Apply**, initially unchecked. **View recovery script** opens
+`Druta-Recovery-Boot.cmd` in Notepad. Leave the Apply warning open and run
+the script yourself as administrator to arm it. Confirm the GPU shown.
+Windows selects a one-time Safe Mode entry and Druta registers recovery for
+that account at sign-in. Setup preserves the normal default loader and does
+not write boot code. Keep the account password and any BitLocker recovery key
+available. Following a freeze, sign in as the original user and approve
+cleanup before restarting normally. XP Professional x64 uses manual Safe Mode
+recovery.
+
+If a clock edit leaves the display black, a separate helper can clean up the
+staged registry records while Windows is responsive. After a hard freeze, use
+the same Windows account in Safe Mode. From an administrator command prompt
+in the Druta folder, run `druta-ui.exe --recover-clock-overrides` to find the
+saved PCI slot, then run `druta-ui.exe --recover-clock-overrides <PCI-slot>`.
+Once cleanup is confirmed, boot normally. The command uses exact recorded
+values and the Windows device binding, and requires no working NVIDIA display.
+
+### Pascal firmware memory timing
+
+In either skin, open **Timings → BIOS memory timing → Read P0 BIOS timings**.
+Keep the selected GPU at P0 and a stable memory clock for the reading. Enter
+one or more encoded values, choose **Review BIOS timing changes**, then
+**Apply timings and refresh selected GPU**. The native editor uses temporary
+driver records and works independently of nvtune and Python. It can edit 22
+named timing fields across CONFIG0–5, including row timings, refresh, write
+recovery and bus turnaround. tCL is read-only.
+
+Druta reads the six controller words twice. Each editable field must agree
+with the current firmware row. A masked field or an unavailable optional word
+does not prevent editing other matched fields. An ambiguous row or a row
+shared with another memory-clock band cannot be edited. Apply changes only
+the selected bits and checks the reviewed controller words after restart.
+
+If the GPU idles after the refresh, return it to the reviewed P0 memory clock
+and choose **Verify P0 timing override**. **Restore original firmware settings
+and refresh GPU** restores the original image. The firmware control is
+available on Pascal when the adapter supplies the matching ROM layout and a
+verifiable P0 controller reading.
+
+On the MSI GTX 1050 Ti (GP107, driver 581.80), 19 timings were edited
+individually at P0 and 3504 MHz. The controller confirmed each requested
+change, including tRFC at 193 → 194 → 193 and tREFI at 6 → 5 → 6. Across the
+six controller words, only the selected bits moved. All six words and the
+original running image were restored before the next edit. tCL read 22 throughout.
+tCCDL and tCCDS were ineligible because the controller and BIOS row differed.
+[All 19 hardware trials](../../experiments/gp107-p0-individual-bios-timings-20261120.json)
+
+An earlier tFAW trial at the same operating point measured 28 → 29 → 28
+cycles, bringing the total to 20 verified timings on this 1050 Ti. The RTX
+3070 Ti loaded its edited image and reported tFAW at 20 cycles throughout.
+[tFAW trial records](../../experiments/firmware-tfaw-20261119.json)
+
 ## Native I2C controller path
 
 On 64-bit processes, the core can use the NVAPI Ex I2C transport for explicit
@@ -198,21 +254,41 @@ cross-process tuning ownership.
 
 ## Standalone compatibility on older Windows
 
-The Vista and XP targets concern the native executable and its companion
-core DLL. The optional Python plugin is outside qualification on those two
-systems. Python can run the build tools on a separate machine.
+The legacy x64 package contains Classic and Focused, the native core,
+the timing worker, and the read-only probe. It runs independently of Python.
+It targets Windows 7 SP1 x64, Vista SP2 x64, and Windows XP Professional x64
+Edition SP2. The optional Python plugin and a 32-bit XP GUI are outside this build.
 
-| Target | Status of the native program |
-|---|---|
-| Windows 7 SP1 x64 | Ready for an on-machine check. Launch, render both layouts at system DPI, and verify a read from the selected adapter before exercising Apply and Restore. The restart path uses SetupAPI on this OS and has fixture coverage. |
-| Vista SP2 x64 | The inspected VS 2022 v143 Release EXE statically imports `TryAcquireSRWLockExclusive`, which requires Windows 7. A Vista-compatible runtime build of the EXE and core DLL needs an import check and a real Vista launch. |
-| Windows XP | The existing XP build targets cover the core DLL and command-line probe. The current GUI and its v143 core DLL both declare PE subsystem 6.0 and import `InitializeCriticalSectionEx`, introduced in Vista. Running the full GUI requires a separate XP build and qualification. |
+The standard v143 GUI previously imported `TryAcquireSRWLockExclusive` through
+the C++ runtime, which prevented it from loading on Vista. Its subsystem 6.0
+header and Vista-era imports also excluded XP x64. The legacy build uses a
+pinned copy of YY-Thunks for runtime fallbacks, including synchronization, and
+sets the x64 loader floor to NT 5.2. Packaging checks the imports and headers
+of all four binaries against x64 XP, Vista and Windows 7 export inventories.
+The package has been exercised on Windows 10. First launch, rendering and GPU
+control still need verification on each legacy OS.
+[YY-Thunks](https://github.com/Chuyu-Team/YY-Thunks/tree/v1.2.3) ·
+[Windows lock API requirements](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive)
 
-The inspection used the x64 Release binaries from this branch on Windows 10
-build 19045. No legacy OS launch was verified. [Windows API requirement for
-the lock import](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-tryacquiresrwlockexclusive) ·
-[Windows API requirement for critical-section initialization](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-initializecriticalsectionex) ·
-[Core and probe build instructions](../README.md).
+On Windows 7 and Vista with WDDM, start with `druta-probe.exe`. Compare the
+reported PCI addresses with the GPU you selected before checking its policies.
+On the Windows 10 test rig, GDI display-name lookup found the GTX 1050 Ti at
+`01:00.0`. Device-interface lookup also found the headless RTX 3070 Ti at
+`02:00.0`. Druta uses these older methods when `D3DKMTEnumAdapters2` is missing.
+Old NVIDIA drivers may expose different current and board-power requests.
+XP x64 uses XPDM and has no WDDM escape for fine current policies or extended
+XOC board power. Other controls discover their own NVAPI and NVML capabilities.
+
+To build the ZIP from an x64 Visual Studio developer prompt:
+
+```powershell
+cmake -S native -B native/build/legacy-x64 -G Ninja -DCMAKE_BUILD_TYPE=Release -DDRUTA_BUILD_UI=ON -DDRUTA_LEGACY_X64=ON
+cmake --build native/build/legacy-x64 --target druta-legacy-x64-package
+```
+
+The output is `native/build/legacy-x64/Druta-native-legacy-x64-Release.zip`.
+For an offline build, set `DRUTA_YY_THUNKS_ARCHIVE` to the official
+`YY-Thunks-Objs.zip` from v1.2.3. CMake checks its SHA-256 in either mode.
 
 ## Build on Windows
 
@@ -269,7 +345,7 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 & ./native/build/ui-integrated/ui/Release/druta-ui.exe --page curve
 & ./native/build/ui-integrated/ui/Release/druta-ui.exe --classic --page monitor --width 1366 --height 768
 & ./native/build/ui-msvc-x64/Release/druta-ui.exe --core C:/absolute/path/drutacore.dll
-& ./native/build/ui-msvc-x64/Release/druta-ui.exe --preview --scale 1.5 --capture C:/existing-folder/focused.bmp
+& ./native/build/ui-msvc-x64/Release/druta-ui.exe --preview --focused --scale 1.5 --capture C:/existing-folder/focused.bmp
 ```
 
 | Option | Behavior |
@@ -279,7 +355,8 @@ python -m pytest -q native/ui/tests/test_audit_imports.py
 | `--gpu PCI_SLOT` | Select by PCI slot; the live adapter picker can change it later. |
 | `--width N`, `--height N` | Initial client size in physical pixels, each 640–7680. Focused scales each unspecified dimension from its 1280×800 default at 100% and fits the window to the monitor's work area. |
 | `--scale N` | Explicit UI scale from 1 through 3, including fractional values. |
-| `--classic` | Start in the 1.9.1-inspired Classic composition instead of Focused. Without a size, the window opens at Python's default (1544x1300 at 100% scale, clamped to the screen). |
+| `--verbose`, `--classic` | Start in the default Verbose (Classic) layout. Without an explicit size it opens at 1544×1300 at 100% scale, clamped to the screen. |
+| `--focused` | Start in the Focused layout. |
 | `--page daily\|curve\|advanced\|monitor\|timings` | Choose the initial page. |
 | `--capture FILE.bmp` | Save the rendered view and exit; parent directory must exist. Live mode reads the GPU. |
 | `--smoke-test EXISTING_DIRECTORY` | Fixture renderer smoke, BMPs and `smoke.json`, then exit. |
@@ -363,7 +440,7 @@ the original scalar requests and full curve were checked afterward.
 - Vista SP2 x64 and Windows 7 SP1 x64 remain targets with no actual launch,
   font/DPI, device-loss or shutdown qualification yet. The PE audit checks
   selected imports/headers, not every CRT path or actual legacy execution.
-  XP/x86 UI support is not promised; core support remains independent.
+  See the legacy x64 package section above for current build and audit coverage.
 
 The first fixture shell's build, rendered scale review and smoke history remain
 in [validation/2026-11-11-smoke.json](validation/2026-11-11-smoke.json). Its sample

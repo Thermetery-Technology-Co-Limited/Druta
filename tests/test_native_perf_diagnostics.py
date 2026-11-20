@@ -348,7 +348,8 @@ class CaptureTests(HookCase):
         python, core = self.sides(rig, self.transport)
         text = "unsupported current-policy transport: no recognized power GET captured"
         self.assertEqual(python, ("PerfDiagnosticError", "transient", text, None))
-        self.assertEqual(core, ("PerfDiagnosticError", "transient", text + " (gdi32 lacks D3DKMTEnumAdapters2)", None))
+        detail = "gdi32 lacks D3DKMTEnumAdapters2; display-name fallback lacks user32!EnumDisplayDevicesW"
+        self.assertEqual(core, ("PerfDiagnosticError", "transient", f"{text} ({detail})", None))
 
     def test_an_absent_gdi32_or_escape_export_is_attempted_and_transient(self):
         # PowerPolInfo exists, so both sides reach the capture and find gdi32 unusable before hooking.

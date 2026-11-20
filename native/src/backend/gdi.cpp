@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "backend/gdi.h"
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <vector>
 
 #include "backend/exports.h"
 #include "core/mutex.h"
 #include "win/d3dkmt.h"
+#include "win/display_interfaces.h"
 
 namespace druta::backend {
 namespace {
@@ -23,10 +26,15 @@ constexpr const char* kEscape = "D3DKMTEscape";
 constexpr const char* kEnum = "D3DKMTEnumAdapters";
 constexpr const char* kFromDisplayName = "D3DKMTOpenAdapterFromGdiDisplayName";
 constexpr const char* kFromHdc = "D3DKMTOpenAdapterFromHdc";
+constexpr const char* kDisplayDevices = "EnumDisplayDevicesW";
+constexpr const char* kFromDeviceName = "D3DKMTOpenAdapterFromDeviceName";
 
 struct Cache {
     unsigned generation = 0;
     std::unique_ptr<ExportSource> gdi;
+    std::unique_ptr<ExportSource> user;
+    std::unique_ptr<ExportSource> cfg;
+    bool device_interfaces = false;
     EscapeCapability capability;
 };
 
@@ -47,6 +55,9 @@ Cache& current() {
     if (c.generation == generation) return c;
     std::string error;
     c.gdi = loader().open_gdi32(error);
+    c.user.reset();
+    c.cfg.reset();
+    c.device_interfaces = false;
     EscapeCapability cap;
     cap.gdi32_loaded = c.gdi != nullptr;
     if (c.gdi) {
@@ -57,9 +68,19 @@ Cache& current() {
         cap.enum_adapters = c.gdi->has(kEnum);
         cap.open_from_display_name = c.gdi->has(kFromDisplayName);
         cap.open_from_hdc = c.gdi->has(kFromHdc);
-        // Main's path, and the only one with parity evidence; the fallbacks
-        // are reported above and selected in a later increment.
-        if (cap.enum_adapters2) cap.method = AdapterMethod::enum2;
+        if (cap.enum_adapters2) {
+            cap.method = AdapterMethod::enum2;
+        } else {
+            if (cap.open_from_display_name) {
+                c.user = loader().open_user32(error);
+                if (c.user && c.user->has(kDisplayDevices)) cap.method = AdapterMethod::gdi_display_name;
+            }
+            if (c.gdi->has(kFromDeviceName)) {
+                c.cfg = loader().open_cfgmgr32(error);
+                c.device_interfaces = c.cfg && c.cfg->has(win::kInterfaceSize) && c.cfg->has(win::kInterfaceList);
+                if (c.device_interfaces && cap.method == AdapterMethod::none) cap.method = AdapterMethod::device_interface;
+            }
+        }
     }
     if (!cap.gdi32_loaded) {
         cap.detail = error;
@@ -69,12 +90,21 @@ Cache& current() {
     } else if (!cap.complete()) {
         cap.detail = "gdi32 lacks";
         const char* sep = " ";
-        for (const auto& [present, name] : {std::pair{cap.enum_adapters2, kEnum2}, std::pair{cap.query_adapter_info, kQuery},
+        for (const auto& [present, name] : {std::pair{cap.method != AdapterMethod::none, kEnum2}, std::pair{cap.query_adapter_info, kQuery},
                                             std::pair{cap.close_adapter, kClose}}) {
             if (present) continue;
             cap.detail += sep;
             cap.detail += name;
             sep = ", ";
+        }
+        if (cap.method == AdapterMethod::none) {
+            cap.detail += "; display-name fallback lacks ";
+            cap.detail += cap.open_from_display_name ? "user32!EnumDisplayDevicesW" : "gdi32!D3DKMTOpenAdapterFromGdiDisplayName";
+            if (c.gdi->has(kFromDeviceName)) {
+                cap.detail += "; device-interface lookup lacks";
+                if (!c.cfg || !c.cfg->has(win::kInterfaceSize)) cap.detail += " CM_Get_Device_Interface_List_SizeW";
+                if (!c.cfg || !c.cfg->has(win::kInterfaceList)) cap.detail += " CM_Get_Device_Interface_ListW";
+            }
         }
     }
     c.capability = cap;
@@ -104,6 +134,78 @@ EscapeResult unavailable(RmErrorKind kind, bool fixed, std::string message) {
     r.why.fixed = fixed;
     r.why.message = std::move(message);
     return r;
+}
+
+struct OpenedAdapters {
+    KmtFn close;
+    std::vector<win::D3DKMT_ADAPTERINFO> items;
+
+    template <typename Request>
+    void open_one(KmtFn open, Request& request) {
+        // Allocate storage before opening so allocation failure cannot leak a handle.
+        items.emplace_back();
+        if (open(&request) == 0 && request.hAdapter)
+            items.back() = {request.hAdapter, request.LuidLow, request.LuidHigh, 0, 0};
+        else
+            items.pop_back();
+    }
+
+    void close_all() {
+        // Different display heads can give us multiple opens of one adapter.
+        // Close each successful open, even when their LUIDs matched.
+        for (const auto& item : items) {
+            win::D3DKMT_CLOSEADAPTER request{item.hAdapter};
+            close(&request);
+        }
+        items.clear();
+    }
+    ~OpenedAdapters() { close_all(); }
+};
+
+void open_display_adapters(const Cache& c, OpenedAdapters& adapters) {
+    auto enumerate = c.user->get<win::EnumDisplayDevicesFn>(kDisplayDevices);
+    auto open = c.gdi->get<KmtFn>(kFromDisplayName);
+    for (std::uint32_t index = 0;; ++index) {
+        win::DisplayDeviceW display{};
+        display.cb = sizeof display;
+        if (!enumerate(nullptr, index, &display, 0)) return;
+        auto end = std::find(std::begin(display.DeviceName), std::end(display.DeviceName), u'\0');
+        if (end == std::begin(display.DeviceName) || end == std::end(display.DeviceName)) continue;
+        win::D3DKMT_OPENADAPTERFROMGDIDISPLAYNAME request{};
+        std::copy(std::begin(display.DeviceName), end, request.DeviceName);
+        adapters.open_one(open, request);
+    }
+}
+
+std::string open_device_adapters(const Cache& c, OpenedAdapters& adapters) {
+    std::vector<std::u16string> paths;
+    std::string error = win::display_interface_paths(c.cfg->get<win::InterfaceSizeFn>(win::kInterfaceSize),
+                                                    c.cfg->get<win::InterfaceListFn>(win::kInterfaceList), paths);
+    if (!error.empty()) return error;
+    auto open = c.gdi->get<KmtFn>(kFromDeviceName);
+    for (const auto& path : paths) {
+        win::D3DKMT_OPENADAPTERFROMDEVICENAME request{};
+        request.pDeviceName = path.c_str();
+        adapters.open_one(open, request);
+    }
+    return {};
+}
+
+std::vector<win::D3DKMT_ADAPTERINFO> matching_adapters(const OpenedAdapters& opened, KmtFn query,
+                                                       const EscapeSlot& location, bool deduplicate_luids) {
+    std::vector<win::D3DKMT_ADAPTERINFO> matches;
+    for (const auto& item : opened.items) {
+        win::D3DKMT_ADAPTERADDRESS address{};
+        win::D3DKMT_QUERYADAPTERINFO request{item.hAdapter, win::KMTQAITYPE_ADAPTERADDRESS, &address, sizeof address};
+        if (query(&request) != 0 || address.BusNumber != location.bus || address.DeviceNumber != location.device ||
+            address.FunctionNumber != location.function) continue;
+        if (deduplicate_luids && (item.LuidLow || item.LuidHigh) &&
+            std::any_of(matches.begin(), matches.end(), [&](const auto& previous) {
+                return previous.LuidLow == item.LuidLow && previous.LuidHigh == item.LuidHigh;
+            })) continue;
+        matches.push_back(item);
+    }
+    return matches;
 }
 
 }  // namespace
@@ -147,43 +249,39 @@ EscapeResult escape_raw(Gpu& gpu, void* packet, std::uint32_t size, const Escape
     Cache& c = current();
     if (!c.capability.complete())
         return unavailable(RmErrorKind::unsupported, true, c.capability.detail);
-    auto enumerate = c.gdi->get<KmtFn>(kEnum2);
     auto query = c.gdi->get<KmtFn>(kQuery);
-    auto close = c.gdi->get<KmtFn>(kClose);
     auto escape = c.gdi->get<KmtFn>(kEscape);
 
-    win::D3DKMT_ADAPTERINFO items[win::kMaxAdapters] = {};
-    win::D3DKMT_ENUMADAPTERS2 adapters{win::kMaxAdapters, items};
-    if (enumerate(&adapters) != 0)
-        return unavailable(RmErrorKind::transient, false, "D3DKMTEnumAdapters2 failed; nothing was closed");
-    std::uint32_t count = adapters.NumAdapters < win::kMaxAdapters ? adapters.NumAdapters : win::kMaxAdapters;
-    struct CloseAll {  // Python's finally: every enumerated handle, escape or not
-        KmtFn close;
-        const win::D3DKMT_ADAPTERINFO* items;
-        std::uint32_t count;
-        ~CloseAll() {
-            for (std::uint32_t i = 0; i < count; ++i) {
-                win::D3DKMT_CLOSEADAPTER request{items[i].hAdapter};
-                close(&request);
-            }
+    OpenedAdapters opened{c.gdi->get<KmtFn>(kClose), {}};
+    std::vector<win::D3DKMT_ADAPTERINFO> matches;
+    if (c.capability.method == AdapterMethod::enum2) {
+        auto enumerate = c.gdi->get<KmtFn>(kEnum2);
+        opened.items.resize(win::kMaxAdapters);
+        win::D3DKMT_ENUMADAPTERS2 adapters{win::kMaxAdapters, opened.items.data()};
+        if (enumerate(&adapters) != 0) {
+            opened.items.clear();  // no returned handles on failure
+            return unavailable(RmErrorKind::transient, false, "D3DKMTEnumAdapters2 failed; nothing was closed");
         }
-    } closer{close, items, count};
-
-    std::vector<std::uint32_t> matches;
-    for (std::uint32_t i = 0; i < count; ++i) {
-        win::D3DKMT_ADAPTERADDRESS address{};
-        win::D3DKMT_QUERYADAPTERINFO request{items[i].hAdapter, win::KMTQAITYPE_ADAPTERADDRESS, &address,
-                                             sizeof address};
-        if (query(&request) == 0 && address.BusNumber == location->bus && address.DeviceNumber == location->device &&
-            address.FunctionNumber == location->function)
-            matches.push_back(items[i].hAdapter);
+        opened.items.resize(std::min(adapters.NumAdapters, win::kMaxAdapters));
+        matches = matching_adapters(opened, query, *location, false);
+    } else {
+        if (c.capability.method == AdapterMethod::gdi_display_name) {
+            open_display_adapters(c, opened);
+            matches = matching_adapters(opened, query, *location, true);
+        }
+        if (matches.empty() && c.device_interfaces) {
+            opened.close_all();
+            const std::string error = open_device_adapters(c, opened);
+            if (!error.empty()) return unavailable(RmErrorKind::transient, false, error);
+            matches = matching_adapters(opened, query, *location, true);
+        }
     }
     if (matches.size() != 1)
         return unavailable(RmErrorKind::transient, false,
                            matches.empty() ? "no adapter at the paired PCI slot " + slot
                                            : std::to_string(matches.size()) + " adapters at the paired PCI slot " + slot);
     win::D3DKMT_ESCAPE request{};
-    request.hAdapter = matches[0];
+    request.hAdapter = matches[0].hAdapter;
     request.hDevice = fields.hDevice;
     request.Type = fields.Type;
     request.Flags = fields.Flags;

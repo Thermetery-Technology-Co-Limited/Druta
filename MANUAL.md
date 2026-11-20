@@ -36,7 +36,8 @@ in-flight operation, it issues no recurring GPU telemetry reads.
 
 ## Firmware clock controls in the native GUI
 
-Open **Daily tuning** in Focused or **Control → Clock offsets** in Classic.
+Druta opens in **Verbose**. Use **Skin** in the menu bar to switch layouts.
+Open **Control → Clock offsets** in Verbose or **Daily tuning** in Focused.
 Druta reads the selected card’s clock table and shows the sliders it supports.
 Choose a **Performance state** to edit that state's entries. The same editor is
 available in **Advanced**, under **Registry / BIOS overrides** in Classic.
@@ -60,8 +61,11 @@ Moving the GPC slider leaves the independent XBAR and SYS targets as set.
 
 The Pascal XBAR and SYS ratio sliders each accept 1–200% of GPC in whole-percent steps.
 They apply across performance states, including states other than the one selected.
-The highest ratio tested on the GTX 1050 Ti was 105%. At that setting, each
-clock ran about 4.4% faster than GPC in P0. You can stage ceilings in
+In a measured GTX 1050 Ti trial at 105%, each clock ran about 4.4% faster
+than GPC in P0. A later trial raised XBAR from 107% to 117% and SYS from 108%
+to 115% together. The display failed to return during driver initialization.
+The slider range does not establish a stable clock for a particular card.
+You can stage ceilings in
 several states and change a ratio in the same draft. To apply or restore, run
 Druta as administrator and enable **Unlock controls**. Choose **Review clock
 changes** to see the state and values for every edit. **Apply and refresh
@@ -69,8 +73,46 @@ selected GPU** closes Druta, restarts the selected GPU and clears its ordinary
 tuning. Druta checks the running image before and after clearing its temporary
 registry records, then reopens the editor with the applied values. You can adjust
 a slider again, enable **Unlock controls**, and review and apply the next change.
-Each Apply carries forward the other values in the session. The next ordinary GPU
-restart clears the session's changes.
+Each Apply carries forward the other values in the session. Once Druta has
+removed the staged records, an ordinary GPU restart clears the running edit.
+
+**Optional recovery boot for Pascal XBAR or SYS ratio changes.** On Windows
+Vista and later, the review offers **Use recovery boot for this Apply**.
+It starts unchecked. **View recovery script** opens the packaged
+`Druta-Recovery-Boot.cmd` in Notepad. To opt in, leave the Apply warning
+open, run that script as administrator from the extracted Druta folder,
+and confirm the GPU and edit shown. Then return to the warning to continue.
+
+The script uses Windows Boot Configuration Data (BCD) to select a copy of
+the current Windows entry for one Safe Mode boot. It keeps the usual boot
+entry as the default and does not rewrite the boot sector or install a
+BootExecute program. Have your account password and, if the system drive
+uses BitLocker, its recovery key available. After a freeze, sign in to Safe
+Mode with the same account and approve recovery. Stay in Safe Mode until
+Druta confirms cleanup, then restart normally. Windows XP Professional x64
+uses the manual procedure below.
+[Windows one-time boot selection](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/bcdedit--bootsequence)
+and [Safe Mode RunOnce behavior](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys).
+
+**If the display stays black after a clock edit**, a separate helper can remove
+the staged records while Windows is responsive. If the machine freezes or
+cannot start normally, sign in to Windows Safe Mode using the account that
+applied the edit. Open an administrator command prompt in the Druta folder:
+
+```bat
+druta-ui.exe --recover-clock-overrides
+```
+
+Use the PCI slot listed for the affected card. For example, for a card at
+`0000:01:00.0`, run:
+
+```bat
+druta-ui.exe --recover-clock-overrides 0000:01:00.0
+```
+
+After recovery confirms the staged records are clear, restart Windows normally.
+The recovery command uses the saved record for that GPU and works without
+loading the NVIDIA driver. It reports conflicts if registry values have changed.
 
 Use **Restore original clocks and refresh GPU** to return to the clocks from
 before the first Apply. Returning every field to its original value with the
@@ -79,6 +121,33 @@ If the GPU has already restarted, **Verify clock override** checks the original
 image and closes the saved session. After an interrupted activation, use
 **Inspect saved override** on the same adapter, then choose Verify or Restore
 according to the reported state.
+
+## Pascal BIOS memory timing
+
+Choose **Timings → BIOS memory timing → Read P0 BIOS timings** in either native
+skin. Keep the selected GPU at P0 with a steady memory clock. Druta shows
+fields whose controller readback matches the selected firmware row. Each row
+lists the current encoded value, its range and its register bits. tCL is
+read-only. Edit one or more values, choose **Review BIOS timing changes**,
+then **Apply timings and refresh selected GPU** to load the batch with one
+driver restart. Druta uses temporary driver records for the override.
+
+If the GPU idles during the restart, return it to the same P0 memory clock and
+choose **Verify P0 timing override**. Druta checks the actual controller words
+as well as the driver-visible image. **Restore original firmware settings and
+refresh GPU** returns to the original firmware image.
+
+On the MSI GTX 1050 Ti (GP107) at P0 and 3504 MHz, the controller confirmed
+individual edits and restoration for tRC, tRFC, tRAS, tRP, tWL, tRCDRD,
+tRCDWR, RPRE, WPRE, CDLR, tWR, W2R_BUS, R2W_BUS, PDEX, PDEN2PDEX, AOND,
+tREFI, tRRD and WRCRC. tCL read 22 throughout. Druta withheld tCCDL and tCCDS
+because their BIOS and controller values differed. These measurements cover
+programming and restoration at that operating point.
+[Measured values for each timing](TECHNICALDOCUMENTATION.md#hardware-verification-on-the-msi-gtx-1050-ti)
+
+An earlier trial on the same 1050 Ti confirmed tFAW at 28 → 29 → 28 cycles,
+bringing the verified total to 20. On the tested RTX 3070 Ti, tFAW stayed at
+20 cycles after the edited image loaded. [tFAW trial records](experiments/firmware-tfaw-20261119.json)
 
 ## Native backend preview
 
