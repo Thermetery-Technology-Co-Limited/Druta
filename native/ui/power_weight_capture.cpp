@@ -11,6 +11,7 @@
 namespace druta::ui {
 namespace {
 using A=VoltagePolicyAvailability;using Bytes=std::vector<uint8_t>;
+constexpr uint32_t kPolicyInfo=0x2080a618u;
 struct IdentityError:VoltageEquationEvidenceError {IdentityError(const std::string& message,A kind=A::invalid):VoltageEquationEvidenceError(message,kind){}};
 [[noreturn]]void fail(const std::string& message,A kind=A::invalid){throw VoltageEquationEvidenceError(message,kind);}
 void require(bool condition,const char* message){if(!condition)fail(message);}
@@ -52,13 +53,31 @@ struct Provider {
  Bytes image(dc_gpu* gpu,const dc_target& target){if(!api.evidence.image)fail("Current ROM getter unavailable",A::unsupported);for(unsigned attempt=0;attempt<3;++attempt){try{auto first=image_once(gpu,target),second=image_once(gpu,target);if(first==second)return second;if(attempt==2)fail("Current ROM changed between read pairs",A::transient);}catch(const IdentityError&){throw;}catch(const VoltageEquationEvidenceError& error){if(error.kind!=A::transient||attempt==2)throw;}}fail("ROM stability unavailable",A::transient);}
  struct Info {PowerRelationshipLayout layout;Bytes bytes;};
  Info info_once(dc_gpu* gpu,const dc_target& target){bound(gpu,target);dc_power_layout native{};native.size=sizeof(native);uint32_t index=0;dc_error error{};error.size=sizeof(error);const auto status=api.abi(gpu,&native,&index,&error);bound(gpu,target);if(status!=DC_OK)api_fail("Power policy INFO layout unavailable",error);
-  require(native.size==sizeof(native)&&(native.has_commands==0||native.has_commands==1),"Power policy layout descriptor malformed");const auto command=native.has_commands?native.commands[0]:0x2080a618u;
-  Info result;result.layout={command,native.sizes[0],native.info_base,native.info_stride};
-  if(!power_relationship_layout_supported(result.layout)){char detail[192];std::snprintf(detail,sizeof(detail),"Relationship INFO command/geometry unqualified: command 0x%08X, size %u, base 0x%X, stride 0x%X",command,native.sizes[0],native.info_base,native.info_stride);fail(detail,A::unsupported);}
-  std::vector<uint32_t> words(result.layout.info_size/sizeof(uint32_t));uint32_t count=0;error={};error.size=sizeof(error);const auto read=api.rm(gpu,command,nullptr,0,0,0,0,words.data(),static_cast<uint32_t>(words.size()),&count,&error);bound(gpu,target);if(read!=DC_OK)api_fail("Relationship INFO read failed",error);require(count==words.size(),"Relationship INFO returned incomplete words");
+  require(native.size==sizeof(native)&&(native.has_commands==0||native.has_commands==1),"Power policy layout descriptor malformed");const auto wire_command=native.has_commands?native.commands[0]:kPolicyInfo;
+  Info result;result.layout={wire_command,native.sizes[0],native.info_base,native.info_stride};
+  if(!power_relationship_layout_supported(result.layout)){char detail[192];std::snprintf(detail,sizeof(detail),"Relationship INFO command/geometry unqualified: command 0x%08X, size %u, base 0x%X, stride 0x%X",wire_command,native.sizes[0],native.info_base,native.info_stride);fail(detail,A::unsupported);}
+  // The ABI expects the canonical command and remaps it to the captured wire family.
+  std::vector<uint32_t> words(result.layout.info_size/sizeof(uint32_t));uint32_t count=0;error={};error.size=sizeof(error);const auto read=api.rm(gpu,kPolicyInfo,nullptr,0,0,0,0,words.data(),static_cast<uint32_t>(words.size()),&count,&error);bound(gpu,target);if(read!=DC_OK)api_fail("Relationship INFO read failed",error);require(count==words.size(),"Relationship INFO returned incomplete words");
   result.bytes.resize(result.layout.info_size);std::memcpy(result.bytes.data(),words.data(),result.bytes.size());const auto decoded=decode_power_relationships(result.layout,result.bytes);require(decoded.available,"Relationship INFO decode unavailable");return result;
  }
- Info info(dc_gpu* gpu,const dc_target& target){if(!api.abi||!api.rm)fail("Relationship INFO interfaces unavailable",A::unsupported);for(unsigned attempt=0;attempt<2;++attempt){try{auto first=info_once(gpu,target),second=info_once(gpu,target);if(first.bytes==second.bytes)return second;fail("Relationship INFO changed between matching reads",A::transient);}catch(const IdentityError&){throw;}catch(const VoltageEquationEvidenceError& error){if(error.kind!=A::transient||attempt)throw;if(api.evidence.target.reset_transport)api.evidence.target.reset_transport(gpu,DC_TRANSPORT_POWER);}}fail("Relationship INFO stability unavailable",A::transient);}
+ Info info(dc_gpu* gpu,const dc_target& target){
+  if(!api.abi||!api.rm)fail("Relationship INFO interfaces unavailable",A::unsupported);
+  for(unsigned attempt=0;attempt<2;++attempt){
+   try{
+    auto first=info_once(gpu,target),second=info_once(gpu,target);
+    const auto& a=first.layout;
+    const auto& b=second.layout;
+    if(a.info_command==b.info_command&&a.info_size==b.info_size&&a.policy_base==b.policy_base&&
+       a.policy_stride==b.policy_stride&&first.bytes==second.bytes)return second;
+    fail("Relationship INFO changed between matching reads",A::transient);
+   }catch(const IdentityError&){throw;}
+   catch(const VoltageEquationEvidenceError& error){
+    if(error.kind!=A::transient||attempt)throw;
+    if(api.evidence.target.reset_transport)api.evidence.target.reset_transport(gpu,DC_TRANSPORT_POWER);
+   }
+  }
+  fail("Relationship INFO stability unavailable",A::transient);
+ }
  VoltageScaffoldWindowsTarget windows(dc_gpu* gpu,const dc_target& target){bound(gpu,target);auto result=api.resolve_windows?api.resolve_windows(opened,target):resolve_voltage_scaffold_windows_target(opened,target);bound(gpu,target);
   if(result.slot!=target.slot)throw IdentityError("Windows relationship target names another adapter");require(!result.instance_id.empty()&&!result.driver_key.empty()&&result.instance_id.find('\0')==std::string::npos&&result.driver_key.find('\0')==std::string::npos,"Windows relationship target malformed");return result;}
  template<class F>void component(A& availability,std::string& message,F&& work){try{work();availability=A::available;}catch(const IdentityError&){throw;}catch(const VoltageEquationEvidenceError& error){availability=error.kind;message=error.what();}catch(const std::exception& error){availability=A::invalid;message=error.what();}}
