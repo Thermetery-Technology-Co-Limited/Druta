@@ -22,7 +22,7 @@ struct PowerRelationshipReport {
 };
 PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout&,const std::vector<uint8_t>& info);
 struct PowerWeightImagePolicy {uint32_t index=0,bios_type=0;std::optional<PowerRelationshipTarget> metadata;bool qualified=false;std::string reason;};
-struct PowerWeightImageRelationship {uint32_t index=0,kind=0,target=0,offset=0;uint16_t weight_raw=0;bool qualified=false;std::string reason;};
+struct PowerWeightImageRelationship {uint32_t index=0,kind=0,target=0,offset=0;std::optional<uint16_t> weight_raw;bool qualified=false;std::string reason;};
 struct PowerWeightImage {
  bool ok=false,relationships_available=false;std::string message,relationship_message;
  uint32_t selector_version=0;uint8_t selector_oem=0;

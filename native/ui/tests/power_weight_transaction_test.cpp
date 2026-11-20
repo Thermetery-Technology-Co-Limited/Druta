@@ -22,19 +22,22 @@ struct TransactionFake {
   a.fresh_verify=[this](const PowerWeightReceipt& r,bool original){++verifies;if(!verify_status.ok||verify_status.reboot_required||verify_status.timed_out||verify_status.cleanup_pending||verify_status.uncertain)return verify_status;const auto derived=derive_weight_receipt(r);const auto checked=verify_power_relationship_weights(derived.plan,weights.current.identity,weights.current.layout,weights.current.info,&weights.current.image,original);return PowerWeightBoundaryResult{checked.ok,false,false,false,false,checked.message};};return a;
  }
 };
-void legacy_transaction_test() {
+void legacy_transaction_test(uint32_t architecture,uint8_t header,uint8_t stride,uint8_t relation_stride) {
  TransactionFake f(true);
  auto& capture=f.weights.current;
+ capture.target.architecture=capture.identity.architecture=architecture;
+ const auto original_value=capture.registry->front();
  auto& rom=capture.image;
  rom.resize(0x1000); // Use the fixture's legacy image, with no metadata directory.
- constexpr size_t table=0x400, target=table+0x2c+3*0x42, relationships=table+0x2c+4*0x42;
+ constexpr size_t table=0x400;
+ const size_t target=table+header+3*stride, relationships=table+header+4*stride;
  weight_u32(rom,0x22c,table);
- rom[table]=0x30;rom[table+1]=0x2c;rom[table+2]=0x42;rom[table+3]=4;rom[table+8]=14;rom[table+9]=6;
+ rom[table]=0x30;rom[table+1]=header;rom[table+2]=stride;rom[table+3]=4;rom[table+8]=relation_stride;rom[table+9]=6;
  rom[target]=4;rom[target+1]=7;
  weight_u32(rom,target+2,1000);weight_u32(rom,target+6,63000);weight_u32(rom,target+10,74000);
  constexpr size_t index=5;
- rom[relationships+index*14]=1;rom[relationships+index*14+1]=3;
- weight_u16(rom,relationships+index*14+2,4096);
+ rom[relationships+index*relation_stride]=1;rom[relationships+index*relation_stride+1]=3;
+ weight_u16(rom,relationships+index*relation_stride+2,4096);
 
  capture.layout={0x20802618,5520,0x3c,0x84};
  auto& info=capture.info;
@@ -53,7 +56,9 @@ void legacy_transaction_test() {
               "Journaled legacy INFO applies through the exact selected weight and fresh verification");
  const auto removed=transaction.run(PowerWeightOperation::remove,*activated.receipt);
  weight_check(removed.ok&&removed.receipt->phase=="removed"&&f.writes==2&&f.restarts==2&&f.verifies==2&&
-              !f.active&&rom==saved.image&&info==saved.info&&capture.registry->size()==1,
+              !f.active&&rom==saved.image&&info==saved.info&&capture.registry->size()==1 &&
+              capture.registry->front().name==original_value.name && capture.registry->front().type==original_value.type &&
+              capture.registry->front().bytes==original_value.bytes,
               "Removing a legacy receipt restores the complete original image, INFO and managed registry");
 }
 void transaction_tests(){for(bool alternate:{false,true}){TransactionFake f(alternate);const auto saved=f.receipt();PowerWeightTransaction transaction(f.api(),reinterpret_cast<dc_gpu*>(1),f.weights.current.adapter);weight_check(f.persists==0&&f.weights.reads==0,"Transaction construction performs no I/O");const auto applied=transaction.run(PowerWeightOperation::apply,saved);if(!applied.ok)std::fprintf(stderr,"Apply: %s\n",applied.message.c_str());weight_check(applied.ok&&!applied.no_change&&f.writes==2&&f.restarts==1&&f.verifies==1&&f.active&&applied.receipt->phase=="active"&&!applied.receipt->uncertain,"Actual receipt/projector and narrow writer activate only after refresh plus complete proof");const auto removed=transaction.run(PowerWeightOperation::remove,*applied.receipt);if(!removed.ok)std::fprintf(stderr,"Remove: %s\n",removed.message.c_str());weight_check(removed.ok&&removed.receipt->restoring&&removed.receipt->phase=="removed"&&f.writes==4&&f.restarts==2&&f.verifies==2&&!f.active&&f.weights.current.image==saved.image&&f.weights.current.info==saved.info&&f.weights.current.registry->size()==1,"Three-way removal restores only owned names and verifies complete original image/INFO");}
@@ -70,4 +75,9 @@ void transaction_tests(){for(bool alternate:{false,true}){TransactionFake f(alte
  {TransactionFake f;auto saved=f.receipt();PowerWeightTransaction transaction(f.api(),nullptr,f.weights.current.adapter);f.weights.current.adapter.uuid[4]='X';auto result=transaction.run(PowerWeightOperation::apply,saved);weight_check(!result.ok&&f.writes==0&&f.persists==0,"Changed live UUID cannot use removal-only fallback during Apply");}
 }
 }
-int main(){transaction_tests();legacy_transaction_test();std::printf("Power weight transaction: %u checks\n",weight_checks);return 0;}
+int main(){transaction_tests();
+ legacy_transaction_test(10,0x2c,0x42,14); // Original alternate-identity 5520-byte control.
+ legacy_transaction_test(6,0x2c,0x42,14);
+ legacy_transaction_test(7,0x2c,0x47,14);
+ legacy_transaction_test(4,0x25,0x2e,10);
+ std::printf("Power weight transaction: %u checks\n",weight_checks);return 0;}

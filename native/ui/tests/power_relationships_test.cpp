@@ -20,7 +20,7 @@ PowerCase power_case(uint8_t header=0x38){PowerCase c;c.image=fixture(true,0x99a
  c.info[0x41d0+1]=9;word(c.info,0x41d0+6,4096);c.info[0x41d0+31*0x24+1]=2;word(c.info,0x41d0+31*0x24+6,6144);
  c.info[0xcc+0xb9]=1;word(c.info,0xcc+0xbc,0);word(c.info,0xcc+0xbe,0);word(c.info,0xcc+0x104+0x34,31);word(c.info,0xcc+3*0x104+0x34,31);word(c.info,0xcc+3*0x104+0x36,31);c.info[0x5000]=0xab;return c;}
 void short_v30_tests() {
- const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},{0x20802618,5520,0x3c,0x84}};
+ const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},{0x20802618,5520,0x3c,0x84},{0x2080a618,20512,0xcc,0x104}};
  const PowerRelationshipIdentity identity{"0000:7b:00.0",5,0x5678,0xbeef0001};
  // Put the table near the end of its owner so a bogus relationship count
  // cannot be mistaken for another table or data beyond the image.
@@ -34,7 +34,7 @@ void short_v30_tests() {
  rom[second]=0x15;rom[second+1]=7;
  dword(rom,second+2,20000);dword(rom,second+6,350780);dword(rom,second+10,390000);
  rom[relation]=1;rom[relation+1]=1;word(rom,relation+2,4096);
- rom[relation+14]=2;rom[relation+15]=1;
+ rom[relation+14]=2;rom[relation+15]=1;word(rom,relation+16,0xbeef);
 
  const auto parsed=inspect_power_weight_image(rom);
  check(parsed.ok&&parsed.relationships_available&&parsed.policies.size()==2&&parsed.relationships.size()==2,
@@ -42,29 +42,36 @@ void short_v30_tests() {
  if(!parsed.ok||!parsed.relationships_available)return;
  check(parsed.policies[0].bios_type==1&&parsed.policies[1].bios_type==5&&parsed.relationships[0].qualified,
        "The next record's class bits do not alter the current policy");
+ check(parsed.relationships[1].kind==2 && !parsed.relationships[1].weight_raw && !parsed.relationships[1].qualified,
+       "Opaque firmware relationship payloads have no decoded weight");
  for(const auto& layout:layouts) {
   const bool legacy=layout.info_command==0x20802618;
   const size_t target_info=layout.policy_base+layout.policy_stride;
-  const size_t relation_info=legacy?0x10c0:0x3fd0;
+  const bool compact=layout.info_size==20000;
+  const size_t relation_info=legacy?0x10c0:(compact?0x3fd0:0x41d0);
   const size_t weight_offset=legacy?4:6;
   std::vector<uint8_t> info(layout.info_size);
   dword(info,4,3);
   dword(info,relation_info-4,3);
   info[layout.policy_base]=0x30;
-  if(!legacy)info[layout.policy_base+0xb1]=1;
+  if(!legacy)info[layout.policy_base+(compact?0xb1:0xb9)]=1;
   info[target_info]=0x30;info[target_info+4]=4;info[target_info+5]=7;info[target_info+6]=1;
   dword(info,target_info+8,20000);dword(info,target_info+12,350780);dword(info,target_info+16,390000);
   info[relation_info+1]=1;word(info,relation_info+weight_offset,4096);
   info[relation_info+0x24]=1;info[relation_info+0x24+1]=1;
 
   const auto report=decode_power_relationships(layout,info);
-  check(report.available&&report.relationships.size()==2,"Both INFO layouts decode the short V30 weight and target");
+  check(report.available&&report.relationships.size()==2,"Each qualified INFO layout decodes the short V30 weight and target");
   if(!legacy)check(report.source_references.size()==1&&
-        report.source_references.front().relationships==std::vector<uint32_t>{0},"Compact INFO also decodes the source range");
+        report.source_references.front().relationships==std::vector<uint32_t>{0},"A618 INFO also decodes the source range");
   const std::vector<PowerWeightRequest> requests={{0,4097.0/4096,4096}};
   const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
   check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==relation+2,
         "Matching V30 weight and target qualify for override Preview");
+  auto turing=identity;
+  turing.architecture=6;
+  check(plan_power_relationship_weights(rom,turing,layout,info,requests).ok,
+        "Turing 0x42 rows qualify with matching A618 and RM26 packets");
   if(plan.ok) {
    auto expected_rom=rom,expected_info=info;
    word(expected_rom,relation+2,4097);word(expected_info,relation_info+weight_offset,4097);
@@ -140,6 +147,20 @@ void legacy_info_tests() {
  check(!plan.ok&&plan.patches.empty()&&plan.message.find("write layout is unqualified")!=std::string::npos,
        "Legacy INFO refuses a V40 ROM even when its relationship table is valid");
 }
+// A sparse packet with the same selected metadata on a different, valid wire layout.
+std::vector<uint8_t> single_target_packet(const PowerRelationshipLayout& layout, size_t relation_base,
+                                           uint32_t index, uint8_t target, const uint8_t* policy,
+                                           uint16_t weight) {
+ std::vector<uint8_t> packet(layout.info_size);
+ dword(packet,4,1u<<target);
+ dword(packet,relation_base-4,1u<<index);
+ std::copy_n(policy,20,packet.begin()+layout.policy_base+layout.policy_stride*target);
+ const auto row=relation_base+0x24*index;
+ packet[row+1]=target;
+ word(packet,row+(layout.info_command==0x20802618?4:6),weight);
+ return packet;
+}
+
 void rm26_tests() {
  const PowerRelationshipLayout layout{0x20802618,5520,0x3c,0x84};
  struct PolicyClass { uint8_t bios, runtime; };
@@ -224,14 +245,27 @@ void rm26_tests() {
   check(!plan_power_relationship_weights(rom,wrong_identity,layout,info,requests).ok,
         "The exact architecture and ROM/INFO combination is required for a write");
   const auto target=layout.policy_base+layout.policy_stride*(policy_count-1);
+  for (const auto& a618 : {PowerRelationshipLayout{},PowerRelationshipLayout{0x2080a618,20000,0xcc,0xfc}}) {
+   const auto packet=single_target_packet(a618,a618.info_size==20000?0x3fd0:0x41d0,selected,
+                                          policy_count-1,info.data()+target,4096);
+   const auto decoded=decode_power_relationships(a618,packet);
+   check(decoded.available && decoded.relationships.size()==1 && decoded.relationships[0].target_metadata &&
+         decoded.relationships[0].weight_raw==4096,"Alternate A618 wire fixture decodes independently");
+   const auto mismatch=plan_power_relationship_weights(rom,identity,a618,packet,requests);
+   check(!mismatch.ok && mismatch.patches.empty() && mismatch.message.find("write layout is unqualified")!=std::string::npos,
+         "Matching weight and target metadata cannot qualify an A618 packet for RM26-only firmware");
+  }
   auto wrong_info=info;
   wrong_info[target]=0x40;
   check(!plan_power_relationship_weights(rom,identity,layout,wrong_info,requests).ok,
         "A non-V30 RM26 target row cannot qualify a weight");
-  wrong_info=info;
-  wrong_info[target+12]^=1;
-  check(!plan_power_relationship_weights(rom,identity,layout,wrong_info,requests).ok,
-        "An exact RM26 target bounds match is required");
+  // Change one decoded field at a time, keeping the other target metadata valid.
+  for (const auto field : {4,5,6,8,12,16}) {
+   wrong_info=info;
+   wrong_info[target+field]^=1;
+   check(!plan_power_relationship_weights(rom,identity,layout,wrong_info,requests).ok,
+         "RM26 requires agreement on type, channel, unit and each of the three limits");
+  }
   auto wrong_rom=rom;
   const auto target_rom=table+header_size+policy_stride*(policy_count-1);
   wrong_rom[target_rom]^=2;
@@ -243,6 +277,57 @@ void rm26_tests() {
         "The exact V30 relationship row stride is required");
  }
 }
+void read_only_table_tests() {
+ for (const auto& shape : {std::pair<uint8_t,uint8_t>{0x32,0x53},{0x34,0x5b},{0x2c,0x4b}}) {
+  constexpr size_t table=0x400;
+  auto rom=fixture();
+  dword(rom,0x22c,table);
+  const auto [header,stride]=shape;
+  rom[table]=0x30; rom[table+1]=header; rom[table+2]=stride; rom[table+3]=2;
+  rom[table+8]=14; rom[table+9]=1;
+  rom[table+header]=1;
+  rom[table+header+stride]=4; // Known on some V30 tables only.
+  const auto inspection=inspect_power_weight_image(rom);
+  check(inspection.ok && inspection.policies.size()==2 && inspection.policies[0].metadata &&
+        !inspection.policies[1].metadata && !inspection.relationships_available,
+        "Legacy policy-only tables retain their own translations and expose no weight rows");
+ }
+ auto c=power_case();
+ constexpr size_t target=object_vfe+0x38+9*0x66;
+ c.image[target]=4;
+ c.info[0xcc+9*0x104+4]=27;
+ const auto inspection=inspect_power_weight_image(c.image);
+ check(inspection.relationships_available && inspection.policies[9].metadata &&
+       inspection.policies[9].metadata->type==27 && !inspection.relationships[0].qualified &&
+       !plan_power_relationship_weights(c.image,c.identity,{},c.info,{{0,1.25,4096}}).ok,
+       "A translated inspection-only V40 class stays read-only even with matching INFO");
+}
+
+void modern_pairing_tests() {
+ const auto c=power_case();
+ for (const auto& layout : {PowerRelationshipLayout{0x2080a618,20000,0xcc,0xfc},
+                            PowerRelationshipLayout{0x20802618,5520,0x3c,0x84}}) {
+  const bool compact=layout.info_size==20000;
+  const size_t base=compact?0x3fd0:0x10c0;
+  auto packet=single_target_packet(layout,base,0,9,c.info.data()+0xcc+9*0x104,4096);
+  packet[layout.policy_base+9*layout.policy_stride]=0x30; // Understood on both wires.
+  const auto decoded=decode_power_relationships(layout,packet);
+  check(decoded.available && decoded.relationships.size()==1 && decoded.relationships[0].target_metadata,
+        "V40 pairing fixture has an independently valid target");
+  const auto plan=plan_power_relationship_weights(c.image,c.identity,layout,packet,{{0,1.25,4096}});
+  check(plan.ok==compact,"V40 weights qualify on compact A618 and refuse matched RM26");
+ }
+ auto rom=c.image;
+ rom[0x10b]^=1;
+ check(!inspect_power_weight_image(rom).ok,"Power inspection enforces the BIT checksum");
+ rom=c.image;
+ dword(rom,0x2210+120,0x14);
+ check(!inspect_power_weight_image(rom).ok,"Power inspection requires the power object as owner");
+ rom=c.image;
+ word(rom,0x1086,0xabcd);
+ check(!inspect_power_weight_image(rom).ok,"Power inspection validates the adjacent EFI identity");
+}
+
 void power_tests(){PowerRelationshipLayout layout;
  for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}){auto c=power_case(header);const auto original=c.image,info=c.info;const auto image=inspect_power_weight_image(c.image);const auto report=decode_power_relationships(layout,c.info);
   check(image.ok&&image.relationships_available&&image.header_size==header&&image.selector_version==0x12345678&&image.selector_oem==0x9a,"Both released V40 headers and current ROM ownership/selector parsed");
@@ -277,4 +362,4 @@ void power_tests(){PowerRelationshipLayout layout;
  c.identity.architecture=10;c.identity.device_id=0x1234;c.identity.subsystem_id=0x76543210;c.identity.slot="0000:7b:01.1";for(const auto at:{0x86u,0x1086u,0x2706u,0x3086u})word(c.image,at,0x1234);dword(c.image,0x220c,0x1234);check(plan_power_relationship_weights(c.image,c.identity,layout,c.info,{{0,1,{}}}).ok,"Alternate current architecture/identity not selected by board or driver lists");
 }
 }
-int main(){power_tests();short_v30_tests();legacy_info_tests();rm26_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}
+int main(){power_tests();short_v30_tests();legacy_info_tests();rm26_tests();read_only_table_tests();modern_pairing_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}
