@@ -150,12 +150,13 @@ CpTransportResult ClientPowerController::transport() {
         return out;
     }
     if (key == kRm26Key || key == kRm26ExtendedKey) {
-        if (!contains(cp_rm26_architectures(), identity.target->architecture)) {
+        const bool extended = key == kRm26ExtendedKey;
+        if (!contains(cp_rm26_architectures(extended), identity.target->architecture)) {
             out.error = failure(RmErrorKind::unsupported,
                                 "This client-power RM26 ABI is not qualified for this GPU generation");
             return out;
         }
-        state_.rm26_extended = key == kRm26ExtendedKey;
+        state_.rm26_extended = extended;
         state_.sizes = state_.rm26_extended ? CpSizeGroup::rm26_extended : CpSizeGroup::rm26;
         state_.rm26 = state_.rm26_records = true;
     } else {

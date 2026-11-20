@@ -55,12 +55,10 @@ constexpr const CpSizes* kGroups[kCpSizeGroupCount] = {
 // below, never by a device, board or driver version.
 //   4 Pascal, 6 Turing, 7 Ampere
 constexpr std::uint32_t kLegacyGroupArchitectures[] = {4, 6, 7};
-// The same question for the RM26 packet family, kept as a separate list
-// because it rests on separate evidence: a generation qualified against one
-// packet family is not thereby qualified against the other, and merging the
-// two would silently claim Ampere on RM26, which nothing here has tested.
-//   4 Pascal, 6 Turing
+// Pascal and Turing are qualified on both RM26 layouts. Ampere is qualified
+// on the extended layout, with a matching v30 role and CONTROL readback.
 constexpr std::uint32_t kRm26Architectures[] = {4, 6};
+constexpr std::uint32_t kRm26ExtendedArchitectures[] = {4, 6, 7};
 // RM statuses that answer "this parameter block is not the size this driver's
 // structure has". Both have been observed as the ONLY reply a given driver
 // gives to every wrong size while the right one succeeds: 0x1F across the
@@ -258,7 +256,9 @@ CpU32List cp_size_refusals() { return {kSizeRefusals, sizeof(kSizeRefusals) / si
 CpU32List cp_legacy_group_architectures() {
     return {kLegacyGroupArchitectures, sizeof(kLegacyGroupArchitectures) / sizeof(kLegacyGroupArchitectures[0])};
 }
-CpU32List cp_rm26_architectures() {
+CpU32List cp_rm26_architectures(bool extended) {
+    if (extended)
+        return {kRm26ExtendedArchitectures, sizeof(kRm26ExtendedArchitectures) / sizeof(kRm26ExtendedArchitectures[0])};
     return {kRm26Architectures, sizeof(kRm26Architectures) / sizeof(kRm26Architectures[0])};
 }
 

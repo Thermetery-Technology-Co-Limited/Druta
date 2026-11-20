@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_actions.h"
+#include "app_version.h"
 #include "ui_view.h"
 #include "session.h"
 #include "classic_layout.h"
@@ -415,7 +416,7 @@ void draw_app_actions_windows(ViewState& state) {
     if(a.about_open) {
         ImGui::SetNextWindowSize({650,360},ImGuiCond_FirstUseEver);
         if(ImGui::Begin("About Druta###druta_about",&a.about_open,ImGuiWindowFlags_NoSavedSettings)) {
-            ImGui::TextUnformatted("Thermetery Druta 1.9.1 — native frontend");
+            ImGui::TextUnformatted("Thermetery Druta " DRUTA_APP_VERSION " — native frontend");
             ImGui::TextUnformatted("Copyright (C) 2026 Thermetery Technology Co Limited");
             ImGui::TextWrapped("GNU General Public License, version 3 or later. See Licences for the complete bundled COPYING text and third-party notices.");
             ImGui::Text("Dear ImGui %s / ImPlot %s / nlohmann JSON",IMGUI_VERSION,IMPLOT_VERSION);

@@ -84,7 +84,7 @@ DC_API dc_status DC_CALL dc_cp_constants_get(dc_cp_constants* out) {
     out->missing = be::kCpMissing;
     put_list(be::cp_legacy_group_architectures(), &out->legacy_group_architecture_count,
              out->legacy_group_architectures);
-    put_list(be::cp_rm26_architectures(), &out->rm26_architecture_count, out->rm26_architectures);
+    put_list(be::cp_rm26_architectures(false), &out->rm26_architecture_count, out->rm26_architectures);
     for (std::size_t i = 0; i < DC_CP_STATE_KEY_COUNT; ++i) DC_COPY(out->state_keys[i], be::kCpStateKeys[i]);
     return DC_OK;
 }

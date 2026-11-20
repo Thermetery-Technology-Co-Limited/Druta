@@ -4,6 +4,7 @@
 // with the UI/core include paths.
 // No Session implementation, GPU backend, native window, or graphics device is used.
 #include "../ui_view.h"
+#include "../app_version.h"
 #include "../session.h"
 #include "../i2c_view.h"
 #include "imgui.h"
@@ -537,8 +538,8 @@ void original_classic_layout_and_daily_companions() {
     // measures its automatic height. Inspect the settled production frame.
     for (int n = 0; n < 4; ++n) frame(state, 1501, 1125, false);
     auto text = frame(state, 1501, 1125);
-    check(contains(text, "Thermetery Druta 1.9.1") && contains(text, "card") && contains(text, "driver") && contains(text, "vbios"),
-        "Classic restores the original version/card metadata header");
+    check(contains(text, "Thermetery Druta " DRUTA_APP_VERSION) && contains(text, "card") && contains(text, "driver") && contains(text, "vbios"),
+        "Classic shows the current version and card metadata");
     check(contains(text, "Clock offsets") && contains(text, "Limits") && contains(text, "Rails")
         && contains(text, "Timings  (needs nvtune)") && !contains(text, "WORKSPACE"),
         "Classic has original Control grouping and Timings tab rather than the modern workspace sidebar");

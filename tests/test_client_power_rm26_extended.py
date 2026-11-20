@@ -390,7 +390,7 @@ def test_modern_controller_cannot_change_to_extended_geometry():
 
 
 @pytest.mark.parametrize("architecture", [a for a in (3, 5, 7, 8, 9, 10)
-                                          if a not in cp.RM26_ARCHITECTURES])
+                                          if a not in cp.RM26_EXTENDED_ARCHITECTURES])
 def test_extended_geometry_is_a_capability_not_a_driver_allowlist(architecture):
     gpu = ExtendedRm26Gpu()
     gpu.architecture = architecture
@@ -399,13 +399,8 @@ def test_extended_geometry_is_a_capability_not_a_driver_allowlist(architecture):
     assert caught.value.kind == "unsupported" and not gpu.calls
 
 
-@pytest.mark.parametrize("architecture", cp.RM26_ARCHITECTURES)
+@pytest.mark.parametrize("architecture", (4, 6, 7))
 def test_every_qualified_generation_reads_and_restores_on_this_geometry(architecture):
-    """Qualifying a generation on the RM26 family is a hardware result.
-
-    Pascal joins Turing here on driver 472.12 evidence; the packet sizes are
-    the ones this ABI already used, so nothing but the gate changed.
-    """
     gpu = ExtendedRm26Gpu()
     gpu.architecture = architecture
     controller = cp.ClientPowerController(gpu)

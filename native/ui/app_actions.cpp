@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_actions.h"
+#include "app_version.h"
 #include "session.h"
 #include "monitor_model.h"
 #include "clock_monitor_model.h"
@@ -78,7 +79,7 @@ bool second_window_launchable(const AppTarget& t,const SessionSnapshot& s,std::s
 DeviceReport selected_device_report(const SessionSnapshot& s) {
     DeviceReport report; report.target=app_target(s); const auto& d=s.data;const auto& id=d.identity;
     std::ostringstream out;out << std::setprecision(12);
-    out << "Druta 1.9.1 native frontend — selected-device report\n"
+    out << "Druta " DRUTA_APP_VERSION " native frontend — selected-device report\n"
         << "Captured snapshot generation " << s.generation << ", revision " << s.revision << ", completed reads " << s.completed_reads << "\n"
         << "Selected slot: " << (s.selected_slot.empty()?"unavailable":s.selected_slot) << "\nIdentity slot: " << known(id.slot)
         << "\nUUID: " << known(id.uuid) << "\nDevice: " << known(id.name) << "\nDriver: " << known(id.driver)

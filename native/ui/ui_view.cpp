@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui_view.h"
+#include "app_version.h"
 #include "perf_diagnostics_view.h"
 #include "power_arbitration_view.h"
 #include "session.h"
@@ -2792,7 +2793,7 @@ void classic_header(ViewState& state) {
     // table, card identity on the left and a fixed recovery column sized to
     // the panic label plus 28 px on the right. The identity row stacks when
     // the left column cannot hold title, "card" and a 460 px selector.
-    const char* title_text = "Thermetery Druta 1.9.1";
+    constexpr char title_text[] = "Thermetery Druta " DRUTA_APP_VERSION;
     ImGui::PushFont(classic_fonts.heading, 26.0f);
     const float title_width = ImGui::CalcTextSize(title_text).x;
     ImGui::PopFont();

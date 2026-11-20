@@ -2,6 +2,10 @@
 
 **Native C++ build.** See [HANDOFF.md](HANDOFF.md) for Windows builds and validation.
 
+**Version 1.9.3** is the current native prerelease. It supersedes 1.9.2 and restores
+the extended XOC board-power slider on Ampere cards that report the validated
+extended RM26 layout. See the [1.9.3 release notes](releases/RELEASE-NOTES-1.9.3.md).
+
 **Version 1.9.1** — latest stable release, [release notes](releases/RELEASE-NOTES-1.9.1.md).
 Supersedes 1.8.1 and the 1.9 prereleases. Adds registry/BIOS overrides with
 durable Undo, session-only live voltage and power-saving controls, extended

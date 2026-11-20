@@ -57,7 +57,7 @@ struct CpU32List {
 };
 CpU32List cp_size_refusals();
 CpU32List cp_legacy_group_architectures();
-CpU32List cp_rm26_architectures();
+CpU32List cp_rm26_architectures(bool extended);
 
 inline constexpr std::uint32_t kCpInfoBase = 0x24, kCpInfoStride = 0x24, kCpControlBase = 0x28,
                                kCpControlStride = 0xC, kCpCapacity = 64;

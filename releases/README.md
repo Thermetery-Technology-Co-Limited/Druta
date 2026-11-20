@@ -3,6 +3,7 @@
 Notes are listed newest first. Historical prerelease and unpublished-build notes
 remain available with their original scope and validation claims.
 
+- [1.9.3](RELEASE-NOTES-1.9.3.md) — native prerelease
 - [1.9.1](RELEASE-NOTES-1.9.1.md)
 - [1.9.08](RELEASE-NOTES-1.9.08.md)
 - [1.9.07](RELEASE-NOTES-1.9.07.md)

@@ -53,7 +53,7 @@ typedef struct dc_cp_constants {
     uint32_t role, client, missing;
     uint32_t legacy_group_architecture_count;
     uint32_t legacy_group_architectures[DC_CP_LIST_MAX];
-    uint32_t rm26_architecture_count;
+    uint32_t rm26_architecture_count; /* architectures qualified on both RM26 layouts */
     uint32_t rm26_architectures[DC_CP_LIST_MAX];
     char state_keys[DC_CP_STATE_KEY_COUNT][DC_CP_STATE_KEY_CHARS]; /* _STATE_KEYS */
 } dc_cp_constants;

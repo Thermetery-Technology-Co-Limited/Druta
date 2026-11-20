@@ -615,9 +615,11 @@ class TransportTests(ParityCase):
         self.assertEqual(len(calls), 6)  # the first exchange's escape only
         self.assertEqual(state, keyed())
 
-    def test_rm26_keys_on_pascal_and_turing(self):
-        for arch in (4, 6):
-            for h, group, extended in ((RM26, "RM26_SIZES", False), (RM26_EXTENDED, "RM26_EXTENDED_SIZES", True)):
+    def test_supported_rm26_keys(self):
+        for h, group, extended, architectures in (
+                (RM26, "RM26_SIZES", False, (4, 6)),
+                (RM26_EXTENDED, "RM26_EXTENDED_SIZES", True, (4, 6, 7))):
+            for arch in architectures:
                 with self.subTest(arch=arch, extended=extended):
                     sizes = getattr(cp, group)
                     response = payload_of(sizes[cp.INFO], 0x11)
@@ -655,13 +657,11 @@ class TransportTests(ParityCase):
         self.assertEqual(calls, [])
         self.assertEqual(state, keyed((P2612, 2524, 2456), sizes="RM26_SIZES", rm26=True, rm26_records=True))
 
-    def test_rm26_on_ampere_is_unsupported(self):
-        for h in (RM26, RM26_EXTENDED):
-            with self.subTest(packet_bytes=h[2]):
-                result, _, state, _ = self.both(Rig(arch=7), transport_once(h))
-                self.assertEqual(result, ("ClientPowerError", "unsupported",
-                                          "This client-power RM26 ABI is not qualified for this GPU generation", None))
-                self.assertEqual(state, FRESH)
+    def test_short_rm26_on_ampere_is_unsupported(self):
+        result, calls, state, _ = self.both(Rig(arch=7), transport_once(RM26))
+        self.assertEqual(result, ("ClientPowerError", "unsupported",
+                                  "This client-power RM26 ABI is not qualified for this GPU generation", None))
+        self.assertEqual((calls, state), ([], FRESH))
 
     def test_other_26xx_geometry_is_an_unknown_family(self):
         result, _, state, _ = self.both(Rig(arch=6), transport_once(header(command=P2612)))
@@ -715,8 +715,8 @@ class TransportTests(ParityCase):
         fresh, *_ = self.both(Rig(arch=4), action)
         self.assertEqual(fresh, FRESH)
 
-    def test_rm26_is_refused_beyond_pascal_and_turing(self):
-        for arch in (5, 7, 8, 9, 10):
+    def test_rm26_is_refused_on_unqualified_generations(self):
+        for arch in (5, 8, 9, 10):
             for h in (RM26, RM26_EXTENDED):
                 with self.subTest(arch=arch, packet_bytes=h[2]):
                     result, _, state, _ = self.both(Rig(arch=arch), transport_once(h))

@@ -409,12 +409,14 @@ class HappyPathTests(SetCase):
                 self.check(rig_of(factory), 551000, expected)
 
     def test_rm26_and_rm26_extended(self):
-        for factory, expected in (
-                (Rm26Gpu, dict(STATE, sizes="RM26_SIZES", rm26=True, rm26_records=True, transport_key=RM26_KEY)),
-                (ExtendedRm26Gpu, dict(STATE, sizes="RM26_EXTENDED_SIZES", rm26=True, rm26_records=True,
-                                       rm26_extended=True, transport_key=RM26_EXTENDED_KEY))):
-            with self.subTest(expected["sizes"]):
-                got, _ = self.check(rig_of(factory), 1999000, expected)
+        short = dict(STATE, sizes="RM26_SIZES", rm26=True, rm26_records=True, transport_key=RM26_KEY)
+        extended = dict(STATE, sizes="RM26_EXTENDED_SIZES", rm26=True, rm26_records=True,
+                        rm26_extended=True, transport_key=RM26_EXTENDED_KEY)
+        for factory, arch, expected in ((Rm26Gpu, 6, short), (ExtendedRm26Gpu, 6, extended),
+                                        (ExtendedRm26Gpu, 7, extended)):
+            with self.subTest(arch=arch, sizes=expected["sizes"]):
+                got, _ = self.check(rig_of(factory, arch=arch), 1999000, expected)
+                self.assertEqual(got["after"]["identity"]["architecture"], arch)
                 self.assertEqual(got["after"]["binding"]["layout"], "rm26")
 
     def test_modern_v30_accepts_derived_peer_votes(self):

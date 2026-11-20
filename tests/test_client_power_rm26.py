@@ -480,11 +480,9 @@ def test_every_qualified_generation_reads_on_the_short_geometry(architecture):
     assert "native_layout" not in before["binding"]
 
 
-def test_the_two_generation_lists_stay_separate_evidence():
-    """Merging them would claim Ampere on RM26, which nothing has tested."""
+def test_short_rm26_keeps_its_own_generation_qualification():
     assert cp.RM26_ARCHITECTURES == (4, 6)
-    assert cp.LEGACY_GROUP_ARCHITECTURES == (4, 6, 7)
-    assert set(cp.RM26_ARCHITECTURES) < set(cp.LEGACY_GROUP_ARCHITECTURES)
+    assert cp.RM26_EXTENDED_ARCHITECTURES == (4, 6, 7)
 
 
 @pytest.mark.parametrize("defect", ["envelope", "header_length", "fields", "field_value", "unknown_geometry"])
