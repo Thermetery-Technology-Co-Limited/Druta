@@ -83,7 +83,7 @@ std::string request_text(const ControlState& c) {
 void row(uint64_t key, const char* label, const ControlState& c, const char* stock_label,
     Command action, const SessionSnapshot& snapshot, bool unlocked, bool verbose,
     AdvancedViewState& state, std::vector<Command>& commands, const std::string& binding, bool keep_slider = false, bool gate = true, bool xoc_gate = false, const PolicyCurrentDisplay* observed = nullptr,
-    const LiveCell* live = nullptr, const char* input_format = "%.9g", const ImVec4* label_tone = nullptr, bool soft_gate = false,
+    const LiveCell* live = nullptr, const ImVec4* label_tone = nullptr, bool soft_gate = false,
     const std::function<void()>& label_cell = {}, const std::function<std::optional<ImVec4>(double)>& input_tone = {}) {
     auto& d = state.drafts[key];
     const auto current_binding = binding.empty() && (c.availability == Availability::transient || c.availability == Availability::unknown)
@@ -125,13 +125,7 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     ImGui::BeginDisabled(!gate && !soft_gate);
     if (slider) {
         ImGui::SetNextItemWidth(verbose || stacked ? -1 : width - u(92) - ImGui::GetStyle().ItemSpacing.x);
-        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &d.value, &*c.low, &*c.high, verbose ? " " : "%.6g", ImGuiSliderFlags_NoInput)) {
-            const double step = keep_slider ? c.step.value_or(0.0)
-                : std::max(c.step.value_or(1.0), c.unit == "mV" || c.unit == "MHz" ? 1.0 : 0.001);
-            if (std::isfinite(step) && step > 0) {
-                const double origin = keep_slider ? *c.low : 0.0;
-                d.value = std::max(*c.low, std::min(*c.high, origin + std::floor((d.value - origin) / step + 0.5) * step));
-            }
+        if (whole_number_slider("##slider", d.value, *c.low, *c.high, verbose ? " " : "%lld", ImGuiSliderFlags_NoInput)) {
             d.dirty = true; d.initialized = true;
         }
         flash_gate(); editing = ImGui::IsItemActive(); if (!verbose && !stacked) ImGui::SameLine();
@@ -140,7 +134,7 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     ImGui::SetNextItemWidth(verbose || stacked ? -1 : slider ? u(92) : -1);
     const auto tone = input_tone ? input_tone(d.value) : std::nullopt;
     if (tone) ImGui::PushStyleColor(ImGuiCol_Text, *tone);
-    if (ImGui::InputDouble("##value", &d.value, 0, 0, input_format)) { d.dirty = true; d.initialized = true; }
+    if (whole_number_input("##value", d.value)) { d.dirty = true; d.initialized = true; }
     if (tone) ImGui::PopStyleColor();
     flash_gate(); d.editing = editing || ImGui::IsItemActive();
     ImGui::EndDisabled();
@@ -245,7 +239,7 @@ void rail_row(const RailControl& r, const SessionSnapshot& s, bool unlocked, boo
     // Python: rail-1 rows in WARN; on a writable block the widgets stay live
     // with Rail limits unticked and only the Apply is refused.
     row(3000 + r.id.rail * 4 + r.id.field, name.c_str(), shown, "Initial", cmd, s, unlocked, classic, state, commands, r.binding, true, s.data.rail_mode_known && s.data.rail_mode_enabled,
-        false, nullptr, &live, "%.9g", classic && r.id.rail == 1 ? &classic_warn : nullptr,
+        false, nullptr, &live, classic && r.id.rail == 1 ? &classic_warn : nullptr,
         classic && s.data.rail_writable_known && s.data.rail_writable);
     const bool linking = classic && r.id.field <= 1 && rail_link_active(s, state);
     const RailControl* partner = linking ? rail_link_partner(s, r) : nullptr;
@@ -706,7 +700,7 @@ void draw_clock_domain_controls(const SessionSnapshot& s, bool unlocked, bool cl
         const bool xoc_required = c.id.domain == 2;
         const auto live = clock_domain_live(s, c);
         row(1000 + c.id.domain, label.text.c_str(), c.state, "Stock", cmd, s, unlocked, classic, state, commands, c.binding, false,
-            !xoc_required || (s.data.xoc_known && s.data.xoc_enabled), xoc_required, nullptr, &live, "%.9g", &tone);
+            !xoc_required || (s.data.xoc_known && s.data.xoc_enabled), xoc_required, nullptr, &live, &tone);
     }
     if (!in_open_table) ImGui::EndTable();
 }
@@ -727,11 +721,11 @@ void draw_core_current_limit(const SessionSnapshot& s, bool unlocked, bool class
     if (!in_open_table && !table("daily-core-current", classic)) return;
     Command cmd; cmd.power_policy = selected->id;
     const auto name = classic ? "Core current limit (" + selected->state.unit + ")" : "NVVDD current limit";
-    // Classic follows Python's current-limit row: "Stock", a %.3f input and the
-    // live current over its effective ceiling.
+    // Classic follows Python's current-limit row with Stock and the live
+    // current over its effective ceiling. All editable requests are integers.
     const auto live = core_current_live(*selected);
     row(2000 + selected->id, name.c_str(), selected->state, classic ? "Stock" : "Default", cmd, s, unlocked, classic, state, commands, selected->binding,
-        false, true, false, nullptr, classic ? &live : nullptr, classic ? "%.3f" : "%.9g");
+        false, true, false, nullptr, classic ? &live : nullptr);
     if (!in_open_table) ImGui::EndTable();
 }
 
@@ -761,7 +755,7 @@ void draw_daily_rail_controls(const SessionSnapshot& s, bool unlocked, bool clas
         const std::string label = !classic ? c.label : msvdd ? "MSVDD requested offset (mV)" : "NVVDD offset (mV)";
         row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, label.c_str(), c.state,
             msvdd ? "Zero" : "Stock", cmd, s, unlocked, classic, state, commands, c.binding, false,
-            !msvdd || (s.data.xoc_known && s.data.xoc_enabled), msvdd, nullptr, &live, "%.9g", classic && msvdd ? &classic_warn : nullptr);
+            !msvdd || (s.data.xoc_known && s.data.xoc_enabled), msvdd, nullptr, &live, classic && msvdd ? &classic_warn : nullptr);
     }
     ImGui::EndTable();
     if (s.data.rail_controls.empty()) ImGui::TextDisabled("Rail-limit requests unavailable");
@@ -978,7 +972,7 @@ PowerPolicySectionOutput draw_power_policy_controls(const SessionSnapshot& s, bo
             };
             Command cmd; cmd.power_policy = p.id;
             row(2000 + p.id, p.label.c_str(), p.state, "Stock", cmd, s, unlocked, true, state, commands, p.binding, false, true, false,
-                nullptr, &live, "%.3f", nullptr, false, note_cell, staged_tone);
+                nullptr, &live, nullptr, false, note_cell, staged_tone);
             ImGui::PopID();
         }
         ImGui::EndTable();

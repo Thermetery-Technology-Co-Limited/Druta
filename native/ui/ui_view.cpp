@@ -236,15 +236,14 @@ void draft_row(const char* name, const char* unit, float& value, float lo, float
     const bool show_slider = available > u(205);
     if (show_slider) {
         ImGui::SetNextItemWidth(available - entry - ImGui::GetStyle().ItemSpacing.x);
-        ImGui::SliderFloat("##slider", &value, lo, hi, "%.0f", ImGuiSliderFlags_NoInput);
-        if (ImGui::IsItemEdited()) value = std::round(value);
+        double integer = value;
+        if (whole_number_slider("##slider", integer, lo, hi, " ", ImGuiSliderFlags_NoInput)) value = static_cast<float>(integer);
         ImGui::SameLine();
     }
     ImGui::SetNextItemWidth(show_slider ? entry : available);
-    float edited = value;
-    if (ImGui::InputFloat("##value", &edited, 0.0f, 0.0f, "%.9g") && std::isfinite(edited))
-        value = edited;
-    hint("Type a precise draft value. Slider bounds are sample values for this preview.");
+    double edited = value;
+    if (whole_number_input("##value", edited)) value = static_cast<float>(edited);
+    hint("Type a whole-number draft value. Slider bounds are sample values for this preview.");
     ImGui::TableNextColumn();
     ImGui::AlignTextToFramePadding();
     ImGui::TextColored(secondary, "%s", unit);
@@ -821,9 +820,8 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
     const bool slider = ranged && (classic || draft_width > u(285));
     if (slider) {
         ImGui::SetNextItemWidth(classic ? -1 : std::max(u(90), draft_width - u(120)));
-        if (ImGui::SliderScalar("##slider", ImGuiDataType_Double, &draft.value, &*control.low, &*control.high,
-            classic ? " " : id == ControlId::memory ? "%.0f" : "%.6g", ImGuiSliderFlags_NoInput)) {
-            if (id == ControlId::memory) draft.value = std::round(draft.value);
+        if (whole_number_slider("##slider", draft.value, *control.low, *control.high,
+            classic ? " " : "%lld", ImGuiSliderFlags_NoInput)) {
             edited = true;
         }
         editing = ImGui::IsItemActive();
@@ -832,8 +830,7 @@ void live_control_row(ViewState& state, ControlId id, const char* name, bool cla
     if (classic) ImGui::TableNextColumn();
     if (draft.initialized) {
         ImGui::SetNextItemWidth(classic ? -1 : std::min(u(105), std::max(u(75), draft_width)));
-        double value = draft.value;
-        if (ImGui::InputDouble("##value", &value, 0, 0, "%.9g") && std::isfinite(value)) { draft.value = value; edited = true; }
+        if (whole_number_input("##value", draft.value)) edited = true;
         editing = editing || ImGui::IsItemActive();
         hint("Editable request. Dragging changes only the draft; Apply writes it explicitly.");
     } else ImGui::TextDisabled("--");

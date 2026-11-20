@@ -489,7 +489,7 @@ void xoc_gate_blocks_and_flashes() {
         "XOC-off MSVDD Stock escape remains available");
 }
 
-void rail_sliders_keep_live_grid(bool classic) {
+void rail_sliders_use_whole_number_grid(bool classic) {
     Harness h; h.unlocked=true;
     h.s.data.advanced_controls.clear(); h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
     for(uint32_t field=0;field<4;++field) {
@@ -522,8 +522,8 @@ void rail_sliders_keep_live_grid(bool classic) {
     const auto& draft=h.state.drafts[3000];
     check(draft.dirty && draft.value>=650.125 && draft.value<=1200.125,
         "dragging a rail slider stages an in-range absolute estimate without applying");
-    check(near((draft.value-650.125)/0.001,std::round((draft.value-650.125)/0.001)),
-        "rail slider preserves the supplied microvolt command grid instead of forcing whole millivolts");
+    check(near(draft.value,std::round(draft.value)),
+        "rail slider stages the closest whole-number request");
     const double retained=draft.value;
     for(auto& rail:h.s.data.rail_controls) rail.state.availability=Availability::transient;
     h.frame(classic,true,width);
@@ -993,8 +993,8 @@ int main() {
         transient_empty_binding(Availability::unknown);
         rail_gate_blocks_and_flashes();
         xoc_gate_blocks_and_flashes();
-        rail_sliders_keep_live_grid(false);
-        rail_sliders_keep_live_grid(true);
+        rail_sliders_use_whole_number_grid(false);
+        rail_sliders_use_whole_number_grid(true);
         classic_rail_summary_and_link();
         classic_clock_domain_labels_and_order();
         classic_rail_labels_and_soft_gate();
