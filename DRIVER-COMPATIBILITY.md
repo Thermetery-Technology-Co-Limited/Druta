@@ -112,6 +112,41 @@ enforcement under load is unmeasured, and the 1999 W XOC range remains a
 software request envelope. See the
 [Pascal evidence](experiments/pascal-gp106-live-power-20261102.md).
 
+## 1.9.3 native Turing validation on 472.12
+
+Tested the native build at `e1c31cb` on a TITAN RTX (TU102), VBIOS
+`90.02.1e.00.02`, on Windows 10 x64 (build 19044). The
+[NVIDIA 472.12 DCH package](https://www.nvidia.com/Download/driverResults.aspx/180557/en-us/)
+and its display catalog passed signature verification. Windows selected the
+matching display INF for the adapter, reported no reboot required and showed
+driver `30.0.14.7212` with device status 0. A fresh NVAPI process identified
+472.12. Windows boot time was unchanged.
+
+| Check | Result on this adapter |
+| --- | --- |
+| Board power slider, XOC off | 100–320 W, with a 260 W configured request |
+| Board power slider, XOC on | 1–1999 W in the whole-watt slider. The core reports a 1 mW lower bound |
+| XOC switched off again | 100–320 W, with the configured request still 260 W |
+| Power policy read | 13 rows returned successfully |
+| Power relationship weight override | Matching ROM reads succeeded. Preview was unavailable because the runtime INFO layout is unqualified |
+
+The native UI backend supplied these bounds during the same session using
+`druta-ui-actions-live-check`. Only the session XOC flag changed. No power request
+was applied and enforcement at 1999 W was outside the test scope.
+
+For the BIOS Override preview, the driver reported INFO command `0x20802618`,
+size 5520 bytes, policy base `0x3C` and stride `0x84`. The core can read power
+policies with that layout. The separate relationship decoder requires
+`0x2080A618` INFO in its 20,000- or 20,512-byte layouts, so it did not offer
+preview or activation on this runtime. No managed BIOS override values were
+present after the check. Firmware clock and timing overrides in the native UI
+cover earlier architectures. The persistent DIFR configuration editor is
+unavailable in this build.
+
+The 23-phase live UI smoke test and 197 focused Python tests passed. This run
+qualifies the slider range on the tested Windows 10 configuration. Windows 7
+with 472.12 remains outside this run.
+
 ## 1.9.05 Turing compatibility and power readback
 
 Clock offsets use NVML when its setter is available. If that setter returns
