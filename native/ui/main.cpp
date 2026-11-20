@@ -1427,6 +1427,10 @@ struct Smoke {
     }
     void advance(App& app, const std::wstring& directory) {
         if (finished || now_seconds()-start < 2.0) return;
+        // Slow VM rendering can need more than the two-second observation
+        // interval to settle and save a frame. The loop watchdog bounds this
+        // wait if a capture never becomes possible.
+        if (captures[phase] && !captured) return;
         const auto f = app.frames-frames, p = app.presents-presents, t = sample_count(app)-samples;
         // Pause may finish one read which was already in flight.
         bool ok = (phase == 3 || phase == 5) ? (f == 0 && t <= (live ? 1u : 0u)) : (f > 0 && p > 0 && captured);
@@ -1686,7 +1690,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
                 if (!options.capture.empty()) { captured_output = true; break; }
             }
         }
-        if ((!options.capture.empty() || testing) && now_seconds()-started > (testing?2.0*Smoke::phase_count+5.0:45.0)) { success = false; break; }
+        // Each smoke phase needs two seconds of observation. A single five-second
+        // allowance for all 23 transitions is too tight on software-rendered VMs:
+        // Vista can write the last capture just as that global deadline expires.
+        // Bound both a stalled phase and the whole run, leaving room below the
+        // guest-check runner's 120-second child timeout.
+        if (testing && (now_seconds()-smoke.start > 12.0 ||
+                        now_seconds()-started > 100.0)) {
+            char detail[160];
+            const int length = snprintf(detail, sizeof(detail),
+                "smoke timeout: phase=%s phase_seconds=%.2f total_seconds=%.2f\n",
+                smoke.names[smoke.phase], now_seconds()-smoke.start, now_seconds()-started);
+            if (length > 0) write_bytes(options.smoke_dir + L"\\smoke-timeout.txt",
+                detail, DWORD(std::min<int>(length, sizeof(detail)-1)));
+            success = false; break;
+        }
+        if (!options.capture.empty() && now_seconds()-started > 45.0) { success = false; break; }
         if(app.view.app_actions.recovery_preparing&&!app.closing)app.consume_app_actions();
         double delay = app.policy.wait_seconds(now_seconds(), app.device_retry_at);
         if (testing) delay = std::min(delay, std::max(0.001, smoke.start+2.0-now_seconds()));
