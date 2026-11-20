@@ -76,6 +76,60 @@ void short_v30_tests() {
  const auto oversized=inspect_power_weight_image(rom);
  check(oversized.ok&&!oversized.relationships_available,"Out-of-image V30 relationship extent is rejected");
 }
+void legacy_info_tests() {
+ const PowerRelationshipLayout layout{0x20802618,5520,0x3c,0x84};
+ constexpr size_t base=0x10c0, stride=0x24;
+ const uint32_t policy_mask=(1u<<0)|(1u<<4)|(1u<<31);
+ const uint32_t relationship_mask=(1u<<1)|(1u<<5)|(1u<<13)|(1u<<31);
+ std::vector<uint8_t> info(layout.info_size);
+ dword(info,4,policy_mask);
+ dword(info,base-4,relationship_mask);
+ const auto last_policy=layout.policy_base+31*layout.policy_stride;
+ info[layout.policy_base]=0x30;
+ info[last_policy]=0x30;
+ dword(info,last_policy+4,11|(9u<<8)|(1u<<16));
+ dword(info,last_policy+8,1000);
+ dword(info,last_policy+12,123456);
+ dword(info,last_policy+16,150000);
+ const auto row=base+stride;
+ info[row+1]=31;
+ word(info,row+4,5301);
+ word(info,row+6,1); // Distinct bytes at the newer layouts' weight offset.
+ info[base+5*stride]=1;
+ info[base+5*stride+1]=31;
+ word(info,base+5*stride+4,7);
+ info[base+13*stride+1]=24; // Absent from the mask.
+ info[base+31*stride+1]=4; // Present, with an unrecognized row format.
+ word(info,base+31*stride+4,65535);
+ info.back()=0xa5;
+
+ const auto report=decode_power_relationships(layout,info);
+ check(report.available&&report.relationships.size()==4&&report.policy_mask==policy_mask&&
+       report.relationship_mask==relationship_mask,"Legacy INFO honors sparse masks through the last supported index");
+ if(!report.available||report.relationships.size()!=4)return;
+ const auto& first=report.relationships.front();
+ check(first.index==1&&first.target==31&&first.weight_raw==5301&&first.target_metadata&&
+       first.target_metadata->type==11&&first.target_metadata->channel==9&&first.target_metadata->unit==1&&
+       first.target_metadata->minimum==1000&&first.target_metadata->default_value==123456&&
+       first.target_metadata->maximum==150000,"Legacy weight offset and target policy metadata decoded");
+ check(report.relationships[1].type==1&&!report.relationships[1].weight_raw&&report.relationships[1].target_metadata&&
+       !report.relationships[2].target_metadata&&report.relationships[3].index==31&&
+       report.relationships[3].weight_raw==65535&&!report.relationships[3].target_metadata,
+       "Unknown, absent and invalid records stay independent of valid weights");
+ check(report.source_references.empty()&&report.linked_references.empty()&&report.range_references.empty()&&
+       report.source_uninterpreted_policies==std::vector<uint32_t>{0,4,31},"Legacy source fields remain opaque");
+ auto truncated=info;
+ truncated.pop_back();
+ check(!decode_power_relationships(layout,truncated).available,"Legacy INFO rejects incomplete packets");
+ for(const auto invalid:{PowerRelationshipLayout{0x2080a618,5520,0x3c,0x84},
+                         PowerRelationshipLayout{0x20802618,5520,0xcc,0x84},
+                         PowerRelationshipLayout{0x20802618,5520,0x3c,0x88}})
+  check(!decode_power_relationships(invalid,info).available,"Legacy INFO requires the exact command and policy geometry");
+ const auto plan=plan_power_relationship_weights({},PowerRelationshipIdentity{"0000:7b:01.1",6,0x1234,0x87654321},
+                                                layout,info,{{1,1.25,5301}});
+ check(!power_relationship_layout_supports_override(layout)&&!plan.ok&&plan.patches.empty()&&
+       plan.message.find("inspection only")!=std::string::npos,"Legacy INFO never qualifies an override plan");
+}
 void power_tests(){PowerRelationshipLayout layout;
  for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}){auto c=power_case(header);const auto original=c.image,info=c.info;const auto image=inspect_power_weight_image(c.image);const auto report=decode_power_relationships(layout,c.info);
   check(image.ok&&image.relationships_available&&image.header_size==header&&image.selector_version==0x12345678&&image.selector_oem==0x9a,"Both released V40 headers and current ROM ownership/selector parsed");
@@ -110,4 +164,4 @@ void power_tests(){PowerRelationshipLayout layout;
  c.identity.architecture=10;c.identity.device_id=0x1234;c.identity.subsystem_id=0x76543210;c.identity.slot="0000:7b:01.1";for(const auto at:{0x86u,0x1086u,0x2706u,0x3086u})word(c.image,at,0x1234);dword(c.image,0x220c,0x1234);check(plan_power_relationship_weights(c.image,c.identity,layout,c.info,{{0,1,{}}}).ok,"Alternate current architecture/identity not selected by board or driver lists");
 }
 }
-int main(){power_tests();short_v30_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}
+int main(){power_tests();short_v30_tests();legacy_info_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}

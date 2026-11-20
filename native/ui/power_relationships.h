@@ -10,6 +10,7 @@ namespace druta::ui {
 struct PowerRelationshipIdentity {std::string slot;uint32_t architecture=0,device_id=0,subsystem_id=0;};
 struct PowerRelationshipLayout {uint32_t info_command=0x2080a618,info_size=20512,policy_base=0xcc,policy_stride=0x104;};
 bool power_relationship_layout_supported(const PowerRelationshipLayout&);
+bool power_relationship_layout_supports_override(const PowerRelationshipLayout&);
 struct PowerRelationshipTarget {uint32_t policy=0,type=0,channel=0,unit=0,minimum=0,default_value=0,maximum=0;}; // unit:0 mW,1 mA
 struct PowerRelationshipRecord {uint32_t index=0,type=0,target=0;std::optional<uint16_t> weight_raw;std::optional<PowerRelationshipTarget> target_metadata;std::string target_reason;};
 struct PowerRelationshipSource {uint32_t policy=0,first=0,last=0;std::optional<bool> enabled;std::vector<uint32_t> relationships;bool available=false;std::string reason;};

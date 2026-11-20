@@ -56,7 +56,10 @@ struct PowerWeightsService::Impl {
     else if(data.image_availability!=Availability::available)row.message=data.image_message.empty()?"Current image unavailable for weight preview":data.image_message;
     rows.push_back(std::move(row));}data.rows=std::move(rows);
   }else for(auto& row:data.rows){row.stale=row.weight_raw.has_value();row.eligible_for_preview=false;row.availability=data.info_availability;row.message=data.info_message;}
-  data.message=data.info_availability==Availability::available?"Relationship inspection only; Preview does not write registry or activate weights":"Relationship read unavailable: "+data.info_message;++data.revision;
+  if(data.info_availability!=Availability::available)data.message="Relationship read unavailable: "+data.info_message;
+  else if(!power_relationship_layout_supports_override(c.layout))data.message="Relationship INFO is read-only for this layout";
+  else data.message="Relationship inspection only; Preview does not write registry or activate weights";
+  ++data.revision;
  }
  void complete(const PowerWeightCapture& c){require(!text(opened.uuid).empty(),"Preview requires the current adapter UUID");require(c.image_availability==Availability::available&&c.info_availability==Availability::available&&c.registry_availability==Availability::available&&c.registry.has_value()&&c.windows.has_value(),"Complete image, INFO and registry evidence required for Preview");require(c.windows->slot==text(c.target.slot)&&!c.windows->instance_id.empty()&&!c.windows->driver_key.empty()&&c.windows->instance_id.find('\0')==std::string::npos&&c.windows->driver_key.find('\0')==std::string::npos,"Preview Windows target incomplete");registry_map(*c.registry);}
 };

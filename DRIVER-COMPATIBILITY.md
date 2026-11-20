@@ -128,24 +128,29 @@ driver `30.0.14.7212` with device status 0. A fresh NVAPI process identified
 | Board power slider, XOC on | 1–1999 W in the whole-watt slider. The core reports a 1 mW lower bound |
 | XOC switched off again | 100–320 W, with the configured request still 260 W |
 | Power policy read | 13 rows returned successfully |
-| Power relationship weight override | Matching ROM reads succeeded. Preview was unavailable because the runtime INFO layout is unqualified |
+| Power relationships | The updated decoder read 11 records and 9 weights. The nine weights and their targets matched the running ROM |
+| BIOS relationship weight override | The 5520-byte INFO layout is read-only. Preview and activation are unavailable |
 
 The native UI backend supplied these bounds during the same session using
 `druta-ui-actions-live-check`. Only the session XOC flag changed. No power request
 was applied and enforcement at 1999 W was outside the test scope.
 
-For the BIOS Override preview, the driver reported INFO command `0x20802618`,
-size 5520 bytes, policy base `0x3C` and stride `0x84`. The core can read power
-policies with that layout. The separate relationship decoder requires
-`0x2080A618` INFO in its 20,000- or 20,512-byte layouts, so it did not offer
-preview or activation on this runtime. No managed BIOS override values were
-present after the check. Firmware clock and timing overrides in the native UI
-cover earlier architectures. The persistent DIFR configuration editor is
-unavailable in this build.
+The driver reported INFO command `0x20802618`, size 5520 bytes, policy base
+`0x3C` and policy stride `0x84`. The relationship mask is at `0x10BC` and
+the `0x24`-byte records start at `0x10C0`. Type-zero records store the
+unsigned Q4.12 weight at `+0x04`. The decoder exposes each occupied record
+and its target policy. Legacy source-policy references and other relationship
+types remain uninterpreted. Override support remains limited to the qualified
+20,000- and 20,512-byte INFO layouts.
 
-The 23-phase live UI smoke test and 197 focused Python tests passed. This run
-qualifies the slider range on the tested Windows 10 configuration. Windows 7
-with 472.12 remains outside this run.
+Firmware clock and timing overrides in the native UI cover earlier
+architectures. The persistent DIFR configuration editor is unavailable in this
+build.
+
+The 23-phase live UI smoke test and 197 focused Python tests passed on the
+original build. The rebuilt parser passed nine native relationship and override
+test suites and a separate live read on the same adapter. No BIOS override or
+power request was applied. Windows 7 with 472.12 remains outside this run.
 
 ## 1.9.05 Turing compatibility and power readback
 

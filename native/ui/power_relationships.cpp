@@ -19,12 +19,26 @@ using Bytes=std::vector<uint8_t>;
 void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 uint32_t word32(const Bytes& b,size_t at){require(at<=b.size()&&4<=b.size()-at,"INFO extent missing");return uint32_t(b[at])|uint32_t(b[at+1])<<8|uint32_t(b[at+2])<<16|uint32_t(b[at+3])<<24;}
 uint16_t word16(const Bytes& b,size_t at){require(at<=b.size()&&2<=b.size()-at,"INFO word extent missing");return uint16_t(b[at]|uint16_t(b[at+1])<<8);}
-// The two INFO layouts have different policy and relationship block offsets.
-size_t relationship_base(const PowerRelationshipLayout& layout) {
- return layout.policy_stride == 0xfc ? 0x3fd0 : 0x41d0;
+enum class RelationshipFormat { legacy, compact, extended };
+struct RelationshipGeometry {
+ PowerRelationshipLayout layout;
+ size_t base, weight_offset;
+ RelationshipFormat format;
+};
+const RelationshipGeometry* relationship_geometry(const PowerRelationshipLayout& layout) {
+ static constexpr RelationshipGeometry known[] = {
+  {{0x20802618, 5520, 0x3c, 0x84}, 0x10c0, 4, RelationshipFormat::legacy},
+  {{0x2080a618, 20000, 0xcc, 0xfc}, 0x3fd0, 6, RelationshipFormat::compact},
+  {{0x2080a618, 20512, 0xcc, 0x104}, 0x41d0, 6, RelationshipFormat::extended},
+ };
+ for(const auto& geometry:known){const auto& candidate=geometry.layout;
+  if(layout.info_command==candidate.info_command&&layout.info_size==candidate.info_size&&
+     layout.policy_base==candidate.policy_base&&layout.policy_stride==candidate.policy_stride)return &geometry;
+ }
+ return nullptr;
 }
-size_t relationship_row(const PowerRelationshipLayout& layout, uint32_t index) {
- return relationship_base(layout) + 0x24 * index;
+size_t relationship_row(const RelationshipGeometry& geometry, uint32_t index) {
+ return geometry.base + 0x24 * index;
 }
 std::optional<uint32_t> short_v30_runtime_type(uint32_t kind) {
  switch(kind) {
@@ -140,15 +154,17 @@ public:
 };
 }
 bool power_relationship_layout_supported(const PowerRelationshipLayout& layout) {
- return layout.info_command==0x2080a618&&layout.policy_base==0xcc&&
-        ((layout.info_size==20512&&layout.policy_stride==0x104)||
-         (layout.info_size==20000&&layout.policy_stride==0xfc));
+ return relationship_geometry(layout)!=nullptr;
+}
+bool power_relationship_layout_supports_override(const PowerRelationshipLayout& layout) {
+ const auto* geometry=relationship_geometry(layout);
+ return geometry&&geometry->format!=RelationshipFormat::legacy;
 }
 PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout& layout,const Bytes& info){
- PowerRelationshipReport out;if(!power_relationship_layout_supported(layout)){out.reason="Policy INFO geometry/command unrecognized";return out;}if(info.size()!=layout.info_size){out.reason="Policy INFO packet invalid/incomplete";return out;}
- const bool compact_info=layout.policy_stride==0xfc;
- out.policy_mask=word32(info,4);out.relationship_mask=word32(info,relationship_base(layout)-4);
- for(uint32_t i=0;i<32;++i)if(out.relationship_mask&(1u<<i)){const size_t at=relationship_row(layout,i);PowerRelationshipRecord r;r.index=i;r.type=info[at];r.target=info[at+1];if(!r.type)r.weight_raw=word16(info,at+6);
+ PowerRelationshipReport out;const auto* geometry=relationship_geometry(layout);if(!geometry){out.reason="Policy INFO geometry/command unrecognized";return out;}if(info.size()!=layout.info_size){out.reason="Policy INFO packet invalid/incomplete";return out;}
+ const bool compact_info=geometry->format==RelationshipFormat::compact;
+ out.policy_mask=word32(info,4);out.relationship_mask=word32(info,geometry->base-4);
+ for(uint32_t i=0;i<32;++i)if(out.relationship_mask&(1u<<i)){const size_t at=relationship_row(*geometry,i);PowerRelationshipRecord r;r.index=i;r.type=info[at];r.target=info[at+1];if(!r.type)r.weight_raw=word16(info,at+geometry->weight_offset);
   if(r.target>=32||!(out.policy_mask&(1u<<r.target)))r.target_reason="Target policy absent from INFO mask";
   else{const size_t row=layout.policy_base+layout.policy_stride*r.target;const auto version=word32(info,row)&255,header=word32(info,row+4),unit=(header>>16)&255;
    if(version!=0x30&&version!=0x40)r.target_reason="Target policy row format unrecognized";else if(unit>1)r.target_reason="Target policy unit unrecognized";
@@ -157,7 +173,10 @@ PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout
  }
  const auto relation=[&](uint32_t i)->const PowerRelationshipRecord*{for(const auto& r:out.relationships)if(r.index==i)return &r;return nullptr;};
  const auto fill=[&](PowerRelationshipSource& source){for(uint32_t i=source.first;i<=source.last;++i){const auto* r=relation(i);if(!r||r->type||!r->target_metadata){source.reason="Referenced relationship or target unavailable";source.relationships.clear();return;}source.relationships.push_back(i);}source.available=true;};
- for(uint32_t i=0;i<32;++i)if(out.policy_mask&(1u<<i)){const size_t at=layout.policy_base+layout.policy_stride*i;const auto kind=info[at+4];const bool format=info[at]==0x30||info[at]==0x40;
+ for(uint32_t i=0;i<32;++i)if(out.policy_mask&(1u<<i)){
+  // Source references use different fields in the legacy policy rows.
+  if(geometry->format==RelationshipFormat::legacy){out.source_uninterpreted_policies.push_back(i);continue;}
+  const size_t at=layout.policy_base+layout.policy_stride*i;const auto kind=info[at+4];const bool format=info[at]==0x30||info[at]==0x40;
   if(!compact_info&&kind==33){PowerRelationshipSource source;source.policy=i;source.first=word16(info,at+0x34);source.last=word16(info,at+0x36);
    if(!format)source.reason="Source policy row format unrecognized";else if(source.first>source.last)source.available=true;else if(source.last>=32)source.reason="Source relationship range exceeds INFO capacity";else fill(source);out.range_references.push_back(std::move(source));continue;}
   if(!compact_info&&kind==32){PowerRelationshipLink source;source.policy=i;source.relationship=word16(info,at+0x34);const auto* r=relation(source.relationship);if(r)source.target=r->target;
@@ -187,11 +206,11 @@ const PowerRelationshipRecord& checked(const PowerRelationshipReport& report,con
 bool identity_equal(const PowerRelationshipIdentity& a,const PowerRelationshipIdentity& b){return a.slot==b.slot&&a.architecture==b.architecture&&a.device_id==b.device_id&&a.subsystem_id==b.subsystem_id;}
 }
 PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRelationshipIdentity& identity,const PowerRelationshipLayout& layout,const Bytes& info,const std::vector<PowerWeightRequest>& requests){
- PowerWeightPlan out;try{identity_valid(identity);require(!requests.empty()&&requests.size()<=32,"Select relationship weights");const auto inspection=inspect_power_weight_image(image);require(inspection.ok&&inspection.relationships_available,"Unique supported image relationship table required");const auto report=decode_power_relationships(layout,info);require(report.available,"Validated relationship INFO required");
+ PowerWeightPlan out;try{const auto* geometry=relationship_geometry(layout);require(geometry,"Validated relationship INFO required");require(geometry->format!=RelationshipFormat::legacy,"This relationship INFO layout supports inspection only");identity_valid(identity);require(!requests.empty()&&requests.size()<=32,"Select relationship weights");const auto inspection=inspect_power_weight_image(image);require(inspection.ok&&inspection.relationships_available,"Unique supported image relationship table required");const auto report=decode_power_relationships(layout,info);require(report.available,"Validated relationship INFO required");
   auto state=std::make_shared<PowerWeightPlan::State>();state->identity=identity;auto next_image=std::make_shared<Bytes>(image),next_info=std::make_shared<Bytes>(info);std::set<uint32_t> seen;
   for(const auto& request:requests){require(request.index<32&&seen.insert(request.index).second,"Duplicate or out-of-capacity relationship selection");const auto wanted=power_weight_raw(request.multiplier);const auto r=std::find_if(inspection.relationships.begin(),inspection.relationships.end(),[&](const auto& row){return row.index==request.index;});require(r!=inspection.relationships.end()&&r->qualified&&r->kind==1,"Selected image relationship or target unqualified");const auto& policy=inspection.policies[r->target];require(policy.qualified&&policy.metadata,"Selected image target metadata unqualified");if(request.expected_raw)require(*request.expected_raw==r->weight_raw,"Selected expected image weight changed");
    PowerWeightSelection selected{r->index,r->offset,r->target,r->weight_raw,wanted,*policy.metadata};checked(report,selected,selected.before_raw);state->selected.push_back(selected);
-   put16(*next_image,r->offset+2,wanted);put16(*next_info,relationship_row(layout,r->index)+6,wanted);
+   put16(*next_image,r->offset+2,wanted);put16(*next_info,relationship_row(*geometry,r->index)+geometry->weight_offset,wanted);
    if(wanted!=r->weight_raw)out.patches.push_back({r->offset+2,{uint8_t(r->weight_raw),uint8_t(r->weight_raw>>8)},{uint8_t(wanted),uint8_t(wanted>>8)}});
   }
   state->image=std::make_shared<const Bytes>(image);state->info=std::make_shared<const Bytes>(info);state->after_image=next_image;state->after_info=next_info;out.identity=identity;out.selected=state->selected;out.original_image=state->image;out.expected_image=next_image;out.original_info=state->info;out.expected_info=next_info;out.state=std::move(state);out.ok=true;out.message="Selected exact Q4.12 spans projected; no activation authorized";
