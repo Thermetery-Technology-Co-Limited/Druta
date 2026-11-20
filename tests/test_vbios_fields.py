@@ -72,7 +72,8 @@ def v30_power_fixture(header=0x2C, stride=0x4B, *, kind=1, extension=0, channel=
         blob[row] = kind | (unit << 4)
         blob[row + 1] = channel
         struct.pack_into("<III", blob, row + 2, 100000, 310000, 380000)
-        blob[row + 0x42] = extension
+        if stride > 0x42:
+            blob[row + 0x42] = extension
     return bytes(blob)
 
 
