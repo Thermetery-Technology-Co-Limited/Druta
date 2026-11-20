@@ -137,8 +137,111 @@ void legacy_info_tests() {
   check(!decode_power_relationships(invalid,info).available,"Legacy INFO requires the exact command and policy geometry");
  const auto mismatched=power_case();
  const auto plan=plan_power_relationship_weights(mismatched.image,mismatched.identity,layout,info,{{1,1.25,5301}});
- check(!plan.ok&&plan.patches.empty()&&plan.message.find("V30 ROM table")!=std::string::npos,
+ check(!plan.ok&&plan.patches.empty()&&plan.message.find("write layout is unqualified")!=std::string::npos,
        "Legacy INFO refuses a V40 ROM even when its relationship table is valid");
+}
+void rm26_tests() {
+ const PowerRelationshipLayout layout{0x20802618,5520,0x3c,0x84};
+ struct PolicyClass { uint8_t bios, runtime; };
+ constexpr size_t table=0x5e00, relation_info=0x10c0, selected=5;
+ for (const bool ampere : {false,true}) {
+  const PowerRelationshipIdentity identity{"0000:29:00.0",ampere?7u:4u,0x4321,0x8a2b0023};
+  const uint8_t header_size=ampere?0x2c:0x25, policy_stride=ampere?0x47:0x2e;
+  const uint8_t relation_stride=ampere?14:10;
+  const std::vector<PolicyClass> classes=ampere
+      ? std::vector<PolicyClass>{{1,0},{4,3},{5,4},{16,15},{17,16}}
+      : std::vector<PolicyClass>{{1,0},{4,3},{10,11}};
+  const auto policy_count=static_cast<uint8_t>(classes.size());
+  const auto relation_start=table+header_size+policy_stride*policy_count;
+  const auto selected_rom=relation_start+relation_stride*selected;
+  const auto selected_info=relation_info+0x24*selected;
+  auto rom=fixture(false,0x4321);
+  dword(rom,0x22c,table);
+  const uint8_t header[]={0x30,header_size,policy_stride,policy_count,0,0,0,0,relation_stride,6};
+  std::copy(std::begin(header),std::end(header),rom.begin()+table);
+  std::vector<uint8_t> info(layout.info_size);
+  dword(info,4,(1u<<policy_count)-1);
+  dword(info,relation_info-4,0x21);
+  for (uint32_t index=0;index<policy_count;++index) {
+   const auto at=table+header_size+policy_stride*index;
+   const auto row=layout.policy_base+layout.policy_stride*index;
+   const uint8_t channel=static_cast<uint8_t>(6+index);
+   const uint8_t unit=static_cast<uint8_t>(index%2);
+   const uint32_t minimum=1000+index, rated=50000+index, maximum=70000+index;
+   rom[at]=static_cast<uint8_t>((classes[index].bios&15)|(unit<<4));
+   rom[at+1]=channel;
+   if(ampere)rom[at+0x42]=classes[index].bios>>4;
+   dword(rom,at+2,minimum);dword(rom,at+6,rated);dword(rom,at+10,maximum);
+   info[row]=0x30;info[row+4]=classes[index].runtime;info[row+5]=channel;info[row+6]=unit;
+   dword(info,row+8,minimum);dword(info,row+12,rated);dword(info,row+16,maximum);
+  }
+  rom[relation_start]=1;rom[relation_start+1]=1;word(rom,relation_start+2,6144);
+  info[relation_info+1]=1;word(info,relation_info+4,6144);
+  rom[selected_rom]=1;rom[selected_rom+1]=policy_count-1;word(rom,selected_rom+2,4096);
+  info[selected_info+1]=policy_count-1;word(info,selected_info+4,4096);
+  word(info,selected_info+6,0xbeef);
+  rom[selected_rom+4]=0xa7;
+  info.back()=0x5a;
+
+  const auto image=inspect_power_weight_image(rom);
+  const auto report=decode_power_relationships(layout,info);
+  check(image.ok&&image.relationships_available&&image.relationships.size()==6&&
+        image.relationships[selected].qualified,
+        "Installed V30 layouts decode their own sparse relationship rows");
+  if(image.ok&&image.relationships_available) {
+   for(uint32_t index=0;index<policy_count;++index) {
+    const auto& policy=image.policies[index];
+    check(policy.bios_type==classes[index].bios&&policy.metadata&&
+          policy.metadata->type==classes[index].runtime,"V30 class translation follows ROM policy geometry");
+   }
+  }
+  check(report.available&&report.relationships.size()==2&&report.relationships.back().index==selected&&
+        report.relationships.back().weight_raw==4096&&report.source_references.empty()&&
+        report.range_references.empty()&&report.linked_references.empty()&&
+        report.source_uninterpreted_policies.size()==policy_count,
+        "RM26 weights use +4; unqualified source fields remain uninterpreted");
+  const std::vector<PowerWeightRequest> requests={{selected,1.25,4096}};
+  const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
+  check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==selected_rom+2,
+        "Validated RM26 and the matching V30 firmware project one weight");
+  if(plan.ok) {
+   auto expected_rom=rom, expected_info=info;
+   word(expected_rom,selected_rom+2,5120);word(expected_info,selected_info+4,5120);
+   check(*plan.expected_image==expected_rom&&*plan.expected_info==expected_info&&
+         verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom).ok&&
+         verify_power_relationship_weights(plan,identity,layout,info,&rom,true).ok,
+         "Activation and removal check exact full RM26 INFO and V30 image bytes");
+   expected_info.back()^=1;
+   check(!verify_power_relationship_weights(plan,identity,layout,expected_info).ok,
+         "An unselected RM26 byte invalidates proof");
+   PowerRelationshipLayout alternate_wire=layout;
+   alternate_wire.info_command=0x2080a618;
+   check(!verify_power_relationship_weights(plan,identity,alternate_wire,*plan.expected_info).ok,
+         "A changed INFO routing command invalidates proof");
+  }
+  auto wrong_identity=identity;
+  wrong_identity.architecture=ampere?4:7;
+  check(!plan_power_relationship_weights(rom,wrong_identity,layout,info,requests).ok,
+        "The exact architecture and ROM/INFO combination is required for a write");
+  const auto target=layout.policy_base+layout.policy_stride*(policy_count-1);
+  auto wrong_info=info;
+  wrong_info[target]=0x40;
+  check(!plan_power_relationship_weights(rom,identity,layout,wrong_info,requests).ok,
+        "A non-V30 RM26 target row cannot qualify a weight");
+  wrong_info=info;
+  wrong_info[target+12]^=1;
+  check(!plan_power_relationship_weights(rom,identity,layout,wrong_info,requests).ok,
+        "An exact RM26 target bounds match is required");
+  auto wrong_rom=rom;
+  const auto target_rom=table+header_size+policy_stride*(policy_count-1);
+  wrong_rom[target_rom]^=2;
+  check(!plan_power_relationship_weights(wrong_rom,identity,layout,info,requests).ok,
+        "Unknown V30 classes remain outside the typed relationship contract");
+  wrong_rom=rom;
+  ++wrong_rom[table+8];
+  check(!inspect_power_weight_image(wrong_rom).relationships_available,
+        "The exact V30 relationship row stride is required");
+ }
 }
 void power_tests(){PowerRelationshipLayout layout;
  for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}){auto c=power_case(header);const auto original=c.image,info=c.info;const auto image=inspect_power_weight_image(c.image);const auto report=decode_power_relationships(layout,c.info);
@@ -174,4 +277,4 @@ void power_tests(){PowerRelationshipLayout layout;
  c.identity.architecture=10;c.identity.device_id=0x1234;c.identity.subsystem_id=0x76543210;c.identity.slot="0000:7b:01.1";for(const auto at:{0x86u,0x1086u,0x2706u,0x3086u})word(c.image,at,0x1234);dword(c.image,0x220c,0x1234);check(plan_power_relationship_weights(c.image,c.identity,layout,c.info,{{0,1,{}}}).ok,"Alternate current architecture/identity not selected by board or driver lists");
 }
 }
-int main(){power_tests();short_v30_tests();legacy_info_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}
+int main(){power_tests();short_v30_tests();legacy_info_tests();rm26_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}
