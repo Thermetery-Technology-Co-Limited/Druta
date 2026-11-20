@@ -46,6 +46,30 @@ inline const ImVec4 classic_dim_text{139.0f / 255, 144.0f / 255, 153.0f / 255, 1
 inline void push_classic_mono() {
     ImGui::PushFont(classic_fonts.classic || !classic_fonts.mono_plain ? classic_fonts.mono : classic_fonts.mono_plain, 14.0f);
 }
+// Generic tuning requests are whole-number controls in the UI. Keep the
+// backend/readback as doubles because several APIs report fractional values,
+// but never expose that precision through a slider or editable request box.
+// Controller-specific editors such as I2C retain their hardware-defined grid.
+inline ImS64 whole_number_value(double value) {
+    return std::isfinite(value) ? static_cast<ImS64>(std::llround(value)) : 0;
+}
+inline bool whole_number_slider(const char* label, double& value, double low, double high,
+                                const char* format = " ", ImGuiSliderFlags flags = ImGuiSliderFlags_None) {
+    if (!std::isfinite(low) || !std::isfinite(high)) return false;
+    ImS64 minimum = static_cast<ImS64>(std::ceil(low));
+    ImS64 maximum = static_cast<ImS64>(std::floor(high));
+    if (minimum > maximum) return false;
+    ImS64 integer = std::clamp(whole_number_value(value), minimum, maximum);
+    if (!ImGui::SliderScalar(label, ImGuiDataType_S64, &integer, &minimum, &maximum, format, flags)) return false;
+    value = static_cast<double>(integer);
+    return true;
+}
+inline bool whole_number_input(const char* label, double& value, ImGuiInputTextFlags flags = ImGuiInputTextFlags_None) {
+    ImS64 integer = whole_number_value(value);
+    if (!ImGui::InputScalar(label, ImGuiDataType_S64, &integer, nullptr, nullptr, "%lld", flags)) return false;
+    value = static_cast<double>(integer);
+    return true;
+}
 // Python knob_cols tables take no width of their own: they fill what the
 // enclosing cell or window offers and ImGui narrows the last fixed column to it.
 inline bool begin_classic_knob_table(const char* id) {
