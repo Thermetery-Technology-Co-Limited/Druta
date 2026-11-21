@@ -74,8 +74,17 @@ struct ClockGatingService::Impl {
   if(!a.architecture_supported(target.architecture))fail("Clock control architecture unsupported",A::unsupported);
   if(sticky&&(sticky->architecture!=target.architecture||sticky->handle!=target.handle||sticky->device_id!=target.device_id||sticky->subsystem_id!=target.subsystem_id||std::strcmp(sticky->slot,target.slot)))fail("Sticky clock target changed");sticky=target;data.target=target;return target;
  }
- dc_rm_transport transport(){bind();dc_rm_transport t{};t.size=sizeof(t);dc_error error{};error.size=sizeof(error);if(api.transport.transport(gpu,&t,&error)!=DC_OK)fail("Clock RM transport unavailable",api_kind(error));
-  if(t.size!=sizeof(t)||!t.captured||t.header_count!=17||uint64_t(t.header[2])!=68+uint64_t(t.header[15])||t.header[0]!=0x4E564441||t.header[1]!=0x10002||t.header[3]!=0x4E562A2A||t.header[4]!=0x0500002B)fail("Clock RM transport envelope is not understood");bind();return t;
+ dc_rm_transport transport(bool pascal_timing=false){bind();dc_rm_transport t{};t.size=sizeof(t);dc_error error{};error.size=sizeof(error);
+  if(api.transport.transport(gpu,&t,&error)!=DC_OK){
+   // PERF has stricter command-family requirements than Pascal's READ32.
+   // Keep transient failures transient and use the alternate envelope only for
+   // the timing read, never for profiler, PCIe, or other clock controls.
+   if(!pascal_timing||!api.timing_power_transport||error.kind!=DC_ERR_UNSUPPORTED)fail("Clock RM transport unavailable",api_kind(error));
+   t={};t.size=sizeof(t);error={};error.size=sizeof(error);
+   if(api.timing_power_transport(gpu,&t,&error)!=DC_OK)fail("Clock timing RM transport unavailable",api_kind(error));
+   if((t.header[14]!=0x20802612&&t.header[14]!=0x2080A612)||!t.header[12]||!t.header[13])fail("Clock timing RM transport route is not understood");
+  }
+  if(t.size!=sizeof(t)||t.captured!=1||t.header_count!=17||uint64_t(t.header[2])!=68+uint64_t(t.header[15])||t.header[0]!=0x4E564441||t.header[1]!=0x10002||t.header[3]!=0x4E562A2A||t.header[4]!=0x0500002B)fail("Clock RM transport envelope is not understood");bind();return t;
  }
  void anchor(Owner& owner){const auto t=transport();if(!t.header[12]||!t.header[13])fail("Profiler needs a nonzero borrowed root and parent");if(owner.anchored){if(!same_fields(owner.transport.fields,t.fields))fail("Profiler escape target changed");for(size_t i:{size_t{0},size_t{1},size_t{3},size_t{4},size_t{6},size_t{7},size_t{8},size_t{9},size_t{10},size_t{12},size_t{13}})if(owner.transport.header[i]!=t.header[i])fail("Profiler borrowed root/parent or opaque route changed");}else{owner.transport=t;owner.anchored=true;}}
  std::vector<uint32_t> send(const std::vector<uint32_t>& words,const dc_escape_fields& fields,size_t status_index,const std::vector<size_t>& mutable_words={},bool* dispatched=nullptr,const std::function<void()>& accepted={}){
@@ -92,11 +101,11 @@ struct ClockGatingService::Impl {
    qualified=true;if(accepted)accepted();if(mutation&&catalog_finish)catalog_finish(true,false);return {packet,packet+words.size()};
   }catch(...){if(mutation&&catalog_finish)catalog_finish(status!=DC_E_UNAVAILABLE,allocation&&status!=DC_E_UNAVAILABLE&&!qualified);throw;}
  }
- Bytes control(uint32_t command,const Bytes& request,bool* dispatched=nullptr,Owner* owner=nullptr){const auto t=transport();if(owner)anchor(*owner);std::vector<uint32_t> words(17+request.size()/4);std::copy(t.header,t.header+17,words.begin());words[2]=uint32_t(words.size()*4);words[14]=command;words[15]=uint32_t(request.size());words[16]=0;words[5]=words[11]=0;std::memcpy(words.data()+17,request.data(),request.size());std::vector<size_t> outputs;for(size_t i=17;i<words.size();++i)outputs.push_back(i);const auto reply=send(words,t.fields,16,outputs,dispatched);const auto* p=reinterpret_cast<const uint8_t*>(reply.data()+17);return {p,p+request.size()};}
- std::vector<ClockGatingRegister> registers(const std::map<uint32_t,uint32_t>& addresses,bool partial,Owner* owner=nullptr){std::vector<uint32_t> guarded(addresses.size()*8+32,0xA5A5A5A5);auto* raw=reinterpret_cast<uint8_t*>(guarded.data()+16);std::memset(raw,0,addresses.size()*32);Bytes expected(addresses.size()*32);size_t i=0;for(const auto& pair:addresses){std::memcpy(raw+i*32+12,&pair.first,4);++i;}std::memcpy(expected.data(),raw,expected.size());
+ Bytes control(uint32_t command,const Bytes& request,bool* dispatched=nullptr,Owner* owner=nullptr,bool pascal_timing=false){const auto t=transport(pascal_timing);if(owner)anchor(*owner);std::vector<uint32_t> words(17+request.size()/4);std::copy(t.header,t.header+17,words.begin());words[2]=uint32_t(words.size()*4);words[14]=command;words[15]=uint32_t(request.size());words[16]=0;words[5]=words[11]=0;std::memcpy(words.data()+17,request.data(),request.size());std::vector<size_t> outputs;for(size_t i=17;i<words.size();++i)outputs.push_back(i);const auto reply=send(words,t.fields,16,outputs,dispatched);const auto* p=reinterpret_cast<const uint8_t*>(reply.data()+17);return {p,p+request.size()};}
+ std::vector<ClockGatingRegister> registers(const std::map<uint32_t,uint32_t>& addresses,bool partial,Owner* owner=nullptr,bool pascal_timing=false){std::vector<uint32_t> guarded(addresses.size()*8+32,0xA5A5A5A5);auto* raw=reinterpret_cast<uint8_t*>(guarded.data()+16);std::memset(raw,0,addresses.size()*32);Bytes expected(addresses.size()*32);size_t i=0;for(const auto& pair:addresses){std::memcpy(raw+i*32+12,&pair.first,4);++i;}std::memcpy(expected.data(),raw,expected.size());
   Bytes params(48,uint8_t{0});put(params,20,uint32_t(addresses.size()));const auto pointer=reinterpret_cast<uintptr_t>(raw);const uint64_t address=uint64_t(pointer);std::memcpy(params.data()+24,&address,8);
   const auto check_bounds=[&]{if(!std::all_of(guarded.begin(),guarded.begin()+16,[](uint32_t v){return v==0xA5A5A5A5;})||!std::all_of(guarded.end()-16,guarded.end(),[](uint32_t v){return v==0xA5A5A5A5;}))fail("READ32 exceeded guarded operation bounds");};
-  Bytes reply;try{reply=control(0x20800122,params,nullptr,owner);}catch(...){check_bounds();throw;}check_bounds();if(reply!=params)fail("READ32 changed pointer, route or parameter geometry");
+  Bytes reply;try{reply=control(0x20800122,params,nullptr,owner,pascal_timing);}catch(...){check_bounds();throw;}check_bounds();if(reply!=params)fail("READ32 changed pointer, route or parameter geometry");
   std::vector<ClockGatingRegister> out;i=0;for(const auto& pair:addresses){const size_t at=i*32;ClockGatingRegister row;row.address=pair.first;row.disabled_value=pair.second;row.status=raw[at+2];std::memcpy(&row.value,raw+at+20,4);const bool poison=row.value==UINT32_MAX||(row.value&0xFFF00000)==0xBAD00000;
    row.available=!row.status&&!poison;row.qualification=row.status?(row.status&8?"unsupported_operation":row.status&23?"invalid_operation":row.status&32?"access_denied":"unknown_operation_status"):poison?"poison":"available";
    if(!partial&&!row.available)fail("READ32 source witness unavailable: "+row.qualification,row.status&8?A::unsupported:A::invalid);
@@ -247,11 +256,11 @@ PascalTimingSample ClockGatingService::read_pascal_memory_config() try {
  // The existing row fingerprint uses CONFIG1 and CONFIG3. Keep their
  // read available on drivers with partial support for the other four words.
  constexpr uint32_t config0=0x009a0290;
- const auto anchors=p.registers({{config0+4,0},{config0+12,0}},false);
+ const auto anchors=p.registers({{config0+4,0},{config0+12,0}},false,nullptr,true);
  PascalTimingSample sample{0,anchors[0].value,anchors[1].value};
  for(const unsigned word:{0u,2u,4u,5u}) {
   try {
-   const auto row=p.registers({{config0+4*word,0}},true).front();
+   const auto row=p.registers({{config0+4*word,0}},true,nullptr,true).front();
    if(row.available)sample.set_word(word,row.value);
   } catch(const Error& error) {
    if(error.kind!=A::unsupported&&error.kind!=A::transient)throw;

@@ -1463,6 +1463,30 @@ and +0.001 mV for NVVDD at P0. The memory P0 maximum reported 3504 → 3505 →
 configuration. The MSVDD field in the older packet remains unverified.
 [Packet captures and trial records](experiments/gp107-clkdom-v1-20261121.json).
 
+### Follow-up: Pascal P0 timing reads and the older MSVDD packet
+
+The earlier `Clock RM transport unavailable` result was caused by the timing
+reader asking for the PERF diagnostics transport, which requires a modern RM
+command. The GTX 1050 Ti instead exposed a validated power envelope with
+command `0x20802612` on both 431.36 and 512.15. Using that captured envelope
+for the controller reads, two P0 samples on each driver successfully read all
+six timing configuration words. All reads were bracketed by P0 checks at
+3504 MHz memory. The two samples matched, and the timing inventory decoded
+21 fields, including tFAW 28 and tCL 22. The CUDA worker stopped cleanly.
+This follow-up issued no timing writes, including no tCL write; readable fields
+and editor write availability are not evidence of write success on either
+driver. The earlier timing write experiment above used driver 581.80.
+
+Separately, on 512.15 at P0, V2 MSVDD requests of +1 microvolt on clock-domain
+0 and domain 2 were each rejected with setter status -1. Request readback stayed
+at zero; the sampled V1 and V2 one-domain and combined packets matched their
+respective baselines exactly, the session flags were restored, and the worker
+stopped. Because neither request was accepted, these trials did not identify
+an MSVDD field in the older V1 packet or establish any physical voltage effect.
+The observations are specific to this MSI GTX 1050 Ti, its driver, and this
+operating point; they do not establish universal support or rejection.
+[Timing and rail observations](experiments/gp107-driver-43136-timing-msvdd-20261121.json).
+
 ## Session firmware override experiment for tFAW
 
 The P0 trial used the driver's temporary ROM records and a selected GPU
