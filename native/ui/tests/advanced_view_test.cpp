@@ -556,11 +556,22 @@ void classic_rail_summary_and_link() {
     RailReadouts readouts{};
     readouts[0].listed = true; readouts[0].boost_mv = 6.25;
     dc_rails_state_row live{}; live.live = 887.5; live.effective = 997.75; readouts[0].state = live;
+    const auto summary_fits = [&](int first, int last) {
+        auto* body = h.body_window();
+        const auto* table = body ? ImGui::TableFindByID(body->GetID("daily-rail-controls")) : nullptr;
+        if (!table) return false;
+        for (int i = first; i <= last; ++i) {
+            const auto& column = table->Columns[i];
+            if (column.ContentMaxXUnfrozen > column.WorkMaxX + 1.0f) return false;
+        }
+        return true;
+    };
     auto text = daily_rails(h, &readouts);
     check(contains(text, "NVVDD estimated limits") && contains(text, "rel 991.5 / alt 1014.75")
         && contains(text, "ov 1020 / vmin 700.5 mV"), "summary shows each field as its own base plus the stored request");
     check(contains(text, "estimated cap 997.75"), "cap is min(rel + reported boost, alt, ov)");
     check(contains(text, "live 887.5 mV") && contains(text, "eff 997.75"), "live and effective come from the rail state read");
+    check(summary_fits(2, 4), "the estimated cap, live reading and effective limit fit their Classic table cells");
     check(contains(text, "Ceilings") && contains(text, "Link reliability + alt-reliability") && contains(text, "Reference")
         && contains(text, "first stable driver reading"), "writable rails show the Link and Reference rows");
     check(contains(text, "Driver reports NVVDD only"), "an NVVDD-only adapter shows the NVVDD note");
@@ -578,6 +589,7 @@ void classic_rail_summary_and_link() {
     readouts[0].stale = true; text = daily_rails(h, &readouts);
     check(contains(text, "NVVDD estimated limits") && !contains(text, "estimated cap") && contains(text, "live 887.5 mV (stale)")
         && contains(text, "eff 997.75 (stale)"), "a stale readout keeps live and effective marked stale and hides the cap");
+    check(summary_fits(3, 4), "the live reading and effective limit fit their Classic table cells with stale markers");
     // Missing readouts show unknown, never an invented reading or cap.
     text = daily_rails(h, nullptr);
     check(contains(text, "rel 991.5 / alt 1014.75") && contains(text, "live --") && !contains(text, "estimated cap"),

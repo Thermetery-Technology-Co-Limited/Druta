@@ -276,8 +276,12 @@ std::string rail_fields_text(double rel, double alt, double ov, double vmin) {
     std::snprintf(buffer, sizeof(buffer), "rel %.9g / alt %.9g\nov %.9g / vmin %.9g mV", rel, alt, ov, vmin);
     return buffer;
 }
-void dim_wrapped(const std::string& text) {
-    ImGui::PushStyleColor(ImGuiCol_Text, rail_dim); ImGui::TextWrapped("%s", text.c_str()); ImGui::PopStyleColor();
+void rail_summary_text(const char* text, const ImVec4& color = rail_dim) {
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
 }
 void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const RailReadouts* readouts) {
     bool listed[DC_RAILS_COUNT]{};
@@ -310,11 +314,11 @@ void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const
             fields = rail_fields_text(live->reliability, live->alt_reliability, live->overvoltage, live->vmin);
         } else continue;
         ImGui::PushID(static_cast<int>(4000 + rail));
-        // Python volt_limits_cells: five add_text cells, each on a frame-height line.
+        // Keep the summary in the slider columns and wrap each reading within its cell.
         ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-        ImGui::TextColored(rail_dim, "%s", label.c_str());
-        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); dim_wrapped(fields);
-        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); ImGui::TextColored(rail_dim, "%s", cap.c_str());
+        rail_summary_text(label.c_str());
+        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text(fields.c_str());
+        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text(cap.c_str());
         hint(cap.empty() ? "Estimated cap needs this read's reported voltage-boost contribution."
             : "min(reliability + current boost contribution, alt-reliability, overvoltage); an estimate from the captured reference.");
         ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
@@ -322,17 +326,20 @@ void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const
         const bool has_live = live && live->live != 0 && std::isfinite(live->live);
         if (has_live) std::snprintf(text, sizeof(text), "live %.9g mV%s", live->live, stale_mark);
         else std::snprintf(text, sizeof(text), "live --");
-        ImGui::TextColored(has_live && stale ? rail_dim : rail_good, "%s", text);
+        rail_summary_text(text, has_live && stale ? rail_dim : rail_good);
         hint(std::string("Driver-reported rail reading, not a physical VOUT measurement.")
             + (stale ? "\nThe last rail read failed; this is the previous reading." : ""));
         ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-        if (live && live->effective != 0 && std::isfinite(live->effective)) ImGui::TextColored(rail_dim, "eff %.9g%s", live->effective, stale_mark);
-        hint("The card's own effective-limit readback.");
+        if (live && live->effective != 0 && std::isfinite(live->effective)) {
+            std::snprintf(text, sizeof(text), "eff %.9g%s", live->effective, stale_mark);
+            rail_summary_text(text);
+            hint("The card's own effective-limit readback.");
+        }
         ImGui::PopID();
     }
     if (!s.data.rail_writable_known || !s.data.rail_writable) return;
     // Dear PyGui sets each text item on a frame-height line, 3 px down.
-    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); ImGui::TextColored(rail_dim, "Ceilings");
+    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text("Ceilings");
     ImGui::TableNextColumn();
     // Python enables the box only while Rail limits is live on a writable block;
     // a disabled Dear PyGui item keeps its normal look, so only the click is refused.
@@ -362,14 +369,14 @@ void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const
             "Apply on either is refused while Link is ticked.", rail == 0 ? "NVVDD" : "MSVDD");
         ImGui::PopStyleColor();
     }
-    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); ImGui::TextColored(rail_dim, "Reference");
+    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text("Reference");
     ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-    dim_wrapped("Absolute values are estimates from this card's first stable driver reading, which may be quantized. "
+    rail_summary_text("Absolute values are estimates from this card's first stable driver reading, which may be quantized. "
         "Initial restores exact first-read controls, not factory defaults.");
     if (listed[0] && !listed[1]) {
-        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); ImGui::TextColored(rail_dim, "NVVDD");
+        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text("NVVDD");
         ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-        dim_wrapped("Driver reports NVVDD only. Absolute requests use this card's first-read reference.");
+        rail_summary_text("Driver reports NVVDD only. Absolute requests use this card's first-read reference.");
     }
 }
 // Python: the NVVDD offset row shows the same live Vcore as the boost row
