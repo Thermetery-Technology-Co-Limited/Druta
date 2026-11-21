@@ -21,7 +21,7 @@ PowerCase power_case(uint8_t header=0x38){PowerCase c;c.image=fixture(true,0x99a
  c.info[0xcc+0xb9]=1;word(c.info,0xcc+0xbc,0);word(c.info,0xcc+0xbe,0);word(c.info,0xcc+0x104+0x34,31);word(c.info,0xcc+3*0x104+0x34,31);word(c.info,0xcc+3*0x104+0x36,31);c.info[0x5000]=0xab;return c;}
 void short_v30_tests() {
  const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},{0x20802618,5520,0x3c,0x84},{0x2080a618,20512,0xcc,0x104}};
- const PowerRelationshipIdentity identity{"0000:7b:00.0",5,0x5678,0xbeef0001};
+ const PowerRelationshipIdentity identity{"0000:7b:00.0",6,0x5678,0xbeef0001};
  // Put the table near the end of its owner so a bogus relationship count
  // cannot be mistaken for another table or data beyond the image.
  constexpr size_t table=0x5e00,first=table+0x2c,second=first+0x42,relation=second+0x42;
@@ -68,10 +68,19 @@ void short_v30_tests() {
   const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
   check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==relation+2,
         "Matching V30 weight and target qualify for override Preview");
-  auto turing=identity;
-  turing.architecture=6;
-  check(plan_power_relationship_weights(rom,turing,layout,info,requests).ok,
-        "Turing 0x42 rows qualify with matching A618 and RM26 packets");
+  for (uint32_t architecture : {4u,5u,7u,8u,9u,10u}) {
+   auto alternate=identity;
+   alternate.architecture=architecture;
+   const auto alternate_plan=plan_power_relationship_weights(rom,alternate,layout,info,requests);
+   if(legacy) {
+    check(!alternate_plan.ok&&alternate_plan.patches.empty()&&
+          alternate_plan.message.find("unqualified for this architecture")!=std::string::npos,
+          "An exact 0x42 ROM and RM26 INFO match qualifies only on Turing");
+   } else {
+    check(alternate_plan.ok&&alternate_plan.patches.size()==1,
+          "Both A618 pairings retain 0x42 write support on other architectures");
+   }
+  }
   if(plan.ok) {
    auto expected_rom=rom,expected_info=info;
    word(expected_rom,relation+2,4097);word(expected_info,relation_info+weight_offset,4097);

@@ -5,7 +5,6 @@
 #include "power_relationships.h"
 #include "vbios_rom_reader.h"
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <set>
 #include <stdexcept>
@@ -62,20 +61,19 @@ constexpr Classes v40_classes = {
 
 struct RelationFormat {
  uint8_t stride_field, stride;
- std::optional<uint32_t> architecture;
- std::array<std::optional<InfoFormat>,3> packets;
+ std::optional<uint32_t> rm26_architecture;
+ bool supports_a618;
 
  bool supports(InfoFormat packet, uint32_t arch) const {
-  return (!architecture || *architecture == arch) &&
-         std::find(packets.begin(),packets.end(),packet) != packets.end();
+  return packet == InfoFormat::rm26 ? rm26_architecture == arch : supports_a618;
  }
 };
-constexpr uint32_t pascal = 4, ampere = 7;
-// The 0x42 rows used on Turing supported both A618 packets before RM26.
-constexpr RelationFormat short_relations{8,14,{}, {InfoFormat::rm26,InfoFormat::compact_a618,InfoFormat::a618}};
-constexpr RelationFormat ampere_relations{8,14,ampere, {InfoFormat::rm26}};
-constexpr RelationFormat pascal_relations{8,10,pascal, {InfoFormat::rm26}};
-constexpr RelationFormat v40_relations{4,18,{}, {InfoFormat::a618,InfoFormat::compact_a618}};
+constexpr uint32_t pascal = 4, turing = 6, ampere = 7;
+// The 0x42 rows keep their existing A618 support. Only Turing has qualified RM26.
+constexpr RelationFormat short_relations{8,14,turing,true};
+constexpr RelationFormat ampere_relations{8,14,ampere,false};
+constexpr RelationFormat pascal_relations{8,10,pascal,false};
+constexpr RelationFormat v40_relations{4,18,{},true};
 
 struct PolicyFields {
  uint8_t class_mask;

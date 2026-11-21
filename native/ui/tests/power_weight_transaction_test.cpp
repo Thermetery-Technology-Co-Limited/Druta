@@ -76,7 +76,6 @@ void transaction_tests(){for(bool alternate:{false,true}){TransactionFake f(alte
 }
 }
 int main(){transaction_tests();
- legacy_transaction_test(10,0x2c,0x42,14); // Original alternate-identity 5520-byte control.
  legacy_transaction_test(6,0x2c,0x42,14);
  legacy_transaction_test(7,0x2c,0x47,14);
  legacy_transaction_test(4,0x25,0x2e,10);
