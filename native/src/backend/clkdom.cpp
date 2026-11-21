@@ -101,11 +101,15 @@ bool ClkDom::ok() const {
 }
 
 std::pair<int, ClkDomBlock> ClkDom::get(std::uint32_t mask) {
+    return get_for_layout(mask, protocol_layout_ ? *protocol_layout_ : kClkDomLayoutTuring);
+}
+
+std::pair<int, ClkDomBlock> ClkDom::get_for_layout(std::uint32_t mask, const ClkDomLayout& layout) {
     // (status, buffer): the buffer is the driver's own bytes, untouched.
     ClkDomBlock block;
     block.words.assign(kClkDomBufBytes / 4, 0);
-    block.words[0] = kClkDomLayoutTuring.version;
-    block.words[kClkDomLayoutTuring.mask_dword] = mask;
+    block.words[0] = layout.version;
+    block.words[layout.mask_dword] = mask;
     Nvapi& a = gpu_.nvapi;
     auto fn = a.get<HandlePtrFn>(ClkDomCtlGet);
     int status = fn ? fn(a.gpu, block.words.data()) : -1;
@@ -124,12 +128,33 @@ const std::vector<std::uint32_t>& ClkDom::domains() {
         std::vector<std::uint32_t> found;
         std::map<std::uint32_t, std::string> errors;
         if (ok()) {
+            bool incompatible = true;
             for (std::uint32_t d = 0; d < kClkDomSlots; ++d) {
                 auto [st, block] = get(1u << d);
-                if (st == 0 && valid_block(block, kClkDomLayoutTuring, 1u << d))
+                if (st != -9) incompatible = false;
+                const auto& protocol = protocol_layout_ ? *protocol_layout_ : kClkDomLayoutTuring;
+                if (st == 0 && valid_block(block, protocol, 1u << d))
                     found.push_back(d);
                 else
                     errors[d] = st ? "status " + std::to_string(st) : "version/mask echo mismatch";
+            }
+            // Only an explicit incompatible-version response on every V2
+            // domain permits a Pascal V1 probe. Other failures stay retryable.
+            if (!protocol_layout_ && incompatible && telemetry_.arch() == kArchPascal) {
+                std::vector<std::uint32_t> older;
+                std::map<std::uint32_t, std::string> older_errors;
+                for (std::uint32_t d = 0; d < kClkDomSlots; ++d) {
+                    auto [st, block] = get_for_layout(1u << d, kClkDomLayoutPascalV1);
+                    if (st == 0 && valid_block(block, kClkDomLayoutPascalV1, 1u << d))
+                        older.push_back(d);
+                    else
+                        older_errors[d] = st ? "status " + std::to_string(st) : "version/mask echo mismatch";
+                }
+                if (!older.empty()) {
+                    protocol_layout_ = &kClkDomLayoutPascalV1;
+                    found = std::move(older);
+                    errors = std::move(older_errors);
+                }
             }
         }
         valid_ = std::move(found);
@@ -176,6 +201,7 @@ const ClkDomLayout* ClkDom::layout() {
         return fail("unsupported_layout", "clock-control packet geometry is invalid");
     // An accepted one-hot mask rather than an assumed domain 0: read-only.
     const std::vector<std::uint32_t>& accepted = domains();
+    if (protocol_layout_) layout = protocol_layout_;
     if (accepted.empty())
         return fail("unavailable", "no clock-control domain answered; Refresh capabilities retries discovery");
     auto [st, block] = get(1u << accepted[0]);
@@ -396,6 +422,13 @@ Outcome ClkDom::set_clk_domain_offset(std::int64_t domain, double mhz) {
     }
     int sst = a.get<HandlePtrFn>(ClkDomCtlSet)(a.gpu, buf.words.data());
     if (sst != 0) return {false, "clock-domain write failed (status " + std::to_string(sst) + ")"};
+    if (lay == &kClkDomLayoutPascalV1) {
+        auto [read_status, readback] = get(mask);
+        if (read_status != 0 || !valid_block(readback, *lay, mask))
+            return {false, "clock-domain request sent, but V1 readback is unavailable"};
+        if (readback.word(dw_byte) != wire_khz)
+            return {false, "clock-domain request sent, but V1 readback differs"};
+    }
     return {true, control_label(domain) + " offset " + plus_0f(was / 1000.0) + " -> " +
                       plus_0f(static_cast<double>(khz) / 1000.0) +
                       " MHz (requested; the driver floors to whole clock bins)"};
@@ -605,7 +638,7 @@ bool ClkDom::retry_clock_capabilities(double now) {
     if (now < *retry_due_) return false;
 
     auto architecture = telemetry_.arch();
-    const ClkDomLayout* lay = candidate(architecture);
+    const ClkDomLayout* lay = protocol_layout_ ? protocol_layout_ : candidate(architecture);
     if (architecture && !lay) {
         // An identified, unmeasured generation is never tested with a
         // neighbouring architecture's private field layout.
@@ -628,10 +661,12 @@ bool ClkDom::retry_clock_capabilities(double now) {
         if (valid_) accepted.insert(valid_->begin(), valid_->end());
         std::map<std::uint32_t, std::string> errors = probe_errors_;
         std::optional<std::uint32_t> valid_response;  // the mask that answered exactly
+        bool incompatible = true;
         for (const auto& [control, name] : known) {  // sorted(set(understood) - accepted)
             if (accepted.count(control)) continue;
             std::uint32_t mask = 1u << control;
             auto [status, response] = get(mask);
+            if (status != -9) incompatible = false;
             if (status == 0 && valid_block(response, *lay, mask)) {
                 accepted.insert(control);
                 errors.erase(control);
@@ -639,6 +674,16 @@ bool ClkDom::retry_clock_capabilities(double now) {
             } else {
                 errors[control] = status ? "status " + std::to_string(status) : "version/mask echo mismatch";
             }
+        }
+        // A transient initial discovery can later settle on a driver that
+        // reports an incompatible V2 version. Re-run complete discovery to
+        // select the Pascal V1 packet in that case.
+        if (!protocol_layout_ && architecture == kArchPascal && accepted.empty() && incompatible) {
+            valid_.reset();
+            const auto& discovered = domains();
+            accepted.insert(discovered.begin(), discovered.end());
+            errors = probe_errors_;
+            if (protocol_layout_) lay = protocol_layout_;
         }
         valid_ = std::vector<std::uint32_t>(accepted.begin(), accepted.end());
         probe_errors_ = errors;
@@ -693,6 +738,7 @@ std::optional<CapabilityError> ClkDom::refresh_capabilities() {
     std::optional<CapabilityError> previous = capability_error_;
     layout_cache_ = LayoutCache::none;
     layout_cached_ = nullptr;
+    protocol_layout_ = nullptr;
     valid_.reset();
     pair_.reset();
     probe_errors_.clear();

@@ -10,12 +10,11 @@
 // read_rail_offset_mv, set_rail_offset_mv, reset_msvdd_offset_mv,
 // retry_clock_capabilities and refresh_capabilities.
 //
-// The block is a byte buffer plus offsets, never a struct: four fields of a
-// 772-byte entry are known, and every write hands the driver its own bytes
-// back with exactly one dword changed (a diff guard refuses otherwise).
-// Layouts are selected by NVML architecture and then VALIDATED by a
-// one-domain GET that echoes the version and the mask; nothing here decides
-// from a driver version or a device id.
+// The block is a byte buffer plus offsets, never a struct. The understood
+// fields depend on the validated layout. Every write hands the driver its own
+// bytes back with exactly one dword changed (a diff guard refuses otherwise).
+// Layouts are selected by architecture and validated by a one-domain GET
+// that echoes the version and mask. Driver version and device id are not used.
 #pragma once
 
 #include <cstdint>
@@ -54,6 +53,10 @@ inline constexpr ClkDomLayout kClkDomLayoutTuring{"turing", 0x000261A4, 0x61A4, 
 // Blackwell keeps the geometry and shifts the frequency and rail fields by one dword.
 inline constexpr ClkDomLayout kClkDomLayoutBlackwell{"blackwell", 0x000261A4, 0x61A4, 0x124, 0x304, 2,
                                                      0x000, 0x114, 0x118, 0x11C};
+// The V1 getter's frequency and NVVDD fields were compared with V2 on Pascal.
+// The V1 MSVDD field has not been identified.
+inline constexpr ClkDomLayout kClkDomLayoutPascalV1{"pascal-v1", 0x00010964, 0x964, 0x64, 0x48, 2,
+                                                    0x000, 0x02C, 0x030, std::nullopt};
 inline constexpr std::uint32_t kClkDomSlots = 32;
 inline constexpr std::uint32_t kClkDomXbar = 1;
 inline constexpr std::uint32_t kClkDomBufBytes = 65536;  // far larger than the 24996 declared
@@ -141,6 +144,7 @@ public:
     const std::set<std::uint32_t>& msvdd_domains_written() const { return msvdd_written_; }
 
 private:
+    std::pair<int, ClkDomBlock> get_for_layout(std::uint32_t mask, const ClkDomLayout& layout);
     Outcome set_msvdd_offset_mv(double mv, std::int64_t domain, bool reset);
     std::set<std::uint32_t> cached_ui_controls(std::optional<std::uint32_t> architecture);
     bool retry_needed(std::optional<std::uint32_t> architecture);
@@ -153,6 +157,7 @@ private:
     std::map<std::uint32_t, std::string> probe_errors_;
     enum class LayoutCache { none, failed, valid } layout_cache_ = LayoutCache::none;
     const ClkDomLayout* layout_cached_ = nullptr;
+    const ClkDomLayout* protocol_layout_ = nullptr;
     std::optional<CapabilityError> capability_error_;
     std::optional<std::map<std::uint32_t, std::uint32_t>> pair_;
     bool offset_read_pending_ = false;

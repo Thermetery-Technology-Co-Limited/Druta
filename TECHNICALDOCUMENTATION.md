@@ -1446,6 +1446,23 @@ and control discovery. The earlier 581.80 timing experiments above provide
 the controller timing write and restoration results.
 [431.36 and 512.15 captures](experiments/gp107-driver-43136-51215-20261121.json).
 
+The 431.36 clock-control getter rejected the newer packet version with
+NVAPI status -9. It accepted version `0x00010964`, with a 100-byte header
+and 32 records of 72 bytes. On 512.15, both packet versions answered. A
+one-megahertz XBAR request through the established newer format identified
+the older record's frequency field at offset `0x2c`. A one-microvolt NVVDD
+request identified the NVVDD field at `0x30`. Each request and restore ran
+at P0 and returned the complete older packet to its initial value.
+
+The native core now tries the newer layout first and negotiates the older
+Pascal layout after explicit incompatible-version responses. On the same
+1050 Ti, the 431.36 build offered Additional memory offset and NVVDD offset.
+Its core API applied and restored +1 MHz for the additional memory request
+and +0.001 mV for NVVDD at P0. The memory P0 maximum reported 3504 → 3505 →
+3504 MHz. These results verify request readback and restoration on this
+configuration. The MSVDD field in the older packet remains unverified.
+[Packet captures and trial records](experiments/gp107-clkdom-v1-20261121.json).
+
 ## Session firmware override experiment for tFAW
 
 The P0 trial used the driver's temporary ROM records and a selected GPU
