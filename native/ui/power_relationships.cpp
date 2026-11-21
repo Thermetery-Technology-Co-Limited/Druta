@@ -22,7 +22,11 @@ bool layout_equal(const PowerRelationshipLayout& a,const PowerRelationshipLayout
         a.policy_base==b.policy_base&&a.policy_stride==b.policy_stride;
 }
 
-enum class InfoFormat { rm26, compact_a618, a618 };
+enum class InfoFormat { compact_rm26, rm26, compact_a618, a618 };
+
+constexpr bool is_rm26(InfoFormat format) {
+ return format==InfoFormat::compact_rm26 || format==InfoFormat::rm26;
+}
 
 struct RelationshipInfoGeometry {
  InfoFormat format;
@@ -36,7 +40,8 @@ struct RelationshipInfoGeometry {
 
 const RelationshipInfoGeometry* relationship_geometry(const PowerRelationshipLayout& layout) {
  static constexpr RelationshipInfoGeometry packets[] = {
-  {InfoFormat::rm26,         {0x20802618,  5520, 0x3c, 0x84},  0x10c0, 4},
+  {InfoFormat::compact_rm26, {0x20802618,  5008, 0x34, 0x74},   0x0eb8, 4},
+  {InfoFormat::rm26,         {0x20802618,  5520, 0x3c, 0x84},   0x10c0, 4},
   {InfoFormat::compact_a618, {0x2080a618, 20000, 0xcc, 0xfc},  0x3fd0, 6},
   {InfoFormat::a618,         {0x2080a618, 20512, 0xcc, 0x104}, 0x41d0, 6},
  };
@@ -59,16 +64,18 @@ constexpr Classes v40_classes = {
  {9,20},{10,31,false},{11,30},{12,33},{13,32},{14,34,false},{15,36,false},{16,35,false}
 };
 
+constexpr uint32_t pascal = 4, turing = 6, ampere = 7;
+
 struct RelationFormat {
  uint8_t stride_field, stride;
  std::optional<uint32_t> rm26_architecture;
  bool supports_a618;
 
  bool supports(InfoFormat packet, uint32_t arch) const {
-  return packet == InfoFormat::rm26 ? rm26_architecture == arch : supports_a618;
+  if(packet==InfoFormat::compact_rm26 && arch!=turing) return false;
+  return is_rm26(packet) ? rm26_architecture==arch : supports_a618;
  }
 };
-constexpr uint32_t pascal = 4, turing = 6, ampere = 7;
 // The 0x42 rows keep their existing A618 support. Only Turing has qualified RM26.
 constexpr RelationFormat short_relations{8,14,turing,true};
 constexpr RelationFormat ampere_relations{8,14,ampere,false};
@@ -197,12 +204,13 @@ PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout
  PowerRelationshipReport out;
  const auto geometry=relationship_geometry(layout);
  if(!geometry){out.reason="Policy INFO geometry/command unrecognized";return out;}if(info.size()!=layout.info_size){out.reason="Policy INFO packet invalid/incomplete";return out;}
+ const bool legacy_info=is_rm26(geometry->format);
  const bool compact_info=geometry->format==InfoFormat::compact_a618;
  out.policy_mask=word32(info,4);out.relationship_mask=word32(info,geometry->base-4);
  for(uint32_t i=0;i<32;++i)if(out.relationship_mask&(1u<<i)){const size_t at=geometry->row(i);PowerRelationshipRecord r;r.index=i;r.type=info[at];r.target=info[at+1];if(!r.type)r.weight_raw=word16(info,geometry->weight(i));
   if(r.target>=32||!(out.policy_mask&(1u<<r.target)))r.target_reason="Target policy absent from INFO mask";
   else{const size_t row=layout.policy_base+layout.policy_stride*r.target;const auto version=word32(info,row)&255,header=word32(info,row+4),unit=(header>>16)&255;
-   if(version!=0x30&&(geometry->format==InfoFormat::rm26||version!=0x40))r.target_reason="Target policy row format unrecognized";else if(unit>1)r.target_reason="Target policy unit unrecognized";
+   if(version!=0x30&&(legacy_info||version!=0x40))r.target_reason="Target policy row format unrecognized";else if(unit>1)r.target_reason="Target policy unit unrecognized";
    else r.target_metadata=PowerRelationshipTarget{r.target,header&255,(header>>8)&255,unit,word32(info,row+8),word32(info,row+12),word32(info,row+16)};}
   out.relationships.push_back(std::move(r));
  }
@@ -210,7 +218,7 @@ PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout
  const auto fill=[&](PowerRelationshipSource& source){for(uint32_t i=source.first;i<=source.last;++i){const auto* r=relation(i);if(!r||r->type||!r->target_metadata){source.reason="Referenced relationship or target unavailable";source.relationships.clear();return;}source.relationships.push_back(i);}source.available=true;};
  for(uint32_t i=0;i<32;++i)if(out.policy_mask&(1u<<i)){const size_t at=layout.policy_base+layout.policy_stride*i;const auto kind=info[at+4];const bool format=info[at]==0x30||info[at]==0x40;
   // The shorter RM26 rows do not use the A618 source field offsets.
-  if(geometry->format==InfoFormat::rm26){out.source_uninterpreted_policies.push_back(i);continue;}
+  if(legacy_info){out.source_uninterpreted_policies.push_back(i);continue;}
   if(!compact_info&&kind==33){PowerRelationshipSource source;source.policy=i;source.first=word16(info,at+0x34);source.last=word16(info,at+0x36);
    if(!format)source.reason="Source policy row format unrecognized";else if(source.first>source.last)source.available=true;else if(source.last>=32)source.reason="Source relationship range exceeds INFO capacity";else fill(source);out.range_references.push_back(std::move(source));continue;}
   if(!compact_info&&kind==32){PowerRelationshipLink source;source.policy=i;source.relationship=word16(info,at+0x34);const auto* r=relation(source.relationship);if(r)source.target=r->target;

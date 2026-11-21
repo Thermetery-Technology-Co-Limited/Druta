@@ -50,6 +50,9 @@ struct ClkDomLayout {
 // 0x124 + 32 * 0x304 == 24996, the size the version word declares).
 inline constexpr ClkDomLayout kClkDomLayoutTuring{"turing", 0x000261A4, 0x61A4, 0x124, 0x304, 2,
                                                   0x000, 0x10C, 0x110, 0x114};
+// Compact Turing CLOCK_CONTROL v1, selected after an explicit v2 version rejection.
+inline constexpr ClkDomLayout kClkDomLayoutCompactTuring{"turing-compact", 0x00010964, 0x964, 0x64, 0x48, 2,
+                                                         0x000, 0x2C, std::nullopt, std::nullopt};
 // Blackwell keeps the geometry and shifts the frequency and rail fields by one dword.
 inline constexpr ClkDomLayout kClkDomLayoutBlackwell{"blackwell", 0x000261A4, 0x61A4, 0x124, 0x304, 2,
                                                      0x000, 0x114, 0x118, 0x11C};
@@ -145,6 +148,8 @@ public:
 
 private:
     std::pair<int, ClkDomBlock> get_for_layout(std::uint32_t mask, const ClkDomLayout& layout);
+    std::pair<int, ClkDomBlock> probe_control(std::uint32_t control);
+    bool compact_wire() const { return wire_layout_ == &kClkDomLayoutCompactTuring; }
     Outcome set_msvdd_offset_mv(double mv, std::int64_t domain, bool reset);
     std::set<std::uint32_t> cached_ui_controls(std::optional<std::uint32_t> architecture);
     bool retry_needed(std::optional<std::uint32_t> architecture);
@@ -158,6 +163,7 @@ private:
     enum class LayoutCache { none, failed, valid } layout_cache_ = LayoutCache::none;
     const ClkDomLayout* layout_cached_ = nullptr;
     const ClkDomLayout* protocol_layout_ = nullptr;
+    const ClkDomLayout* wire_layout_ = nullptr;
     std::optional<CapabilityError> capability_error_;
     std::optional<std::map<std::uint32_t, std::uint32_t>> pair_;
     bool offset_read_pending_ = false;

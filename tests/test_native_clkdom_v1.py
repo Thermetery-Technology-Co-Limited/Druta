@@ -165,17 +165,35 @@ class PascalV1Tests(unittest.TestCase):
             gpu.close()
 
     def test_only_definite_incompatible_version_permits_fallback(self):
-        for kwargs in ({"v2_status": -1}, {"mixed_v2": True}, {"arch": 6}, {"bad_echo": True},
+        for kwargs in ({"v2_status": -1}, {"mixed_v2": True}, {"arch": 7}, {"bad_echo": True},
                        {"v1_enabled": False}):
             with self.subTest(**kwargs):
                 rig = LegacyRig(**kwargs)
                 gpu = rig.native_gpu()
                 try:
                     self.assertIsNone(gpu.clkdom_layout())
-                    if kwargs.get("v2_status") == -1 or kwargs.get("mixed_v2") or kwargs.get("arch") == 6:
+                    if kwargs.get("v2_status") == -1 or kwargs.get("mixed_v2") or kwargs.get("arch") == 7:
                         self.assertNotIn(V1, rig.versions)
                 finally:
                     gpu.close()
+
+    def test_turing_v1_never_exposes_pascal_rail_or_memory_write(self):
+        # The wire geometry is the same, but the Turing and Pascal field
+        # qualifications differ. Accepted GET alone does not qualify rails
+        # or a memory-control SET on Turing.
+        rig = LegacyRig(arch=6)
+        gpu = rig.native_gpu()
+        try:
+            lay = gpu.clkdom_layout()
+            self.assertEqual((lay.name, lay.version), ("turing-compact", V1))
+            self.assertIsNone(lay.nvvdd_uv)
+            self.assertIsNone(lay.msvdd_uv)
+            self.assertFalse(gpu.rail_offset_capability(0, 0)["available"])
+            self.assertFalse(gpu.set_rail_offset_mv(0.001, 0, 0)[0])
+            self.assertFalse(gpu.set_clk_domain_offset(2, 1)[0])
+            self.assertEqual(rig.v1_sets, [])
+        finally:
+            gpu.close()
 
     def test_manual_refresh_can_recover_v1(self):
         rig = LegacyRig(v2_status=-1)
