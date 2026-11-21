@@ -48,6 +48,9 @@ struct ClockGatingPlan {struct State;bool ok=false;std::string message;std::shar
 struct ClockGatingReceipt {struct State;std::shared_ptr<State> state;};
 struct ClockGatingApi {
     VoltagePolicyApi transport;
+    // Only Pascal firmware-timing READ32 may use the captured power envelope
+    // when the stricter PERF transport rejects an older GET family.
+    decltype(&dc_rm_power_transport) timing_power_transport=nullptr;
     // Optional deterministic test seams. Host production can omit them.
     std::function<uint32_t()> next_object;
     std::function<void(uint32_t milliseconds)> sleep;

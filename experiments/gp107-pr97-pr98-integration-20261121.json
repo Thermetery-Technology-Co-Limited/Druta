@@ -1,0 +1,196 @@
+{
+  "scope": "PR #97 and #98 integration on MSI GTX 1050 Ti; test behavior specific to the tested board and operating point",
+  "date": "2026-11-21",
+  "source": {
+    "pr97_head": "5b60991df95b7d6c5c993f8d016b6bf8b9f9d3fa",
+    "pr98_head": "da28e092cb46f6883c4b7a88141d05f651d2530d",
+    "combined_build": "Working-tree integration of the two listed PR heads; see containing commit for final integrated source."
+  },
+  "device": {
+    "slot": "0000:03:00.0",
+    "uuid": "GPU-bcf807ad-1f3c-a64b-a99c-d9eccd456470"
+  },
+  "p0_timing_reads": [
+    {
+      "driver": "431.36",
+      "ok": true,
+      "before": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "after": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "controller_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "readable_fields": 21,
+      "decoded_fields": {
+        "AOND": 0,
+        "CDLR": 9,
+        "PDEN2PDEX": 5,
+        "PDEX": 10,
+        "R2W_BUS": 8,
+        "RPRE": 0,
+        "W2R_BUS": 8,
+        "WPRE": 0,
+        "WRCRC": 13,
+        "tCL": 22,
+        "tFAW": 28,
+        "tRAS": 44,
+        "tRC": 71,
+        "tRCDRD": 27,
+        "tRCDWR": 22,
+        "tREFI": 6,
+        "tRFC": 193,
+        "tRP": 27,
+        "tRRD": 7,
+        "tWL": 5,
+        "tWR": 28
+      },
+      "closed_cleanly": true,
+      "worker_started": false,
+      "worker_stopped": null,
+      "source_artifact": "timing_431"
+    },
+    {
+      "driver": "512.15",
+      "ok": true,
+      "before": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "after": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "controller_words": {
+        "0": "0x1b58c147",
+        "1": "0x2966c296",
+        "2": "0x881c0900",
+        "3": "0x000038aa",
+        "4": "0xd5838032",
+        "5": "0xa6b270d2"
+      },
+      "readable_fields": 21,
+      "decoded_fields": {
+        "AOND": 0,
+        "CDLR": 9,
+        "PDEN2PDEX": 5,
+        "PDEX": 10,
+        "R2W_BUS": 8,
+        "RPRE": 0,
+        "W2R_BUS": 8,
+        "WPRE": 0,
+        "WRCRC": 13,
+        "tCL": 22,
+        "tFAW": 28,
+        "tRAS": 44,
+        "tRC": 71,
+        "tRCDRD": 27,
+        "tRCDWR": 22,
+        "tREFI": 6,
+        "tRFC": 193,
+        "tRP": 27,
+        "tRRD": 7,
+        "tWL": 5,
+        "tWR": 28
+      },
+      "closed_cleanly": true,
+      "worker_started": true,
+      "worker_stopped": true,
+      "source_artifact": "timing_512"
+    }
+  ],
+  "controller_words_match_across_drivers": true,
+  "timing_write_scope": "Read-only timing inventories; no timing writes, including no tCL writes. Writable labels are editor capabilities, not evidence of timing write success.",
+  "p0_clock_trials": [
+    {
+      "kind": "memory offset",
+      "driver": "431.36",
+      "domain": 2,
+      "version": "0x00010964",
+      "request_unit": "kHz",
+      "request_raw_baseline_applied_restored": [
+        0,
+        1000,
+        0
+      ],
+      "before_apply": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "before_restore": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "apply_succeeded": true,
+      "restore_succeeded": true,
+      "one_domain_and_combined_packets_restored_exactly": true,
+      "worker_stopped": true,
+      "source_artifact": "memory_431",
+      "p0_memory_max_mhz_baseline_applied_restored": [
+        3504,
+        3505,
+        3504
+      ],
+      "reported_memory_clock_mhz_baseline_applied_restored": [
+        3504,
+        3504,
+        3504
+      ],
+      "limitation": "Driver reported the P0 maximum changing; reported current memory clock stayed 3504 MHz, and hidden ceilings remain unverified."
+    },
+    {
+      "kind": "NVVDD offset",
+      "driver": "431.36",
+      "domain": 0,
+      "version": "0x00010964",
+      "request_unit": "microvolt",
+      "request_raw_baseline_applied_restored": [
+        0,
+        1,
+        0
+      ],
+      "before_apply": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "before_restore": {
+        "memory_mhz": 3504,
+        "pstate": 0
+      },
+      "apply_succeeded": true,
+      "restore_succeeded": true,
+      "one_domain_and_combined_packets_restored_exactly": true,
+      "worker_stopped": true,
+      "source_artifact": "nvvdd_431",
+      "limitation": "Request readback and exact packet restoration do not establish physical core-voltage response; no independent voltage measurement was made."
+    }
+  ],
+  "turing_scope": "Integrated Turing behavior checked with fake-driver regression tests only; no integrated live Turing hardware test.",
+  "source_artifacts": {
+    "timing_431": {
+      "local_source": "C:\\Users\\Administrator\\tmp\\druta-driver-43136-investigation\\post431\\p0-timings-integration-431.json",
+      "sha256": "7bfd71cb3569c7b2da041af017776f5d12816cc9135ccd21d8acdc7e00c35e45"
+    },
+    "timing_512": {
+      "local_source": "C:\\Users\\Administrator\\tmp\\druta-driver-43136-investigation\\restored\\p0-timings-integration-512.json",
+      "sha256": "5e5ecb0ff79e374a8d4a9ccd1f19c28cbbf3789b8ec0a69372c4d15059e15b96"
+    },
+    "memory_431": {
+      "local_source": "C:\\Users\\Administrator\\tmp\\druta-driver-43136-investigation\\post431\\p0-memory-integration.json",
+      "sha256": "89ea0c625d9eb68c9dc4b9c389a05663111c3e6bb3f8200f3cdf40ccaf035b72"
+    },
+    "nvvdd_431": {
+      "local_source": "C:\\Users\\Administrator\\tmp\\druta-driver-43136-investigation\\post431\\p0-nvvdd-integration.json",
+      "sha256": "a6796e0bc22bb7fbaca1e126c70f125361c8d98c808898b8c8a757426fa5742c"
+    }
+  }
+}

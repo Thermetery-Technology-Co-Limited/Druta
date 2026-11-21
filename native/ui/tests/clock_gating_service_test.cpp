@@ -19,6 +19,8 @@ bool foreign=false,stub=false,free_fails=false,bad_register_geometry=false,ignor
 bool allocation_nt=false,free_after_delete_error=false,malformed_allocation=false,malformed_free=false;
 bool fail_reads_after_release=false;
 int failed_reads=0,bind_failure=0,bind_calls=0,requests=0,releases=0,frees=0,allocations=0,pcie_sets=0;uint32_t unavailable_register=0;
+int perf_transport_failure=0,power_transport_failure=0,perf_transport_calls=0,power_transport_calls=0,escape_calls=0;
+bool malformed_power=false,bad_power_command=false,missing_power_parent=false,bad_power_capture=false;
 std::map<uint32_t,uint32_t> values;
 struct Object{int feature=-1;bool enabled=false,requested=false;uint64_t old_eligible=0;std::map<uint32_t,uint32_t> old_values;};std::map<uint32_t,Object> objects;
 uint32_t word(const uint8_t* b,size_t at){uint32_t v;std::memcpy(&v,b+at,4);return v;}void put(uint8_t* b,size_t at,uint32_t v){std::memcpy(b+at,&v,4);}
@@ -26,9 +28,10 @@ std::map<uint32_t,uint32_t> blcg(){return {{0x4041F0,0xC646},{0x409890,0x7F},{0x
 std::map<uint32_t,uint32_t> slcg(){return {{0x2B409C,0x80000000},{0x2B4090,0x80000000},{0x2A0090,0x80000000},{0x2AA09C,0x80000000},{0x2AA090,0x80000000},{0x2A4090,0x80000000},{0x2AA49C,0x80000000},{0x2AA490,0x80000000},{0x2B0844,1},{0x2B6C3C,1},{0x2B6C7C,1},{0x2B6CBC,1},{0x2B6CFC,1}};}
 dc_status DC_CALL id(const dc_gpu*,dc_gpu_identity* out){*out=device;if(foreign)++out->nvapi_devid;return DC_OK;}dc_status DC_CALL lock(dc_gpu*){return DC_OK;}dc_status DC_CALL unlock(dc_gpu*){return DC_OK;}int32_t DC_CALL arch(uint32_t n){return n>=4&&n<=10;}
 dc_status DC_CALL bind(dc_gpu*,int32_t complete,dc_target* out,dc_error* error){++bind_calls;CHECK(complete==1);if(bind_failure){error->kind=bind_failure;bind_failure=0;return DC_E_FAILED;}out->size=sizeof(*out);std::strcpy(out->slot,device.slot);out->architecture=generation;out->device_id=device.nvapi_devid;out->subsystem_id=device.nvapi_subsys;out->handle=device.nvapi_handle;return DC_OK;}
-dc_status DC_CALL transport(dc_gpu*,dc_rm_transport* out,dc_error*){out->captured=1;out->header_count=17;out->header[0]=0x4E564441;out->header[1]=0x10002;out->header[2]=72;out->header[3]=0x4E562A2A;out->header[4]=0x0500002B;out->header[6]=71;out->header[12]=0x1234;out->header[13]=parent;out->header[14]=0x2080A612;out->header[15]=4;return DC_OK;}
+dc_status DC_CALL transport(dc_gpu*,dc_rm_transport* out,dc_error* error){++perf_transport_calls;if(perf_transport_failure){error->kind=perf_transport_failure;return DC_E_FAILED;}out->captured=1;out->header_count=17;out->header[0]=0x4E564441;out->header[1]=0x10002;out->header[2]=72;out->header[3]=0x4E562A2A;out->header[4]=0x0500002B;out->header[6]=71;out->header[12]=0x1234;out->header[13]=parent;out->header[14]=0x2080A612;out->header[15]=4;return DC_OK;}
+dc_status DC_CALL power_transport(dc_gpu* gpu,dc_rm_transport* out,dc_error* error){++power_transport_calls;if(power_transport_failure){error->kind=power_transport_failure;return DC_E_FAILED;}const auto saved=perf_transport_failure;perf_transport_failure=0;const auto status=transport(gpu,out,error);perf_transport_failure=saved;--perf_transport_calls;out->header[14]=bad_power_command?0x12345678:0x20802612;if(malformed_power)++out->header[2];if(missing_power_parent)out->header[13]=0;if(bad_power_capture)out->captured=2;return status;}
 void restore_object(Object& object){if(!object.requested)return;if(object.feature==0){eligible=object.enabled?supported:eligible|object.old_eligible;}else if(object.feature==1){for(const auto& pair:object.old_values)values[pair.first]|=pair.second&blcg().at(pair.first);}else if(object.feature==2){for(const auto& pair:slcg())values[pair.first]=0;}object.requested=false;}
-dc_status DC_CALL escape(dc_gpu*,uint8_t* raw,size_t size,const dc_escape_fields*,int32_t* nt,dc_error*){auto* p=reinterpret_cast<uint32_t*>(raw);CHECK(p[2]==size&&p[5]==0&&p[11]==0);*nt=0;const auto type=p[4];
+dc_status DC_CALL escape(dc_gpu*,uint8_t* raw,size_t size,const dc_escape_fields*,int32_t* nt,dc_error*){++escape_calls;auto* p=reinterpret_cast<uint32_t*>(raw);CHECK(p[2]==size&&p[5]==0&&p[11]==0);*nt=0;const auto type=p[4];
  if(type==0x0500002A){CHECK(size==88&&p[12]==0x1234&&p[13]==parent&&p[15]==0xB2CC&&p[16]==8&&p[17]==0x77FEF81E);CHECK(!objects.count(p[14]));objects.emplace(p[14],Object{});++allocations;p[19]=0;p[11]=1;if(allocation_nt)*nt=-1;if(malformed_allocation)++p[12];return DC_OK;}
  if(type==0x0500000C){CHECK(size==64&&p[12]==0x1234&&p[13]==parent&&objects.count(p[14]));if(free_fails)return DC_E_UNAVAILABLE;restore_object(objects.at(p[14]));objects.erase(p[14]);++frees;p[15]=0;p[11]=1;if(free_after_delete_error)*nt=-1;if(malformed_free)++p[12];return DC_OK;}
  CHECK(type==0x0500002B);const auto command=p[14];p[11]=1;p[16]=0;auto* b=raw+68;
@@ -44,7 +47,7 @@ dc_status DC_CALL escape(dc_gpu*,uint8_t* raw,size_t size,const dc_escape_fields
  else if(command==0x20801823){CHECK(p[15]==420&&word(b,0)==4);const uint32_t answer[]={gpu_max,root_max,(pcie_gpu<<16)|(pcie_width<<20),(pcie_root<<16)|(pcie_width<<20)};for(size_t i=0;i<4;++i)put(b,8+8*i,answer[i]);}
  else{CHECK(command==0x20800122&&p[15]==48);uint64_t pointer;std::memcpy(&pointer,b+24,8);auto* operations=reinterpret_cast<uint8_t*>(uintptr_t(pointer));const auto count=word(b,20);for(uint32_t i=0;i<count;++i){const auto at=32*i,address=word(operations,at+12);CHECK(operations[at]==0&&operations[at+1]==0);const auto value=address==0x85008?pcie_other|(pcie_target<<16):values[address];put(operations,at+20,value);if(address==unavailable_register)operations[at+2]=32;if(bad_register_geometry)operations[at+16]=1;}}
  return DC_OK;}
-void fresh(){generation=10;device={};device.size=sizeof(device);std::strcpy(device.slot,"0000:09:00.0");std::strcpy(device.uuid,"GPU-other-clock");device.nvapi_ok=device.nvapi_selected=1;device.nvapi_handle=99;device.nvapi_devid=0x4567;device.nvapi_subsys=0xAABBCCDD;native_arch=0x1B0;native_impl=5;parent=0x5678;next_id=0x60000001;supported=eligible=7;pcie_target=pcie_gpu=pcie_root=1;pcie_width=16;pcie_other=0x80001060;gpu_max=root_max=4;foreign=stub=free_fails=bad_register_geometry=ignore_pcie=opaque_pcie=allocation_nt=free_after_delete_error=malformed_allocation=malformed_free=fail_reads_after_release=false;reject_arb=true;failed_reads=bind_failure=bind_calls=requests=releases=frees=allocations=pcie_sets=0;unavailable_register=0;objects.clear();values.clear();for(const auto& pair:blcg())values[pair.first]=pair.second|0x10000000;for(const auto& pair:slcg())values[pair.first]=0;}
+void fresh(){generation=10;device={};device.size=sizeof(device);std::strcpy(device.slot,"0000:09:00.0");std::strcpy(device.uuid,"GPU-other-clock");device.nvapi_ok=device.nvapi_selected=1;device.nvapi_handle=99;device.nvapi_devid=0x4567;device.nvapi_subsys=0xAABBCCDD;native_arch=0x1B0;native_impl=5;parent=0x5678;next_id=0x60000001;supported=eligible=7;pcie_target=pcie_gpu=pcie_root=1;pcie_width=16;pcie_other=0x80001060;gpu_max=root_max=4;foreign=stub=free_fails=bad_register_geometry=ignore_pcie=opaque_pcie=allocation_nt=free_after_delete_error=malformed_allocation=malformed_free=fail_reads_after_release=false;reject_arb=true;failed_reads=bind_failure=bind_calls=requests=releases=frees=allocations=pcie_sets=0;unavailable_register=0;perf_transport_failure=power_transport_failure=perf_transport_calls=power_transport_calls=escape_calls=0;malformed_power=bad_power_command=missing_power_parent=bad_power_capture=false;objects.clear();values.clear();for(const auto& pair:blcg())values[pair.first]=pair.second|0x10000000;for(const auto& pair:slcg())values[pair.first]=0;}
 ClockGatingApi api(){ClockGatingApi a;a.transport={id,bind,arch,transport,escape,nullptr,lock,unlock};a.next_object=[] {return next_id++;};a.sleep=[](uint32_t){};return a;}
 ClockGatingRequest request(const ClockGatingService& service,Family family,Mode mode=Mode::released,uint32_t generation=0){const auto& s=service.state().families[size_t(family)];return {family,mode,generation,s.binding,family==Family::pcie?s.target_generation:std::nullopt};}
 }
@@ -102,7 +105,51 @@ static void standalone_history(){
   CHECK(s.restore_initial(Family::engine).ok&&captures==3&&objects.empty());CHECK(s.close().ok&&captures==3);
  }
 }
+static void pascal_timing_power_fallback(){
+ fresh();generation=4;
+ values[0x9a0294]=0x2966c296;values[0x9a029c]=0x2200394a;
+ auto a=api();a.timing_power_transport=power_transport;
+ auto gpu=reinterpret_cast<dc_gpu*>(1);
+ ClockGatingService service(a,gpu,device);
+ // The newer PERF route remains preferred when it works.
+ auto modern=service.read_pascal_memory_config();
+ CHECK(modern.present==0x3f&&power_transport_calls==0&&escape_calls==5);
+ perf_transport_failure=DC_ERR_UNSUPPORTED;escape_calls=0;
+ auto old=service.read_pascal_memory_config();
+ CHECK(old==modern&&power_transport_calls==5&&escape_calls==5);
+ CHECK(!allocations&&!pcie_sets&&!requests&&!releases&&!frees);
+ // Other clock controls must never use the timing-only envelope.
+ power_transport_calls=escape_calls=0;
+ service.read();
+ CHECK(perf_transport_calls>0&&power_transport_calls==0&&escape_calls==0);
+ // No fallback on a transient PERF failure, nor when no callback is present.
+ perf_transport_failure=DC_ERR_TRANSIENT;
+ rejects([&]{service.read_pascal_memory_config();});
+ CHECK(power_transport_calls==0&&escape_calls==0);
+ perf_transport_failure=DC_ERR_UNSUPPORTED;
+ auto no_fallback=api();ClockGatingService without_power(no_fallback,gpu,device);
+ rejects([&]{without_power.read_pascal_memory_config();});
+ CHECK(power_transport_calls==0&&escape_calls==0);
+ // A failed, malformed, unknown, or unpaired envelope must not dispatch.
+ power_transport_failure=DC_ERR_TRANSIENT;
+ rejects([&]{service.read_pascal_memory_config();});
+ power_transport_failure=0;malformed_power=true;
+ rejects([&]{service.read_pascal_memory_config();});
+ malformed_power=false;bad_power_command=true;
+ rejects([&]{service.read_pascal_memory_config();});
+ bad_power_command=false;missing_power_parent=true;
+ rejects([&]{service.read_pascal_memory_config();});
+ missing_power_parent=false;bad_power_capture=true;
+ rejects([&]{service.read_pascal_memory_config();});
+ bad_power_capture=false;CHECK(escape_calls==0);
+ // Even with a good envelope, reject an unsuccessful or malformed READ32.
+ failed_reads=1;rejects([&]{service.read_pascal_memory_config();});
+ bad_register_geometry=true;rejects([&]{service.read_pascal_memory_config();});
+ bad_register_geometry=false;
+ CHECK(!allocations&&!pcie_sets&&!requests&&!releases&&!frees);
+}
 int main(){
+ pascal_timing_power_fallback();
  fresh();
  {
   auto gpu=reinterpret_cast<dc_gpu*>(1);
