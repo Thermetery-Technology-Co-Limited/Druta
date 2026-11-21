@@ -352,6 +352,23 @@ class PowerLimitReadbackTests(NvmlOnlyCase):
         self.assertIn("bounds unavailable", message)
         self.assertNotIn("set", [entry[0] for entry in log])
 
+    def test_zero_nvml_constraints_are_visible_but_not_writable(self):
+        def setup(power, card):
+            power.add_constraints(0, 0)
+            card.nvml.exports[CONSTRAINTS] = power.exports[CONSTRAINTS]
+
+        def action(gpu):
+            capabilities = gpu.capabilities()
+            return ((capabilities["pl_min_mw"], capabilities["pl_max_mw"]),
+                    outcome(gpu.power_limit_bounds_mw), gpu.set_power_limit_mw(350000))
+
+        (reported, bounds, (ok, message)), log, *_ = self.both(action, setup=setup, native_only=True)
+        self.assertEqual(reported, (0, 0))
+        self.assertEqual(bounds[0], "NotImplementedError")
+        self.assertFalse(ok)
+        self.assertIn("bounds unavailable", message)
+        self.assertFalse(nvml_writes(log))
+
     def test_temporary_constraints_are_retried_without_authorizing_the_placeholder(self):
         fixture = []
         def setup(power, _card):
@@ -721,6 +738,21 @@ class LiveRouteTests(LiveCase):
         self.assertEqual(now, 322001)
         self.assertEqual(nvml_writes(log), [322001])
         self.assertFalse(has_command(fake_calls, cp.INFO) or sets(fake_calls))
+
+    def test_nvml_permission_refusal_keeps_live_readback_available(self):
+        def action(side, power):
+            gpu = side.gpu
+            observed, error = gpu.read_live_power_request()
+            self.assertIsNone(error)
+            power.write_status = 4  # NVML_ERROR_NO_PERMISSION
+            power.after_status = 9  # the configured NVML getter is temporarily unreadable
+            self.assertFalse(gpu.set_power_limit_mw(322001)[0])
+            self.assertEqual(gpu.read_power_limit_mw(), observed["requested_mw"])
+
+        _, log, fake_calls, now, _ = self.run_native(live_rig(), action)
+        self.assertEqual(now, 321000)
+        self.assertEqual(nvml_writes(log), [322001])
+        self.assertFalse(sets(fake_calls))
 
     def test_v30_unpinned_policy_stays_driver_derived(self):
         def action(side, power):

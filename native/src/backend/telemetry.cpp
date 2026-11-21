@@ -332,7 +332,7 @@ std::optional<PowerBounds> Telemetry::read_power_bounds_nvml(bool& transient) {
     std::uint32_t low = 0, high = 0;
     const int status = fn(nv.dev, &low, &high);
     constexpr int not_supported = 3;  // NVML_ERROR_NOT_SUPPORTED
-    if (status == 0 && low > 0 && low <= high && high < UINT32_MAX)
+    if (status == 0 && low <= high && high < UINT32_MAX)
         nvml_power_bounds_ = PowerBounds{low, high};
     else
         transient = status != not_supported;

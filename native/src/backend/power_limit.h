@@ -52,6 +52,7 @@ std::string watts_g(std::int64_t mw);
 // _set_power_limit_nvml's (ok, message, got).
 struct NvmlLimitSet {
     bool ok = false;
+    bool may_have_changed = false;
     std::string message;
     std::optional<std::uint32_t> got;
 };
@@ -118,6 +119,8 @@ public:
     // Validate exact milliwatts against the selected route before dispatch. The caller holds
     // the handle lock and provides the policy writer for the client controller's compensation.
     PowerLimitSet set(std::int64_t mw, bool xoc, StaticTriState& st, const CpPeerWriter& peer);
+    // Apply the selected route's validated rated value within its ordinary range.
+    PowerLimitSet set_default(StaticTriState& st, const CpPeerWriter& peer);
     // A direct client-power SET can establish the route before the next board read.
     void record_live_dispatch() { owner_ = Owner::live; }
     // Raw NVML write with u32 packing and same-route verification.
@@ -152,6 +155,8 @@ private:
         RmErrorKind bounds_error = RmErrorKind::unsupported;
     };
     RequestState inspect(StaticTriState& st, bool xoc, std::optional<std::int64_t> desired = std::nullopt);
+    PowerLimitSet set_request(std::optional<std::int64_t> requested, bool xoc, StaticTriState& st,
+                             const CpPeerWriter& peer);
     bool live_owns_request() const;
 
     // Keep the route of a verified or potentially dispatched board SET for this handle.

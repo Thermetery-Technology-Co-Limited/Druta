@@ -32,7 +32,7 @@ escape set_power_limit_mw / read_power_policies / _write_policy_limit and Memory
 allocation guard; a failing driver call is a returned status on both sides (RaisedCalleeTests).
 
 The live rig of tests.test_native_power_limit (LiveCase) is a fourth rig, for the power-limit step's
-live read and the back-fill of the static pl_* keys it drives (BackfillTests).
+live route selection and capability back-fill (BackfillTests).
 
 Recorded divergences (DESIGN-TRANSPORT.md, reset all):
 - the static back-fill's order: Python back-fills self.static inside read_live_power_request, before
@@ -856,16 +856,33 @@ class P0AgainstVfLockTests(P0Parity):
 
 class BackfillTests(pl.LiveCase):
     def test_the_power_limit_steps_live_read_back_fills_the_missing_static_keys(self):
-        static = {"pl_min_mw": None, "pl_def_mw": 321000, "pl_max_mw": None}
-
-        def action(side, _power):
-            if isinstance(side.gpu, NV.GPU):
-                fill_nvapi(side.gpu)
-            return attempt(lambda: steps_of(side.gpu))
+        static = dict.fromkeys(pl.PL)
         rig = pl.live_rig(configure=pl.limits(180123, 321000, 680456))
-        result, *_, state = self.run_both(rig, action, static=static)
-        self.assertEqual(result[0], "ok", result)
+        result, log, fake_calls, requested, state = self.run_native(
+            rig, lambda side, _power: steps_of(side.gpu), static=static)
+        board = next(step for step in result if step[0] == "power limit")
+        self.assertTrue(board[1], board)
+        self.assertEqual(requested, 321000)
+        self.assertFalse(pl.nvml_writes(log))
         self.assertEqual(state["static"], {"pl_min_mw": 180123, "pl_def_mw": 321000, "pl_max_mw": 680456})
+
+    def test_reset_uses_the_live_rated_default_for_ampere_and_pascal(self):
+        def reset_live_request(side, power):
+            gpu = side.gpu
+            self.assertTrue(gpu.set_power_limit_mw(999000)[0])
+            self.assertEqual(power.model().requested, 999000)
+            gpu.voltage_xoc_enabled = False
+            return next(step for step in steps_of(gpu) if step[0] == "power limit")
+
+        for arch in (4, 7):
+            with self.subTest(arch=arch):
+                rig = pl.LiveRig(pl.FakeGpu, arch=arch, accepted=pl.MODERN,
+                                 configure=pl.limits(180000, 300000, 680000))
+                board, log, fake_calls, requested, _ = self.run_native(rig, reset_live_request, xoc=True)
+                self.assertTrue(board[1], board)
+                self.assertEqual(requested, 300000)
+                self.assertFalse(pl.nvml_writes(log))
+                self.assertEqual(len(pl.sets(fake_calls)), 2)
 
 
 # ---- what can raise --------------------------------------------------------------------------------- #

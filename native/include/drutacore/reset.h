@@ -60,9 +60,9 @@ typedef struct dc_reset_step {
 
 /* The caller's GPU.static pl_* keys for set_power_limit_mw. Called with before == NULL where Python
  * reads self.static["pl_def_mw"]: fill *statics (its size is set) with the keys as they stand now
- * and return 0. Called again after set_power_limit_mw with before (what it was given) and statics
- * (what the live read left): apply the back-fill where Python's read_live_power_request changes the
- * dict, and return 0. A nonzero return says reading or updating the dict raised what Python lets
+ * and return 0. Called again after the board power reset with before (what it was given) and statics
+ * (what the selected request route established): apply the updates and return 0. A nonzero return
+ * says reading or updating the dict raised what Python lets
  * escape (the caller keeps the exception): the call stops there with DC_E_CALLER. For the first read
  * that is where Python stops. For the back-fill it is not: Python back-fills self.static inside
  * read_live_power_request, before set_power_limit_mw writes anything, while the core runs
@@ -76,8 +76,8 @@ typedef int32_t (DC_CALL *dc_reset_statics_fn)(void* context, const dc_cl_static
 
 /* nvbackend.GPU.reset_all. confirm (may be NULL: never confirms) is the derived-clamp confirmation
  * of get_current_limits / set_current_limit_ma / read_power_policies, as dc_cl_get_current_limits';
- * inputs is read_power_policies' (dc_cl_power_policies_read's); statics is above; xoc is
- * bool(voltage_xoc_enabled) for set_power_limit_mw.
+ * inputs is read_power_policies' (dc_cl_power_policies_read's); statics is above. The xoc argument
+ * is retained for ABI compatibility. The power reset validates the route's default in its normal range.
  *
  * steps / capacity: capacity must be at least DC_RESET_STEPS_MAX, checked before anything is done:
  * otherwise DC_E_BUFFER with *count = DC_RESET_STEPS_MAX and nothing read, written or changed (the

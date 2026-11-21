@@ -21,6 +21,7 @@ using SetLimitFn = int(DRUTA_CDECL*)(void*, std::uint32_t);
 
 constexpr const char* kSetExport = "nvmlDeviceSetPowerManagementLimit";
 constexpr std::int64_t kMissingClient = 0xFFFFFFFF;  // the request word's "no client" sentinel
+constexpr int kNvmlUninitialized = 1, kNvmlInvalidArgument = 2, kNvmlNotSupported = 3, kNvmlNoPermission = 4;
 
 bool present(const StaticKey& key) { return key.kind == StaticKey::Kind::value; }
 
@@ -125,6 +126,8 @@ PowerLimit::RequestState PowerLimit::inspect(StaticTriState& st, bool xoc, std::
             store.pl_max_mw = static_cast<std::uint32_t>(state.nominal->high);
             fill(st.pl_min, store.pl_min_mw);
             fill(st.pl_max, store.pl_max_mw);
+            state.nominal->low = std::max<std::int64_t>(1, state.nominal->low);
+            if (state.nominal->low > state.nominal->high) state.nominal.reset();
         }
         state.nvml_current = read_nvml();
     }
@@ -172,6 +175,15 @@ PolicyWriteResult PowerLimit::reapply(std::optional<std::int64_t> board_mw) {
 }
 
 PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, const CpPeerWriter& peer) {
+    return set_request(mw, xoc, st, peer);
+}
+
+PowerLimitSet PowerLimit::set_default(StaticTriState& st, const CpPeerWriter& peer) {
+    return set_request(std::nullopt, false, st, peer);
+}
+
+PowerLimitSet PowerLimit::set_request(std::optional<std::int64_t> requested, bool xoc, StaticTriState& st,
+                                      const CpPeerWriter& peer) {
     PowerLimitSet out;
     auto done = [&](bool ok, std::string text) {
         out.ok = ok;
@@ -179,11 +191,16 @@ PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, con
         message = out.message;
         return out;
     };
-    if (!(0 < mw && mw < kMissingClient))
+    if (requested && (*requested <= 0 || *requested >= kMissingClient))
         return done(false, "power limit must be a finite number in whole milliwatts");
-    const RequestState state = inspect(st, xoc, mw);
+    const RequestState state = inspect(st, xoc, requested);
+    if (!requested && (!present(st.pl_def) || st.pl_def.value <= 0 || st.pl_def.value >= kMissingClient))
+        return done(false, "power limit: default unknown, left unchanged");
     if (!state.nominal)
         return done(false, "hardware power request bounds unavailable; no write issued");
+    const std::int64_t mw = requested.value_or(st.pl_def.value);
+    if (!requested && !state.nominal->contains(mw))
+        return done(false, "power limit: default outside current request bounds, left unchanged");
     const bool outside = !state.nominal->contains(mw);
     const bool use_live = state.use_live || outside;
     const bool allow_extension = xoc && state.live_range && xoc_bounds(*state.live_range).contains(mw);
@@ -230,8 +247,8 @@ PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, con
                               " W; downstream power/current limits can be lower");
     }
     if (!state.nvml_current) return done(false, "configured power-limit readback is unavailable; no write issued");
-    owner_ = Owner::nvml;
     NvmlLimitSet written = set_nvml(mw);
+    if (written.may_have_changed) owner_ = Owner::nvml;
     if (!written.ok) return done(false, written.message);
     // The driver has just recomputed the limits it couples to the board limit; put back the ones
     // the user set (see read_power_policies).
@@ -252,6 +269,10 @@ NvmlLimitSet PowerLimit::set_nvml(std::int64_t mw) {
         return out;
     }
     const int status = fn(nv.dev, static_cast<std::uint32_t>(static_cast<std::uint64_t>(mw)));  // ctypes' u32(mw)
+    // A verified or uncertain SET keeps NVML ownership. These statuses mean
+    // the driver refused the request, so the prior owner still applies.
+    out.may_have_changed = status != kNvmlUninitialized && status != kNvmlInvalidArgument &&
+                           status != kNvmlNotSupported && status != kNvmlNoPermission;
     if (status != 0) {
         out.message = "power limit failed: " + nv.errstr(status);
         return out;
@@ -368,7 +389,7 @@ StockResult PowerLimit::stock_policy(std::int64_t policy, bool whole, const std:
     Nvml& nv = gpu_.nvml;
     bool transient = false;
     const auto normal = telemetry_.read_power_bounds_nvml(transient);
-    const bool extended = normal && board && !normal->contains(*board);
+    const bool extended = normal && normal->high > 0 && board && !normal->contains(*board);
     const bool live_stock = board && (live_owns_request() || extended || !(nv.ok && nv.has(kSetExport)) || !read_nvml());
     if (live_stock) {
         CpRead<CpReading> observed = live_read(&st);
@@ -438,15 +459,8 @@ MaxAllResult PowerLimit::max_all(bool xoc, StaticTriState& st, const CpPeerWrite
         return out;
     };
     cl_.pins.clear();
-    std::optional<std::int64_t> top;
-    if (present(st.pl_max)) top = st.pl_max.value;
-    if (xoc) {
-        if (const auto range = bounds(st, true).range) {
-            if (range->high > top.value_or(0)) top = range->high;
-        }
-    }
-    if (top && *top != 0) {
-        const PowerLimitSet r = set(*top, xoc, st, peer);
+    if (const auto range = bounds(st, xoc).range) {
+        const PowerLimitSet r = set(range->high, xoc, st, peer);
         if (!r.in_bounds) return escape();
         out.steps.push_back({"power limit", r.ok, r.message});
     }
