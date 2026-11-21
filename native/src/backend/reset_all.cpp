@@ -140,28 +140,23 @@ ResetAllResult reset_all(const ResetParts& p, const ResetHooks& hooks, RailWrite
         }
     }
 
-    // The board power limit, from the caller's static pl_def_mw as it stands now.
+    // Restore the rated board request on the route that owns it.
     StaticTriState statics;
     if (!hooks.read_statics || !hooks.read_statics(statics)) {
         out.stop = ResetStop::caller;
         return out;
     }
-    if (statics.pl_def.kind == StaticKey::Kind::value && statics.pl_def.value != 0) {
-        const StaticTriState before = statics;
-        const PowerLimitSet r = p.pl.set(statics.pl_def.value, hooks.xoc, statics, hooks.peer);
-        if (!hooks.backfill || !hooks.backfill(before, statics)) {  // the live read's back-fill happened
-            out.stop = ResetStop::caller;
-            return out;
-        }
-        if (!r.in_bounds) {
-            out.stop = ResetStop::index_error;
-            return out;
-        }
-        fail("power limit", r.message);
-        steps.back().ok = r.ok;
-    } else {
-        fail("power limit", "power limit: default unknown, left unchanged");
+    const StaticTriState before = statics;
+    const PowerLimitSet board = p.pl.set_default(statics, hooks.peer);
+    if (!hooks.backfill || !hooks.backfill(before, statics)) {
+        out.stop = ResetStop::caller;
+        return out;
     }
+    if (!board.in_bounds) {
+        out.stop = ResetStop::index_error;
+        return out;
+    }
+    steps.push_back({"power limit", board.ok, board.message});
 
     // The policies the board limit does not couple. Python's `_power_policy_mask is not None`: a mask
     // the table assigned this session, 0 included, or a nonzero mask set through dc_cl_policy_mask_set

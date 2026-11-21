@@ -161,6 +161,23 @@ int main(){std::string error;Command undo;undo.operation=Command::Operation::und
  CHECK(interfering->execute(catalog_command(compose_profiles({{"Boost",boost},{"Memory",memory}}))).ok);catalog_interference=true;
  auto undo_interfered=interfering->execute(undo);CHECK(!undo_interfered.ok&&boost_value==99&&current==40&&interfering->read(false).undo_available);
  catalog_interference=false;CHECK(interfering->execute(undo).ok&&boost_value==10&&current==40&&!interfering->read(false).undo_available);
+ // Read-only capture and an exact outside match are safe. A composed
+ // change from that baseline must fail preflight before any component writes.
+ {
+  board=999000;boost_value=10;auto carried=create_core_backend_for_test(catalog_api());CHECK(carried->open("0000:02:00.0",error));
+  Command prepare;prepare.operation=Command::Operation::prepare_scoped_profile;CHECK(carried->execute(prepare).ok);
+  const auto snapshot=carried->read(false).scoped_profiles;CHECK(snapshot!=nullptr);
+  auto noop_scoped=capture_scoped_profile(*snapshot,{ScopedKey::board_power()});
+  auto noop_daily=catalog_daily("power",999000);noop_daily["controls"]["power"]["unit"]="mW";
+  const int prior_power=power_writes,prior_writes=writes;
+  CHECK(carried->execute(catalog_command(noop_daily)).ok&&carried->execute(catalog_command(noop_scoped)).ok);
+  for(auto changed:{noop_scoped,noop_daily}){
+   if(changed.contains("entries"))changed["entries"][0]["value"]=250000;else changed["controls"]["power"]["value"]=250000;
+   const auto rejected=carried->execute(catalog_command(compose_profiles({{"Boost",boost},{"Board",changed}})));
+   CHECK(!rejected.ok&&rejected.message.find("restorable bounds")!=std::string::npos);
+   CHECK(board==999000&&boost_value==10&&power_writes==prior_power&&writes==prior_writes&&!carried->read(false).undo_available);
+  }
+ }
  // File order cannot turn grouped power Undo into restoration of intermediate requests.
  policy_external_test=true; // this fixture mode permits ordinary explicit policy writes with an existing selected pin
  for(bool policy_first:{false,true}){board=200000;peer=100;pin_present=true;pinned_value=100;auto pbackend=create_core_backend_for_test(catalog_api());CHECK(pbackend->open("0000:02:00.0",error));Command prepare;prepare.operation=Command::Operation::prepare_scoped_profile;CHECK(pbackend->execute(prepare).ok);auto snapshot=pbackend->read(false).scoped_profiles;CHECK(snapshot!=nullptr);

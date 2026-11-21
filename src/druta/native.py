@@ -3237,8 +3237,7 @@ class Gpu(FrontendSurface):
         return low.value, high.value
 
     def _power_request_bounds_mw(self, current, *, xoc, live):
-        """current widens the range only when it is a plain int (Python's `type(current) is int`)
-        with 0 < current < 0xFFFFFFFF; the core applies the range gate."""
+        """Compatibility helper over static keys. The current request does not widen the range."""
         whole = type(current) is int and -(1 << 63) <= current < (1 << 63)
         low, high = ctypes.c_int64(), ctypes.c_int64()
         self._pl_check(load().dc_pl_request_bounds(ctypes.byref(self._pl_statics()), 1 if whole else 0,
@@ -3254,6 +3253,10 @@ class Gpu(FrontendSurface):
         error.size = ctypes.sizeof(_Error)
         status = self._pl_call(load().dc_pl_bounds, 1 if xoc else 0, ctypes.byref(low), ctypes.byref(high),
                                ctypes.byref(error))
+        if status == DC_E_UNAVAILABLE:
+            if error.kind == DC_ERR_UNSUPPORTED:
+                raise NotImplementedError(_text(error.message))
+            raise RuntimeError(_text(error.message))
         self._pl_check(status, error)
         return low.value, high.value
 
@@ -3264,7 +3267,7 @@ class Gpu(FrontendSurface):
         return mw.value if has.value else None
 
     def read_power_limit_mw(self):
-        """Configured power request in mW (NVML, else the live request while NVAPI is live), or None.
+        """Configured power request in mW on the established route, or None.
         No `with self._lock` here: the entry takes the handle mutex, which is self._lock, and
         read_power_policies' inputs callback calls it on the thread that already holds it."""
         has, mw, error = ctypes.c_int32(), ctypes.c_uint32(), _Error()
@@ -3331,12 +3334,8 @@ class Gpu(FrontendSurface):
     #   (else -1) for the pin drop and the row lookups, where Python hashes and compares the object
     #   itself; an object whose == or hash is inconsistent with an index can therefore differ. An
     #   unhashable policy raises TypeError where Python's pins.pop raises (only when a pin exists).
-    # - the static rule of A8 (_pl_statics): a pl_* value not equal to an int64 is None to the core.
-    #   max_all_power_policies runs Python's steps over the native methods when pl_max_mw is present
-    #   and not a plain int (type int) within int64, so such a top is offered to set_power_limit_mw
-    #   as Python offers it.
-    # - power_limit_bounds_mw inside max_all_power_policies can only fail natively by allocation,
-    #   which is caught as Python's `except Exception` (the nominal top stays).
+    # - max_all_power_policies chooses the board target from validated request bounds. Static
+    #   pl_max_mw is capability metadata and cannot substitute for that range.
     # - stock and max-all run wholly under the handle mutex (Python's callees lock one at a time);
     #   self._lock (the handle mutex) is held around each call and its text fetches, as
     #   set_power_limit_mw's.
@@ -3409,9 +3408,6 @@ class Gpu(FrontendSurface):
         """Clear the user's values, raise the board limit to its maximum (with XOC to the live request
         envelope), then every other policy still below its own maximum to that maximum; a named
         current policy to the maximum its own slider allows. [(step, ok, message)] as nvbackend's."""
-        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
-        if top is not None and not (type(top) is int and self._int64(top)):
-            return self._max_all_power_policies_steps()
         library = load()
         steps = (_PolicyStep * self._PL_MAX_STEPS)()
         for step in steps:
@@ -3433,43 +3429,6 @@ class Gpu(FrontendSurface):
                             bool(s.ok),
                             self._pl_step_text(k, 1, text, s.message_needed, _PolicyStep.message.size)))
         return out
-
-    def _max_all_power_policies_steps(self):
-        """nvbackend's max_all_power_policies over the native methods, for a pl_max_mw the ABI
-        cannot carry as Python uses it."""
-        self._power_policy_pins = {}
-        steps = []
-        top = (getattr(self, "static", None) or {}).get("pl_max_mw")
-        if getattr(self, "voltage_xoc_enabled", False):
-            try:
-                extended = self.power_limit_bounds_mw()[1]
-            except Exception:                                           # noqa: BLE001 - Python's
-                extended = None
-            if type(extended) is int and extended > (top or 0):
-                top = extended
-        if top:
-            steps.append(("power limit", *self.set_power_limit_mw(top)))
-        rows, error = self.read_power_policies()
-        if error:
-            return steps + [("power policies", False, error)]
-        currents = {r["policy"]: r for r in getattr(self, "_current_limit_last_rows", None) or []}
-        for row in rows:
-            if row["board"]:
-                continue
-            if row["named_current"]:
-                current = currents.get(row["policy"])
-                if current is None:
-                    continue
-                ceiling = (current["maximum_ma"] if getattr(self, "voltage_xoc_enabled", False)
-                           else max(current["normal_maximum_ma"], current["limit_ma"]))
-                ceiling = min(ceiling, current["maximum_ma"])
-                if current["requested_ma"] < ceiling:
-                    steps.append((current["label"], *self.set_current_limit_ma(row["policy"], ceiling, pin=False)))
-                continue
-            if not row["writable"] or row["requested"] >= row["maximum"]:
-                continue
-            steps.append((f"policy {row['policy']}", *self._write_policy_limit(row["policy"], row["maximum"])))
-        return steps
 
     def read_native_power_limit_mw(self):
         """(mW, None) from fresh role-bound native effective STATUS, independent of NVML, or

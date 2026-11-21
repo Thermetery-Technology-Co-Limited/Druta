@@ -322,6 +322,23 @@ std::optional<std::uint32_t> Telemetry::read_power_limit_nvml() {
     return std::nullopt;
 }
 
+std::optional<PowerBounds> Telemetry::read_power_bounds_nvml(bool& transient) {
+    transient = false;
+    Nvml& nv = gpu_.nvml;
+    using ConstraintsFn = int(DRUTA_CDECL*)(void*, std::uint32_t*, std::uint32_t*);
+    auto fn = nv.ok ? nv.get<ConstraintsFn>("nvmlDeviceGetPowerManagementLimitConstraints") : nullptr;
+    if (!fn || nvml_power_bounds_) return nvml_power_bounds_;
+
+    std::uint32_t low = 0, high = 0;
+    const int status = fn(nv.dev, &low, &high);
+    constexpr int not_supported = 3;  // NVML_ERROR_NOT_SUPPORTED
+    if (status == 0 && low <= high && high < UINT32_MAX)
+        nvml_power_bounds_ = PowerBounds{low, high};
+    else
+        transient = status != not_supported;
+    return nvml_power_bounds_;
+}
+
 std::optional<std::uint32_t> Telemetry::read_enforced_power_limit() {
     Nvml& nv = gpu_.nvml;
     auto fn = nv.ok ? nv.get<HandleU32Fn>("nvmlDeviceGetEnforcedPowerLimit") : nullptr;
@@ -333,13 +350,10 @@ std::optional<std::uint32_t> Telemetry::read_enforced_power_limit() {
 
 void Telemetry::read_power(Snapshot& d) {
     Nvml& nv = gpu_.nvml;
+    bool from_live = false;
+    d.pl_requested_mw = power_limit_reader ? power_limit_reader(from_live) : read_power_limit_nvml();
+    d.pl_from_live = from_live;
     if (nv.ok) {
-        // read_power_limit_mw, as Python's _read_power calls it: the NVML request, else (NVAPI
-        // live) the live client-power request, whose RM escapes then run inside the sweep under
-        // the handle lock, with read_live_power_request's bookkeeping and back-fill.
-        bool from_live = false;
-        d.pl_requested_mw = power_limit_reader ? power_limit_reader(from_live) : read_power_limit_nvml();
-        d.pl_from_live = from_live;
         std::uint32_t v = 0;
         if (auto fn = nv.get<HandleU32Fn>("nvmlDeviceGetPowerUsage"); fn && fn(nv.dev, &v) == 0) d.power_w = v / 1000.0;
         d.pl_now_mw = read_enforced_power_limit();
@@ -727,12 +741,10 @@ StaticCapabilities Telemetry::read_static() {
     if (nv.ok) {
         using ConstraintsFn = int(DRUTA_CDECL*)(void*, std::uint32_t*, std::uint32_t*);
         // Power metadata getters are optional and independent.
-        if (auto fn = nv.get<ConstraintsFn>("nvmlDeviceGetPowerManagementLimitConstraints")) {
-            std::uint32_t mn = 0, mx = 0;
-            if (fn(nv.dev, &mn, &mx) == 0) {
-                s.pl_min_mw = mn;
-                s.pl_max_mw = mx;
-            }
+        bool transient = false;
+        if (const auto bounds = read_power_bounds_nvml(transient)) {
+            s.pl_min_mw = static_cast<std::uint32_t>(bounds->low);
+            s.pl_max_mw = static_cast<std::uint32_t>(bounds->high);
         }
         if (auto fn = nv.get<HandleU32Fn>("nvmlDeviceGetPowerManagementDefaultLimit")) {
             std::uint32_t d = 0;

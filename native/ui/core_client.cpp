@@ -569,17 +569,34 @@ class Client final : public IBackend {
         xoc = voltage != 0; return true;
     }
     bool effective_xoc(bool& xoc) { xoc = false; return !api_.clkdom_flags || current_xoc(xoc); }
-    std::optional<BoardPowerBounds> read_board_power_bounds(dc_cl_statics& st) {
+    std::optional<BoardPowerBounds> read_board_power_bounds(dc_cl_statics& st, bool* unsupported = nullptr) {
+        if (unsupported) *unsupported = !api_.power_bounds;
         bool xoc = false;
         int64_t low = 0, high = 0;
         dc_error error{};
         error.size = sizeof(error);
-        if (!api_.power_bounds || !effective_xoc(xoc)
-            || api_.power_bounds(gpu_, &st, xoc ? 1 : 0, &low, &high, &error) != DC_OK) return std::nullopt;
+        if (!api_.power_bounds || !effective_xoc(xoc)) return std::nullopt;
+        const auto status = api_.power_bounds(gpu_, &st, xoc ? 1 : 0, &low, &high, &error);
+        if (status != DC_OK) {
+            if (unsupported) *unsupported = status == DC_E_UNAVAILABLE && error.kind == DC_ERR_UNSUPPORTED;
+            return std::nullopt;
+        }
         low = std::max<int64_t>(1, low);
         high = std::min<int64_t>(UINT32_MAX - 1, high);
         if (low > high) return std::nullopt;
         return BoardPowerBounds{low, high};
+    }
+    std::optional<uint32_t> read_board_request(dc_cl_statics& st) {
+        if (!api_.power) return std::nullopt;
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            int32_t has = 0;
+            uint32_t value = 0;
+            dc_error error{};
+            error.size = sizeof(error);
+            if (api_.power(gpu_, &st, &has, &value, &error) == DC_OK && has && value && value < UINT32_MAX)
+                return value;
+        }
+        return std::nullopt;
     }
     bool power_base_api() const { return api_.lock && api_.unlock && api_.power && api_.capabilities && api_.power_bounds && api_.power_set && api_.power_message; }
     bool power_api() const { return power_base_api() && api_.policy_read && api_.policy_set && api_.policy_message && api_.pins_get && api_.pins_set; }
@@ -612,8 +629,10 @@ class Client final : public IBackend {
     bool power_capture(PowerSnapshot& out, std::string& why) {
         if (!power_api()) { why = "Power policy interfaces unavailable"; return false; }
         dc_gpu_identity id{}; if (!identity(id)) { why = "GPU identity changed or is unreadable"; return false; }
-        dc_cl_statics st = power_statics(); int32_t has = 0; uint32_t board = 0; dc_error error{}; error.size = sizeof(error);
-        if (retry(api_.power, gpu_, &st, &has, &board, &error) != DC_OK || !has || !board || board == UINT32_MAX) { why = "Configured board request unavailable"; return false; }
+        dc_cl_statics st = power_statics();
+        const auto board = read_board_request(st);
+        if (!board) { why = "Configured board request unavailable"; return false; }
+        dc_error error{};
         uint32_t ids[32]{}; int64_t values[32]{}; uint32_t pins = 0;
         if (api_.pins_get(gpu_, ids, values, 32, &pins) != DC_OK || pins > 32) { why = "Power policy pins unavailable"; return false; }
         dc_policy_row rows[32]{}; for (auto& row : rows) row.size = sizeof(row);
@@ -625,7 +644,7 @@ class Client final : public IBackend {
             for (uint32_t j = 0; j < i; ++j) if (rows[j].policy == r.policy) { why = "Duplicate power policy"; return false; }
         }
         for (uint32_t i = 0; i < pins; ++i) { bool found = false; for (uint32_t j = 0; j < count; ++j) if (rows[j].policy == ids[i]) found = true; if (!found || ids[i] >= 32 || values[i] < 0 || values[i] >= UINT32_MAX) { why = "Power policy pin cannot be restored"; return false; } for (uint32_t j = 0; j < i; ++j) if (ids[j] == ids[i]) { why = "Duplicate power policy pin"; return false; } }
-        out.board = board; out.rows.assign(rows, rows + count); out.pin_ids.assign(ids, ids + pins); out.pin_values.assign(values, values + pins);
+        out.board = *board; out.rows.assign(rows, rows + count); out.pin_ids.assign(ids, ids + pins); out.pin_values.assign(values, values + pins);
         std::sort(out.rows.begin(), out.rows.end(), [](const dc_policy_row& a, const dc_policy_row& b) { return a.policy < b.policy; }); return true;
     }
     bool power_geometry(const PowerSnapshot& saved, const PowerSnapshot& now) {
@@ -769,11 +788,25 @@ class Client final : public IBackend {
         ActionResult result{}; if (!power_base_api()) { result.message = "Power control interfaces unavailable"; return result; }
         if (api_.lock(gpu_) != DC_OK) { result.message = "Could not lock GPU"; return result; }
         struct Unlock { CoreApi& api; dc_gpu* gpu; ~Unlock() { api.unlock(gpu); } } unlock{api_, gpu_};
+        dc_cl_statics st{};
+        std::optional<BoardPowerBounds> bounds;
+        if (!undoing) {
+            st = power_statics();
+            bounds = read_board_power_bounds(st);
+        }
         PowerSnapshot current; std::string why; const bool captured = power_capture(current, why);
         if (undoing) {
             const PowerSnapshot saved = undo_.back().power;
             if (!captured || !power_geometry(saved, current)) { result.message = "Power Undo refused: " + (captured ? std::string("policy geometry changed") : why); return result; }
             if (saved.guard_unselected_pins && !same_unselected_pins(saved, current)) { result.message = "Power Undo refused: an unselected policy pin changed; current pins preserved"; return result; }
+            if (current.board != saved.board) {
+                st = power_statics();
+                bounds = read_board_power_bounds(st);
+                if (!bounds || !bounds->contains(saved.board)) {
+                    result.message = "Power Undo refused: saved board request is outside the current writable range or bounds are unavailable";
+                    return result;
+                }
+            }
             if (api_.pins_set(gpu_, nullptr, nullptr, 0) != DC_OK) { result.message = "Could not suppress policy pins; no power write issued"; return result; }
             bool ok = true; std::string message;
             if (current.board != saved.board) { result.may_have_changed = true; if (!set_board(saved.board, message)) ok = false; }
@@ -806,8 +839,6 @@ class Client final : public IBackend {
         if (!captured && !stock) { result.message = "Power capture failed; no write issued: " + why; return result; }
         if (cmd.expected_power_state && (!captured || *cmd.expected_power_state != power_state_token(current))) { result.message = "Power requests or pins changed during profile application; no write issued"; return result; }
         if (cmd.expected_binding && (!captured || !binding_matches(cmd, board_binding(current)))) { result.message = "Board policy geometry changed; no write issued"; return result; }
-        dc_cl_statics st = power_statics();
-        const auto bounds = read_board_power_bounds(st);
         if (!bounds) { result.message = "Power bounds or XOC state unavailable. No write issued."; return result; }
         uint32_t mw = 0;
         if (stock) {
@@ -822,19 +853,29 @@ class Client final : public IBackend {
             mw = *request;
         }
         result.requested = mw / 1000.0;
+        if (captured && current.board == mw) { result.ok = true; result.readback = result.requested; result.message = "Board request already matches"; return result; }
         if (!bounds->contains(mw)) {
             result.message = "Power request is outside the current range (" + bounds->description() + "). No write issued.";
             return result;
         }
-        if (captured && current.board == mw) { result.ok = true; result.readback = result.requested; result.message = "Board request already matches"; return result; }
         dc_gpu_identity before_write{}; if (!identity(before_write)) { result.message = "GPU identity changed or unreadable; no write issued"; return result; }
         before_history("power",[this]{return history_power();},!stock);
         if (captured) { Undo prior{}; prior.control = ControlId::power; prior.power = current; remember(prior); }
         std::string note; const bool set_ok = set_board(mw, note); result.may_have_changed = true;
-        dc_gpu_identity id{}; st = power_statics(); int32_t has = 0; uint32_t got = 0; dc_error error{}; error.size = sizeof(error);
-        if (!identity(id) || retry(api_.power, gpu_, &st, &has, &got, &error) != DC_OK || !has) { result.message = note + "; board readback unavailable"; return result; }
-        result.readback = got / 1000.0; result.ok = set_ok && got == mw; result.message = note.empty() ? (result.ok ? "Board power applied" : "Board power write failed") : note;
-        if (got != mw) result.message += "; readback differs from request";
+        dc_gpu_identity id{};
+        if (!identity(id)) { result.message = note + "; adapter identity unreadable after board write"; return result; }
+        st = power_statics();
+        const auto got = read_board_request(st);
+        // dc_pl_set reports success only after exact readback on its write route.
+        // An unreadable follow-up supplies no new sample for the display.
+        result.ok = set_ok && (!got || *got == mw);
+        result.message = note.empty() ? (result.ok ? "Board power applied" : "Board power write failed") : note;
+        if (got) {
+            result.readback = *got / 1000.0;
+            if (*got != mw) result.message += "; readback differs from request";
+        } else {
+            result.message += "; follow-up configured read unavailable";
+        }
         if (!captured) result.message += "; prior policy state unavailable, so this stock action cannot be undone";
         return result;
     }
@@ -1209,13 +1250,16 @@ class Client final : public IBackend {
             item.data = {{"mode", automatic ? "auto" : "manual"}, {"value", desired}, {"unit", "%"}}; return true;
         }
         if (control == ControlId::power) {
-            std::string detail; if (!power_capture(item.undo.power, detail)) { why = detail; return false; }
             dc_cl_statics st = power_statics();
             const auto bounds = read_board_power_bounds(st);
             if (!bounds) { why = "power bounds or XOC state unavailable"; return false; }
+            if (!power_capture(item.undo.power, why)) return false;
             int64_t desired = item.undo.power.board;
             if (requested) { if (!keys_are(*requested, {"value", "unit"}) || (*requested)["unit"] != "mW") throw std::runtime_error("invalid power unit or fields"); desired = read_int((*requested)["value"]); }
-            if (!bounds->contains(desired) || !bounds->contains(item.undo.power.board)) { why = "power request outside restorable bounds"; return false; }
+            if (desired != item.undo.power.board) {
+                if (!bounds->contains(desired)) { why = "power request outside current writable bounds"; return false; }
+                if (!bounds->contains(item.undo.power.board)) { why = "current board request is outside restorable bounds"; return false; }
+            }
             item.command.value = desired / 1000.0;
             item.changed = desired != item.undo.power.board;
             item.data = {{"value", desired}, {"unit", "mW"}};
@@ -1300,14 +1344,14 @@ class Client final : public IBackend {
         if (!identity(id) || !id.uuid[0]) throw std::runtime_error("Fresh paired GPU identity unavailable");
         ScopedSnapshot snapshot; snapshot.target = {id.uuid, id.slot};
         bool xoc = false; const bool xoc_known = effective_xoc(xoc);
+        dc_cl_statics power_st = power_statics();
+        const auto bounds = power_base_api() && xoc_known ? read_board_power_bounds(power_st) : std::nullopt;
         PowerSnapshot power; std::string why;
         if (power_capture(power, why)) {
             if (power_before) *power_before = power;
-            dc_cl_statics statics = power_statics(); int64_t low = 0, high = 0;
-            dc_error error{}; error.size = sizeof(error);
-            if (xoc_known && api_.power_bounds(gpu_, &statics, xoc ? 1 : 0, &low, &high, &error) == DC_OK) {
+            if (bounds) {
                 ScopedCurrent row; row.key = ScopedKey::board_power(); row.binding = board_binding(power); row.unit = "mW";
-                row.value = power.board; row.low = low; row.high = high; row.fresh = row.writable = true;
+                row.value = power.board; row.low = bounds->low_mw; row.high = bounds->high_mw; row.fresh = row.writable = true;
                 snapshot.entries.push_back(std::move(row));
             }
             for (const auto& policy : power.rows) {
@@ -2760,21 +2804,25 @@ public:
         auto& power = last_.controls[index(ControlId::power)];
         // Use the same runtime bounds for the slider and Apply. The global
         // XOC ceiling does not establish an extended route on this adapter.
-        const auto bounds = power_base_api() ? read_board_power_bounds(st) : std::nullopt;
+        bool bounds_unsupported = !power_base_api();
+        const auto bounds = power_base_api() ? read_board_power_bounds(st, &bounds_unsupported) : std::nullopt;
+        power.stock_writable = false;
         if (bounds) {
             power.low = bounds->low_mw / 1000.0;
             power.high = bounds->high_mw / 1000.0;
             power.stock_writable = st.pl_def_state == DC_CL_STATIC_VALUE && bounds->contains(st.pl_def_mw);
+        } else if (bounds_unsupported) {
+            power.low.reset();
+            power.high.reset();
         }
-        int32_t has = 0; uint32_t mw = 0; dc_error err{}; err.size = sizeof(err);
         // Python refresh_power_policies: while Classic's Power policies section is
         // open, an ordinary poll re-reads the table rows it already shows, at most
         // once a second. Focused, a closed section or an unread table makes no read.
         const auto policy_now = std::chrono::steady_clock::now();
         const bool policy_refresh = !details && policy_readouts_ && live_readouts_ && !last_.power_policies.empty()
             && (!last_policy_capture_ || policy_now - *last_policy_capture_ >= std::chrono::seconds(1));
-        if (retry(api_.power, gpu_, &st, &has, &mw, &err) == DC_OK && has) {
-            power.availability = Availability::available; power.current = mw / 1000.0; power.unit = "W";
+        if (const auto board_request = read_board_request(st)) {
+            power.availability = Availability::available; power.current = *board_request / 1000.0; power.unit = "W";
             if (details || policy_refresh) { PowerSnapshot captured; std::string reason; bool captured_ok = false;
                 last_policy_capture_ = policy_now;
                 dc_current_row currents[32]{}; uint32_t current_count = 0; bool current_answered = false;
@@ -2815,21 +2863,23 @@ public:
                 }
             }
             if (power.availability == Availability::available) {
-                if (bounds) power.detail = "Current power request range: " + bounds->description();
-                else {
-                    if (power_base_api()) power.availability = Availability::transient;
-                    power.detail = "Current power request bounds unavailable";
+                if (bounds) {
+                    power.detail = "Current power request range: " + bounds->description();
+                    if (!bounds->contains(*board_request)) power.detail += ". The configured request is outside the writable range.";
+                } else {
+                    failure(power, bounds_unsupported, bounds_unsupported ? "Hardware power request bounds unavailable"
+                                                                         : "Hardware power request bounds temporarily unreadable");
                 }
             }
             if (st.pl_def_state == DC_CL_STATIC_VALUE) power.stock = st.pl_def_mw / 1000.0;
         } else {
-            failure(power, !api_.power, "Configured power request unavailable");
+            failure(power, !api_.power || bounds_unsupported, "Configured power request unavailable");
             if (details || policy_refresh) for (auto& policy:last_.power_policies) {
                 policy.state.availability=Availability::transient;
                 policy.state.detail="Coupled power/current readback unavailable; showing last request";
             }
         }
-        has = 0; mw = 0; if (retry(api_.enforced_power, gpu_, &has, &mw) == DC_OK && has) last_.enforced_power_w = mw / 1000.0; else last_.enforced_power_w.reset();
+        int32_t has = 0; uint32_t mw = 0; if (retry(api_.enforced_power, gpu_, &has, &mw) == DC_OK && has) last_.enforced_power_w = mw / 1000.0; else last_.enforced_power_w.reset();
         // Python native_power_limit_for_ui on every refresh_control, one read-only
         // try; only Classic shows it, so Focused makes no such read. Unread or
         // failed is unknown (Python: "unavailable"), never the last value.

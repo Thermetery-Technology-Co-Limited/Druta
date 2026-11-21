@@ -91,6 +91,15 @@ int main(){
     bad=combined;bad["entries"].back()["binding"]="late-drift";const auto original=bad;
     rejects([&]{plan_scoped_profile(bad,coupled);});CHECK(bad==original&&coupled.entries[2].value==200000);
     auto zero_board=combined;zero_board["entries"][0]["value"]=0;rejects([&]{plan_scoped_profile(zero_board,coupled);});
+    ScopedSnapshot carried; carried.target=state.target; carried.entries={board(999000)};
+    auto carried_doc=capture_scoped_profile(carried,{b});
+    CHECK(!plan_scoped_profile(carried_doc,carried).steps[0].execute_required);
+    carried_doc["entries"][0]["value"]=900000;
+    rejects([&]{plan_scoped_profile(carried_doc,carried);});
+    carried_doc["entries"][0]["value"]=250001;
+    rejects([&]{plan_scoped_profile(carried_doc,carried);});
+    carried.entries[0].high=1999000;
+    CHECK(plan_scoped_profile(carried_doc,carried).steps[0].command.value==250.001);
     auto empty=doc;empty["entries"]=ProfileJson::array();rejects([&]{plan_scoped_profile(empty,state);});
     std::printf("scoped_profile_test: %u checks passed\n",checks);
 }

@@ -48,7 +48,16 @@ Python frontend parity and Vista/7 qualification remain open.
   XOC is an explicit session mode. The power slider uses the adapter's
   validated request range. With a supported live route, XOC extends that
   range to the **1,999 W software ceiling** or a higher reported BIOS maximum.
-  Each Apply checks fresh bounds. The GUI also exposes Max it and Reset controls.
+  Turning XOC off keeps the active request visible and restores the adapter's
+  nominal edit range. Apply or Stock can return to nominal through the owning
+  route. A saved profile can capture or match the outside request without a
+  write. A profile that changes the board request requires its previous value
+  to be restorable under the current XOC setting. The GUI also exposes Max it
+  and Reset controls.
+  Board-power changes leave unpinned current policies to the driver. After an
+  NVML or v30 client-power SET, the board control reapplies eligible explicit
+  session pins if the driver changed them. The v40 client-power path verifies
+  that peer control bytes stayed unchanged.
   Max it captures
   Undo before applying the normal board maximum, fan/boost targets, a planned
   ramp and an owned V/F hold. Reset reports individual outcomes and any state it

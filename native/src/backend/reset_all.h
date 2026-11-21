@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reset all (increment G3): a port of nvbackend.GPU.reset_all as one call that composes the knobs
-// that are already native, in Python's exact step order, with Python's conditions for emitting
-// each step and Python's texts. Nothing here re-implements a knob: every step is the component's
+// that are already native, in Python's step order. The board step uses the active request route's
+// validated rated value. Nothing here re-implements a knob: every step is the component's
 // own operation (Clocks, ClkDom, Rails, CurrentLimits, PowerLimit, LegacyP0, VfLock, FanControl,
 // set_voltage_boost, VfCurve).
 //
@@ -104,17 +104,14 @@ struct ResetHooks {
     // read_power_policies' inputs (read_power_limit_mw, the static keys, _board_policy).
     ReadPolicyInputs inputs = nullptr;
     void* inputs_context = nullptr;
-    // The caller's static pl_* keys as they stand when Python reads self.static["pl_def_mw"]
-    // (false: reading them raised). Then, after set_power_limit_mw, the keys its live read filled:
-    // the caller applies the back-fill where Python's dict changed (false: that raised). The
-    // back-fill runs after PowerLimit::set has written, where Python's runs before any write
+    // The caller's static pl_* keys before the power reset (false: reading them raised).
+    // After the reset the caller receives the keys updated by the selected request route.
+    // The back-fill runs after PowerLimit::set_default, where Python's runs before any write
     // (DESIGN-TRANSPORT.md: reset all).
     std::function<bool(StaticTriState&)> read_statics;
     std::function<bool(const StaticTriState& before, const StaticTriState& after)> backfill;
     // GPU._write_policy_limit for the live SET's compensation (set_power_limit_mw).
     CpPeerWriter peer;
-    // bool(voltage_xoc_enabled) for set_power_limit_mw.
-    bool xoc = false;
 };
 
 // nvbackend.GPU.reset_all. `rail_trace` notes the rail-limit reset's _write_rail_records calls as

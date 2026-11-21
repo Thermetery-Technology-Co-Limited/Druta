@@ -37,8 +37,8 @@ Recorded divergences (asserted below where reachable):
   -1) for the pin drop and the row lookups; str(policy) is formatted before the call. Its text
   travels as UTF-8 with surrogatepass and every returned text is read by its length, so a NUL or
   a lone surrogate in it comes back as nvbackend formats it (not a divergence; asserted below).
-- max_all_power_policies runs Python's steps over the native methods when pl_max_mw is present and
-  not a plain int within int64 (the A8 static rule would make it None to the core).
+- Native Max All uses the selected route's validated bounds. On the ordinary NVML route, its
+  additional configured-request read does not change the expected writes or policy requests.
 """
 import ctypes
 import struct
@@ -49,8 +49,8 @@ from druta import client_power_runtime as cp
 from druta import native
 from druta import nvbackend as NV
 from tests.test_native_client_power_set import COUPLED_ACCEPTED, PeerCoupledGpu
-from tests.test_native_power_limit import (BACKEND_STATIC, GET, PL, SET_LIMIT, LiveCase, LiveSetRig, NvmlPower,
-                                           faults, has_command, nvml_writes, set_static, static_of)
+from tests.test_native_power_limit import (BACKEND_STATIC, CONSTRAINTS, GET, PL, SET_LIMIT, LiveCase, LiveSetRig, NvmlPower,
+                                           faults, has_command, limits, nvml_writes, set_static, static_of)
 from tests.test_native_power_policies import FIELDS, STATICS
 from tests.test_native_power_policy_write import Policy, fail, ignore_sets
 from tests.test_power_policies import A618, A619, A61A, COUPLED, E61B, TITAN, BOARD, PolicyCard, policy_gpu
@@ -97,6 +97,9 @@ class PolicySide:
         self.kind = kind
         self.card = PolicyCard(table, coupled, board)
         self.power = NvmlPower(lambda: BoardModel(self.card))
+        low, high = static.get("pl_min_mw"), static.get("pl_max_mw")
+        if type(low) is int and type(high) in (int, float) and 0 < low <= high < (1 << 32) - 1:
+            self.power.add_constraints(low, int(high))
         twin = policy_gpu(self.card)
         self.header = list(twin._capture_current_limit_transport.return_value[0])
         self.driver = base.Driver(self.card.escape)
@@ -356,6 +359,16 @@ class StockPolicyRigTests(PolicyCase):
 
 
 class MaxAllPolicyRigTests(PolicyCase):
+    def both(self, action, setup=None, **kw):
+        python, core = [self.run_side(self.side(kind, setup, **kw), action) for kind in ("python", "native")]
+        result, driver_log, state = core
+        nvml_log = state["nvml"]
+        first_set = next(i for i, (kind, _) in enumerate(nvml_log) if kind == "set")
+        self.assertEqual(nvml_log[first_set - 2:first_set], [("get", 0), ("get", 0)])
+        normalized = dict(state, nvml=nvml_log[:first_set - 1] + nvml_log[first_set:])
+        self.assertEqual(python, (result, driver_log, normalized))
+        return python
+
     def test_max_all_raises_every_limit_to_its_own_maximum(self):
         run = self.both(then(pin(4, 150000), pin(14, 4000000), max_all))
         status, steps = run[0][1][2]
@@ -432,19 +445,15 @@ class MaxAllPolicyRigTests(PolicyCase):
         self.assertTrue(steps[2][2].startswith("policy 15: policy request failed"), steps)
         self.assertEqual(writes(run), [(14, 5001000), (14, 4000000), (15, 5001000), (15, 4000000)])
 
-    def test_static_tops(self):
-        # None: no board step; a whole float or a fraction, a bool: Python's steps over the binding
-        for top in (None, 0, 320000.0, 300000.5, True, 2 ** 64, -5):
+    def test_caller_static_never_selects_the_board_maximum(self):
+        for top in (None, 0, 320000.0, 300000.5, True, 2 ** 64, -5, 300000):
             with self.subTest(top=top):
-                static = {**STATICS, "pl_max_mw": top}
-                run = self.both(max_all, static=static)
-                status, steps = run[0]
-                self.assertEqual(status, "ok", run[0])
-                if top in (None, 0):
-                    self.assertNotEqual(steps[:1] and steps[0][0], "power limit")
-        run = self.both(max_all, static={"pl_min_mw": 100000, "pl_def_mw": 260000})
-        self.assertNotEqual(run[0][1][0][0], "power limit")
-
+                side = self.side("native", None)
+                side.gpu.static["pl_max_mw"] = top
+                (status, steps), _, state = self.run_side(side, max_all)
+                self.assertEqual(status, "ok", steps)
+                self.assertEqual(steps[0], ("power limit", True, "power limit configured to 320 W"))
+                self.assertEqual(nvml_writes(state["nvml"]), [320000])
 
 
 class AbiTests(PolicyCase):
@@ -591,8 +600,8 @@ class PolicyLiveCase(LiveCase):
                 tables.append((getattr(gpu, "_last_policy_table", None),
                                getattr(gpu, "_current_limit_last_rows", None) or []))
         out = super().run_both(rig, recorded, **kw)
-        self.assertEqual(len(tables), 2)
-        self.assertEqual(tables[0], tables[1], "Python and native policy table or current rows differ")
+        if not kw.get("native_only"):
+            self.assertEqual(tables[0], tables[1], "Python and native policy table or current rows differ")
         return out
 
 
@@ -602,7 +611,7 @@ def policy_writes(fake_calls):
 
 class StockLiveTests(PolicyLiveCase):
     def test_extended_request_sets_only_the_default_and_preserves_the_board(self):
-        result, log, fake_calls, now, state = self.run_both(
+        result, log, fake_calls, now, state = self.run_native(
             coupled(extended), live_steps(live_pin(PEER_MW, 82000), live_stock(PEER_MW)))
         ok, message = result[1][1]
         self.assertTrue(ok, message)
@@ -613,7 +622,7 @@ class StockLiveTests(PolicyLiveCase):
         self.assertNotIn(PEER_MW, state["pins"])
 
     def test_extended_request_keeps_another_pin_without_reapplying_it(self):
-        result, log, fake_calls, now, state = self.run_both(
+        result, log, fake_calls, now, state = self.run_native(
             coupled(extended), live_steps(live_pin(PEER_MW, 82000), live_stock(PEER_MW)), pins={2: 52000})
         self.assertEqual(result[1], ("ok", (True, "policy 7 is at its rated default: 80 W; board request preserved "
                                                   "at 800 W; host-derived policy limits were not recomputed")))
@@ -717,8 +726,19 @@ class StockLiveTests(PolicyLiveCase):
 
 
 class MaxAllLiveTests(PolicyLiveCase):
+    def test_no_validated_bounds_skips_the_board_step(self):
+        rig = coupled(faults(((cp.INFO, 1), {"rm": 0x56})))
+        result, log, fake_calls, now, _ = self.run_native(
+            rig, live_steps(live_max_all), remove=(CONSTRAINTS,))
+        status, steps = result[0]
+        self.assertEqual(status, "ok", steps)
+        self.assertFalse(any(label == "power limit" for label, _, _ in steps))
+        self.assertEqual(now, 321000)
+        self.assertFalse(nvml_writes(log))
+        self.assertFalse(has_command(fake_calls, cp.SET))
+
     def test_xoc_asks_for_the_live_envelope(self):
-        result, log, fake_calls, now, state = self.run_both(coupled(), live_steps(live_max_all), xoc=True)
+        result, log, fake_calls, now, state = self.run_native(coupled(), live_steps(live_max_all), xoc=True)
         status, steps = result[0]
         self.assertEqual(steps[0][0], "power limit")
         self.assertTrue(steps[0][2].startswith("power request configured to 1999 W"), steps[0])
@@ -734,9 +754,23 @@ class MaxAllLiveTests(PolicyLiveCase):
         self.assertEqual(nvml_writes(log), [550000])
 
     def test_without_xoc_the_nominal_top(self):
-        result, log, fake_calls, now, state = self.run_both(coupled(), live_steps(live_max_all))
+        result, log, fake_calls, now, state = self.run_native(coupled(), live_steps(live_max_all))
         self.assertEqual(result[0][1][0], ("power limit", True, "power limit configured to 550 W"))
         self.assertFalse(has_command(fake_calls, cp.SET))
+
+    def test_client_only_maximum_uses_selected_bounds_in_both_modes(self):
+        for static in ({}, {**BACKEND_STATIC, "pl_max_mw": 2500000}):
+            for xoc, maximum in ((False, 600000), (True, 1999000)):
+                with self.subTest(static=static, xoc=xoc):
+                    rig = coupled(limits(200000, 321000, 600000))
+                    result, log, fake_calls, now, _ = self.run_native(
+                        rig, live_steps(live_max_all), static=static, xoc=xoc, remove=(SET_LIMIT,))
+                    status, steps = result[0]
+                    self.assertEqual(status, "ok", steps)
+                    self.assertEqual(steps[0][:2], ("power limit", True))
+                    self.assertEqual(now, maximum)
+                    self.assertTrue(has_command(fake_calls, cp.SET))
+                    self.assertFalse(nvml_writes(log))
 
 
 class NativeLimitTests(PolicyLiveCase):

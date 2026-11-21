@@ -119,7 +119,7 @@ extern "C" {
 
 DC_API dc_status DC_CALL dc_gpu_reset_all(dc_gpu* handle, dc_cl_confirm_fn confirm, void* confirm_context,
                                           dc_cl_policy_inputs_fn inputs, void* inputs_context,
-                                          dc_reset_statics_fn statics, void* statics_context, int32_t xoc,
+                                          dc_reset_statics_fn statics, void* statics_context, int32_t /*xoc*/,
                                           dc_reset_step* steps, uint32_t capacity, uint32_t* count,
                                           dc_rails_setter_writes* rail_writes, dc_error* error) {
     if (!handle || !inputs || !statics || !steps || !count || (error && error->size != sizeof(dc_error)) ||
@@ -142,7 +142,7 @@ DC_API dc_status DC_CALL dc_gpu_reset_all(dc_gpu* handle, dc_cl_confirm_fn confi
         hooks.confirm_context = &cc;
         hooks.inputs = inputs_adapter;
         hooks.inputs_context = &ic;
-        dc_cl_statics given{};  // what the caller passed for set_power_limit_mw
+        dc_cl_statics given{};  // what the caller passed for the board power reset
         hooks.read_statics = [&](StaticTriState& out) {
             given = dc_cl_statics{};
             given.size = sizeof(dc_cl_statics);
@@ -161,7 +161,6 @@ DC_API dc_status DC_CALL dc_gpu_reset_all(dc_gpu* handle, dc_cl_confirm_fn confi
             return statics(statics_context, &given, &filled) == 0;
         };
         hooks.peer = druta::backend::CpPeerWriter{druta::abi::write_peer, handle};
-        hooks.xoc = xoc != 0;
         const druta::backend::ResetParts parts{
             handle->gpu,
             handle->telemetry,

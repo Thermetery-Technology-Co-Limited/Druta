@@ -58,7 +58,7 @@ const ScopedCurrent& selected(const ScopedSnapshot& current,const ScopedKey& key
     if(!found->fresh)refuse(name(key)+": fresh selected readback unavailable");
     if(writing&&!found->writable)refuse(name(key)+": selected write gate/capability unavailable");
     string_value(found->binding,4096,"selected binding");unit_value(key,found->unit,found->value);
-    if(found->low>found->high||found->value<found->low||found->value>found->high)
+    if(found->low>found->high||(key.kind!=ScopedKey::Kind::board&&(found->value<found->low||found->value>found->high)))
         refuse(name(key)+": current request is not restorable in current bounds");
     if(found->pin_value && (key.kind!=ScopedKey::Kind::policy||*found->pin_value<0||*found->pin_value>=UINT32_MAX))
         refuse(name(key)+": existing pin cannot be restored");
@@ -115,7 +115,10 @@ ScopedPlan plan_scoped_profile(const ProfileJson& doc,const ScopedSnapshot& curr
         string_value(binding,4096,"saved binding");const auto value=integer(e["value"]);unit_value(key,unit,value);
         const auto& live=selected(current,key,require_writable);
         if(binding!=live.binding||unit!=live.unit)refuse(name(key)+": binding/reference/geometry or units changed");
-        if(value<live.low||value>live.high)refuse(name(key)+": saved request outside current bounds");
+        const bool board_noop=key.kind==ScopedKey::Kind::board&&value==live.value;
+        if(!board_noop&&(value<live.low||value>live.high))refuse(name(key)+": saved request outside current bounds");
+        if(key.kind==ScopedKey::Kind::board&&!board_noop&&(live.value<live.low||live.value>live.high))
+            refuse(name(key)+": current request is outside restorable bounds");
         ScopedStep step;step.key=key;step.before=live.value;step.value=value;step.unit=unit;step.binding=binding;
         step.writable=live.writable;
         step.changed=live.value!=value||(key.kind==ScopedKey::Kind::policy&&live.pin_value!=value);

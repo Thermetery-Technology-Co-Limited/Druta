@@ -21,13 +21,28 @@ using SetLimitFn = int(DRUTA_CDECL*)(void*, std::uint32_t);
 
 constexpr const char* kSetExport = "nvmlDeviceSetPowerManagementLimit";
 constexpr std::int64_t kMissingClient = 0xFFFFFFFF;  // the request word's "no client" sentinel
+constexpr int kNvmlUninitialized = 1, kNvmlInvalidArgument = 2, kNvmlNotSupported = 3, kNvmlNoPermission = 4;
 
 bool present(const StaticKey& key) { return key.kind == StaticKey::Kind::value; }
 
-// any(self.static.get(key) is None for key in ("pl_min_mw", "pl_max_mw", "pl_def_mw"))
-bool missing(const StaticTriState& st) { return !present(st.pl_min) || !present(st.pl_max) || !present(st.pl_def); }
+std::optional<PowerBounds> client_bounds(const CpReading& reading) {
+    const auto& metadata = reading.observation.metadata;
+    if (metadata.maximum_mw == 0 || metadata.maximum_mw >= kMissingClient) return std::nullopt;
+    return PowerBounds{std::max<std::int64_t>(1, metadata.minimum_mw), metadata.maximum_mw};
+}
 
-bool within(std::int64_t low, std::int64_t value, std::int64_t high) { return low <= value && value <= high; }
+bool client_is_extended(const CpReading& reading) {
+    const auto range = client_bounds(reading);
+    return range && !range->contains(reading.observation.requested_mw);
+}
+
+PowerBounds xoc_bounds(PowerBounds nominal) {
+    return {1, std::min(kMissingClient - 1, std::max(nominal.high, kPowerLimitXocMaxMw))};
+}
+
+bool temporary(RmErrorKind kind) {
+    return kind == RmErrorKind::transient || kind == RmErrorKind::unstable;
+}
 
 void fill(StaticKey& key, const std::optional<std::uint32_t>& value) {
     if (!present(key) && value) {
@@ -39,20 +54,14 @@ void fill(StaticKey& key, const std::optional<std::uint32_t>& value) {
 }  // namespace
 
 PowerBounds normal_power_bounds(const StaticTriState& st) {
-    // 50000 and 400000 are Python's fallbacks (nvbackend._normal_power_bounds_mw), kept for parity:
-    // they are not device facts, and whether they should exist is an open question for the user.
+    // Retain the historical defaults for the pure compatibility helper.
     return {present(st.pl_min) ? st.pl_min.value : 50000, present(st.pl_max) ? st.pl_max.value : 400000};
 }
 
-PowerBounds power_request_bounds(const StaticTriState& st, std::optional<std::int64_t> current, bool xoc, bool live) {
+PowerBounds power_request_bounds(const StaticTriState& st, bool xoc, bool live) {
     PowerBounds b = normal_power_bounds(st);
     b.low = std::max<std::int64_t>(1, b.low);
-    if (xoc && live) b = {1, std::min<std::int64_t>(0xFFFFFFFE, std::max(b.high, kPowerLimitXocMaxMw))};
-    // Unticking XOC retains the actual endpoint; only movement toward the normal range, or
-    // keeping the current request, remains available.
-    if (current && 0 < *current && *current < kMissingClient)
-        b = {std::min(b.low, *current), std::max(b.high, *current)};
-    return b;
+    return xoc && live ? xoc_bounds(b) : b;
 }
 
 std::string watts_g(std::int64_t mw) {
@@ -78,40 +87,83 @@ CpRead<CpReading> PowerLimit::live_read(StaticTriState* st) {
     return r;
 }
 
+bool PowerLimit::live_owns_request() const {
+    if (owner_ == Owner::live) return true;
+    const auto& last = cp_.live().last;
+    return last && client_is_extended(*last);
+}
+
 std::optional<std::uint32_t> PowerLimit::read(StaticTriState* st, bool* from_live) {
-    // Configured power request, or nullopt when its getters are unreadable. The enforced limit is
-    // a different, potentially delayed constraint and never stands in for it.
-    if (std::optional<std::uint32_t> current = read_nvml()) return current;
+    if (live_owns_request()) {
+        owner_ = Owner::live;
+    } else {
+        if (auto current = read_nvml()) return current;
+        if (owner_ == Owner::nvml) return std::nullopt;
+    }
     if (gpu_.nvapi.ok) {
-        CpRead<CpReading> observation = live_read(st);
-        if (observation.value) {
+        CpRead<CpReading> reading = live_read(st);
+        if (reading.value) {
             if (from_live) *from_live = true;
-            return observation.value->observation.requested_mw;
+            if (client_is_extended(*reading.value))
+                owner_ = Owner::live;
+            return reading.value->observation.requested_mw;
         }
     }
     return std::nullopt;
 }
 
-PowerBounds PowerLimit::bounds(StaticTriState& st, bool xoc) {
-    const PowerBounds normal = normal_power_bounds(st);
-    std::optional<std::int64_t> current;
-    if (std::optional<std::uint32_t> nvml = read_nvml()) current = *nvml;
-    bool live = false;
-    if (xoc || !current || missing(st) || !within(normal.low, *current, normal.high)) {
-        CpRead<CpReading> observation = live_read(&st);
-        if (observation.value) {
-            live = true;
-            current = observation.value->observation.requested_mw;
-        } else if (cp_.live().error_kind == RmErrorKind::transient) {
-            // The last observation counts as live for the bounds although the read failed.
-            const std::optional<CpReading>& last = cp_.live().last;
-            if (last) {
-                live = true;
-                if (!current) current = last->observation.requested_mw;
+PowerLimit::RequestState PowerLimit::inspect(StaticTriState& st, bool xoc, std::optional<std::int64_t> desired) {
+    RequestState state;
+    const bool live_owner = live_owns_request();
+    if (live_owner) owner_ = Owner::live;
+    bool nvml_transient = false;
+    const bool nvml_set = gpu_.nvml.ok && gpu_.nvml.has(kSetExport);
+    if (!live_owner && nvml_set) {
+        state.nominal = telemetry_.read_power_bounds_nvml(nvml_transient);
+        if (state.nominal) {
+            auto& store = statics_();
+            store.pl_min_mw = static_cast<std::uint32_t>(state.nominal->low);
+            store.pl_max_mw = static_cast<std::uint32_t>(state.nominal->high);
+            fill(st.pl_min, store.pl_min_mw);
+            fill(st.pl_max, store.pl_max_mw);
+            state.nominal->low = std::max<std::int64_t>(1, state.nominal->low);
+            if (state.nominal->low > state.nominal->high) state.nominal.reset();
+        }
+        state.nvml_current = read_nvml();
+    }
+    const bool nvml_outside = state.nominal && state.nvml_current && !state.nominal->contains(*state.nvml_current);
+    const bool probe_extension = xoc && (!desired || !state.nominal || !state.nominal->contains(*desired));
+    if (live_owner || probe_extension || !state.nominal || !state.nvml_current || nvml_outside) {
+        if (gpu_.nvapi.ok) {
+            state.live = live_read(&st);
+            const auto& last = cp_.live().last;
+            if (last) state.live_range = client_bounds(*last);
+        }
+        const bool live_outside = state.live.value && client_is_extended(*state.live.value);
+        state.use_live = live_owner || live_outside ||
+                         (nvml_outside && (state.live_range || temporary(state.live.error.kind))) ||
+                         (state.live_range && (!state.nominal || (!state.nvml_current && owner_ != Owner::nvml)));
+        if (state.use_live) {
+            state.nominal = state.live_range;
+            if (state.live.value) owner_ = Owner::live;
+            if (state.live_range) {
+                // A board default must describe the same route as the writable bounds.
+                st.pl_def = {StaticKey::Kind::value, cp_.live().last->observation.metadata.rated_mw};
             }
         }
     }
-    return power_request_bounds(st, current, xoc, live);
+    if (nvml_transient || (gpu_.nvapi.ok && temporary(state.live.error.kind)))
+        state.bounds_error = RmErrorKind::transient;
+    return state;
+}
+
+PowerBoundsResult PowerLimit::bounds(StaticTriState& st, bool xoc) {
+    const RequestState state = inspect(st, xoc);
+    if (!state.nominal) return {std::nullopt, state.bounds_error};
+    if (!xoc || !state.live_range) return {state.nominal};
+    PowerBounds extended = xoc_bounds(*state.live_range);
+    extended.high = std::max(extended.high, state.nominal->high);
+    return {extended};
 }
 
 PolicyWriteResult PowerLimit::reapply(std::optional<std::int64_t> board_mw) {
@@ -123,6 +175,15 @@ PolicyWriteResult PowerLimit::reapply(std::optional<std::int64_t> board_mw) {
 }
 
 PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, const CpPeerWriter& peer) {
+    return set_request(mw, xoc, st, peer);
+}
+
+PowerLimitSet PowerLimit::set_default(StaticTriState& st, const CpPeerWriter& peer) {
+    return set_request(std::nullopt, false, st, peer);
+}
+
+PowerLimitSet PowerLimit::set_request(std::optional<std::int64_t> requested, bool xoc, StaticTriState& st,
+                                      const CpPeerWriter& peer) {
     PowerLimitSet out;
     auto done = [&](bool ok, std::string text) {
         out.ok = ok;
@@ -130,38 +191,39 @@ PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, con
         message = out.message;
         return out;
     };
-    if (!(0 < mw && mw < (std::int64_t{1} << 32)))
+    if (requested && (*requested <= 0 || *requested >= kMissingClient))
         return done(false, "power limit must be a finite number in whole milliwatts");
-    Nvml& nv = gpu_.nvml;
-    const bool nvml_set = nv.ok && nv.has(kSetExport);
-    std::optional<std::int64_t> current;
-    if (std::optional<std::uint32_t> nvml = read_nvml()) current = *nvml;
-    const bool absent = missing(st);
-    std::optional<CpReading> observed;
-    std::string error;
-    const bool probed = !current || !nvml_set || absent;
-    auto probe = [&] {
-        CpRead<CpReading> r = live_read(&st);
-        observed = std::move(r.value);
-        error = observed ? std::string() : r.error.message;
-    };
-    if (probed) probe();
-    const PowerBounds normal = normal_power_bounds(st);  // after the probe's back-fill, as Python
-    const bool outside = !within(normal.low, mw, normal.high);
-    bool returning = current && !within(normal.low, *current, normal.high);
-    if (!current) returning = observed && !within(normal.low, observed->observation.requested_mw, normal.high);
-    if (outside || returning || !nvml_set || (!current && observed)) {
-        if (!probed) probe();
-        if (!observed) return done(false, "live power request not available; no write issued: " + error);
-        const PowerBounds b = power_request_bounds(st, observed->observation.requested_mw, xoc, true);
-        if (!within(b.low, mw, b.high) || mw >= kMissingClient)
-            return done(false, "power request " + watts_g(mw) + " W out of [" + watts_g(b.low) + ".." +
-                                   watts_g(b.high) + "] W; extended requests require XOC");
+    const RequestState state = inspect(st, xoc, requested);
+    if (!requested && (!present(st.pl_def) || st.pl_def.value <= 0 || st.pl_def.value >= kMissingClient))
+        return done(false, "power limit: default unknown, left unchanged");
+    if (!state.nominal)
+        return done(false, "hardware power request bounds unavailable; no write issued");
+    const std::int64_t mw = requested.value_or(st.pl_def.value);
+    if (!requested && !state.nominal->contains(mw))
+        return done(false, "power limit: default outside current request bounds, left unchanged");
+    const bool outside = !state.nominal->contains(mw);
+    const bool use_live = state.use_live || outside;
+    const bool allow_extension = xoc && state.live_range && xoc_bounds(*state.live_range).contains(mw);
+    if (outside && !allow_extension) {
+        const auto current = state.use_live
+            ? (state.live.value ? std::optional<std::uint32_t>(state.live.value->observation.requested_mw) : std::nullopt)
+            : state.nvml_current;
+        if (current && *current == mw)
+            return done(true, "power request already configured to " + watts_g(mw) + " W");
+        if (xoc && !state.live_range)
+            return done(false, "live power request not available; no write issued: " + state.live.error.message);
+        const PowerBounds range = xoc ? xoc_bounds(*state.live_range) : *state.nominal;
+        return done(false, "power request " + watts_g(mw) + " W out of [" + watts_g(range.low) + ".." +
+                           watts_g(range.high) + "] W; extended requests require XOC");
+    }
+    if (use_live) {
+        if (!state.live.value)
+            return done(false, "live power request not available; no write issued: " + state.live.error.message);
         CpSetResult result = cp_.set_request(mw, peer);
-        if (!(result.before && result.after)) {
-            // The controller compensates exactly once after dispatch; a second transport's SET
-            // would obscure that verified result. The verified readback is the last observation.
-            if (result.rollback && result.rollback->readback) cp_.set_live_last(result.rollback->readback);
+        if (result.after || result.rollback) record_live_dispatch();
+        if (!result.after) {
+            // The controller already attempted its single compensation.
+            if (result.rollback && result.rollback->verified) cp_.set_live_last(result.rollback->readback);
             return done(false, "live power request failed: " + result.error.message);
         }
         const CpReading& after = *result.after;
@@ -184,9 +246,9 @@ PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, con
         return done(true, "power request configured to " + watts_g(mw) +
                               " W; downstream power/current limits can be lower");
     }
-    if (!nvml_set) return done(false, "SetPowerManagementLimit not available");
-    if (!current) return done(false, "configured power-limit readback is unavailable; no write issued");
-    NvmlLimitSet written = set_nvml(mw, st);
+    if (!state.nvml_current) return done(false, "configured power-limit readback is unavailable; no write issued");
+    NvmlLimitSet written = set_nvml(mw);
+    if (written.may_have_changed) owner_ = Owner::nvml;
     if (!written.ok) return done(false, written.message);
     // The driver has just recomputed the limits it couples to the board limit; put back the ones
     // the user set (see read_power_policies).
@@ -198,7 +260,7 @@ PowerLimitSet PowerLimit::set(std::int64_t mw, bool xoc, StaticTriState& st, con
     return done(pins.ok, written.message + (pins.message.empty() ? std::string() : "; " + pins.message));
 }
 
-NvmlLimitSet PowerLimit::set_nvml(std::int64_t mw, StaticTriState& st) {
+NvmlLimitSet PowerLimit::set_nvml(std::int64_t mw) {
     NvmlLimitSet out;
     Nvml& nv = gpu_.nvml;
     auto fn = nv.get<SetLimitFn>(kSetExport);
@@ -207,11 +269,16 @@ NvmlLimitSet PowerLimit::set_nvml(std::int64_t mw, StaticTriState& st) {
         return out;
     }
     const int status = fn(nv.dev, static_cast<std::uint32_t>(static_cast<std::uint64_t>(mw)));  // ctypes' u32(mw)
+    // A verified or uncertain SET keeps NVML ownership. These statuses mean
+    // the driver refused the request, so the prior owner still applies.
+    out.may_have_changed = status != kNvmlUninitialized && status != kNvmlInvalidArgument &&
+                           status != kNvmlNotSupported && status != kNvmlNoPermission;
     if (status != 0) {
         out.message = "power limit failed: " + nv.errstr(status);
         return out;
     }
-    const std::optional<std::uint32_t> got = read(&st);
+    auto got = read_nvml();
+    if (!got) got = read_nvml();
     if (!got) {
         out.message = "power limit was sent, but configured-limit readback failed";
         return out;
@@ -317,11 +384,13 @@ StockResult PowerLimit::stock_policy(std::int64_t policy, bool whole, const std:
     }
     std::optional<std::int64_t> board;
     if (std::optional<std::uint32_t> mw = read(&st)) board = *mw;
-    const PowerBounds normal = normal_power_bounds(st);  // after the read's back-fill, as Python
-    const bool extended = board && !within(normal.low, *board, normal.high);
+    if (!board && live_owns_request())
+        return done(false, "policy default not written: live board request is unreadable");
     Nvml& nv = gpu_.nvml;
-    // Python's `or` evaluates the NVML read only when neither earlier operand holds.
-    const bool live_stock = board && (extended || !(nv.ok && nv.has(kSetExport)) || !read_nvml());
+    bool transient = false;
+    const auto normal = telemetry_.read_power_bounds_nvml(transient);
+    const bool extended = normal && normal->high > 0 && board && !normal->contains(*board);
+    const bool live_stock = board && (live_owns_request() || extended || !(nv.ok && nv.has(kSetExport)) || !read_nvml());
     if (live_stock) {
         CpRead<CpReading> observed = live_read(&st);
         if (!observed.value)
@@ -364,7 +433,7 @@ StockResult PowerLimit::stock_policy(std::int64_t policy, bool whole, const std:
             out.setter_missing = true;
             return out;
         }
-        NvmlLimitSet sent = set_nvml(*now, st);
+        NvmlLimitSet sent = set_nvml(*now);
         if (!sent.ok)
             return done(false, label + " is at its default, but re-sending the board limit failed: " + sent.message);
         const PolicyWriteResult pins = reapply(sent.got ? std::optional<std::int64_t>(*sent.got) : std::nullopt);
@@ -390,19 +459,8 @@ MaxAllResult PowerLimit::max_all(bool xoc, StaticTriState& st, const CpPeerWrite
         return out;
     };
     cl_.pins.clear();
-    std::optional<std::int64_t> top;
-    if (present(st.pl_max)) top = st.pl_max.value;  // read before the bounds' live read, as Python
-    if (xoc) {
-        // Only ever raises: an unavailable live request interface leaves the nominal top in place.
-        std::optional<std::int64_t> extended;
-        try {
-            extended = bounds(st, true).high;
-        } catch (const std::exception&) {  // Python's `except Exception` (only allocation throws here)
-        }
-        if (extended && *extended > top.value_or(0)) top = extended;
-    }
-    if (top && *top != 0) {
-        const PowerLimitSet r = set(*top, xoc, st, peer);
+    if (const auto range = bounds(st, xoc).range) {
+        const PowerLimitSet r = set(range->high, xoc, st, peer);
         if (!r.in_bounds) return escape();
         out.steps.push_back({"power limit", r.ok, r.message});
     }

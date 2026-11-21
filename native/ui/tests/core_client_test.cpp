@@ -74,7 +74,8 @@ dc_status DC_CALL boost_get(dc_gpu*, int32_t* v) { *v = boost_value; return DC_O
 dc_status DC_CALL boost_set(dc_gpu*, int64_t v, dc_outcome* o) { ++boost_writes; boost_value = static_cast<int>(v); o->ok = 1; return DC_OK; }
 uint32_t board = 200000; int64_t peer = 100, pinned_value = 100; bool table_fail = false, board_mismatch = false, peer_fail = false, geometry_change = false, xoc_live = false; bool pin_present = true; int power_writes = 0, policy_writes = 0, policy_reads = 0, pin_writes = 0; bool policy_external_test = false, policy_change_board = false, policy_drop_pin = false;
 bool derived_test = false, callback_matches = true, callback_answer = false, mutable_bounds = false, power_throw = false;
-bool power_bounds_failed = false;
+bool power_bounds_failed = false, power_bounds_unsupported = false, power_set_unverified = false;
+int power_post_read_failures = 0, power_reads_remaining_to_fail = 0;
 int mutate_power_at_policy_read = 0;
 dc_status DC_CALL cpc_live(dc_gpu*, dc_cpc_observation* out, dc_error*) { CHECK(out->size == sizeof(*out) && out->metadata.size == sizeof(out->metadata) && out->arbitration.size == sizeof(out->arbitration)); out->metadata.role_info_size = 5; out->metadata.role_info[4] = 0x30; out->metadata.maximum_mw = 500000; out->requested_mw = 600000; out->metadata.native_info_size = 4; out->native_control_size = 4; uint32_t a = callback_matches ? 42u : 43u, b = 56; std::memcpy(out->metadata.native_info, &a, 4); std::memcpy(out->native_control, &b, 4); return DC_OK; }
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
@@ -84,15 +85,18 @@ dc_status DC_CALL memory_capabilities(dc_gpu* gpu, dc_capabilities* c) {
     if (memory_caps_fail) { --memory_caps_fail; return DC_E_UNAVAILABLE; }
     capabilities(gpu, c); c->present |= DC_C_MEM_DIV; c->mem_div = 4; std::memcpy(c->mem_type, "GDDR6", sizeof("GDDR6")); return DC_OK;
 }
-dc_status DC_CALL power_read(dc_gpu*, dc_cl_statics*, int32_t* has, uint32_t* value, dc_error*) { *has = 1; *value = board; return DC_OK; }
-dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error*) {
+dc_status DC_CALL power_read(dc_gpu*, dc_cl_statics*, int32_t* has, uint32_t* value, dc_error*) {
+    if (power_reads_remaining_to_fail > 0) { --power_reads_remaining_to_fail; *has = 0; return DC_OK; }
+    *has = 1; *value = board; return DC_OK;
+}
+dc_status DC_CALL bounds(dc_gpu*, dc_cl_statics*, int32_t xoc, int64_t* low, int64_t* high, dc_error* error) {
     if (power_bounds_failed) return DC_E_FAILED;
+    if (power_bounds_unsupported) { error->kind = DC_ERR_UNSUPPORTED; return DC_E_UNAVAILABLE; }
     *low = 100000;
     *high = xoc && xoc_live ? 1999000 : 500000;
-    if (board > *high) *high = board;
     return DC_OK;
 }
-dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = derived_test ? 700 : 200; if (power_throw) throw std::runtime_error("post-dispatch power failure"); *ok = 1; *needed = 1; return DC_OK; }
+dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int32_t* ok, char*, size_t, size_t* needed) { ++power_writes; board = static_cast<uint32_t>(value) + (board_mismatch ? 1000 : 0); peer = derived_test ? 700 : 200; if (power_throw) throw std::runtime_error("post-dispatch power failure"); power_reads_remaining_to_fail = power_post_read_failures; *ok = !power_set_unverified; *needed = 1; return DC_OK; }
 dc_status DC_CALL message(dc_gpu*, char* out, size_t, size_t* n) { out[0] = 0; *n = 1; return DC_OK; }
 dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = pinned_value; } return DC_OK; }
 dc_status DC_CALL pins_set(dc_gpu*, const uint32_t* ids, const int64_t* values, uint32_t n) { ++pin_writes; if (n) { CHECK(n == 1 && ids[0] == 1); pinned_value = values[0]; } pin_present = n != 0; return DC_OK; }
@@ -527,8 +531,37 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
     mode_on.enabled = false;
     CHECK(xp->execute(mode_on).ok);
     auto carry = xp->read(false);
-    CHECK(carry.controls[2].high == 1999.0 && carry.controls[2].current == 1999.0);
-    xoc_power.value = 200; CHECK(xp->execute(xoc_power).ok && board == 200000); CHECK(xp->read(false).controls[2].high == 500.0);
+    CHECK(carry.controls[2].high == 500.0 && carry.controls[2].current == 1999.0);
+    CHECK(xp->execute(xoc_power).ok && power_writes == writes_before + 2); // exact request is a no-op
+    xoc_power.value = 900;
+    CHECK(!xp->execute(xoc_power).ok && power_writes == writes_before + 2 && board == 1999000);
+    xoc_power.value = 200;
+    CHECK(xp->execute(xoc_power).ok && board == 200000 && xp->read(false).controls[2].high == 500.0);
+    Command power_undo{Command::Operation::undo};
+    const int pins_before = pin_writes;
+    CHECK(!xp->execute(power_undo).ok && power_writes == writes_before + 3 && pin_writes == pins_before);
+
+    power_bounds_unsupported = true;
+    const auto read_only = xp->read(false);
+    CHECK(read_only.controls[2].availability == Availability::unsupported && !read_only.controls[2].high &&
+          read_only.controls[2].current == 200.0 && !read_only.controls[2].stock_writable);
+    xoc_power.value = 210;
+    CHECK(!xp->execute(xoc_power).ok && power_writes == writes_before + 3);
+    power_bounds_unsupported = false;
+
+    power_post_read_failures = 1;
+    const auto recovered = xp->execute(xoc_power);
+    CHECK(recovered.ok && recovered.readback == 210.0 && power_writes == writes_before + 4);
+    xoc_power.value = 220;
+    power_post_read_failures = 2;
+    const auto verified = xp->execute(xoc_power);
+    CHECK(verified.ok && !verified.readback && power_writes == writes_before + 5);
+    xoc_power.value = 230;
+    power_set_unverified = true;
+    const auto unverified = xp->execute(xoc_power);
+    CHECK(!unverified.ok && !unverified.readback && power_writes == writes_before + 6);
+    power_set_unverified = false;
+    power_post_read_failures = 0;
 
     // Imported requests can still carry exact milliwatts even though Daily edits are whole watts.
     xoc_power.value = 128.002;
