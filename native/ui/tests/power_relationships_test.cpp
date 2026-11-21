@@ -20,7 +20,8 @@ PowerCase power_case(uint8_t header=0x38){PowerCase c;c.image=fixture(true,0x99a
  c.info[0x41d0+1]=9;word(c.info,0x41d0+6,4096);c.info[0x41d0+31*0x24+1]=2;word(c.info,0x41d0+31*0x24+6,6144);
  c.info[0xcc+0xb9]=1;word(c.info,0xcc+0xbc,0);word(c.info,0xcc+0xbe,0);word(c.info,0xcc+0x104+0x34,31);word(c.info,0xcc+3*0x104+0x34,31);word(c.info,0xcc+3*0x104+0x36,31);c.info[0x5000]=0xab;return c;}
 void short_v30_tests() {
- const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},{0x20802618,5520,0x3c,0x84},{0x2080a618,20512,0xcc,0x104}};
+ const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},
+      {0x20802618,5008,0x34,0x74},{0x20802618,5520,0x3c,0x84},{0x2080a618,20512,0xcc,0x104}};
  const PowerRelationshipIdentity identity{"0000:7b:00.0",6,0x5678,0xbeef0001};
  // Put the table near the end of its owner so a bogus relationship count
  // cannot be mistaken for another table or data beyond the image.
@@ -48,7 +49,8 @@ void short_v30_tests() {
   const bool legacy=layout.info_command==0x20802618;
   const size_t target_info=layout.policy_base+layout.policy_stride;
   const bool compact=layout.info_size==20000;
-  const size_t relation_info=legacy?0x10c0:(compact?0x3fd0:0x41d0);
+  const size_t relation_info=legacy?layout.policy_base+32*layout.policy_stride+4:
+                                    (compact?0x3fd0:0x41d0);
   const size_t weight_offset=legacy?4:6;
   std::vector<uint8_t> info(layout.info_size);
   dword(info,4,3);
@@ -264,6 +266,12 @@ void rm26_tests() {
    check(!mismatch.ok && mismatch.patches.empty() && mismatch.message.find("write layout is unqualified")!=std::string::npos,
          "Matching weight and target metadata cannot qualify an A618 packet for RM26-only firmware");
   }
+  const PowerRelationshipLayout compact_rm26{0x20802618,5008,0x34,0x74};
+  const auto compact_packet=single_target_packet(compact_rm26,0x0eb8,selected,
+                                                 policy_count-1,info.data()+target,4096);
+  check(decode_power_relationships(compact_rm26,compact_packet).available &&
+        !plan_power_relationship_weights(rom,identity,compact_rm26,compact_packet,requests).ok,
+        "Compact RM26 permits inspection on other architectures and qualifies writes on Turing only");
   auto wrong_info=info;
   wrong_info[target]=0x40;
   check(!plan_power_relationship_weights(rom,identity,layout,wrong_info,requests).ok,

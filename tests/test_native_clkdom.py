@@ -167,6 +167,85 @@ class LayoutTests(ClkDomCase):
                 self.assertEqual(calls, [])
 
 
+class CompactTuringTests(ParityCase):
+    VERSION = 0x00010964
+    SIZE = 0x964
+
+    def rig(self, *, arch=6, echo_only=False):
+        rig = ClkDomRig(arch=arch, accepted=[0, 1, 3, 5, 9])
+        requests = {index: 0 for index in rig.accepted_config}
+        calls, writes = [], []
+        sentinel = 0x11223344
+
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        def get(_, pointer):
+            words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
+            version, mask = words[0], words[2]
+            calls.append((version, mask))
+            if version != self.VERSION:
+                return -9
+            selected = [i for i in range(32) if mask & (1 << i)]
+            if not selected or any(i not in requests for i in selected):
+                return -1
+            if not echo_only:
+                for index in selected:
+                    base = (0x64 + index * 0x48) // 4
+                    words[base] = 8 if index == 0 else 9
+                    words[base + 11] = requests[index] & 0xFFFFFFFF
+                    words[base + 17] = sentinel
+            return 0
+
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        def put(_, pointer):
+            words = (ctypes.c_int32 * (self.SIZE // 4)).from_buffer_copy(ctypes.string_at(pointer, self.SIZE))
+            writes.append(list(words))
+            if words[0] != self.VERSION or words[2] != (1 << 1):
+                return -1
+            base = (0x64 + 0x48) // 4
+            if words[base] != 9 or words[base + 17] != sentinel:
+                return -1
+            requests[1] = words[base + 11]
+            return 0
+
+        rig.nvapi.interfaces[GET_ID] = get
+        rig.nvapi.interfaces[SET_ID] = put
+        return rig, calls, writes
+
+    def test_version_fallback_preserves_reserved_fields_and_limits_writes(self):
+        rig, calls, writes = self.rig()
+        with rig.native_gpu() as gpu:
+            layout = gpu.clkdom_layout()
+            self.assertEqual((layout.version, layout.header, layout.stride, layout.freq_khz),
+                             (self.VERSION, 0x64, 0x48, 0x2C))
+            self.assertEqual(calls[:2], [(VERSION, 1), (self.VERSION, 1)])
+            self.assertTrue(all(version == self.VERSION for version, _ in calls[1:]))
+            self.assertEqual(gpu.clkdom_controls_for_ui(), [1, 3, 5, 9])
+            self.assertFalse(gpu.clkdom_offset_slider_offered(0))
+            self.assertIsNone(layout.nvvdd_uv)
+            self.assertIsNone(layout.msvdd_uv)
+            self.assertFalse(gpu.set_clk_domain_offset(0, -15)[0])
+            self.assertEqual(writes, [])
+            self.assertTrue(gpu.set_clk_domain_offset(1, -45)[0])
+            offsets, error = gpu.read_clk_domain_offsets()
+            self.assertIsNone(error)
+            self.assertEqual(offsets[1]["freq_khz"], -45000)
+            self.assertTrue(gpu.set_clk_domain_offset(1, 0)[0])
+            changed = [i for i, (a, b) in enumerate(zip(*writes)) if a != b]
+            self.assertEqual(changed, [(0x64 + 0x48 + 0x2C) // 4])
+            self.assertEqual(gpu.read_clk_domain_offsets()[0][1]["freq_khz"], 0)
+
+    def test_compact_echo_alone_and_other_architectures_do_not_qualify(self):
+        for arch, echo_only in ((6, True), (7, False)):
+            with self.subTest(arch=arch, echo_only=echo_only):
+                rig, calls, writes = self.rig(arch=arch, echo_only=echo_only)
+                with rig.native_gpu() as gpu:
+                    self.assertIsNone(gpu.clkdom_layout())
+                    self.assertFalse(gpu.set_clk_domain_offset(1, -45)[0])
+                self.assertEqual(writes, [])
+                if arch == 7:
+                    self.assertTrue(all(version == VERSION for version, _ in calls))
+
+
 class ControlTableTests(ClkDomCase):
     def test_controls_for_ui(self):
         full = {6: [0, 1, 2, 3, 5, 9], 7: [1, 2, 3, 5, 9], 8: [1, 2, 3, 5, 9], 10: [1, 2, 3, 4], 4: [0, 1, 2, 3, 5, 9]}
