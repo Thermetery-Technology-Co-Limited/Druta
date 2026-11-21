@@ -10,6 +10,8 @@ namespace {
 unsigned checks=0;int images=0,infos=0,abis=0,windows=0,registries=0,locks=0,mode=0,resets=0;dc_gpu_identity adapter{};
 uint32_t generation=7;
 int clock_binds=0,perf_binds=0;
+constexpr int kRm26Info=17, kChangingInfoLayout=18;
+bool rm26_info_layout(){return mode==kRm26Info||(mode==kChangingInfoLayout&&abis%2==0);}
 #define CHECK(x) do{++checks;if(!(x)){std::fprintf(stderr,"%d: %s\n",__LINE__,#x);std::abort();}}while(false)
 void put(std::vector<uint8_t>& b,size_t at,uint32_t value){std::memcpy(b.data()+at,&value,4);}
 dc_status DC_CALL id(const dc_gpu*,dc_gpu_identity* out){*out=adapter;return DC_OK;}
@@ -22,10 +24,23 @@ dc_status DC_CALL reset(dc_gpu*,int32_t kind){CHECK(kind==DC_TRANSPORT_POWER);++
 dc_status DC_CALL image(dc_gpu*,uint8_t* bytes,uint32_t capacity,uint32_t* count,dc_error* error){++images;CHECK(capacity==DC_VBIOS_IMAGE_CAPACITY);
  if(mode==1){error->kind=DC_ERR_UNSUPPORTED;return DC_E_UNAVAILABLE;}if(mode==2&&images==1){error->kind=DC_ERR_TRANSIENT;return DC_E_FAILED;}if(mode==3){error->kind=DC_ERR_MALFORMED;return DC_E_FAILED;}if(mode==4){error->kind=DC_ERR_IDENTITY;return DC_E_FAILED;}
  std::fill_n(bytes,32,uint8_t{0xa5});*count=32;if(mode==5)bytes[31]=uint8_t(images);if(mode==6)++adapter.nvapi_handle;if(mode==14)generation=3;return DC_OK;}
-dc_status DC_CALL abi(dc_gpu*,dc_power_layout* layout,uint32_t* index,dc_error* error){++abis;if(mode==7){error->kind=DC_ERR_UNSUPPORTED;return DC_E_UNAVAILABLE;}layout->size=sizeof(*layout);layout->sizes[0]=20512;layout->has_commands=1;layout->commands[0]=0x2080a618;layout->info_base=0xcc;layout->info_stride=mode==8?0x100:0x104;*index=0;return DC_OK;}
+dc_status DC_CALL abi(dc_gpu*,dc_power_layout* layout,uint32_t* index,dc_error* error){
+ ++abis;
+ if(mode==7){error->kind=DC_ERR_UNSUPPORTED;return DC_E_UNAVAILABLE;}
+ const bool rm26=rm26_info_layout();
+ layout->size=sizeof(*layout);
+ layout->sizes[0]=rm26?5520u:20512u;
+ layout->has_commands=1;
+ layout->commands[0]=rm26?0x20802618u:0x2080a618u;
+ layout->info_base=rm26?0x3cu:0xccu;
+ layout->info_stride=rm26?0x84u:(mode==8?0x100u:0x104u);
+ *index=0;
+ return DC_OK;
+}
 dc_status DC_CALL rm(dc_gpu*,uint32_t command,const uint32_t* params,uint32_t params_count,int32_t has_mask,uint32_t mask,int32_t any_live,uint32_t* out,uint32_t capacity,uint32_t* count,dc_error* error){++infos;
- CHECK(command==0x2080a618&&!params&&!params_count&&!has_mask&&!mask&&!any_live&&capacity==20512/4);
+ CHECK(command==0x2080a618&&!params&&!params_count&&!has_mask&&!mask&&!any_live&&capacity==(rm26_info_layout()?5520u:20512u)/4);
  if(mode==9&&infos==1){error->kind=DC_ERR_TRANSIENT;return DC_E_FAILED;}if(mode==10){error->kind=DC_ERR_MALFORMED;return DC_E_FAILED;}
+ if(rm26_info_layout()){std::fill_n(out,capacity,0u);*count=capacity;return DC_OK;}
  std::vector<uint8_t> bytes(20512);put(bytes,4,1);put(bytes,0xcc,0x40);put(bytes,0xcc+8,1);put(bytes,0xcc+12,2);put(bytes,0xcc+16,3);put(bytes,0x41cc,1);bytes[0x41d0+7]=0x10;if(mode==11)bytes[0x5000]=uint8_t(infos);std::memcpy(out,bytes.data(),bytes.size());*count=capacity;return DC_OK;}
 PowerWeightCaptureApi api(){PowerWeightCaptureApi a;a.evidence.target.identity=id;a.evidence.target.bind=bind;a.clock_bind=bind_clock;a.evidence.target.architecture_supported=arch;a.evidence.target.lock=lock;a.evidence.target.unlock=unlock;a.evidence.target.reset_transport=reset;a.evidence.image=image;a.abi=abi;a.rm=rm;
  a.resolve_windows=[](const dc_gpu_identity&,const dc_target& target){++windows;VoltageScaffoldWindowsTarget value{target.slot,"PCI\\VEN_10DE&DEV_6789\\A","0007"};if(mode==13&&windows>1)value.driver_key="0008";return value;};
@@ -133,6 +148,58 @@ void run_legacy_capture() {
         if(architecture!=4)CHECK(perf_binds==1&&images==0&&registries==0);
     }
 }
+void run_5520_capture() {
+    constexpr int stable=0, transient=9, incomplete=10, unknown_command=8;
+    for(const int scenario:{stable,transient,incomplete,unknown_command}) {
+        fresh();
+        mode=scenario;
+        auto a=api();
+        a.abi=[](dc_gpu*,dc_power_layout* layout,uint32_t* index,dc_error*) -> dc_status {
+            ++abis;
+            layout->sizes[0]=5520;
+            layout->info_base=0x3c;
+            layout->info_stride=0x84;
+            layout->has_commands=1;
+            layout->commands[0]=mode==unknown_command?0x2080a618:0x20802618;
+            *index=0;
+            return DC_OK;
+        };
+        a.rm=[](dc_gpu*,uint32_t command,const uint32_t* params,uint32_t params_count,int32_t has_mask,
+                uint32_t mask,int32_t any_live,uint32_t* out,uint32_t capacity,uint32_t* count,dc_error* error) -> dc_status {
+            CHECK(command==0x2080a618&&!params&&!params_count&&!has_mask&&!mask&&!any_live&&capacity==1380);
+            if(++infos==1&&mode==transient){error->kind=DC_ERR_TRANSIENT;return DC_E_FAILED;}
+            out[0x10bc/4]=1;
+            out[0x10c4/4]=5000;
+            *count=capacity-(mode==incomplete?1:0);
+            return DC_OK;
+        };
+        auto read=make_power_weight_capture(a,adapter)(reinterpret_cast<dc_gpu*>(1),false);
+        CHECK(read.image_availability==VoltagePolicyAvailability::available&&registries==0&&windows==0&&locks==0);
+        if(scenario==unknown_command) {
+            CHECK(read.info_availability==VoltagePolicyAvailability::unsupported&&infos==0&&resets==0);
+        } else if(scenario==incomplete) {
+            CHECK(read.info_availability==VoltagePolicyAvailability::invalid&&infos==1&&resets==0);
+        } else {
+            CHECK(read.info_availability==VoltagePolicyAvailability::available&&read.layout.info_command==0x20802618);
+            CHECK(infos==(scenario==transient?3:2)&&resets==(scenario==transient?1:0));
+            const auto report=decode_power_relationships(read.layout,read.info);
+            CHECK(report.relationships.size()==1&&report.relationships[0].weight_raw==5000);
+        }
+    }
+}
+void run_rm26_info_capture(){
+ auto* gpu=reinterpret_cast<dc_gpu*>(1);
+ fresh();mode=kRm26Info;
+ const auto stable=make_power_weight_capture(api(),adapter)(gpu,false);
+ CHECK(stable.info_availability==VoltagePolicyAvailability::available&&abis==2&&infos==2&&resets==0&&locks==0);
+ CHECK(stable.layout.info_command==0x20802618&&stable.layout.info_size==5520&&stable.info.size()==5520&&
+       stable.layout.policy_base==0x3c&&stable.layout.policy_stride==0x84);
+
+ fresh();mode=kChangingInfoLayout;
+ const auto unstable=make_power_weight_capture(api(),adapter)(gpu,false);
+ CHECK(unstable.info_availability==VoltagePolicyAvailability::transient&&unstable.info.empty()&&
+       abis==4&&infos==4&&resets==1&&locks==0);
+}
 void run(){fresh();auto capture=make_power_weight_capture(api(),adapter);CHECK(images==0&&infos==0&&windows==0&&registries==0);auto* gpu=reinterpret_cast<dc_gpu*>(1);auto read=capture(gpu,false);
  CHECK(read.image_availability==VoltagePolicyAvailability::available&&read.info_availability==VoltagePolicyAvailability::available&&read.registry_availability==VoltagePolicyAvailability::unknown&&!read.windows&&!read.registry&&images==2&&infos==2&&windows==0&&registries==0&&locks==0);
  CHECK(read.identity.slot==adapter.slot&&read.identity.device_id==0x6789&&std::strcmp(read.adapter.uuid,adapter.uuid)==0&&read.target.handle==42);
@@ -154,4 +221,4 @@ void run(){fresh();auto capture=make_power_weight_capture(api(),adapter);CHECK(i
  fresh();auto missing_api=api();missing_api.evidence.image=nullptr;missing_api.abi=nullptr;auto missing=make_power_weight_capture(missing_api,adapter);read=missing(gpu,false);CHECK(read.image_availability==VoltagePolicyAvailability::unsupported&&read.info_availability==VoltagePolicyAvailability::unsupported&&images==0&&infos==0&&registries==0);
 }
 }
-int main(){run();run_legacy_capture();run_timing_capture();std::printf("Power weight capture: %u checks passed\n",checks);return 0;}
+int main(){run();run_5520_capture();run_rm26_info_capture();run_legacy_capture();run_timing_capture();std::printf("Power weight capture: %u checks passed\n",checks);return 0;}
