@@ -1424,6 +1424,28 @@ untested on this card because CONFIG3's high byte was 0x22 in the firmware
 row and 0x00 on the controller, so the editor withheld both fields.
 [GP107 timing inventory](experiments/pascal-p0-bios-timing-inventory-20261120.json).
 
+### Driver 431.36 and 512.15 read-only comparison
+
+On the same MSI GTX 1050 Ti, a Windows 10 x64 run compared the native GUI
+and controller reads from commit `a877695d57353582b3ca52ac5ecb13368f45206c`
+on drivers 512.15 and 431.36. Both runs passed all 23 live GUI smoke phases.
+Core and memory offsets, fan and voltage boost were reported available on
+both drivers.
+
+On 512.15 the advanced-control reader listed Additional memory offset,
+NVVDD offset and MSVDD offset. The 431.36 capture omitted all three rows,
+while four separate rail-control entries remained visible. The captured
+readouts do not identify the reason for the omitted rows. On 431.36 the
+board-power request was available with a reported range of 66–113 W and
+the reader returned six power-policy entries. On 512.15 board power was
+transient and the reader returned no policy entries.
+
+The P0 timing sampler reached 3504 MHz on both drivers and reported
+`Clock RM transport unavailable` on each. This comparison tested reads
+and control discovery. The earlier 581.80 timing experiments above provide
+the controller timing write and restoration results.
+[431.36 and 512.15 captures](experiments/gp107-driver-43136-51215-20261121.json).
+
 ## Session firmware override experiment for tFAW
 
 The P0 trial used the driver's temporary ROM records and a selected GPU
