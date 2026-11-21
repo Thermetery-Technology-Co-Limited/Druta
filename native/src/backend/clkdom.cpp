@@ -18,6 +18,12 @@ constexpr std::uint32_t ClkDomCtlGet = 0xF58938F5;
 constexpr std::uint32_t ClkDomCtlSet = 0xD14B69CF;
 constexpr std::uint32_t ClkMeasureFreq = 0x527FC458;  // NvAPI_GPU_ClockCtrl_ClkMeasureFreq, read-only
 constexpr std::uint32_t kClkMeasureVersion = 0x0001000C;
+constexpr int kIncompatibleStructVersion = -9;
+constexpr std::int32_t kCompactClockOffsetMode = 9;
+
+constexpr bool compact_offset_supported(std::int64_t control) {
+    return control == 1 || control == 3 || control == 5 || control == 9;
+}
 constexpr std::uint32_t kArchKepler = 2, kArchPascal = 4, kArchTuring = 6, kArchAmpere = 7, kArchAda = 8,
                         kArchBlackwell = 10;
 constexpr double kInt32Min = -2147483648.0, kInt32Limit = 2147483648.0;
@@ -101,11 +107,15 @@ bool ClkDom::ok() const {
 }
 
 std::pair<int, ClkDomBlock> ClkDom::get(std::uint32_t mask) {
+    return get(mask, compact_wire() ? kClkDomLayoutCompactTuring : kClkDomLayoutTuring);
+}
+
+std::pair<int, ClkDomBlock> ClkDom::get(std::uint32_t mask, const ClkDomLayout& wire) {
     // (status, buffer): the buffer is the driver's own bytes, untouched.
     ClkDomBlock block;
     block.words.assign(kClkDomBufBytes / 4, 0);
-    block.words[0] = kClkDomLayoutTuring.version;
-    block.words[kClkDomLayoutTuring.mask_dword] = mask;
+    block.words[0] = wire.version;
+    block.words[wire.mask_dword] = mask;
     Nvapi& a = gpu_.nvapi;
     auto fn = a.get<HandlePtrFn>(ClkDomCtlGet);
     int status = fn ? fn(a.gpu, block.words.data()) : -1;
@@ -114,7 +124,28 @@ std::pair<int, ClkDomBlock> ClkDom::get(std::uint32_t mask) {
 
 bool ClkDom::valid_block(const ClkDomBlock& block, const ClkDomLayout& layout, std::uint32_t mask) {
     if (block.words.size() * 4 < layout.size) return false;
-    return block.words[0] == layout.version && block.words[layout.mask_dword] == mask;
+    if (block.words[0] != layout.version || block.words[layout.mask_dword] != mask) return false;
+    return layout.version != kClkDomLayoutCompactTuring.version ||
+           std::all_of(block.words.begin() + layout.size / 4, block.words.end(), [](auto word) { return word == 0; });
+}
+
+std::pair<int, ClkDomBlock> ClkDom::probe_control(std::uint32_t control) {
+    const std::uint32_t mask = 1u << control;
+    auto extended = get(mask);
+    if (wire_layout_) return extended;
+    if (extended.first == 0 && valid_block(extended.second, kClkDomLayoutTuring, mask)) {
+        wire_layout_ = &kClkDomLayoutTuring;
+        return extended;
+    }
+    if (extended.first != kIncompatibleStructVersion || telemetry_.arch() != kArchTuring) return extended;
+
+    const auto& compact = kClkDomLayoutCompactTuring;
+    auto old = get(mask, compact);
+    if (old.first != 0 || !valid_block(old.second, compact, mask)) return extended;
+    const auto mode = old.second.word(compact.header + control * compact.stride + compact.mode);
+    if (mode <= 0 || mode > kCompactClockOffsetMode) return extended;
+    wire_layout_ = &compact;
+    return old;
 }
 
 const std::vector<std::uint32_t>& ClkDom::domains() {
@@ -125,8 +156,9 @@ const std::vector<std::uint32_t>& ClkDom::domains() {
         std::map<std::uint32_t, std::string> errors;
         if (ok()) {
             for (std::uint32_t d = 0; d < kClkDomSlots; ++d) {
-                auto [st, block] = get(1u << d);
-                if (st == 0 && valid_block(block, kClkDomLayoutTuring, 1u << d))
+                auto [st, block] = probe_control(d);
+                const auto& wire = compact_wire() ? kClkDomLayoutCompactTuring : kClkDomLayoutTuring;
+                if (st == 0 && valid_block(block, wire, 1u << d))
                     found.push_back(d);
                 else
                     errors[d] = st ? "status " + std::to_string(st) : "version/mask echo mismatch";
@@ -172,12 +204,13 @@ const ClkDomLayout* ClkDom::layout() {
                     "clock-control field layout is unknown for architecture " + arch_text(architecture));
     if (layout_cache_ != LayoutCache::none) return layout_cache_ == LayoutCache::valid ? layout_cached_ : nullptr;
     if (!ok()) return fail("unavailable", "clock-control getter is unavailable; Refresh capabilities retries discovery");
-    if (layout->header + kClkDomSlots * layout->stride != layout->size)
-        return fail("unsupported_layout", "clock-control packet geometry is invalid");
     // An accepted one-hot mask rather than an assumed domain 0: read-only.
     const std::vector<std::uint32_t>& accepted = domains();
     if (accepted.empty())
         return fail("unavailable", "no clock-control domain answered; Refresh capabilities retries discovery");
+    if (compact_wire()) layout = &kClkDomLayoutCompactTuring;
+    if (layout->header + kClkDomSlots * layout->stride != layout->size)
+        return fail("unsupported_layout", "clock-control packet geometry is invalid");
     auto [st, block] = get(1u << accepted[0]);
     if (st != 0)
         return fail("read_failure", "clock-control validation read failed with status " + std::to_string(st));
@@ -205,7 +238,8 @@ std::vector<std::uint32_t> ClkDom::controls_for_ui() {
     const std::vector<std::uint32_t>& accepted = domains();
     std::vector<std::uint32_t> out;
     for (const auto& [control, name] : known)
-        if (std::find(accepted.begin(), accepted.end(), control) != accepted.end()) out.push_back(control);
+        if ((!compact_wire() || compact_offset_supported(control)) &&
+            std::find(accepted.begin(), accepted.end(), control) != accepted.end()) out.push_back(control);
     return out;  // map order is sorted order
 }
 
@@ -246,6 +280,7 @@ std::optional<bool> ClkDom::delta_inert(std::optional<std::int64_t> domain) {
 }
 
 bool ClkDom::offset_slider_offered(std::int64_t control) {
+    if (compact_wire()) return compact_offset_supported(control);
     // Pascal accepts the XBAR, SYS and VIDEO records and ignores them; only
     // the measured memory control 2 keeps a slider there.
     auto arch = telemetry_.arch();
@@ -362,6 +397,8 @@ Outcome ClkDom::set_clk_domain_offset(std::int64_t domain, double mhz) {
     if (!lay) return {false, "clock-domain layout is not validated for this generation/runtime ABI"};
     const std::vector<std::uint32_t>& doms = domains();
     std::uint32_t dom = static_cast<std::uint32_t>(domain);
+    if (compact_wire() && !compact_offset_supported(dom))
+        return {false, "this compact clock control is not qualified for writes"};
     if (std::find(doms.begin(), doms.end(), dom) == doms.end())
         return {false, "domain " + std::to_string(domain) + " is not one this driver accepts (" + int_list(doms) + ")"};
     std::int64_t khz = static_cast<std::int64_t>(std::nearbyint(mhz)) * 1000;  // Python: int(round(mhz)) * 1000
@@ -374,7 +411,10 @@ Outcome ClkDom::set_clk_domain_offset(std::int64_t domain, double mhz) {
     if (st != 0) return {false, "clock-domain read failed (status " + std::to_string(st) + ")"};
     if (!valid_block(buf, *lay, mask))
         return {false, "clock-domain block did not echo its version and requested mask"};
-    std::uint32_t dw_byte = lay->header + dom * lay->stride + lay->freq_khz;
+    const std::uint32_t base = lay->header + dom * lay->stride;
+    if (compact_wire() && buf.word(base + lay->mode) != kCompactClockOffsetMode)
+        return {false, "compact clock-control mode is not qualified for offset writes"};
+    std::uint32_t dw_byte = base + lay->freq_khz;
     std::uint32_t dw = dw_byte / 4;
     std::int32_t was_wire = buf.word(dw_byte);
     std::int32_t was = was_wire * polarity;
@@ -577,7 +617,7 @@ std::set<std::uint32_t> ClkDom::cached_ui_controls(std::optional<std::uint32_t> 
     std::set<std::uint32_t> out;
     if (valid_)
         for (std::uint32_t d : *valid_)
-            if (known.count(d)) out.insert(d);
+            if (known.count(d) && (!compact_wire() || compact_offset_supported(d))) out.insert(d);
     return out;
 }
 
@@ -588,7 +628,8 @@ bool ClkDom::retry_needed(std::optional<std::uint32_t> architecture) {
     if (offset_read_pending_) return true;
     const auto& known = understood(architecture);
     for (const auto& [control, name] : known)
-        if (!valid_ || std::find(valid_->begin(), valid_->end(), control) == valid_->end()) return true;
+        if ((!compact_wire() || compact_offset_supported(control)) &&
+            (!valid_ || std::find(valid_->begin(), valid_->end(), control) == valid_->end())) return true;
     return false;
 }
 
@@ -605,7 +646,7 @@ bool ClkDom::retry_clock_capabilities(double now) {
     if (now < *retry_due_) return false;
 
     auto architecture = telemetry_.arch();
-    const ClkDomLayout* lay = candidate(architecture);
+    const ClkDomLayout* lay = compact_wire() ? &kClkDomLayoutCompactTuring : candidate(architecture);
     if (architecture && !lay) {
         // An identified, unmeasured generation is never tested with a
         // neighbouring architecture's private field layout.
@@ -629,9 +670,10 @@ bool ClkDom::retry_clock_capabilities(double now) {
         std::map<std::uint32_t, std::string> errors = probe_errors_;
         std::optional<std::uint32_t> valid_response;  // the mask that answered exactly
         for (const auto& [control, name] : known) {  // sorted(set(understood) - accepted)
-            if (accepted.count(control)) continue;
+            if (accepted.count(control) || (compact_wire() && !compact_offset_supported(control))) continue;
             std::uint32_t mask = 1u << control;
-            auto [status, response] = get(mask);
+            auto [status, response] = probe_control(control);
+            if (compact_wire()) lay = &kClkDomLayoutCompactTuring;
             if (status == 0 && valid_block(response, *lay, mask)) {
                 accepted.insert(control);
                 errors.erase(control);
@@ -693,6 +735,7 @@ std::optional<CapabilityError> ClkDom::refresh_capabilities() {
     std::optional<CapabilityError> previous = capability_error_;
     layout_cache_ = LayoutCache::none;
     layout_cached_ = nullptr;
+    wire_layout_ = nullptr;
     valid_.reset();
     pair_.reset();
     probe_errors_.clear();
