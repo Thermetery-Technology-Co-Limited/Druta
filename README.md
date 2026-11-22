@@ -2,16 +2,9 @@
 
 **Native C++ build.** See [HANDOFF.md](HANDOFF.md) for Windows builds and validation.
 
-**Version 1.9.3** is the current native prerelease. It supersedes 1.9.2 and restores
-the extended XOC board-power slider on Ampere cards that report the validated
-extended RM26 layout. See the [1.9.3 release notes](releases/RELEASE-NOTES-1.9.3.md).
-
-**Version 1.9.1** — latest stable release, [release notes](releases/RELEASE-NOTES-1.9.1.md).
-Supersedes 1.8.1 and the 1.9 prereleases. Adds registry/BIOS overrides with
-durable Undo, session-only live voltage and power-saving controls, extended
-power requests and Pascal core current limits, profiles and Undo across the
-tuning controls, Ampere GA102 table support, and an Advanced tab that groups
-everything beyond daily tuning by scope.
+**Version 1.10.0** is the latest stable release of the native C++ application.
+It adds BIOS power relationship weight overrides and clock controls for
+qualified older NVIDIA drivers. See the [1.10.0 release notes](releases/RELEASE-NOTES-1.10.0.md).
 
 See the [release-note archive](releases/README.md) for earlier versions.
 
