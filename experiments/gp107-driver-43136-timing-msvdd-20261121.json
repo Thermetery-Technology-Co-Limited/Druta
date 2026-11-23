@@ -1,0 +1,235 @@
+{
+  "scope": "GTX 1050 Ti P0 read-only timing diagnostics and separate MSVDD request mapping trials; no timing write and no tCL write",
+  "date": "2026-11-21",
+  "source_checkout_base_commit": "de83d8e40340c17aab30cadf6347f83f71814623",
+  "note_on_source": "Controller timing read fix was in the working tree during the timing inventory; the base commit alone does not include that fix.",
+  "device": {
+    "slot": "0000:03:00.0",
+    "uuid": "GPU-bcf807ad-1f3c-a64b-a99c-d9eccd456470",
+    "name": "GeForce GTX 1050 Ti",
+    "driver": "431.36",
+    "vbios": "86.07.39.00.E9",
+    "architecture": 4,
+    "device_id": "0x00001C82",
+    "subsystem_id": "0x33511462"
+  },
+  "captured_core_dll_sha256": "860e938124d1011dc744e360fe961235288c903caf76544494f42371fdcd7784",
+  "timing_reads": [
+    {
+      "driver": "431.36",
+      "power_envelope": {
+        "captured": true,
+        "header_count": 17,
+        "signature_0": "0x4E564441",
+        "version": "0x00010002",
+        "packet_bytes": 2524,
+        "signature_3": "0x4E562A2A",
+        "envelope_type": "0x0500002B",
+        "command": "0x20802612",
+        "parameter_bytes": 2456,
+        "rm_status": "0x00000000",
+        "length_consistent": true,
+        "root_nonzero": true,
+        "parent_nonzero": true,
+        "escape_type": 0,
+        "escape_flags": 8
+      },
+      "prior_perf_transport_status": -9,
+      "prior_perf_transport_error": "PERF diagnostics need the validated modern RM transport",
+      "p0_mhz_before_after_all_reads": 3504,
+      "controller_registers": {
+        "0": "0x1B58C147",
+        "1": "0x2966C296",
+        "2": "0x881C0900",
+        "3": "0x000038AA",
+        "4": "0xD5838032",
+        "5": "0xA6B270D2"
+      },
+      "controller_read_passes": 2,
+      "all_controller_read_operations_succeeded": true,
+      "two_controller_samples_equal": true,
+      "decoded_fields": {
+        "AOND": 0,
+        "CDLR": 9,
+        "PDEN2PDEX": 5,
+        "PDEX": 10,
+        "R2W_BUS": 8,
+        "RPRE": 0,
+        "W2R_BUS": 8,
+        "WPRE": 0,
+        "WRCRC": 13,
+        "tCL": 22,
+        "tFAW": 28,
+        "tRAS": 44,
+        "tRC": 71,
+        "tRCDRD": 27,
+        "tRCDWR": 22,
+        "tREFI": 6,
+        "tRFC": 193,
+        "tRP": 27,
+        "tRRD": 7,
+        "tWL": 5,
+        "tWR": 28
+      },
+      "readable_field_count": 21,
+      "timing_inventory_closed_cleanly": true,
+      "worker_cleanup": {
+        "finished": true,
+        "message": "CUDA workload stopped and owned resources cleaned",
+        "ok": true,
+        "pending": false
+      }
+    },
+    {
+      "driver": "512.15",
+      "power_envelope": {
+        "captured": true,
+        "header_count": 17,
+        "signature_0": "0x4E564441",
+        "version": "0x00010002",
+        "packet_bytes": 3548,
+        "signature_3": "0x4E562A2A",
+        "envelope_type": "0x0500002B",
+        "command": "0x20802612",
+        "parameter_bytes": 3480,
+        "rm_status": "0x00000000",
+        "length_consistent": true,
+        "root_nonzero": true,
+        "parent_nonzero": true,
+        "escape_type": 0,
+        "escape_flags": 8
+      },
+      "prior_perf_transport_status": -9,
+      "prior_perf_transport_error": "PERF diagnostics need the validated modern RM transport",
+      "p0_mhz_before_after_all_reads": 3504,
+      "controller_registers": {
+        "0": "0x1B58C147",
+        "1": "0x2966C296",
+        "2": "0x881C0900",
+        "3": "0x000038AA",
+        "4": "0xD5838032",
+        "5": "0xA6B270D2"
+      },
+      "controller_read_passes": 2,
+      "all_controller_read_operations_succeeded": true,
+      "two_controller_samples_equal": true,
+      "decoded_fields": {
+        "AOND": 0,
+        "CDLR": 9,
+        "PDEN2PDEX": 5,
+        "PDEX": 10,
+        "R2W_BUS": 8,
+        "RPRE": 0,
+        "W2R_BUS": 8,
+        "WPRE": 0,
+        "WRCRC": 13,
+        "tCL": 22,
+        "tFAW": 28,
+        "tRAS": 44,
+        "tRC": 71,
+        "tRCDRD": 27,
+        "tRCDWR": 22,
+        "tREFI": 6,
+        "tRFC": 193,
+        "tRP": 27,
+        "tRRD": 7,
+        "tWL": 5,
+        "tWR": 28
+      },
+      "readable_field_count": 21,
+      "timing_inventory_closed_cleanly": true,
+      "worker_cleanup": {
+        "finished": true,
+        "message": "CUDA workload stopped and owned resources cleaned",
+        "ok": true,
+        "pending": false
+      }
+    }
+  ],
+  "msvdd_v2_trials": [
+    {
+      "driver": "512.15",
+      "domain": 0,
+      "rail": "MSVDD",
+      "pstate": 0,
+      "memory_mhz": 3504,
+      "baseline_request_uv": 0,
+      "requested_uv": 1,
+      "core_api_status": 0,
+      "setter_accepted": false,
+      "setter_message": "MSVDD request write failed (status -1)",
+      "restored_request_uv": 0,
+      "packet_words_exactly_restored": {
+        "v1_one": true,
+        "v2_one": true,
+        "v1_all": true,
+        "v2_all": true
+      },
+      "flags_restored": true,
+      "workload_stopped": true
+    },
+    {
+      "driver": "512.15",
+      "domain": 2,
+      "rail": "MSVDD",
+      "pstate": 0,
+      "memory_mhz": 3504,
+      "baseline_request_uv": 0,
+      "requested_uv": 1,
+      "core_api_status": 0,
+      "setter_accepted": false,
+      "setter_message": "MSVDD request write failed (status -1)",
+      "restored_request_uv": 0,
+      "packet_words_exactly_restored": {
+        "v1_one": true,
+        "v2_one": true,
+        "v1_all": true,
+        "v2_all": true
+      },
+      "flags_restored": true,
+      "workload_stopped": true
+    }
+  ],
+  "limitations": [
+    "The two MSVDD V2 requests were rejected; no applied V1 mapping exists and the V1 MSVDD field remains unknown.",
+    "Decoded field names and writable flags are inventory output; this experiment issued no timing writes and does not validate timing writes on these drivers.",
+    "The evidence is specific to this adapter, drivers, and operating point; it does not establish physical voltage response or universal hardware support."
+  ],
+  "provenance": {
+    "local_directory": "C:\\Users\\Administrator\\tmp\\druta-driver-43136-investigation",
+    "artifacts": [
+      {
+        "local_artifact": "post431/rm-transport-20261121.json",
+        "sha256": "4e8620de727b8f05e60d69d47aacaff24f6d2e56994e1ffd2177bce9d100f662"
+      },
+      {
+        "local_artifact": "post431/rm26-p0-repeat.json",
+        "sha256": "336480b64520233d1b5e86914c22994e87dd1a661546dae6abdd9810ec70a0d8"
+      },
+      {
+        "local_artifact": "post431/p0-timings-fixed.json",
+        "sha256": "7bfd71cb3569c7b2da041af017776f5d12816cc9135ccd21d8acdc7e00c35e45"
+      },
+      {
+        "local_artifact": "restored/rm-transport-20261121.json",
+        "sha256": "14901fb3d859a93b4abe5e224fa1cbfa78bd37c24132be99231aeb9b4eac4263"
+      },
+      {
+        "local_artifact": "restored/rm26-p0-repeat.json",
+        "sha256": "4df5a91ab73a6cf7dae9b4a93b53e739e044ce9f20080d68e536988d13b0d83a"
+      },
+      {
+        "local_artifact": "restored/p0-timings-fixed.json",
+        "sha256": "5e5ecb0ff79e374a8d4a9ccd1f19c28cbbf3789b8ec0a69372c4d15059e15b96"
+      },
+      {
+        "local_artifact": "restored/p0-msvdd-v1-v2-map.json",
+        "sha256": "0588ab25ae5982b0de4f287ec982a78f1d4ef7224cc7f1be50fce2779a24c5e4"
+      },
+      {
+        "local_artifact": "restored/p0-msvdd-domain2-v1-v2-map.json",
+        "sha256": "dc968734ad9bdf5ffe7851ae88deae00770e00a8d5ac1c51e250503276138d6d"
+      }
+    ]
+  }
+}
