@@ -2542,6 +2542,7 @@ public:
         LOAD(voltage_policy.lock, dc_gpu_lock); LOAD(voltage_policy.unlock, dc_gpu_unlock);
         api_.power_saving.transport=api_.voltage_policy;
         api_.clock_gating.transport=api_.voltage_policy;
+        LOAD(clock_gating.timing_power_transport, dc_rm_power_transport);
         api_.voltage_tables.transport=api_.voltage_policy;
         api_.voltage_limits.transport=api_.voltage_policy;
         LOAD(voltage_tables.rails_blocks, dc_rails_blocks); LOAD(voltage_tables.rails_state, dc_rails_state);

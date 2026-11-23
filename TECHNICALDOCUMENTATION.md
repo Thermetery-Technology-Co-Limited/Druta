@@ -1424,6 +1424,69 @@ untested on this card because CONFIG3's high byte was 0x22 in the firmware
 row and 0x00 on the controller, so the editor withheld both fields.
 [GP107 timing inventory](experiments/pascal-p0-bios-timing-inventory-20261120.json).
 
+### Driver 431.36 and 512.15 read-only comparison
+
+On the same MSI GTX 1050 Ti, a Windows 10 x64 run compared the native GUI
+and controller reads from commit `a877695d57353582b3ca52ac5ecb13368f45206c`
+on drivers 512.15 and 431.36. Both runs passed all 23 live GUI smoke phases.
+Core and memory offsets, fan and voltage boost were reported available on
+both drivers.
+
+On 512.15 the advanced-control reader listed Additional memory offset,
+NVVDD offset and MSVDD offset. The 431.36 capture omitted all three rows,
+while four separate rail-control entries remained visible. The captured
+readouts do not identify the reason for the omitted rows. On 431.36 the
+board-power request was available with a reported range of 66–113 W and
+the reader returned six power-policy entries. On 512.15 board power was
+transient and the reader returned no policy entries.
+
+The P0 timing sampler reached 3504 MHz on both drivers and reported
+`Clock RM transport unavailable` on each. This comparison tested reads
+and control discovery. The earlier 581.80 timing experiments above provide
+the controller timing write and restoration results.
+[431.36 and 512.15 captures](experiments/gp107-driver-43136-51215-20261121.json).
+
+The 431.36 clock-control getter rejected the newer packet version with
+NVAPI status -9. It accepted version `0x00010964`, with a 100-byte header
+and 32 records of 72 bytes. On 512.15, both packet versions answered. A
+one-megahertz XBAR request through the established newer format identified
+the older record's frequency field at offset `0x2c`. A one-microvolt NVVDD
+request identified the NVVDD field at `0x30`. Each request and restore ran
+at P0 and returned the complete older packet to its initial value.
+
+The native core now tries the newer layout first and negotiates the older
+Pascal layout after explicit incompatible-version responses. On the same
+1050 Ti, the 431.36 build offered Additional memory offset and NVVDD offset.
+Its core API applied and restored +1 MHz for the additional memory request
+and +0.001 mV for NVVDD at P0. The memory P0 maximum reported 3504 → 3505 →
+3504 MHz. These results verify request readback and restoration on this
+configuration. The MSVDD field in the older packet remains unverified.
+[Packet captures and trial records](experiments/gp107-clkdom-v1-20261121.json).
+
+### Follow-up: Pascal P0 timing reads and the older MSVDD packet
+
+The earlier `Clock RM transport unavailable` result was caused by the timing
+reader asking for the PERF diagnostics transport, which requires a modern RM
+command. The GTX 1050 Ti instead exposed a validated power envelope with
+command `0x20802612` on both 431.36 and 512.15. Using that captured envelope
+for the controller reads, two P0 samples on each driver successfully read all
+six timing configuration words. All reads were bracketed by P0 checks at
+3504 MHz memory. The two samples matched, and the timing inventory decoded
+21 fields, including tFAW 28 and tCL 22. The CUDA worker stopped cleanly.
+This follow-up issued no timing writes, including no tCL write; readable fields
+and editor write availability are not evidence of write success on either
+driver. The earlier timing write experiment above used driver 581.80.
+
+Separately, on 512.15 at P0, V2 MSVDD requests of +1 microvolt on clock-domain
+0 and domain 2 were each rejected with setter status -1. Request readback stayed
+at zero; the sampled V1 and V2 one-domain and combined packets matched their
+respective baselines exactly, the session flags were restored, and the worker
+stopped. Because neither request was accepted, these trials did not identify
+an MSVDD field in the older V1 packet or establish any physical voltage effect.
+The observations are specific to this MSI GTX 1050 Ti, its driver, and this
+operating point; they do not establish universal support or rejection.
+[Timing and rail observations](experiments/gp107-driver-43136-timing-msvdd-20261121.json).
+
 ## Session firmware override experiment for tFAW
 
 The P0 trial used the driver's temporary ROM records and a selected GPU

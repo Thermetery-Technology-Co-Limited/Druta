@@ -1,0 +1,1052 @@
+{
+  "gpu": "GTX 1050 Ti",
+  "pci": "0000:03:00.0",
+  "source_commit": "a877695d57353582b3ca52ac5ecb13368f45206c",
+  "driver_transition": "512.15 -> 431.36 -> 512.15",
+  "test_scope": "Read-only UI and controller acquisition. No tuning writes tested.",
+  "comparison": {
+    "advanced.count": {
+      "512.15": "3",
+      "431.36": "0"
+    },
+    "policy.count": {
+      "512.15": "0",
+      "431.36": "6"
+    },
+    "rail.count": {
+      "512.15": "4",
+      "431.36": "4"
+    },
+    "curve.points": {
+      "512.15": "80",
+      "431.36": "80"
+    },
+    "advanced_labels_512.15": [
+      "Additional memory offset",
+      "NVVDD offset",
+      "MSVDD offset"
+    ],
+    "advanced_labels_431.36": [],
+    "core_controls": {
+      "core": {
+        "512.15": "available",
+        "431.36": "available"
+      },
+      "memory": {
+        "512.15": "available",
+        "431.36": "available"
+      },
+      "fan": {
+        "512.15": "available",
+        "431.36": "available"
+      },
+      "boost": {
+        "512.15": "available",
+        "431.36": "available"
+      },
+      "power": {
+        "512.15": "transient",
+        "431.36": "available"
+      }
+    }
+  },
+  "notes": [
+    "GUI live smoke passed 23 phases on each driver",
+    "BIOS timing capture reported Clock RM transport unavailable at P0 3504 MHz with both drivers",
+    "431.36 was installed using the signed DCH INF and Windows device installer",
+    "3070 Ti temporarily reported Code 31 while 431.36 was active",
+    "Both GPUs report 512.15 and healthy device status after restoring the original INF"
+  ],
+  "date": "2026-11-21",
+  "system": "Windows 10 Enterprise x64 build 19045",
+  "gpu_model": "MSI GeForce GTX 1050 Ti",
+  "driver_package": {
+    "version": "431.36",
+    "distribution": "NVIDIA Windows 10 x64 DCH",
+    "sha256": "ffd54e0c207e29d8eec2c4dd47ec6aa22f8616581ef25c1834c32eb21ada7d13",
+    "installation": "Signed INF applied to PCI\\VEN_10DE&DEV_1C82 via Windows UpdateDriverForPlugAndPlayDevicesW with INSTALLFLAG_FORCE",
+    "api_reported_reboot_required": true,
+    "active_version_verified_after_install": "431.36",
+    "windows_restarted": false
+  },
+  "limitations": [
+    "Initial unsuccessful capability reads do not distinguish unsupported driver interfaces from transient failures or a Druta discovery defect.",
+    "All GUI checks use read-only actions. No tuning, power-policy or VRAM timing writes were attempted.",
+    "The two P0 timing reads failed before sampling controller words, so timing behavior on 431.36 remains unverified.",
+    "The comparison is specific to this GPU, configuration, drivers and source commit."
+  ],
+  "captures": {
+    "baseline": {
+      "driver": "512.15",
+      "live_check": {
+        "devices.count": "2",
+        "device.0.slot": "0000:01:00.0",
+        "device.0.name": "NVIDIA GeForce RTX 3070 Ti",
+        "device.1.slot": "0000:03:00.0",
+        "device.1.name": "NVIDIA GeForce GTX 1050 Ti",
+        "slot": "0000:03:00.0",
+        "name": "NVIDIA GeForce GTX 1050 Ti",
+        "connected": "1",
+        "status": "",
+        "telemetry_valid": "1",
+        "telemetry_present": "0x17fff97f3",
+        "telemetry_error": "",
+        "core.availability": "available",
+        "core.writable": "1",
+        "core.unit": "MHz",
+        "core.detail": "",
+        "memory.availability": "available",
+        "memory.writable": "1",
+        "memory.unit": "MHz true",
+        "memory.detail": "",
+        "memory.current": "0",
+        "memory.low": "-500",
+        "memory.high": "500",
+        "memory.step": "0.25",
+        "power.availability": "transient",
+        "power.writable": "0",
+        "power.unit": "W",
+        "power.detail": "Power policy table unavailable or needs clamp confirmation; board-only route is not established",
+        "fan.availability": "available",
+        "fan.writable": "1",
+        "fan.unit": "%",
+        "fan.detail": "",
+        "boost.availability": "available",
+        "boost.writable": "1",
+        "boost.unit": "%",
+        "boost.detail": "",
+        "advanced.count": "3",
+        "advanced.0.kind": "clock_domain",
+        "advanced.0.domain": "2",
+        "advanced.0.label": "Additional memory offset",
+        "advanced.0.availability": "available",
+        "advanced.0.writable": "0",
+        "advanced.0.unit": "MHz",
+        "advanced.0.detail": "Additional memory offset requires XOC session mode; Stock remains available; slider range is a software editing range, not a hardware limit",
+        "advanced.0.current": "0",
+        "advanced.0.low": "-500",
+        "advanced.0.high": "500",
+        "advanced.1.kind": "nvvdd",
+        "advanced.1.domain": "0",
+        "advanced.1.label": "NVVDD offset",
+        "advanced.1.availability": "available",
+        "advanced.1.writable": "1",
+        "advanced.1.unit": "mV",
+        "advanced.1.detail": "Stored request; physical voltage response is unverified",
+        "advanced.1.current": "0",
+        "advanced.1.low": "-100",
+        "advanced.1.high": "200",
+        "advanced.2.kind": "msvdd",
+        "advanced.2.domain": "0",
+        "advanced.2.label": "MSVDD offset",
+        "advanced.2.availability": "available",
+        "advanced.2.writable": "0",
+        "advanced.2.unit": "mV",
+        "advanced.2.detail": "Experimental MSVDD opt-in is disabled",
+        "advanced.2.current": "0",
+        "advanced.2.low": "-500",
+        "advanced.2.high": "500",
+        "policy.count": "0",
+        "rail.mode_known": "1",
+        "rail.mode_enabled": "0",
+        "rail.writable_known": "1",
+        "rail.writable": "1",
+        "rail.count": "4",
+        "rail.0.index": "0",
+        "rail.0.field": "0",
+        "rail.0.availability": "available",
+        "rail.0.writable": "0",
+        "rail.0.unit": "mV",
+        "rail.0.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.0.current": "0",
+        "rail.0.initial": "0",
+        "rail.0.estimated_base_mv": "1056.25",
+        "rail.1.index": "0",
+        "rail.1.field": "1",
+        "rail.1.availability": "available",
+        "rail.1.writable": "0",
+        "rail.1.unit": "mV",
+        "rail.1.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.1.current": "0",
+        "rail.1.initial": "0",
+        "rail.1.estimated_base_mv": "1118.75",
+        "rail.2.index": "0",
+        "rail.2.field": "2",
+        "rail.2.availability": "available",
+        "rail.2.writable": "0",
+        "rail.2.unit": "mV",
+        "rail.2.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.2.current": "0",
+        "rail.2.initial": "0",
+        "rail.2.estimated_base_mv": "1200",
+        "rail.3.index": "0",
+        "rail.3.field": "3",
+        "rail.3.availability": "available",
+        "rail.3.writable": "0",
+        "rail.3.unit": "mV",
+        "rail.3.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.3.current": "0",
+        "rail.3.initial": "0",
+        "rail.3.estimated_base_mv": "675",
+        "curve.points": "80",
+        "curve.error": "",
+        "curve.freq_div": "2",
+        "curve.step_khz": "12657",
+        "locks.clock.present": "0",
+        "locks.clock.min_mhz": "0",
+        "locks.clock.max_mhz": "0",
+        "locks.vf.present": "1",
+        "locks.vf.count": "0"
+      },
+      "advanced_live_read": {
+        "actions": [
+          {
+            "message": "policy request failed (NTSTATUS 0, RM 0x3A)",
+            "ok": false
+          },
+          {
+            "message": "Power-policy packet geometry or command mapping is not understood",
+            "ok": false
+          },
+          {
+            "message": "Voltage policies read: 0 / 3 selected flags available",
+            "ok": false
+          }
+        ],
+        "arbitration": {
+          "attempts": 2,
+          "freshness": 0,
+          "message": "policy request failed (NTSTATUS 0, RM 0x3A)",
+          "policies": [],
+          "status_present": false
+        },
+        "feedback": {
+          "current": false,
+          "message": "Power-policy packet geometry or command mapping is not understood",
+          "policies": []
+        },
+        "slot": "0000:03:00.0",
+        "uuid": "GPU-bcf807ad-1f3c-a64b-a99c-d9eccd456470",
+        "voltage_policies": {
+          "message": "Voltage policies read: 0 / 3 selected flags available",
+          "rows": [
+            {
+              "availability": 3,
+              "current": null,
+              "message": "PERF diagnostics need the validated modern RM transport",
+              "name": "admission",
+              "writable": false
+            },
+            {
+              "availability": 3,
+              "current": null,
+              "message": "PERF diagnostics need the validated modern RM transport",
+              "name": "monotonicity",
+              "writable": false
+            },
+            {
+              "availability": 3,
+              "current": null,
+              "message": "PERF diagnostics need the validated modern RM transport",
+              "name": "smoothing",
+              "writable": false
+            }
+          ]
+        }
+      },
+      "p0_timing_capture": {
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "closed_cleanly": true,
+        "error": "Clock RM transport unavailable",
+        "initial": {
+          "memory_mhz": 405,
+          "pstate": 8
+        },
+        "memory_band_mhz": [
+          3301,
+          3800
+        ],
+        "mode": "read-only P0 firmware timing inventory",
+        "ok": false,
+        "queried": true,
+        "slot": "0000:03:00.0",
+        "workload_stopped": true
+      },
+      "gui_smoke": {
+        "live_mode": true,
+        "phases": [
+          {
+            "phase": "visible_default",
+            "frames": 47,
+            "presents": 47,
+            "telemetry_reads": 3,
+            "cpu_seconds": 0.0625,
+            "passed": true
+          },
+          {
+            "phase": "always_visible",
+            "frames": 98,
+            "presents": 98,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "always_minimized",
+            "frames": 97,
+            "presents": 97,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "explicit_pause",
+            "frames": 0,
+            "presents": 0,
+            "telemetry_reads": 0,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "hotkey_restore",
+            "frames": 99,
+            "presents": 99,
+            "telemetry_reads": 3,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "default_minimized",
+            "frames": 0,
+            "presents": 0,
+            "telemetry_reads": 0,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "default_restored",
+            "frames": 53,
+            "presents": 53,
+            "telemetry_reads": 3,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "classic",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 3,
+            "cpu_seconds": 0.046875,
+            "passed": true
+          },
+          {
+            "phase": "advanced",
+            "frames": 17,
+            "presents": 17,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "monitor",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "resize_1024x768",
+            "frames": 49,
+            "presents": 49,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.046875,
+            "passed": true
+          },
+          {
+            "phase": "shunt_editor",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "catalog_focused",
+            "frames": 47,
+            "presents": 47,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "catalog_classic",
+            "frames": 50,
+            "presents": 50,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "policy_workspace",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "timing_capture_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "power_saving_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "clock_gating_controls",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.03125,
+            "passed": true
+          },
+          {
+            "phase": "policy_profile_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "integral_profile_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.046875,
+            "passed": true
+          },
+          {
+            "phase": "voltage_request_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "voltage_delay_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.015625,
+            "passed": true
+          },
+          {
+            "phase": "power_weight_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.03125,
+            "passed": true
+          }
+        ],
+        "completed_worker_actions": 2,
+        "worker_actions": [
+          {
+            "automatic": true,
+            "message": "Read the running firmware clock table",
+            "ok": true,
+            "operation": 102
+          },
+          {
+            "automatic": true,
+            "message": "Timing helper selected; Read fields captures this adapter",
+            "ok": true,
+            "operation": 23
+          }
+        ],
+        "device_resets": 4,
+        "hotkey_registered": false,
+        "passed": true
+      }
+    },
+    "post431": {
+      "driver": "431.36",
+      "live_check": {
+        "devices.count": "1",
+        "device.0.slot": "0000:03:00.0",
+        "device.0.name": "GeForce GTX 1050 Ti",
+        "slot": "0000:03:00.0",
+        "name": "GeForce GTX 1050 Ti",
+        "connected": "1",
+        "status": "",
+        "telemetry_valid": "1",
+        "telemetry_present": "0x17fff97f3",
+        "telemetry_error": "",
+        "core.availability": "available",
+        "core.writable": "1",
+        "core.unit": "MHz",
+        "core.detail": "",
+        "memory.availability": "available",
+        "memory.writable": "1",
+        "memory.unit": "MHz true",
+        "memory.detail": "",
+        "memory.current": "0",
+        "memory.low": "-500",
+        "memory.high": "500",
+        "memory.step": "0.25",
+        "power.availability": "available",
+        "power.writable": "1",
+        "power.unit": "W",
+        "power.detail": "Current power request range: 66 to 113 W",
+        "fan.availability": "available",
+        "fan.writable": "1",
+        "fan.unit": "%",
+        "fan.detail": "",
+        "boost.availability": "available",
+        "boost.writable": "1",
+        "boost.unit": "%",
+        "boost.detail": "",
+        "advanced.count": "0",
+        "policy.count": "6",
+        "policy.0.id": "0",
+        "policy.0.label": "Policy 0",
+        "policy.0.availability": "available",
+        "policy.0.writable": "1",
+        "policy.0.unit": "W",
+        "policy.0.detail": "Configured policy request",
+        "policy.0.current": "5001",
+        "policy.0.low": "0.001",
+        "policy.0.high": "5001",
+        "policy.1.id": "1",
+        "policy.1.label": "Policy 1",
+        "policy.1.availability": "available",
+        "policy.1.writable": "1",
+        "policy.1.unit": "W",
+        "policy.1.detail": "Configured policy request",
+        "policy.1.current": "1001",
+        "policy.1.low": "0.001",
+        "policy.1.high": "1001",
+        "policy.2.id": "2",
+        "policy.2.label": "Policy 2",
+        "policy.2.availability": "available",
+        "policy.2.writable": "0",
+        "policy.2.unit": "W",
+        "policy.2.detail": "Board request is controlled separately",
+        "policy.2.current": "90",
+        "policy.2.low": "66",
+        "policy.2.high": "113",
+        "policy.3.id": "13",
+        "policy.3.label": "Core current (NVVDD)",
+        "policy.3.availability": "available",
+        "policy.3.writable": "1",
+        "policy.3.unit": "A",
+        "policy.3.detail": "Configured policy request",
+        "policy.3.current": "51.600000000000001",
+        "policy.3.low": "1",
+        "policy.3.high": "60.200000000000003",
+        "policy.4.id": "14",
+        "policy.4.label": "Policy 14",
+        "policy.4.availability": "available",
+        "policy.4.writable": "1",
+        "policy.4.unit": "W",
+        "policy.4.detail": "Configured policy request",
+        "policy.4.current": "5001",
+        "policy.4.low": "0.001",
+        "policy.4.high": "5001",
+        "policy.5.id": "15",
+        "policy.5.label": "Policy 15",
+        "policy.5.availability": "available",
+        "policy.5.writable": "1",
+        "policy.5.unit": "W",
+        "policy.5.detail": "Configured policy request",
+        "policy.5.current": "5001",
+        "policy.5.low": "0.001",
+        "policy.5.high": "5001",
+        "rail.mode_known": "1",
+        "rail.mode_enabled": "0",
+        "rail.writable_known": "1",
+        "rail.writable": "1",
+        "rail.count": "4",
+        "rail.0.index": "0",
+        "rail.0.field": "0",
+        "rail.0.availability": "available",
+        "rail.0.writable": "0",
+        "rail.0.unit": "mV",
+        "rail.0.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.0.current": "0",
+        "rail.0.initial": "0",
+        "rail.0.estimated_base_mv": "1056.25",
+        "rail.1.index": "0",
+        "rail.1.field": "1",
+        "rail.1.availability": "available",
+        "rail.1.writable": "0",
+        "rail.1.unit": "mV",
+        "rail.1.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.1.current": "0",
+        "rail.1.initial": "0",
+        "rail.1.estimated_base_mv": "1118.75",
+        "rail.2.index": "0",
+        "rail.2.field": "2",
+        "rail.2.availability": "available",
+        "rail.2.writable": "0",
+        "rail.2.unit": "mV",
+        "rail.2.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.2.current": "0",
+        "rail.2.initial": "0",
+        "rail.2.estimated_base_mv": "1200",
+        "rail.3.index": "0",
+        "rail.3.field": "3",
+        "rail.3.availability": "available",
+        "rail.3.writable": "0",
+        "rail.3.unit": "mV",
+        "rail.3.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+        "rail.3.current": "0",
+        "rail.3.initial": "0",
+        "rail.3.estimated_base_mv": "675",
+        "curve.points": "80",
+        "curve.error": "",
+        "curve.freq_div": "2",
+        "curve.step_khz": "15000",
+        "locks.clock.present": "0",
+        "locks.clock.min_mhz": "0",
+        "locks.clock.max_mhz": "0",
+        "locks.vf.present": "1",
+        "locks.vf.count": "0"
+      },
+      "advanced_live_read": {
+        "actions": [
+          {
+            "message": "This policy packet geometry has not been traced for arbitration diagnostics.",
+            "ok": false
+          },
+          {
+            "message": "Power-policy packet geometry or command mapping is not understood",
+            "ok": false
+          },
+          {
+            "message": "Voltage policies read: 0 / 3 selected flags available",
+            "ok": false
+          }
+        ],
+        "arbitration": {
+          "attempts": 1,
+          "freshness": 0,
+          "message": "This policy packet geometry has not been traced for arbitration diagnostics.",
+          "policies": [],
+          "status_present": false
+        },
+        "feedback": {
+          "current": false,
+          "message": "Power-policy packet geometry or command mapping is not understood",
+          "policies": []
+        },
+        "slot": "0000:03:00.0",
+        "uuid": "GPU-bcf807ad-1f3c-a64b-a99c-d9eccd456470",
+        "voltage_policies": {
+          "message": "Voltage policies read: 0 / 3 selected flags available",
+          "rows": [
+            {
+              "availability": 3,
+              "current": null,
+              "message": "PERF diagnostics need the validated modern RM transport",
+              "name": "admission",
+              "writable": false
+            },
+            {
+              "availability": 3,
+              "current": null,
+              "message": "PERF diagnostics need the validated modern RM transport",
+              "name": "monotonicity",
+              "writable": false
+            },
+            {
+              "availability": 3,
+              "current": null,
+              "message": "PERF diagnostics need the validated modern RM transport",
+              "name": "smoothing",
+              "writable": false
+            }
+          ]
+        }
+      },
+      "p0_timing_capture": {
+        "after": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "before": {
+          "memory_mhz": 3504,
+          "pstate": 0
+        },
+        "closed_cleanly": true,
+        "error": "Clock RM transport unavailable",
+        "initial": {
+          "memory_mhz": 405,
+          "pstate": 8
+        },
+        "memory_band_mhz": [
+          3301,
+          3800
+        ],
+        "mode": "read-only P0 firmware timing inventory",
+        "ok": false,
+        "queried": true,
+        "slot": "0000:03:00.0",
+        "workload_stopped": true
+      },
+      "gui_smoke": {
+        "live_mode": true,
+        "phases": [
+          {
+            "phase": "visible_default",
+            "frames": 50,
+            "presents": 50,
+            "telemetry_reads": 3,
+            "cpu_seconds": 2.40625,
+            "passed": true
+          },
+          {
+            "phase": "always_visible",
+            "frames": 107,
+            "presents": 107,
+            "telemetry_reads": 2,
+            "cpu_seconds": 4.484375,
+            "passed": true
+          },
+          {
+            "phase": "always_minimized",
+            "frames": 107,
+            "presents": 107,
+            "telemetry_reads": 2,
+            "cpu_seconds": 4.546875,
+            "passed": true
+          },
+          {
+            "phase": "explicit_pause",
+            "frames": 0,
+            "presents": 0,
+            "telemetry_reads": 0,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "hotkey_restore",
+            "frames": 106,
+            "presents": 106,
+            "telemetry_reads": 3,
+            "cpu_seconds": 4.53125,
+            "passed": true
+          },
+          {
+            "phase": "default_minimized",
+            "frames": 0,
+            "presents": 0,
+            "telemetry_reads": 0,
+            "cpu_seconds": 0.0,
+            "passed": true
+          },
+          {
+            "phase": "default_restored",
+            "frames": 50,
+            "presents": 50,
+            "telemetry_reads": 3,
+            "cpu_seconds": 2.21875,
+            "passed": true
+          },
+          {
+            "phase": "classic",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 3,
+            "cpu_seconds": 1.453125,
+            "passed": true
+          },
+          {
+            "phase": "advanced",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.734375,
+            "passed": true
+          },
+          {
+            "phase": "monitor",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.765625,
+            "passed": true
+          },
+          {
+            "phase": "resize_1024x768",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.328125,
+            "passed": true
+          },
+          {
+            "phase": "shunt_editor",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.375,
+            "passed": true
+          },
+          {
+            "phase": "catalog_focused",
+            "frames": 51,
+            "presents": 51,
+            "telemetry_reads": 2,
+            "cpu_seconds": 1.90625,
+            "passed": true
+          },
+          {
+            "phase": "catalog_classic",
+            "frames": 51,
+            "presents": 51,
+            "telemetry_reads": 2,
+            "cpu_seconds": 2.953125,
+            "passed": true
+          },
+          {
+            "phase": "policy_workspace",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 1.484375,
+            "passed": true
+          },
+          {
+            "phase": "timing_capture_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.1875,
+            "passed": true
+          },
+          {
+            "phase": "power_saving_controls",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.453125,
+            "passed": true
+          },
+          {
+            "phase": "clock_gating_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.59375,
+            "passed": true
+          },
+          {
+            "phase": "policy_profile_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.703125,
+            "passed": true
+          },
+          {
+            "phase": "integral_profile_controls",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 1.390625,
+            "passed": true
+          },
+          {
+            "phase": "voltage_request_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.59375,
+            "passed": true
+          },
+          {
+            "phase": "voltage_delay_controls",
+            "frames": 19,
+            "presents": 19,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.875,
+            "passed": true
+          },
+          {
+            "phase": "power_weight_controls",
+            "frames": 18,
+            "presents": 18,
+            "telemetry_reads": 2,
+            "cpu_seconds": 0.375,
+            "passed": true
+          }
+        ],
+        "completed_worker_actions": 2,
+        "worker_actions": [
+          {
+            "automatic": true,
+            "message": "Read the running firmware clock table",
+            "ok": true,
+            "operation": 102
+          },
+          {
+            "automatic": true,
+            "message": "Timing helper selected; Read fields captures this adapter",
+            "ok": true,
+            "operation": 23
+          }
+        ],
+        "device_resets": 4,
+        "hotkey_registered": true,
+        "passed": true
+      }
+    }
+  },
+  "restored": {
+    "nvidia_smi": [
+      "00000000:01:00.0, GPU-8f27b43c-149d-36d3-73cd-b448b4fdbab1, 512.15, NVIDIA GeForce RTX 3070 Ti",
+      "00000000:03:00.0, GPU-bcf807ad-1f3c-a64b-a99c-d9eccd456470, 512.15, NVIDIA GeForce GTX 1050 Ti"
+    ],
+    "live_check": {
+      "devices.count": "2",
+      "device.0.slot": "0000:01:00.0",
+      "device.0.name": "NVIDIA GeForce RTX 3070 Ti",
+      "device.1.slot": "0000:03:00.0",
+      "device.1.name": "NVIDIA GeForce GTX 1050 Ti",
+      "slot": "0000:03:00.0",
+      "name": "NVIDIA GeForce GTX 1050 Ti",
+      "connected": "1",
+      "status": "",
+      "telemetry_valid": "1",
+      "telemetry_present": "0x17fff97f3",
+      "telemetry_error": "",
+      "core.availability": "available",
+      "core.writable": "1",
+      "core.unit": "MHz",
+      "core.detail": "",
+      "memory.availability": "available",
+      "memory.writable": "1",
+      "memory.unit": "MHz true",
+      "memory.detail": "",
+      "memory.current": "0",
+      "memory.low": "-500",
+      "memory.high": "500",
+      "memory.step": "0.25",
+      "power.availability": "transient",
+      "power.writable": "0",
+      "power.unit": "W",
+      "power.detail": "Power policy table unavailable or needs clamp confirmation; board-only route is not established",
+      "fan.availability": "available",
+      "fan.writable": "1",
+      "fan.unit": "%",
+      "fan.detail": "",
+      "boost.availability": "available",
+      "boost.writable": "1",
+      "boost.unit": "%",
+      "boost.detail": "",
+      "advanced.count": "3",
+      "advanced.0.kind": "clock_domain",
+      "advanced.0.domain": "2",
+      "advanced.0.label": "Additional memory offset",
+      "advanced.0.availability": "available",
+      "advanced.0.writable": "0",
+      "advanced.0.unit": "MHz",
+      "advanced.0.detail": "Additional memory offset requires XOC session mode; Stock remains available; slider range is a software editing range, not a hardware limit",
+      "advanced.0.current": "0",
+      "advanced.0.low": "-500",
+      "advanced.0.high": "500",
+      "advanced.1.kind": "nvvdd",
+      "advanced.1.domain": "0",
+      "advanced.1.label": "NVVDD offset",
+      "advanced.1.availability": "available",
+      "advanced.1.writable": "1",
+      "advanced.1.unit": "mV",
+      "advanced.1.detail": "Stored request; physical voltage response is unverified",
+      "advanced.1.current": "0",
+      "advanced.1.low": "-100",
+      "advanced.1.high": "200",
+      "advanced.2.kind": "msvdd",
+      "advanced.2.domain": "0",
+      "advanced.2.label": "MSVDD offset",
+      "advanced.2.availability": "available",
+      "advanced.2.writable": "0",
+      "advanced.2.unit": "mV",
+      "advanced.2.detail": "Experimental MSVDD opt-in is disabled",
+      "advanced.2.current": "0",
+      "advanced.2.low": "-500",
+      "advanced.2.high": "500",
+      "policy.count": "0",
+      "rail.mode_known": "1",
+      "rail.mode_enabled": "0",
+      "rail.writable_known": "1",
+      "rail.writable": "1",
+      "rail.count": "4",
+      "rail.0.index": "0",
+      "rail.0.field": "0",
+      "rail.0.availability": "available",
+      "rail.0.writable": "0",
+      "rail.0.unit": "mV",
+      "rail.0.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+      "rail.0.current": "0",
+      "rail.0.initial": "0",
+      "rail.0.estimated_base_mv": "1056.25",
+      "rail.1.index": "0",
+      "rail.1.field": "1",
+      "rail.1.availability": "available",
+      "rail.1.writable": "0",
+      "rail.1.unit": "mV",
+      "rail.1.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+      "rail.1.current": "0",
+      "rail.1.initial": "0",
+      "rail.1.estimated_base_mv": "1118.75",
+      "rail.2.index": "0",
+      "rail.2.field": "2",
+      "rail.2.availability": "available",
+      "rail.2.writable": "0",
+      "rail.2.unit": "mV",
+      "rail.2.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+      "rail.2.current": "0",
+      "rail.2.initial": "0",
+      "rail.2.estimated_base_mv": "1200",
+      "rail.3.index": "0",
+      "rail.3.field": "3",
+      "rail.3.availability": "available",
+      "rail.3.writable": "0",
+      "rail.3.unit": "mV",
+      "rail.3.detail": "Stored request; initial value is captured, base voltage is estimated; slider bounds are software request limits, not measured voltage limits",
+      "rail.3.current": "0",
+      "rail.3.initial": "0",
+      "rail.3.estimated_base_mv": "675",
+      "curve.points": "80",
+      "curve.error": "",
+      "curve.freq_div": "2",
+      "curve.step_khz": "12657",
+      "locks.clock.present": "0",
+      "locks.clock.min_mhz": "0",
+      "locks.clock.max_mhz": "0",
+      "locks.vf.present": "1",
+      "locks.vf.count": "0"
+    },
+    "both_devices_pnp_error_code": 0,
+    "driver_inf_restore_api_succeeded": true
+  }
+}
