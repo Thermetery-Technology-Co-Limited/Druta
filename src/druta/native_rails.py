@@ -593,6 +593,8 @@ def volt_rail_diagnostics(gpu):
         if e.present:
             rails[rail] = {"available": bool(e.available), "reason": e.reason.decode()}
     identity = getattr(gpu, "static", {})
+    # A fresh handle has no writer observations until the first write attempt.
+    observations = vars(gpu)
     return {"available": bool(d.available),
             "reason": d.reason.decode(),
             "architecture": d.architecture if d.has_architecture else None,
@@ -601,9 +603,9 @@ def volt_rail_diagnostics(gpu):
             "adapter": {"slot": identity.get("slot"),
                         **{key: identity.get(key) for key in ("name", "driver", "vbios")}},
             "getters": caches(gpu)["_volt_rail_getter_diagnostics"],
-            "last_write_error": getattr(gpu, "_volt_rail_write_error", None),
-            "observed_packets": getattr(gpu, "_volt_rail_observed_packets", []),
-            "write_protocol": getattr(gpu, "_volt_rail_write_protocol", None)}
+            "last_write_error": observations.get("_volt_rail_write_error"),
+            "observed_packets": observations.get("_volt_rail_observed_packets", []),
+            "write_protocol": observations.get("_volt_rail_write_protocol")}
 
 
 def volt_rail_limits_supported(gpu, rail=None):

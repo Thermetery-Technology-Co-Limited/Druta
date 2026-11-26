@@ -1179,9 +1179,6 @@ class Gpu(FrontendSurface):
         self.nvml = BoundNvml(box, bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected,
                              _text(identity.nvml_path))
         self.pairing_error = _text(identity.pairing_error)
-        self._volt_rail_write_error = None
-        self._volt_rail_write_protocol = None
-        self._volt_rail_observed_packets = []
         self.static = _Static(self, {"name": _text(identity.name), "driver": _text(identity.driver),
                                      "vbios": _text(identity.vbios), "admin": bool(identity.admin),
                                      "slot": _text(identity.slot), "uuid": _text(identity.uuid)})
