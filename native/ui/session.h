@@ -36,6 +36,13 @@ struct SessionSnapshot {
     std::uint64_t last_action_log_id = 0; // exact result entry for last_action_operation
     std::optional<Command::Operation> last_action_operation;
     bool last_action_ok = false;
+    struct ProfileCaptureCompletion {
+        uint64_t action;
+        Command::Operation operation;
+        std::shared_ptr<const ProfileJson> document;
+        std::string message;
+    };
+    std::optional<ProfileCaptureCompletion> profile_capture;
     // That action's own result (ActionResult): the value it asked for, what it
     // read back, and whether it may have reached the hardware.
     std::optional<double> last_action_requested, last_action_readback;

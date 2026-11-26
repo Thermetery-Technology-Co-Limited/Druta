@@ -1700,6 +1700,10 @@ int main() {
     const int save_policy_writes = policy_writes, save_advanced_writes = advanced_writes, save_boost_writes = boost_writes;
     const auto curve_saved = pb->execute(save_curve); CHECK(curve_saved.ok && !curve_saved.may_have_changed);
     const auto curve_doc = read_profile(curve_path);
+    auto capture_curve = save_curve; capture_curve.return_captured_profile = true; capture_curve.profile_path.clear();
+    const auto captured_curve = pb->execute(capture_curve);
+    CHECK(captured_curve.ok && !captured_curve.may_have_changed && captured_curve.captured_profile
+        && *captured_curve.captured_profile == curve_doc);
     CHECK(curve_doc["format"] == "druta-native-curve" && curve_doc["target"]["uuid"] == "GPU-A");
     CHECK(curve_doc["geometry"]["n_entries"] == 7 && curve_doc["geometry"]["freq_div"] == curve_div
         && curve_doc["geometry"]["gpu_indices"] == ProfileJson::array({3,4})
@@ -1748,6 +1752,10 @@ int main() {
     test_clock_step=1000; test_clock_measured=1; clock_step_fail=0;
     Command save{}; save.operation = Command::Operation::save_profile; save.profile_path = path;
     fan_auto = false; fan_mode = 1; mode = 0; CHECK(pb->execute(save).ok); auto saved = read_profile(path);
+    auto capture_daily = save; capture_daily.return_captured_profile = true; capture_daily.profile_path.clear();
+    const auto captured_daily = pb->execute(capture_daily);
+    CHECK(captured_daily.ok && !captured_daily.may_have_changed && captured_daily.captured_profile
+        && *captured_daily.captured_profile == saved);
     CHECK(saved["format"] == "druta-native-daily" && !saved["controls"].contains("fan") && saved["controls"].contains("core"));
     Command load{}; load.operation = Command::Operation::load_profile; load.profile_path = path;
     ProfileJson doc = {{"format", "druta-native-daily"}, {"version", 1}, {"target", {{"uuid", "other"}, {"slot", "0000:02:00.0"}}}, {"controls", {{"memory", {{"unit", "MHz eff"}, {"scale", 2}, {"value", 80}}}}}};

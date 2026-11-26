@@ -713,7 +713,9 @@ void classic_quick_profiles(){
     check(v.profile_catalog_intents.empty(),"quick Apply is disabled while controls are locked");
     v.controls_unlocked=true;
     click("3##classic-profile-quick");click("4##classic-profile-quick");
-    check(v.profile_catalog_intents.empty(),"missing or unassigned quick profiles cannot apply");
+    check(v.profile_catalog_intents.empty()&&v.toolbar_save_draft.slot==3&&!v.toolbar_save_request,
+        "an empty slot opens Save on its own destination without applying a profile");
+    close_menus(v);
     live->busy=true;
     click("1##classic-profile-quick");
     check(v.profile_catalog_intents.empty(),"quick Apply is disabled while a GPU command is pending");
@@ -759,6 +761,116 @@ void classic_quick_profiles(){
     check(v.startup_profile_request==false&&v.profile_catalog_intents.empty()&&v.commands.empty(),
         "startup can be disabled when the configured profile and its adapter are unavailable");
 }
+
+void classic_profile_save() {
+    auto live=std::make_shared<SessionSnapshot>(fixture());
+    ViewState v;
+    v.live=live;v.preview=false;v.controls_unlocked=false;
+    frame(v);v.profile_catalog_intents.clear();
+    const char* save_button="Save...##classic-profile-save";
+    const auto press=[&](ImGuiWindow* popup,const char* label) {
+        ImGui::ActivateItemByID(popup->GetID(label));return frame(v);
+    };
+    auto* popup=open_profile_popup(v,save_button);
+    check(popup&&!v.toolbar_save_request&&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "Save opens on a locked GPU while the empty library is loading");
+    if (!popup) return;
+    auto text=frame(v);
+    check(!v.toolbar_save_draft.slot&&!v.toolbar_save_draft.name[0]&&has(text,"Reading saved profiles"),
+          "a new library save starts with an empty name and shares the existing read");
+    record_profile_library(v.profile_catalog_view,{});
+    press(popup,"Save profile");
+    check(!v.toolbar_save_request,"a blank profile name cannot be submitted");
+    press(popup,"##save-profile-name");ImGui::GetIO().AddInputCharactersUTF8("Quiet");frame(v);
+    press(popup,"Save profile");
+    check(v.toolbar_save_request&&v.toolbar_save_request->name=="Quiet"&&!v.toolbar_save_request->slot
+          &&v.toolbar_save_request->scope==ProfileScope::daily&&v.toolbar_save_request->replace_id.empty()
+          &&v.toolbar_save_request->generation==live->generation&&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "library Save captures current daily settings while locked and queues only its save request");
+    check(!open_profile_popup(v,save_button),"the pending request blocks duplicate saves");
+    v.toolbar_save_request.reset();v.toolbar_save_pending=true;
+    check(!open_profile_popup(v,save_button),"capture in progress blocks another toolbar save");
+    v.toolbar_save_pending=false;
+
+    popup=open_profile_popup(v,"3##classic-profile-quick");
+    if (!popup) {check(false,"empty quick slot opens Save");return;}
+    check(v.toolbar_save_draft.slot==2&&std::string(v.toolbar_save_draft.name.data())=="Profile 3",
+          "empty slot Save suggests an editable name and picks the clicked slot");
+    v.quick_profiles.ids[2]="assigned-in-another-window";press(popup,"Save profile");
+    check(!v.toolbar_save_request,"a changed slot cannot silently receive a save");
+    press(popup,"Cancel");
+    v.quick_profiles.ids[2].clear();
+    popup=open_profile_popup(v,"3##classic-profile-quick");
+    if (!popup) {check(false,"empty quick slot reopens after cancel");return;}
+    press(popup,"##save-profile-scope");
+    const auto& scope_stack=ImGui::GetCurrentContext()->OpenPopupStack;
+    auto* scopes=scope_stack.empty()?nullptr:scope_stack.back().Window;
+    if (scopes&&scopes!=popup) press(scopes,profile_scope_name(ProfileScope::curve));
+    press(popup,"Save profile");
+    check(v.toolbar_save_request&&v.toolbar_save_request->slot==2&&v.toolbar_save_request->name=="Profile 3"
+          &&v.toolbar_save_request->expected_slot_id==std::string{}&&v.toolbar_save_request->scope==ProfileScope::curve,
+          "an empty slot saves the chosen capture scope with its original empty assignment");
+    v.toolbar_save_request.reset();
+
+    ProfileLibraryEntry entry;
+    entry.name="Desk";entry.id="native/desk.json";entry.source="Native";
+    entry.document=ProfileJson{{"format","druta-native-daily"},{"version",1},
+        {"target",{{"uuid",live->data.identity.uuid},{"slot",live->selected_slot}}},
+        {"controls",{{"boost",{{"value",15},{"unit","%"}}}}}};
+    record_profile_library(v.profile_catalog_view,{entry});
+    v.quick_profiles.ids[0]=entry.id;
+    v.classic_profile_bar.selected=ViewState::ClassicProfileBar::Selection{
+        live->generation,entry.id,entry.name,*entry.document,false};
+    auto* workspace=ImGui::FindWindowByName("Druta workspace");
+    ImGui::FocusWindow(workspace);
+    ImGui::SetNavID(workspace->GetID("1##classic-profile-quick"),ImGuiNavLayer_Main,workspace->NavRootFocusScopeId,{});
+    frame(v);
+    const auto slot_center=ImGui::WindowRectRelToAbs(workspace,workspace->NavRectRel[ImGuiNavLayer_Main]).GetCenter();
+    const auto right_click_slot=[&]() -> ImGuiWindow* {
+        auto& io=ImGui::GetIO();
+        io.AddMousePosEvent(slot_center.x,slot_center.y);frame(v);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Right,true);frame(v);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Right,false);frame(v);
+        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        return stack.empty()?nullptr:stack.back().Window;
+    };
+    popup=right_click_slot();
+    check(popup&&v.toolbar_save_draft.slot==0&&std::string(v.toolbar_save_draft.name.data())=="Desk"
+          &&!v.toolbar_save_request&&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "right-clicking an occupied slot opens its Update form while controls are locked");
+    if (popup) press(popup,"Cancel");
+    v.quick_profiles.ids[0]="missing-profile.json";
+    popup=right_click_slot();
+    check(popup&&v.toolbar_save_draft.slot==0&&v.toolbar_save_draft.expected_slot_id=="missing-profile.json"
+          &&std::string(v.toolbar_save_draft.name.data())=="Profile 1"&&!v.toolbar_save_request
+          &&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "right-clicking an unavailable slot opens Save with a new name and the original assignment");
+    if (popup) press(popup,"Cancel");
+    v.quick_profiles.ids[0]=entry.id;
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"selected profile opens Save");return;}
+    text=frame(v);
+    check(std::string(v.toolbar_save_draft.name.data())=="Desk"&&has(text,"Update profile"),
+          "saving an existing named profile prefills the name and explicitly offers Update");
+    press(popup,"##save-profile-destination");
+    const auto& destination_stack=ImGui::GetCurrentContext()->OpenPopupStack;
+    auto* destinations=destination_stack.empty()?nullptr:destination_stack.back().Window;
+    if (destinations&&destinations!=popup) press(destinations,"Slot 1  Desk");
+    press(popup,"Update profile");
+    check(v.toolbar_save_request&&v.toolbar_save_request->slot==0&&v.toolbar_save_request->expected_slot_id==entry.id
+          &&v.toolbar_save_request->replace_id==entry.id&&v.toolbar_save_request->replace_document==entry.document,
+          "Update identifies the chosen slot and the exact native profile document approved for replacement");
+    v.toolbar_save_request.reset();
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"profile update popup reopens");return;}
+    auto foreign=entry;(*foreign.document)["target"]["uuid"]="GPU-other";
+    record_profile_library(v.profile_catalog_view,{foreign});
+    text=press(popup,"Update profile");
+    check(!v.toolbar_save_request&&has(text,"Choose another name"),"Save blocks an existing name bound to another GPU");
+    ++live->generation;frame(v);
+    check(ImGui::GetCurrentContext()->OpenPopupStack.empty()&&!v.toolbar_save_request&&v.commands.empty(),
+          "adapter changes discard the open Save popup without applying or saving");
+}
 }
 int main(int argc,char** argv) {
     targets_and_reports();quoting();
@@ -773,6 +885,6 @@ int main(int argc,char** argv) {
     ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.0f/60;
     ImFontConfig config;config.SizePixels=18;io.Fonts->AddFontDefault(&config);
     unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
-    rendering();history_menu();clock_verification_menu();classic_menus();classic_device_and_help_menus();classic_header_and_profile_wording();classic_profile_selector();classic_quick_profiles();ImPlot::DestroyContext();ImGui::DestroyContext();
+    rendering();history_menu();clock_verification_menu();classic_menus();classic_device_and_help_menus();classic_header_and_profile_wording();classic_profile_selector();classic_quick_profiles();classic_profile_save();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("App actions: %d failures\n",failures);return failures?1:0;
 }

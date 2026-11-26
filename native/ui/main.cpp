@@ -273,6 +273,14 @@ struct App {
     };
     std::optional<CatalogPending> catalog_pending;
     std::optional<CatalogPending> capture_pending;
+    struct ToolbarCapture {
+        druta::ui::ToolbarProfileSaveRequest request;
+        uint64_t previous_actions;
+        druta::ui::Command::Operation operation;
+        std::string uuid, pci_slot;
+    };
+    std::optional<ToolbarCapture> toolbar_capture;
+    bool refresh_after_library_read = false;
     std::optional<druta::ui::Command> capture_after_prepare;
     std::future<std::vector<druta::ui::ProfileLibraryEntry>> library_read;
     std::optional<uint64_t> history_stage_generation;
@@ -626,8 +634,11 @@ struct App {
             voltage_profile_or_command(std::move(command),false,save,load);
         }
     }
-    void refresh_profile_library() {
-        if(library_read.valid())return;
+    void refresh_profile_library(bool after_save = false) {
+        if (library_read.valid()) {
+            refresh_after_library_read |= after_save;
+            return;
+        }
         view.profile_catalog_view.library_loading=true;
         library_read_for_history=history_stage_generation.has_value();
         const HWND notify=window;
@@ -635,6 +646,65 @@ struct App {
             try {auto entries=druta::ui::list_profile_library(druta::ui::discover_profile_directories());PostMessageW(notify,WM_NULL,0,0);return entries;}
             catch(...){PostMessageW(notify,WM_NULL,0,0);throw;}
         });
+    }
+    void consume_toolbar_save() {
+        using namespace druta::ui;
+        if (!view.toolbar_save_request) return;
+        auto request = std::move(*view.toolbar_save_request);
+        view.toolbar_save_request.reset();
+        try {
+            const auto live = session->snapshot();
+            if (view.select_slot || live->opening || request.generation != live->generation ||
+                live->selected_slot != live->data.identity.slot || !live->data.identity.uuid[0])
+                throw std::runtime_error("Choose the current GPU again before saving");
+            if (toolbar_capture || capture_pending || catalog_pending)
+                throw std::runtime_error("Wait for the current profile operation");
+            if (request.scope != ProfileScope::daily && request.scope != ProfileScope::curve && request.scope != ProfileScope::full_tune)
+                throw std::runtime_error("Choose a supported capture scope");
+            auto command = profile_capture_request(request.scope, view, *live);
+            command.return_captured_profile = true;
+            const auto operation = command.operation;
+            if (!submit_command(std::move(command), request.generation))
+                throw std::runtime_error("The GPU session changed or is busy. Try saving again.");
+            toolbar_capture.emplace(ToolbarCapture{std::move(request), live->completed_actions, operation,
+                live->data.identity.uuid, live->selected_slot});
+            view.toolbar_save_pending = true;
+            view.toolbar_save_status = "Capturing current settings...";
+        } catch (const std::exception& e) { view.toolbar_save_status = e.what(); }
+    }
+    void poll_toolbar_save() {
+        using namespace druta::ui;
+        if (!toolbar_capture || !session) return;
+        const auto live = session->snapshot();
+        const auto& pending = *toolbar_capture;
+        try {
+            if (closing || view.select_slot || pending.request.generation != live->generation ||
+                pending.pci_slot != live->selected_slot || pending.uuid != live->data.identity.uuid)
+                throw std::runtime_error("The selected GPU changed during capture. Choose Save again.");
+            const auto& capture = live->profile_capture;
+            if (!capture || capture->action <= pending.previous_actions) return;
+            if (capture->operation != pending.operation || !capture->document)
+                throw std::runtime_error(capture->message.empty() ? "Profile capture failed" : capture->message);
+            const auto result = save_toolbar_profile(discover_profile_directories().front(), quick_profile_settings_path(),
+                pending.request, *capture->document, pending.uuid, pending.pci_slot);
+            auto& bar = view.classic_profile_bar;
+            bar.selected = ViewState::ClassicProfileBar::Selection{live->generation, result.entry.id,
+                result.entry.name, *result.entry.document, result.entry.description.targets == std::vector<std::string>{"annotation:power"}};
+            bar.apply = ViewState::ClassicProfileBar::ApplyState::idle;
+            bar.status.clear();
+            if (result.slots) view.quick_profiles = *result.slots;
+            view.toolbar_save_status = "Saved " + result.entry.name;
+            if (result.slots) view.toolbar_save_status += " to slot " + std::to_string(*pending.request.slot + 1);
+            if (!result.slot_error.empty()) view.toolbar_save_status += ". Slot assignment failed: " + result.slot_error;
+            session->note(result.slot_error.empty(), view.toolbar_save_status);
+            refresh_profile_library(true);
+        } catch (const std::exception& e) {
+            view.toolbar_save_status = e.what();
+            session->note(false, view.toolbar_save_status);
+            if (!closing) refresh_profile_library(true);
+        }
+        toolbar_capture.reset();
+        view.toolbar_save_pending = false;
     }
     void consume_quick_profile_assignment() {
         if (!view.quick_profile_assignment) return;
@@ -669,9 +739,13 @@ struct App {
             library_read_for_history=false;
             // A history click during an older library refresh needs its own fresh
             // listing, so a snapshot created since that read is not missed.
-            if(history_stage_generation)refresh_profile_library();
+            if (history_stage_generation || refresh_after_library_read) {
+                refresh_after_library_read = false;
+                refresh_profile_library();
+            }
             policy.note_activity(now_seconds());
         }
+        poll_toolbar_save();
         if(!capture_pending||!session)return;
         const auto snapshot=session->snapshot();
         if(snapshot->generation!=capture_pending->generation){capture_pending.reset();capture_after_prepare.reset();view.profile_catalog_view.status="Adapter changed during capture; inspect the operation log before using the saved file";return;}
@@ -737,7 +811,7 @@ struct App {
             if(intent.operation==ProfileCatalogIntent::Operation::refresh_library){refresh_profile_library();continue;}
             if(intent.operation==ProfileCatalogIntent::Operation::save_named||
                (intent.operation==ProfileCatalogIntent::Operation::save_capture&&intent.scope==ProfileScope::full_tune)){
-                if(capture_pending)throw std::runtime_error("A profile capture is still running");
+                if(capture_pending || toolbar_capture)throw std::runtime_error("A profile capture is still running");
                 auto command=profile_capture_request(intent.scope,view,*snapshot);
                 if(intent.operation==ProfileCatalogIntent::Operation::save_named){
                     const auto directories=discover_profile_directories();const auto destination=std::find_if(directories.begin(),directories.end(),[](const auto& d){return d.writable;});
@@ -1115,6 +1189,7 @@ struct App {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         consume_quick_profile_assignment();
+        consume_toolbar_save();
         configure_startup();
         consume_profile_catalog();
         consume_voltage_controls();consume_saving_controls();consume_policy_profiles();consume_power_weights();

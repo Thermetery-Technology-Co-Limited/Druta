@@ -46,6 +46,84 @@ void saving_and_history(){Temp temp;ProfileLibraryDirectory native{(temp.path/L"
  const auto blocked=temp.path/L"blocked";raw(blocked,"keep");ProfileLibraryDirectory bad{blocked.wstring(),"Native",true};reject([&]{save_library_profile(bad,"name",document);});reject([&]{save_library_autosave(bad,"action",document);});std::ifstream check(blocked);std::string value;check>>value;CHECK(value=="keep");
  auto missing=list_profile_library({{(temp.path/L"missing").wstring(),"Missing",false}});CHECK(missing.empty()&&!fs::exists(temp.path/L"missing"));auto unavailable=list_profile_library({{blocked.wstring(),"Blocked",false}});CHECK(unavailable.size()==1&&!unavailable[0].error.empty()&&!unavailable[0].document);
 }
+void toolbar_saving() {
+    Temp temp;
+    const ProfileLibraryDirectory native{(temp.path / L"profiles").wstring(), "Native", true};
+    const auto settings = (temp.path / L"slots.json").wstring();
+    const std::string gpu = "GPU-test", pci = "0000:01:00.0";
+    const ProfileJson daily = {{"format","druta-native-daily"},{"version",1},
+        {"target",{{"uuid",gpu},{"slot",pci}}},
+        {"controls",{{"core",{{"value",30},{"unit","MHz"}}},{"boost",{{"value",10},{"unit","%"}}}}}};
+    ToolbarProfileSaveRequest request;
+    request.name = "Daily tune"; request.slot = 3; request.expected_slot_id = "";
+    const auto save = [&](const ProfileJson& doc) { return save_toolbar_profile(native, settings, request, doc, gpu, pci); };
+    const auto first = save(daily);
+    CHECK(first.entry.name == "Daily-tune" && first.entry.description.valid && first.entry.document == daily);
+    CHECK(first.slot_error.empty() && first.slots && first.slots->ids[3] == first.entry.id);
+    CHECK(list_profile_library({native}).front().id == first.entry.id && read_profile(first.entry.path) == daily);
+    request.slot.reset(); request.expected_slot_id.reset();
+    request.name = "DAILY / tune";  // Same Windows filename after normalization.
+    reject([&]{save(daily);});
+    request.name = "Daily tune";
+    request.replace_document = daily;
+    reject([&]{save(daily);});
+    request.replace_id = first.entry.id + "-other";
+    reject([&]{save(daily);});
+    request.replace_id = first.entry.id;
+    auto fresh = daily;
+    fresh["controls"]["core"]["value"] = 45;
+    auto fewer = fresh;
+    fewer["controls"].erase("boost");
+    reject([&]{save(fewer);});
+    auto other_gpu = fresh;
+    other_gpu["target"]["uuid"] = "GPU-other";
+    reject([&]{save(other_gpu);});
+    CHECK(read_profile(first.entry.path) == daily);
+    CHECK(save(fresh).entry.document == fresh);
+    reject([&]{save(daily);});  // Another window already updated the reviewed document.
+    const auto renamed = fs::path(native.path) / L"moved.json";
+    fs::rename(first.entry.path, renamed);
+    reject([&]{save(daily);});
+    CHECK(!fs::exists(first.entry.path) && read_profile(renamed.wstring()) == fresh);
+    request = {};
+    request.name = "Smaller"; request.slot = 3; request.expected_slot_id = "";
+    reject([&]{save(fewer);});  // Slot now belongs to the first capture.
+    CHECK(!fs::exists(fs::path(native.path) / L"Smaller.json") && read_profile(settings)["slots"][3] == first.entry.id);
+    request.slot.reset(); request.expected_slot_id.reset();
+    CHECK(save(fewer).entry.document == fewer); // Save As accepts the smaller selection.
+    for (const auto name : {"AutoSave-foreign", "CON", "lpt9", "  "}) {
+        request.name = name;
+        reject([&]{save(fresh);});
+    }
+
+    request = {}; request.name = "Full"; request.scope = ProfileScope::full_tune;
+    const ProfileJson full = {{"schema",2},{"device",{{"uuid",gpu},{"slot",pci}}},
+        {"power_limit_mw",200000},{"current_limits_ma",{{"1",60000},{"2",55000}}},
+        {"vf_deltas",{{"1",15000},{"2",30000}}}};
+    const auto first_full = save(full);
+    CHECK(first_full.entry.description.scope == ProfileScope::python_full_tune);
+    request.replace_id = first_full.entry.id; request.replace_document = full;
+    auto partial = full;
+    partial["current_limits_ma"].erase("2");
+    reject([&]{save(partial);});  // Both captures still have power:*.
+    partial = full; partial["vf_deltas"].erase("2");
+    reject([&]{save(partial);});  // Both captures still have clock:core.
+    request.scope = ProfileScope::daily;
+    reject([&]{save(fresh);});
+    CHECK(read_profile(first_full.entry.path) == full);
+    request.scope = ProfileScope::full_tune;
+    partial = full; partial["power_limit_mw"] = 220000;
+    CHECK(save(partial).entry.document == partial);
+
+    request = {}; request.name = "Durable"; request.slot = 0; request.expected_slot_id = "";
+    // A readable settings file can still be held against replacement by another program.
+    HANDLE held = CreateFileW(settings.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    CHECK(held != INVALID_HANDLE_VALUE);
+    const auto durable = save(fresh);
+    CHECK(!durable.slot_error.empty() && !durable.slots && read_profile(durable.entry.path) == fresh);
+    CloseHandle(held);
+    CHECK(read_profile(settings)["slots"][0] == "");
+}
 void quick_profile_assignments() {
     Temp temp;
     const auto settings=(temp.path/L"Druta"/L"quick-profiles.json").wstring();
@@ -83,4 +161,4 @@ void quick_profile_assignments() {
     CHECK(read_profile(settings)["slots"][1]=="A");
 }
 }
-int main(){discovery_and_listing();saving_and_history();quick_profile_assignments();std::printf("Profile library: %u checks, %u failures\n",checks,failures);return failures?1:0;}
+int main(){discovery_and_listing();saving_and_history();quick_profile_assignments();toolbar_saving();std::printf("Profile library: %u checks, %u failures\n",checks,failures);return failures?1:0;}

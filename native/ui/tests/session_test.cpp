@@ -131,6 +131,8 @@ struct Fake : IBackend {
         if (cmd.operation == Command::Operation::set_rail_mode) rails = cmd.enabled;
         if (throw_after_action.load()) throw_reads = true;
         ActionResult r; r.ok = !fail_gate.load(); r.message = "done";
+        if (cmd.return_captured_profile) r.captured_profile = std::make_shared<const ProfileJson>(
+            ProfileJson{{"test_gpu", opened_slot}});
         r.requested = result_requested; r.readback = result_readback; r.may_have_changed = result_changed; return r;
     }
     // Set before a submit; the session's lock orders it before the worker reads it.
@@ -237,7 +239,35 @@ static void action_entries_name_their_result() {
     s=session.snapshot();CHECK(!s->last_action_requested&&!s->last_action_readback&&!s->last_action_may_have_changed);
     session.begin_shutdown();CHECK(until([&]{return session.finished();}));
 }
+static void profile_capture_completion() {
+    auto fixture = std::make_unique<Fake>();
+    auto* fake = fixture.get();
+    Session session(std::move(fixture), [] {});
+    session.start("a");
+    CHECK(until([&]{const auto s=session.snapshot(); return !s->opening && s->data.connected;}));
+    const auto generation = session.snapshot()->generation;
+    Command capture;
+    capture.operation = Command::Operation::save_profile;
+    capture.return_captured_profile = true;
+    CHECK(session.submit(capture,generation));
+    CHECK(until([&]{const auto s=session.snapshot(); return !s->busy && s->profile_capture;}));
+    const auto first = session.snapshot()->profile_capture;
+    CHECK(first && first->document && first->document->at("test_gpu") == "a");
+    CHECK(session.submit({},generation,true));
+    CHECK(until([&]{return !session.snapshot()->busy;}));
+    const auto after = session.snapshot()->profile_capture;
+    CHECK(first && after && after->action == first->action && after->document == first->document);
+    fake->fail_gate = true;
+    CHECK(session.submit(capture,generation));
+    CHECK(until([&]{return !session.snapshot()->busy;}));
+    const auto failure = session.snapshot()->profile_capture;
+    CHECK(failure && first && failure->action > first->action && !failure->document && !failure->message.empty());
+    CHECK(session.select_device("b") && !session.snapshot()->profile_capture);
+    session.begin_shutdown();
+    CHECK(until([&]{return session.finished();}));
+}
 int main() {
+    profile_capture_completion();
     disconnected_integral_policy_recovery();
     notes_and_readout_hint();
     action_entries_name_their_result();

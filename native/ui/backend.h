@@ -276,6 +276,7 @@ struct Command {
     uint32_t expected_curve_freq_div = 0;
     std::vector<dc_vf_delta> curve_deltas;
     std::shared_ptr<const dc_vf_layout> expected_curve_layout;
+    bool return_captured_profile = false;
 };
 // One step of a multi-step action (Reset controls, Max it) as the step itself
 // reported it; message already holds the same text.
@@ -289,6 +290,7 @@ struct ActionResult {
     std::shared_ptr<const PolicyAnnotationEffect> annotation_effect;
     // Reset controls and Max it: each step in the order it ran.
     std::vector<ActionStep> steps;
+    std::shared_ptr<const ProfileJson> captured_profile;
 };
 inline bool is_i2c_operation(Command::Operation operation) {
     return (operation >= Command::Operation::i2c_scan && operation <= Command::Operation::i2c_release)

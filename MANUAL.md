@@ -447,6 +447,12 @@ reapplied without moving to another bin.
 In the native Classic UI, the five numbered **Profile** buttons apply your
 assigned profiles. Open the selector to see their names or change a slot.
 Choosing a profile assigned to another slot swaps those two buttons.
+Click **Save...** on the bar to save the current GPU settings. Choose the
+library or a numbered slot as the destination. Clicking an empty numbered
+button opens the form for that slot. Right-click a filled button to update
+its profile or enter a new name to replace the slot assignment. The default
+capture is **Daily / Advanced**. Choose **V/F curve** to save the configured
+curve, or **Full tune** for a broader capture.
 Select a profile and check **Apply on startup** to save a copy for that GPU
 at Windows sign-in. Open Druta from the notification area to resume
 monitoring after startup. **Profile actions** can disable startup even when

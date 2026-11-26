@@ -17,5 +17,8 @@ ProfileJson read_profile(const std::wstring& path, std::size_t maximum_bytes = p
 
 // Saves using an owned, same-directory temporary file, flushed before atomic
 // replacement. Failure before replacement preserves any existing destination.
-void write_profile(const std::wstring& path, const ProfileJson& document);
+enum class ProfileWriteMode { replace_or_create, create_only, update_only };
+void write_profile(const std::wstring& path, const ProfileJson& document,
+                   ProfileWriteMode mode = ProfileWriteMode::replace_or_create,
+                   const ProfileJson* expected_document = nullptr);
 }

@@ -2013,13 +2013,28 @@ class Client final : public IBackend {
             bool full_xoc=false;const bool xoc_known=current_xoc(full_xoc);if(xoc_known||required_xoc)doc["xoc"]=full_xoc||required_xoc;
             if(!identity(*id))throw std::runtime_error("Adapter changed during full-profile capture");return doc;
     }
+    static void deliver_capture(const Command& cmd, ProfileJson document, ActionResult& result) {
+        if (cmd.return_captured_profile)
+            result.captured_profile = std::make_shared<const ProfileJson>(std::move(document));
+        else
+            write_profile(cmd.profile_path, document);
+        result.ok = true;
+    }
     ActionResult save_full_profile(const Command& cmd) {
-        ActionResult out;try{if(cmd.profile_path.empty())throw std::runtime_error("Choose a full-profile path");const auto doc=capture_full_document(cmd);write_profile(cmd.profile_path,doc);out.ok=true;out.message="Full tune saved; no settings applied";if(!doc["incomplete"].empty())out.message+="; incomplete: "+doc["incomplete"].dump();}catch(const std::exception& e){out.message=std::string("Full capture failed: ")+e.what();}return out;
+        ActionResult out;
+        try {
+            if (cmd.profile_path.empty() && !cmd.return_captured_profile) throw std::runtime_error("Choose a full-profile path");
+            auto doc = capture_full_document(cmd);
+            out.message = cmd.return_captured_profile ? "Full tune captured" : "Full tune saved; no settings applied";
+            if (!doc["incomplete"].empty()) out.message += "; incomplete: " + doc["incomplete"].dump();
+            deliver_capture(cmd, std::move(doc), out);
+        } catch (const std::exception& e) { out.message = std::string("Full capture failed: ") + e.what(); }
+        return out;
     }
 
     ActionResult profile_action(const Command& cmd,const ProfileJson* in_memory=nullptr,bool preflight=false,bool verify=false,const std::vector<Undo>* memory_originals=nullptr) {
         ActionResult result{}; const bool save = cmd.operation == Command::Operation::save_profile;
-        if (!in_memory && cmd.profile_path.empty()) { result.message = "Choose a profile path"; return result; }
+        if (!in_memory && cmd.profile_path.empty() && !(save && cmd.return_captured_profile)) { result.message = "Choose a profile path"; return result; }
         bool aggregate_stored = false;
         try {
             ProfileJson doc;
@@ -2082,7 +2097,7 @@ class Client final : public IBackend {
                     item.changed = item.undo.value != raw; if (item.changed) items.push_back(std::move(item));
                 }
             }
-            if (save) { if (doc["controls"].empty() && !doc.contains("advanced")) throw std::runtime_error("no fully qualified controls to save"); write_profile(cmd.profile_path, doc); result.ok = true; result.message = "Native daily profile saved. Included: " + included + "." + (omitted.empty() ? "" : " Omitted: " + omitted + ".") + " Core curve, individual policy rows, and rail limits are not saved."; return result; }
+            if (save) { if (doc["controls"].empty() && !doc.contains("advanced")) throw std::runtime_error("no fully qualified controls to save"); deliver_capture(cmd, std::move(doc), result); result.message = (cmd.return_captured_profile ? "Native daily profile captured. Included: " : "Native daily profile saved. Included: ") + included + "." + (omitted.empty() ? "" : " Omitted: " + omitted + ".") + " Core curve, individual policy rows, and rail limits are not saved."; return result; }
             if(verify){result.ok=items.empty();result.message=result.ok?"Final selected Daily / Advanced requests verified":"A selected Daily / Advanced request changed after another component";return result;}
             if(preflight){result.ok=true;result.message="Daily / Advanced profile fresh preflight passed";return result;}
             if (items.empty()) { result.ok = true; result.message = python_profile ? "Python tuning action already matches current request" : "Profile already matches current requests; core curve is not saved"; return result; }
@@ -3880,12 +3895,13 @@ public:
         if (cmd.operation == Command::Operation::prepare_scoped_profile || cmd.operation == Command::Operation::save_scoped_profile) return scoped_action(cmd);
         if(cmd.operation==Command::Operation::save_fan_profile)return fan_profile_action(nullptr,cmd.profile_path);
         if (cmd.operation == Command::Operation::save_curve_profile) {
-            if (cmd.profile_path.empty()) { result.message = "Choose a V/F profile path"; return result; }
+            if (cmd.profile_path.empty() && !cmd.return_captured_profile) { result.message = "Choose a V/F profile path"; return result; }
             try {
                 // Explicit save captures fresh configured requests, never the UI draft.
                 const auto captured = read(true);
-                write_profile(cmd.profile_path, capture_curve_profile(captured));
-                result.ok = true; result.message = "Configured V/F curve saved. Loading stages a draft; Apply remains explicit.";
+                deliver_capture(cmd, capture_curve_profile(captured), result);
+                result.message = cmd.return_captured_profile ? "Configured V/F curve captured"
+                    : "Configured V/F curve saved. Loading stages a draft; Apply remains explicit.";
             } catch (const std::exception& error) { result.message = std::string("V/F profile save failed: ") + error.what(); }
             return result;
         }

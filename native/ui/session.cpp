@@ -446,6 +446,10 @@ struct Session::Impl {
                                 state.i2c_ownership_uncertain=true;
                         }
                         state.last_action_operation = task.operation; state.last_action_ok = result.ok;
+                        if (task.return_captured_profile) {
+                            state.profile_capture = SessionSnapshot::ProfileCaptureCompletion{state.completed_actions,
+                                task.operation, result.ok ? std::move(result.captured_profile) : nullptr, result.message};
+                        }
                         state.last_action_requested = result.requested; state.last_action_readback = result.readback;
                         state.last_action_may_have_changed = result.may_have_changed;
                         if(task.operation==Command::Operation::timings_capture_p0 && state.data.timings){
@@ -526,6 +530,7 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       impl_->state.selected_slot = target_slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
       impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
+      impl_->state.profile_capture.reset();
       impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false; impl_->state.last_action_log_id = 0;
       impl_->state.last_action_requested.reset(); impl_->state.last_action_readback.reset(); impl_->state.last_action_may_have_changed = false;
       impl_->state.frequency_ownership_uncertain = false;

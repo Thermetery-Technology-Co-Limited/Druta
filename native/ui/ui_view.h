@@ -63,6 +63,18 @@ struct ViewState {
         ApplyState apply = ApplyState::idle;
         std::string status;
     } classic_profile_bar;
+    using ToolbarSaveRequest = ToolbarProfileSaveRequest;
+    struct ToolbarSaveDraft {
+        std::uint64_t generation = 0;
+        std::array<char, 128> name{};
+        std::optional<std::size_t> slot;
+        std::optional<std::string> expected_slot_id;
+        ProfileScope scope = ProfileScope::daily;
+        bool name_edited = false, scope_edited = false;
+    } toolbar_save_draft;
+    std::optional<ToolbarSaveRequest> toolbar_save_request;
+    bool toolbar_save_pending = false;
+    std::string toolbar_save_status;
     QuickProfileSlots quick_profiles;
     bool quick_library_requested = false;
     std::optional<std::pair<std::size_t, std::string>> quick_profile_assignment;

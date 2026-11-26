@@ -623,6 +623,12 @@ The first five supported named profiles fill the buttons. Open the selector
 to see their names and change assignments. Choosing a profile already on
 another button swaps the two. Assignments survive restarts.
 
+Use **Save...** on the bar to capture the current GPU settings into the
+profile library or directly into slot 1–5. Clicking an empty slot opens Save
+with that slot selected. Right-click a filled slot to update its profile or
+save under a different name and assign it there. Choose **Daily / Advanced**,
+**V/F curve**, or **Full tune**. Saving selects the captured profile for later use.
+
 **Apply on startup** saves a copy of the selected profile for the current GPU.
 At Windows sign-in Druta opens in the notification area, checks the adapter
 and profile, applies it once on an eligible boot, then pauses background
