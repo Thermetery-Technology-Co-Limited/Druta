@@ -1,8 +1,11 @@
 /* Druta - Copyright (C) 2026 Thermetery Technology Co Limited
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #include "tuning_actions.h"
+#include "backend.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iterator>
 
 namespace druta::ui {
 namespace {
@@ -16,8 +19,68 @@ bool same(const dc_gpu_identity& a, const dc_gpu_identity& b) {
         a.nvml_devid == b.nvml_devid && a.nvml_subsys == b.nvml_subsys;
 }
 }
+MaxItPlan discover_max_it(const LiveData& live, const dc_fan_state& fans, const dc_fan_capabilities& fan_caps,
+                          const dc_capabilities* static_caps, uint32_t nominal_power_mw, bool curve_planner_available) {
+    MaxItPlan plan;
+    if (nominal_power_mw != UINT32_MAX) plan.board_mw = nominal_power_mw;
+    const auto& fan = live.controls[static_cast<size_t>(ControlId::fan)];
+    const auto& power = live.controls[static_cast<size_t>(ControlId::power)];
+    const auto& boost = live.controls[static_cast<size_t>(ControlId::boost)];
+    if (fan.availability != Availability::available || !fan.writable || !fans.count ||
+        fans.count > std::size(fans.fans) || !fan_caps.manual) {
+        plan.reason = "Manual fan control and a readable starting fan policy are required.";
+        return plan;
+    }
+    auto low = fan_caps.min, high = fan_caps.max;
+    for (uint32_t i = 0; i < fans.count; ++i) {
+        const auto& row = fans.fans[i];
+        low = std::max(low, row.min); high = std::min(high, row.max);
+        if ((row.manual != 0 && row.manual != 1) || row.level > 100 ||
+            (row.manual && (row.level < row.min || row.level > row.max)) ||
+            (!row.manual && (!fan_caps.automatic || row.policy != row.default_policy))) {
+            plan.reason = "The current fan policy cannot be restored after Max it.";
+            return plan;
+        }
+    }
+    if (low > high || !high || high > 100) {
+        plan.reason = "The fans have no common, valid manual duty range.";
+        return plan;
+    }
+    plan.fan_percent = high;
+    const auto native_source = [](const char (&source)[16]) {
+        return std::strncmp(source, "nvapi_cooler", sizeof(source)) == 0 ||
+               std::strncmp(source, "nvapi_client", sizeof(source)) == 0;
+    };
+    const uint32_t range_flags = DC_C_FAN_MIN | DC_C_FAN_MAX;
+    if (native_source(fans.source) || (native_source(fan_caps.source) && fan_caps.max == high))
+        plan.fan_range_note = "The cooler reports per-fan duty limits.";
+    else if (static_caps && (static_caps->present & range_flags) == range_flags &&
+             static_caps->fan_min <= high && static_caps->fan_max == high)
+        plan.fan_range_note = "The adapter reports the manual duty range.";
+    else
+        plan.fan_range_note = "The hardware duty range is unconfirmed. The fan request may use the backend default.";
+    if (!plan.board_mw) plan.reason = "The normal board power maximum could not be read.";
+    else if (power.availability != Availability::available || !power.writable || !power.low || !power.high ||
+             !power.current || !(*power.low <= plan.board_mw / 1000.0 && plan.board_mw / 1000.0 <= *power.high &&
+                                 *power.low <= *power.current && *power.current <= *power.high))
+        plan.reason = "The board power target or its starting request cannot be written and restored.";
+    else if (boost.availability != Availability::available || !boost.writable || !boost.current ||
+             !(*boost.current >= 0 && *boost.current <= 100))
+        plan.reason = "Voltage boost needs a readable starting request and a setter.";
+    else if (!curve_planner_available || !live.curve_writable || live.curve.empty() || !live.curve_model_max_rise_khz)
+        plan.reason = "Max it needs a complete writable V/F curve, clock grid and ramp planner.";
+    else if (!live.hold_available)
+        plan.reason = "The interface to hold and release a V/F point is unavailable.";
+    return plan;
+}
 TuningActions::TuningActions(TuningApi api, dc_gpu* gpu, const dc_gpu_identity& identity) : api_(api), gpu_(gpu), identity_(identity) {}
-CurvePlan TuningActions::prepare_max(const PlannerApi& api, CurvePlanRequest request) const { request.kind = CurvePlanKind::ramp; return plan_curve(api, request); }
+CurvePlan TuningActions::prepare_max(const PlannerApi& api, CurvePlanRequest request, bool step_measured) const {
+    request.kind = CurvePlanKind::ramp;
+    // The released action used the planner's fallback when NVML did not measure
+    // the grid. Keep that ramp policy while retaining the inferred grid elsewhere.
+    request.ramp_use_default_step = !step_measured;
+    return plan_curve(api, request);
+}
 bool TuningActions::identity_ok() { dc_gpu_identity id{}; id.size = sizeof(id); return api_.identity && api_.identity(gpu_, &id) == DC_OK && same(identity_, id); }
 bool TuningActions::record(dc_rails_hold_record& out) { out = {}; out.size = sizeof(out); return api_.headroom_record && api_.headroom_record(gpu_, &out) == DC_OK; }
 bool TuningActions::restore_headroom(std::string& why, std::string* restored) {
@@ -47,9 +110,10 @@ TuningResult TuningActions::restore_raised() {
     result.may_have_changed |= !restored.empty();
     result.ok = true; result.message = restored.empty() ? "no raised limits to restore" : restored; return result;
 }
-TuningResult TuningActions::hold(uint32_t domain, uint32_t voltage_uv, bool headroom, double margin_mv, bool xoc) {
+TuningResult TuningActions::hold(uint32_t domain, uint32_t voltage_uv, bool headroom, double margin_mv, bool xoc,
+                                 bool allow_skipped_headroom) {
     TuningResult result{};
-    if (!gpu_ || !api_.lock || !api_.unlock || !api_.vf_status || !api_.clock_status || !api_.vf_set || !api_.vf_clear || !api_.recovery_pending || !api_.recover || (headroom && !api_.headroom_record) || !voltage_uv || !std::isfinite(margin_mv) || margin_mv < 0) { result.message = "Hold interfaces or request unavailable"; return result; }
+    if (!gpu_ || !api_.lock || !api_.unlock || !api_.vf_status || !api_.clock_status || !api_.vf_set || !api_.vf_clear || !api_.recovery_pending || !api_.recover || (headroom && !allow_skipped_headroom && !api_.headroom_record) || !voltage_uv || !std::isfinite(margin_mv) || margin_mv < 0) { result.message = "Hold interfaces or request unavailable"; return result; }
     if (api_.lock(gpu_) != DC_OK) { result.message = "GPU lock unavailable"; return result; } Unlock unlock{api_, gpu_};
     if (!identity_ok()) { result.message = "GPU identity unreadable or changed"; return result; }
     dc_rails_hold_record prior{}; dc_vf_lock_status vf{}; dc_clk_lock_status clk{};
@@ -63,14 +127,67 @@ TuningResult TuningActions::hold(uint32_t domain, uint32_t voltage_uv, bool head
     state_.confirmed = read && after.locked && after.lock.domain == domain && after.lock.lock_mode == 3 && after.lock.volt_uv == voltage_uv;
     if (!state_.confirmed || status != DC_OK || !out.ok || state_.recovery) { if (read && !after.locked && !state_.recovery) state_.owned = false; result.message = "Hold not confirmed; release or recovery may be required"; return result; }
     if (headroom) {
-        if (!api_.headroom_apply || !api_.headroom_restore || !api_.headroom_live || !api_.headroom_overwritten) { result.message = "Hold confirmed; headroom interfaces unavailable"; return result; }
         // The core records the planned headroom before it writes; conservatively retain
         // ownership even if an exception prevents this caller reading the result.
+        auto evidence = std::make_shared<HeadroomApplyEvidence>();
+        evidence->target_uv = voltage_uv;
+        evidence->margin_mv = margin_mv;
+        state_.last_headroom_apply = evidence;
+        if (!api_.headroom_record || !api_.headroom_apply || !api_.headroom_restore || !api_.headroom_live || !api_.headroom_overwritten) {
+            evidence->outcome = HeadroomApplyOutcome::skipped_before_writer;
+            evidence->detail = "Headroom interfaces unavailable";
+            result.ok = allow_skipped_headroom;
+            result.message = allow_skipped_headroom ? "V/F hold confirmed. Optional headroom skipped: " + evidence->detail
+                                                    : "Hold confirmed; headroom interfaces unavailable";
+            return result;
+        }
         state_.headroom = true; dc_rails_hold_outcome raised{}; raised.size = sizeof(raised); dc_rails_setter_writes writes{}; writes.size = sizeof(writes);
         auto s = api_.headroom_apply(gpu_, voltage_uv / 1000.0, margin_mv, 0, 0, xoc ? 1 : 0, nullptr, nullptr, &raised, &writes);
+        if (s == DC_OK) {
+            const auto* end = static_cast<const char*>(std::memchr(raised.message, 0, sizeof(raised.message)));
+            if (end) evidence->detail.assign(raised.message, static_cast<size_t>(end - raised.message));
+        }
+        if (writes.attributes == 1 && writes.result.size == sizeof(writes.result)) {
+            // The core exports bounded packet summaries, with no payloads or handles.
+            for (unsigned i = 0; i < writes.result.observed_count && i < std::size(writes.result.observed); ++i) {
+                const auto& entry = writes.result.observed[i];
+                const auto* end = static_cast<const char*>(std::memchr(entry, 0, sizeof(entry)));
+                if (end) evidence->last_writer_observations.emplace_back(entry, static_cast<size_t>(end - entry));
+            }
+        }
         dc_rails_hold_record r{}; if (!record(r)) { result.message = "Hold confirmed; headroom result unreadable"; return result; }
         state_.headroom = r.present != 0;
-        if (s != DC_OK || raised.ok != DC_RAILS_HOLD_OK) { result.message = raised.message[0] ? raised.message : "Hold confirmed; headroom not confirmed"; return result; }
+        if (s == DC_OK && !raised.key_error && !raised.aborted) {
+            if (raised.ok == DC_RAILS_HOLD_OK && r.present == 1)
+                evidence->outcome = HeadroomApplyOutcome::request_verified;
+            else if (r.present == 0 && writes.calls == 0) {
+                if (raised.ok == DC_RAILS_HOLD_OK) evidence->outcome = HeadroomApplyOutcome::already_sufficient;
+                if (raised.ok == DC_RAILS_HOLD_NONE) evidence->outcome = HeadroomApplyOutcome::skipped_before_writer;
+            }
+        }
+        if (s != DC_OK || raised.ok != DC_RAILS_HOLD_OK) {
+            result.message=raised.message[0] ? raised.message : "Hold confirmed; headroom not confirmed";
+            const bool undispatched=s==DC_OK && raised.ok==DC_RAILS_HOLD_FAILED && !raised.aborted && !raised.key_error &&
+                raised.reserved==DC_RAILS_HOLD_WRITER_ISSUED_NO_SET && r.present==0 &&
+                writes.calls==1 && writes.attributes==1 && writes.last_attributes==1 &&
+                writes.result.size==sizeof(writes.result) && writes.result.done==0 && writes.result.has_status==0;
+            if (undispatched) evidence->outcome = HeadroomApplyOutcome::no_set_issued;
+            if (allow_skipped_headroom && (undispatched || evidence->outcome == HeadroomApplyOutcome::skipped_before_writer)) {
+                // The rail refusal is optional only if this exact primary hold
+                // is still ours after the failed attempt and requires no recovery.
+                state_.recovery=api_.recovery_pending(gpu_)!=0;
+                dc_vf_lock_status current{};
+                const bool verified=identity_ok() && api_.vf_status(gpu_,1,domain,&current)==DC_OK && !current.error[0];
+                state_.confirmed=verified && current.locked && current.lock.domain==domain &&
+                    current.lock.lock_mode==3 && current.lock.volt_uv==voltage_uv;
+                if (verified && !state_.confirmed && !state_.recovery) state_.owned=false;
+                if (state_.confirmed && !state_.recovery) {
+                    result.ok=true;
+                    result.message="V/F hold confirmed. Optional headroom skipped: "+result.message;
+                }
+            }
+            return result;
+        }
     }
     result.ok = true; result.message = "V/F hold confirmed"; return result;
 }

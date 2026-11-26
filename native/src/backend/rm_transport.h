@@ -67,6 +67,7 @@ private:
     Gpu& gpu_;
     Telemetry& telemetry_;
     bool last_capture_no_escape_path_ = false;
+    bool last_capture_legacy_power_pair_ = false;
 };
 
 }  // namespace druta::backend

@@ -398,6 +398,7 @@ def rm_error(command, rm):
 
 A612_KEY = (0x2080A612, 54420, 54352)
 TURING_KEY = (0x2080A612, 11748, 11680)
+INFO200_KEY = (0x2080A612, 3676, 3608)
 
 
 # ---- the happy path on every model --------------------------------------------------------------
@@ -464,6 +465,18 @@ class HappyPathTests(MetadataCase):
         self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924), (cp.INFO, 1160), (cp.ROLE_INFO, 232),
                                                 (cp.ROLE_INFO, 220), (cp.NATIVE_INFO, 8236),
                                                 (cp.INFO, 1160), (cp.ROLE_INFO, 220), (cp.NATIVE_INFO, 8236)])
+
+    def test_204_role_selects_the_200_byte_info_definition(self):
+        rig = MetaRig(lambda: TuringGpu(record=200, architecture=7))
+        _, fake_calls = self.check(
+            rig, binding_extra={"layout": "legacy32", "native_layout": "policy116"},
+            expected_state=state(sizes="INFO200_SIZES", legacy=True, transport_key=INFO200_KEY),
+            client=5, native_index=17, limits=(180000, 321000, 550000))
+        self.assertEqual(commands(fake_calls), [
+            (cp.INFO, 2340), (cp.INFO, 1160),
+            (cp.ROLE_INFO, 232), (cp.ROLE_INFO, 220), (cp.ROLE_INFO, 204), (cp.NATIVE_INFO, 7724),
+            (cp.INFO, 1160), (cp.ROLE_INFO, 204), (cp.NATIVE_INFO, 7724),
+        ])
 
     def test_rm26(self):
         rig = MetaRig(Rm26Gpu)
@@ -662,6 +675,30 @@ class ClientGroupTests(MetadataCase):
 # ---- the ROLE_INFO and NATIVE_INFO retries -------------------------------------------------------
 
 class RetryTests(MetadataCase):
+    def test_rm26_compact_transient_alternate_restarts_discovery(self):
+        def configure(fake):
+            fake.faults[(0x2080261C, 2)] = {"rm": 0x99}
+
+        rig = MetaRig(lambda: ExtendedRm26Gpu(compact=True), configure=configure, recapture=True)
+        result, _, final, _, calls = self.both(rig)
+        self.assertEqual(result[0], "ok", result)
+        self.assertEqual(final["sizes"], "A612_COMPACT_SIZES")
+        self.assertTrue(final["rm26"])
+        self.assertEqual([size for cmd, size in commands(calls) if cmd == 0x2080261C],
+                         [136, 132, 136, 132, 132])
+
+    def test_rm26_role_size_cannot_change_between_stable_reads(self):
+        for compact, initial_probes in ((False, [136]), (True, [136, 132])):
+            with self.subTest(compact=compact):
+                def configure(fake):
+                    fake.faults[(0x2080261C, len(initial_probes) + 1)] = {"rm": 0x3A}
+
+                rig = MetaRig(lambda: ExtendedRm26Gpu(compact=compact), configure=configure)
+                result, _, _, _, calls = self.both(rig)
+                self.assertEqual(result, rm_error(0x2080261C, 0x3A))
+                self.assertEqual([size for cmd, size in commands(calls) if cmd == 0x2080261C],
+                                 initial_probes + [initial_probes[-1]])
+
     def test_info216_is_tried_once(self):
         def configure(fake):
             fake.faults[(cp.ROLE_INFO, 220, 1)] = {"rm": 0x1F}
@@ -672,13 +709,29 @@ class RetryTests(MetadataCase):
         self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924), (cp.INFO, 1160), (cp.ROLE_INFO, 232),
                                                 (cp.ROLE_INFO, 220)])
 
-    def test_a_0x3a_role_refusal_is_not_retried(self):
+    def test_0x3a_size_refusal_discovers_role_and_native_info_shapes_through_gets(self):
+        for record, command, initial_size, accepted_size, group in (
+                (216, cp.ROLE_INFO, 232, 220, "INFO216_SIZES"),
+                (228, cp.NATIVE_INFO, 8632, 8620, "TURING_SIZES")):
+            with self.subTest(record=record):
+                def configure(fake):
+                    fake.faults[(command, initial_size, 1)] = {"rm": 0x3A}
+                rig = MetaRig(lambda: TuringGpu(record=record), configure=configure)
+                result, _, final, _, calls = self.both(rig)
+                self.assertEqual(result[0], "ok", result)
+                self.assertEqual(final["sizes"], group)
+                self.assertEqual([n for cmd, n in commands(calls) if cmd == command],
+                                 [initial_size, accepted_size, accepted_size])
+                self.assertTrue(all(cmd in (cp.INFO, cp.ROLE_INFO, cp.NATIVE_INFO) for cmd, _ in calls))
+
+    def test_refusal_after_matching_a_legacy_definition_never_switches_geometry(self):
         def configure(fake):
-            fake.faults[(cp.ROLE_INFO, 232, 1)] = {"rm": 0x3A}
+            fake.faults[(cp.ROLE_INFO, 232, 2)] = {"rm": 0x3A}
         rig = MetaRig(TuringGpu, configure=configure)
-        result, _, final, *_ = self.both(rig)
+        result, _, final, _, calls = self.both(rig)
         self.assertEqual(result, rm_error(cp.ROLE_INFO, 0x3A))
-        self.assertEqual(final, state(sizes="LEGACY_SIZES", legacy=True, transport_key=TURING_KEY))
+        self.assertEqual(final["sizes"], "TURING_SIZES")
+        self.assertEqual([n for cmd, n in commands(calls) if cmd == cp.ROLE_INFO], [232, 232])
 
     def test_the_modern_group_does_not_retry_the_role(self):
         def configure(fake):
@@ -707,15 +760,15 @@ class RetryTests(MetadataCase):
                                       transport_key=TURING_KEY))
         self.assertEqual(commands(fake_calls)[-2:], [(cp.NATIVE_INFO, 8632), (cp.NATIVE_INFO, 8620)])
 
-    def test_only_a_0x1f_native_refusal_tries_turing(self):
-        for rm in (0x3A, 0x99):
+    def test_non_size_errors_do_not_select_alternate_native_info(self):
+        for rm in (0x56, 0x99):
             with self.subTest(rm=hex(rm)):
                 def configure(fake, rm=rm):
                     fake.faults[(cp.NATIVE_INFO, 8632, 1)] = {"rm": rm}
                 rig = MetaRig(TuringGpu, configure=configure)
                 result, _, final, _, fake_calls = self.both(rig)
-                if rm == 0x3A:
-                    self.assertEqual(result, rm_error(cp.NATIVE_INFO, 0x3A))
+                if rm == 0x56:
+                    self.assertEqual(result, rm_error(cp.NATIVE_INFO, 0x56))
                 else:  # transient: the retry finds no transport to capture
                     self.assertEqual(result, ("ClientPowerError", "transient", "unsupported current-policy "
                                               "transport: no recognized power GET captured", None))
@@ -1172,7 +1225,7 @@ class AbiTests(unittest.TestCase):
     def test_the_payload_arrays_hold_every_group(self):
         m = native.Gpu._CpcMetadata
         for name in ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES", "RM26_EXTENDED_SIZES",
-                     "A612_COMPACT_SIZES"):
+                     "A612_COMPACT_SIZES", "INFO200_SIZES"):
             sizes = getattr(cp, name)
             self.assertLessEqual(sizes[cp.INFO], m.info.size)
             self.assertLessEqual(sizes[cp.ROLE_INFO], m.role_info.size)

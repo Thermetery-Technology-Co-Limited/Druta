@@ -59,20 +59,24 @@ if(MSVC)
   endif()
 endif()
 
-add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp profile_library.cpp profile_history.cpp timing_helper_config.cpp test_signing.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
+add_library(druta_ui_session STATIC core_client.cpp session.cpp profile_io.cpp profile_library.cpp quick_profiles.cpp profile_history.cpp timing_helper_config.cpp test_signing.cpp curve_profile.cpp scoped_profile.cpp timing_profile.cpp rail_controls.cpp
   profile_catalog.cpp controller_profile_order.cpp semantic_policy_profile.cpp saving_profile.cpp fan_profile.cpp python_scoped_profile.cpp python_full_profile.cpp python_i2c_profile.cpp ../src/core/sha256.cpp i2c_route_cache.cpp timing_diagnostics.cpp timing_capture.cpp policy_workspace.cpp policy_annotation_profile.cpp
   i2c_controls.cpp i2c_session.cpp i2c_nct3933.cpp i2c_ncp4206.cpp i2c_up9512r.cpp
   i2c_icx.cpp i2c_mp2888_offset.cpp i2c_mp29816.cpp icx_preset.cpp i2c_verify_hold.cpp i2c_warmup.cpp
   tuning_actions.cpp timings_service.cpp timing_transport.cpp perf_view_model.cpp frequency_lock.cpp
-  power_arbitration_service.cpp power_integral_service.cpp voltage_policy_service.cpp voltage_tables_service.cpp voltage_limits_service.cpp voltage_evidence_provider.cpp vbios_voltage_graph.cpp
+  power_arbitration_service.cpp power_integral_service.cpp voltage_policy_service.cpp voltage_tables_service.cpp voltage_limits_service.cpp voltage_evidence_provider.cpp vbios_voltage_graph.cpp vbios_rail_clamps.cpp vbios_override_inventory.cpp
   installed_voltage_scaffold.cpp voltage_variable_capture.cpp voltage_scaffold_receipt.cpp voltage_scaffold_provider.cpp
   voltage_offsets_service.cpp voltage_offsets_capture.cpp voltage_offsets_profile.cpp
   pascal_clock_table.cpp power_relationships.cpp power_weight_registry.cpp power_weight_registry_host.cpp power_weight_capture.cpp power_weights_service.cpp
   power_weight_receipt.cpp power_weight_registry_write.cpp power_weight_transaction.cpp power_weight_host.cpp
-  clock_recovery_boot_bcd.cpp clock_recovery_logon.cpp
+  clock_recovery_boot_bcd.cpp clock_recovery_logon.cpp profile_startup.cpp
   power_saving_service.cpp clock_gating_service.cpp device_restart.cpp device_recovery.cpp)
 add_library(druta_ui_curve_draft STATIC curve_draft.cpp)
 add_library(druta_ui_clock_monitor STATIC clock_monitor_model.cpp clock_monitor_service.cpp)
+add_library(druta_ui_clock_effect STATIC clock_effect_verify.cpp)
+target_link_libraries(druta_ui_clock_effect PUBLIC druta_ui_options)
+target_include_directories(druta_ui_clock_effect PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(druta_ui_session PUBLIC druta_ui_clock_effect)
 target_link_libraries(druta_ui_clock_monitor PUBLIC druta_ui_options)
 target_include_directories(druta_ui_clock_monitor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_library(druta_ui_risk STATIC risk_policy.cpp)
@@ -83,7 +87,7 @@ target_include_directories(druta_ui_risk PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(druta_ui_planner PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(druta_ui_curve_draft PUBLIC druta_ui_options)
 target_include_directories(druta_ui_curve_draft PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(druta_ui_session PUBLIC druta_ui_options druta_ui_planner druta_ui_curve_draft druta_ui_clock_monitor druta_ui_cuda advapi32)
+target_link_libraries(druta_ui_session PUBLIC druta_ui_options druta_ui_planner druta_ui_curve_draft druta_ui_clock_monitor druta_ui_cuda advapi32 taskschd shell32)
 target_include_directories(druta_ui_session PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(druta_ui_session PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 add_library(druta_ui_shunt STATIC shunt_model.cpp shunt_view.cpp)
@@ -186,6 +190,9 @@ foreach(weight_test IN ITEMS pascal_clock_table pascal_clock_transaction pascal_
   target_link_libraries(druta-ui-${weight_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${weight_test} COMMAND druta-ui-${weight_test}-test)
 endforeach()
+add_executable(druta-ui-profile-startup-test tests/profile_startup_test.cpp)
+target_link_libraries(druta-ui-profile-startup-test PRIVATE druta_ui_session ole32 oleaut32)
+add_test(NAME druta-ui-profile-startup COMMAND druta-ui-profile-startup-test)
 set_tests_properties(druta-ui-clock_recovery_boot_bcd druta-ui-clock_recovery_logon
   PROPERTIES SKIP_RETURN_CODE 77)
 add_executable(druta-ui-pascal-clock-view-test tests/pascal_clock_view_test.cpp)
@@ -197,7 +204,7 @@ add_test(NAME druta-ui-power-weights-view COMMAND druta-ui-power-weights-view-te
 add_executable(druta-ui-power-weights-activation-view-test tests/power_weights_activation_view_test.cpp)
 target_link_libraries(druta-ui-power-weights-activation-view-test PRIVATE druta_ui_app_actions)
 add_test(NAME druta-ui-power-weights-activation-view COMMAND druta-ui-power-weights-activation-view-test)
-foreach(voltage_evidence_test IN ITEMS vbios_voltage_graph voltage_evidence_provider installed_voltage_scaffold voltage_variable_capture voltage_scaffold_receipt voltage_scaffold_provider voltage_scaffold_service voltage_retained_evidence voltage_offsets_capture voltage_offsets_service voltage_offsets_profile voltage_offsets_tables voltage_offsets_client)
+foreach(voltage_evidence_test IN ITEMS vbios_voltage_graph vbios_rail_clamps vbios_override_inventory voltage_evidence_provider installed_voltage_scaffold voltage_variable_capture voltage_scaffold_receipt voltage_scaffold_provider voltage_scaffold_service voltage_retained_evidence voltage_offsets_capture voltage_offsets_service voltage_offsets_profile voltage_offsets_tables voltage_offsets_client)
   add_executable(druta-ui-${voltage_evidence_test}-test tests/${voltage_evidence_test}_test.cpp)
   target_link_libraries(druta-ui-${voltage_evidence_test}-test PRIVATE druta_ui_session)
   add_test(NAME druta-ui-${voltage_evidence_test} COMMAND druta-ui-${voltage_evidence_test}-test)
@@ -246,6 +253,9 @@ add_test(NAME druta-ui-classic-behavior COMMAND druta-ui-classic-behavior-test)
 add_executable(druta-ui-clock-monitor-service-test tests/clock_monitor_service_test.cpp)
 target_link_libraries(druta-ui-clock-monitor-service-test PRIVATE druta_ui_clock_monitor)
 add_test(NAME druta-ui-clock-monitor-service COMMAND druta-ui-clock-monitor-service-test)
+add_executable(druta-ui-clock-effect-test tests/clock_effect_verify_test.cpp)
+target_link_libraries(druta-ui-clock-effect-test PRIVATE druta_ui_clock_effect)
+add_test(NAME druta-ui-clock-effect COMMAND druta-ui-clock-effect-test)
 add_executable(druta-ui-clock-monitor-view-test tests/clock_monitor_view_test.cpp)
 target_link_libraries(druta-ui-clock-monitor-view-test PRIVATE druta_ui_monitor)
 add_test(NAME druta-ui-clock-monitor-view COMMAND druta-ui-clock-monitor-view-test)
@@ -391,6 +401,13 @@ add_test(NAME druta-ui-timings-view COMMAND druta-ui-timings-view-test)
 add_executable(druta-ui-live-check tools/live_check.cpp)
 add_executable(druta-ui-i2c-live-check tools/i2c_live_check.cpp)
 add_executable(druta-ui-actions-live-check tools/actions_live_check.cpp)
+if(TARGET drutacore)
+  add_executable(druta-ui-clock-effect-probe tools/clock_effect_probe.cpp)
+  target_link_libraries(druta-ui-clock-effect-probe PRIVATE druta_ui_clock_effect drutacore)
+  add_custom_command(TARGET druta-ui-clock-effect-probe POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:drutacore>
+            $<TARGET_FILE_DIR:druta-ui-clock-effect-probe>/drutacore.dll VERBATIM)
+endif()
 add_executable(druta-ui-voltage-read-check tools/voltage_read_check.cpp)
 target_link_libraries(druta-ui-voltage-read-check PRIVATE druta_ui_session)
 add_executable(druta-ui-power-weights-read-check tools/power_weights_read_check.cpp)
@@ -459,6 +476,11 @@ endif()
 add_test(NAME druta-ui-import-policy
   COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_audit_imports.py)
 set_tests_properties(druta-ui-import-policy PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..)
+
+add_test(NAME druta-ui-vbios-clamp-parity
+  COMMAND ${CMAKE_COMMAND} -E env "DRUTA_TEST_CLAMP_READER=$<TARGET_FILE:druta-ui-vbios_rail_clamps-test>"
+    ${Python3_EXECUTABLE} -m pytest -q tests/test_pascal_voltage_inventory.py -k stored_bound_replay)
+set_tests_properties(druta-ui-vbios-clamp-parity PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 add_executable(druta-ui-saving-read-check tools/saving_read_check.cpp)
 target_link_libraries(druta-ui-saving-read-check PRIVATE druta_ui_session)

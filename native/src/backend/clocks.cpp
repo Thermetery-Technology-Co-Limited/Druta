@@ -34,6 +34,66 @@ std::int64_t floor_div(std::int64_t a, std::int64_t b) {
     return q;
 }
 
+// Infer the spacing of the adapter's evaluated GPU V/F points when NVML
+// cannot enumerate lockable clocks. Some adjacent points skip several bins,
+// and many top points share a frequency. Only a regular, unshaped curve with
+// a run of adjacent bins and whole-bin gaps across its full range qualifies.
+std::optional<std::uint32_t> curve_grid_khz(VfCurve& curve) {
+    const auto layout = curve.layout();
+    if (!layout || !layout->freq_div) return {};
+    const auto reading = curve.read_vf_curve();
+    if (!reading.points || reading.points->size() != layout->gpu_idx.size() || reading.points->empty()) return {};
+    const auto& points = *reading.points;
+    std::vector<double> frequencies;
+    for (const auto& point : points) {
+        const double khz = point.freq_mhz * 1000;
+        if (point.delta_khz != points.front().delta_khz || !std::isfinite(khz) || khz <= 0 ||
+            (!frequencies.empty() && khz < frequencies.back())) return {};
+        if (frequencies.empty() || khz != frequencies.back()) frequencies.push_back(khz);
+    }
+    if (frequencies.size() < 8) return {};
+    std::vector<double> gaps;
+    for (size_t i = 1; i < frequencies.size(); ++i) gaps.push_back(frequencies[i] - frequencies[i-1]);
+    const double smallest = *std::min_element(gaps.begin(), gaps.end());
+    // Some NVAPI curves round to whole MHz in the wire domain (half MHz for GPC2CLK).
+    const double resolution = 1000.0 / layout->freq_div;
+    unsigned adjacent = 0, longest = 0;
+    double adjacent_span = 0, seed = 0;
+    for (double gap : gaps) {
+        if (gap > smallest + resolution) { adjacent = 0; adjacent_span = 0; continue; }
+        adjacent_span += gap;
+        if (++adjacent > longest) { longest = adjacent; seed = adjacent_span / adjacent; }
+    }
+    if (longest < 7 || seed < 5000 || seed > 30000) return {};
+    // Infer the integer distance between each pair before fitting the full
+    // span. Rounding individual frequencies would accumulate quantization error.
+    std::vector<double> bins{0.0};
+    bool has_skipped_bin = false;
+    for (double gap : gaps) {
+        const double count = std::round(gap / seed);
+        if (count < 1 || std::abs(gap - count * seed) > resolution + count * resolution / longest) return {};
+        if (count > 1) has_skipped_bin = true;
+        bins.push_back(bins.back() + count);
+    }
+    // A uniformly sampled voltage ramp alone could be stepping by two or more
+    // physical bins. Require the same spacing to explain sparse rows as well.
+    if (!has_skipped_bin) return {};
+    // The difference of two rounded readings can be off by one quantum.
+    // Intersect the step intervals from *all* pairs. A single step and phase
+    // must explain every frequency, including the points that skip bins.
+    double low = 5000, high = 30000;
+    for (size_t end = 1; end < bins.size(); ++end) {
+        for (size_t start = 0; start < end; ++start) {
+            const double span = frequencies[end] - frequencies[start];
+            const double count = bins[end] - bins[start];
+            low = std::max(low, (span - resolution) / count);
+            high = std::min(high, (span + resolution) / count);
+            if (low > high) return {};
+        }
+    }
+    return static_cast<std::uint32_t>(std::round((low + high) / 2));
+}
+
 }  // namespace
 
 MemOffsetScale Clocks::mem_offset_scale() const {
@@ -82,14 +142,11 @@ std::uint32_t Clocks::clock_step_khz() {
         const std::uint32_t span = best.back() - best.front();
         if (span > 0) step = static_cast<std::uint32_t>(std::nearbyint(span * 1000.0 / static_cast<double>(best.size() - 1)));
     }
-    // 5-30 MHz brackets every NVIDIA grid known; outside it the constant is safer.
-    if (!step || !*step || !(5000 <= *step && *step <= 30000)) {
-        step_cache_ = kVfStepKhz;
-        step_measured_ = false;
-    } else {
-        step_cache_ = *step;
-        step_measured_ = true;
-    }
+    // Keep the NVML grid authoritative when it is available. Otherwise a
+    // validated V/F lattice supplies independent evidence on older drivers.
+    step_measured_ = step && *step >= 5000 && *step <= 30000;
+    if (!step_measured_) step = curve_grid_khz(curve_);
+    step_cache_ = step.value_or(kVfStepKhz);
     return *step_cache_;
 }
 

@@ -101,8 +101,8 @@ DC_API dc_status DC_CALL dc_cpc_state_get(dc_gpu* gpu, dc_cpc_state* out);
 #define DC_CPC_NATIVE_INFO_MAX 20512
 
 /* read_metadata()'s dict. binding.layout is DC_CP_ABSENT, DC_CP_LAYOUT_LEGACY32 or DC_CP_LAYOUT_RM26;
- * binding.native_layout DC_CP_ABSENT, DC_CP_NATIVE_POLICY124 or DC_CP_NATIVE_RM26_EXTENDED (the
- * enums of drutacore/client_power.h). Present keys appear in Python's order: layout, native_layout,
+ * binding.native_layout uses DC_CP_ABSENT or a DC_CP_NATIVE_* value. Present keys appear in
+ * Python's order: layout, native_layout,
  * native_info_stride. The payloads hold info_size / role_info_size / native_info_size bytes. */
 typedef struct dc_cpc_metadata {
     uint32_t size;          /* sizeof(dc_cpc_metadata), set by the caller */

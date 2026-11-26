@@ -804,8 +804,7 @@ std::wstring program_files_directory() {
     auto get_folder = shell.get<FolderFn>("SHGetFolderPathW");
     wchar_t buffer[MAX_PATH] = {};
     if (get_folder && get_folder(nullptr, 0x26 /* CSIDL_PROGRAM_FILES */, nullptr, 0, buffer) == 0) return buffer;
-    DWORD length = ::GetEnvironmentVariableW(L"ProgramFiles", buffer, MAX_PATH);
-    return (length && length < MAX_PATH) ? std::wstring(buffer, length) : L"";
+    return L"";
 }
 
 void report_nvml(Report& out) {
@@ -822,11 +821,20 @@ void report_nvml(Report& out) {
             out.line("%s: not present", narrow(path).c_str());
             continue;
         }
-        if (nvml.open_path(path.c_str())) {
-            out.line("%s: loaded", narrow(path).c_str());
-            break;
+        if (!nvml.open_path(path.c_str())) {
+            out.line("%s: present but not loadable (error %lu)", narrow(path).c_str(), nvml.error());
+            continue;
         }
-        out.line("%s: present but not loadable (error %lu)", narrow(path).c_str(), nvml.error());
+        const char* init_name = nvml.has("nvmlInit_v2") ? "nvmlInit_v2" : "nvmlInit";
+        auto init = nvml.get<int (*)()>(init_name);
+        if (init) {
+            const int status = init();
+            out.line("%s: %s status %d", narrow(path).c_str(), init_name, status);
+            if (!status) break;
+        } else {
+            out.line("%s: no initialization export", narrow(path).c_str());
+        }
+        nvml.close();
     }
     if (!nvml.ok()) {
         out.line("NVML: unavailable");
@@ -842,7 +850,6 @@ void report_nvml(Report& out) {
     out.line("exports: %u of %u present", static_cast<unsigned>(sizeof kNvmlExports / sizeof kNvmlExports[0] - missing),
              static_cast<unsigned>(sizeof kNvmlExports / sizeof kNvmlExports[0]));
 
-    using InitFn = int (*)();
     using CountFn = int (*)(unsigned*);
     using HandleFn = int (*)(unsigned, void**);
     using StringFn = int (*)(void*, char*, unsigned);
@@ -851,19 +858,6 @@ void report_nvml(Report& out) {
     using ErrorFn = const char* (*)(int);
     auto error_string = nvml.get<ErrorFn>("nvmlErrorString");
     auto describe = [&](int status) { return error_string ? error_string(status) : ""; };
-    auto init = nvml.get<InitFn>("nvmlInit_v2");
-    const char* init_name = "nvmlInit_v2";
-    if (!init) {
-        init = nvml.get<InitFn>("nvmlInit");
-        init_name = "nvmlInit";
-    }
-    if (!init) {
-        out.line("no initialization export");
-        return;
-    }
-    int status = init();
-    out.line("%s: status %d %s", init_name, status, describe(status));
-    if (status != 0) return;
     if (auto driver = nvml.get<DriverFn>("nvmlSystemGetDriverVersion")) {
         char version[80] = "";
         if (driver(version, sizeof version) == 0) out.line("driver: %s", version);
@@ -886,7 +880,7 @@ void report_nvml(Report& out) {
         return;
     }
     unsigned count = 0;
-    status = count_fn(&count);
+    int status = count_fn(&count);
     out.line("device count (%s): status %d %s, %u device(s)", pair, status, describe(status), count);
     if (status != 0) return;
     auto name_fn = nvml.get<StringFn>("nvmlDeviceGetName");
@@ -911,9 +905,10 @@ void report_nvml(Report& out) {
             pci_status = pci_v3(device, &pci);
             reader = "v3";
         }
-        if (pci_status == 13 /* NVML_ERROR_FUNCTION_NOT_FOUND: exported stub */ && pci_v2) {
+        if ((pci_status == 3 || pci_status == 13) && pci_v2) {
+            pci = {};
             pci_status = pci_v2(device, &pci);
-            reader = "v2 (v3 is a stub)";
+            reader = "v2 (v3 unavailable)";
         } else if (pci_status == -1 && pci_v2) {
             pci_status = pci_v2(device, &pci);
             reader = "v2";

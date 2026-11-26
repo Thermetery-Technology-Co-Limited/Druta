@@ -108,7 +108,8 @@ ProfileDescription leaf(const J& d){
    if(kind=="domain"){auto index=uint32_t(number(a["index"],0,31));if(value%1000)fail("clock request not representable in MHz");add(out,domain_target(index));}
    else {if(!a["index"].is_null())fail("unexpected tuning index");if(kind=="memory"){positive(a["scale"]);const auto scale=a["scale"].get<double>();if(scale>=2147483648.0||(value/scale)*scale!=value)fail("memory scale precision differs");add(out,"clock:memory");}else if(kind=="boost"){number(a["value"],0,100);add(out,"voltage:boost");}else if(kind=="rail_offset")add(out,"voltage:nvvdd-offset");else fail("unsupported tuning kind");}
   }else fail("Python scope has no catalog executor: "+scope+" (remaining semantic voltage controls/scaffold offsets and full tunes need typed catalog adapters)");
- }else fail("unrecognized profile format");
+ }else if(d.value("schema",J())==1) fail("legacy Python schema 1 profiles are unsupported");
+ else fail("unrecognized profile format");
  if(out.targets.empty())fail("profile selects no controls");out.valid=true;out.summary=std::string(profile_scope_name(out.scope))+": "+std::to_string(out.targets.size())+" selected targets; fresh preflight required";if(out.scope==ProfileScope::icx)out.summary+="; identity comes from the explicitly selected live controller";return out;
 }
 void validate_components(const std::vector<ProfileComponent>& components){

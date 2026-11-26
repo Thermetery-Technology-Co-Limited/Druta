@@ -6,6 +6,18 @@
 #include <map>
 #include <stdexcept>
 namespace druta::ui {
+std::string format_power_weight_registry_open_error(long status, std::optional<bool> administrators_enabled) {
+    std::string message = "Cannot open display driver registry key for selected write (Windows error " +
+                          std::to_string(status) + ").";
+    if (status != ERROR_ACCESS_DENIED || !administrators_enabled.has_value()) return message;
+    if (*administrators_enabled) {
+        message += " Windows denied the request with an active Administrators token."
+                   " Check Windows security policy and endpoint protection logs for the Druta helper.";
+    } else {
+        message += " Run Druta as administrator under the Windows account that applied the override.";
+    }
+    return message;
+}
 namespace {
 std::wstring lower(std::wstring s){for(auto& c:s)if(c>=L'A'&&c<=L'Z')c=static_cast<wchar_t>(c+L'a'-L'A');return s;}
 bool record(const std::wstring& s){const auto k=lower(s);if(k.size()!=13||k.substr(0,11)!=L"romoverride")return false;for(size_t i=11;i<13;++i)if(!((k[i]>=L'0'&&k[i]<=L'9')||(k[i]>=L'a'&&k[i]<=L'f')))return false;return true;}
@@ -13,7 +25,35 @@ using Map=std::map<std::wstring,PowerWeightRegistryValue>;
 Map mapped(const PowerWeightRegistrySnapshot& input){Map out;for(const auto& v:input)if(!out.emplace(lower(v.name),v).second)throw std::runtime_error("Duplicate case-insensitive registry name");return out;}
 bool equal(const PowerWeightRegistryValue* a,const PowerWeightRegistryValue* b){return (!a&&!b)||(a&&b&&a->type==b->type&&a->bytes==b->bytes);}
 bool same(const Map& a,const Map& b){if(a.size()!=b.size())return false;for(const auto& item:a){auto it=b.find(item.first);if(it==b.end()||!equal(&item.second,&it->second))return false;}return true;}
-bool native_write(const std::wstring& key,const std::wstring& name,const std::optional<PowerWeightRegistryValue>& value,std::string& error){HKEY h=nullptr;const auto opened=RegOpenKeyExW(HKEY_LOCAL_MACHINE,key.c_str(),0,KEY_SET_VALUE|KEY_WOW64_64KEY,&h);if(opened!=ERROR_SUCCESS){error=opened==ERROR_ACCESS_DENIED?"Registry access denied. Run Druta as administrator under the Windows account that applied the override":"Cannot open display driver registry key for selected write";return false;}const auto status=value?RegSetValueExW(h,name.c_str(),0,value->type,value->bytes.empty()?nullptr:value->bytes.data(),static_cast<DWORD>(value->bytes.size())):RegDeleteValueW(h,name.c_str());RegCloseKey(h);if(status!=ERROR_SUCCESS){error="Selected registry value write/delete failed";return false;}return true;}
+bool native_write(const std::wstring& key, const std::wstring& name,
+                  const std::optional<PowerWeightRegistryValue>& value, std::string& error) {
+    HKEY handle = nullptr;
+    const auto opened = RegOpenKeyExW(HKEY_LOCAL_MACHINE, key.c_str(), 0, KEY_SET_VALUE | KEY_WOW64_64KEY, &handle);
+    if (opened != ERROR_SUCCESS) {
+        std::optional<bool> administrators_enabled;
+        if (opened == ERROR_ACCESS_DENIED) {
+            alignas(DWORD) BYTE administrators[SECURITY_MAX_SID_SIZE];
+            DWORD bytes = sizeof(administrators);
+            BOOL enabled = FALSE;
+            if (CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, administrators, &bytes) &&
+                CheckTokenMembership(nullptr, administrators, &enabled)) {
+                administrators_enabled = enabled != FALSE;
+            }
+        }
+        error = format_power_weight_registry_open_error(opened, administrators_enabled);
+        return false;
+    }
+    const auto status = value ? RegSetValueExW(handle, name.c_str(), 0, value->type,
+                                              value->bytes.empty() ? nullptr : value->bytes.data(),
+                                              static_cast<DWORD>(value->bytes.size()))
+                              : RegDeleteValueW(handle, name.c_str());
+    RegCloseKey(handle);
+    if (status != ERROR_SUCCESS) {
+        error = "Selected registry value write/delete failed (Windows error " + std::to_string(status) + ").";
+        return false;
+    }
+    return true;
+}
 }
 PowerWeightRegistryWriteResult write_power_weight_registry(const VoltageScaffoldWindowsTarget& target,const PowerWeightRegistrySnapshot& expected,const PowerWeightRegistrySnapshot& desired,const std::function<bool(const std::wstring&,std::string&)>& journal,const PowerWeightRegistryWriteApi& api){PowerWeightRegistryWriteResult result;
  try{if(!journal)throw std::runtime_error("Registry journal callback unavailable");const auto validated=[&](const PowerWeightRegistrySnapshot& s){return mapped(read_power_weight_registry(target,[&](const std::wstring&){return s;}));};auto before=validated(expected),after=validated(desired);std::map<std::wstring,bool> names;for(const auto& item:before)names[item.first]=true;for(const auto& item:after)names[item.first]=true;

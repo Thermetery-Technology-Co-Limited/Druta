@@ -34,6 +34,46 @@ instead of running the full telemetry scan. The window still processes restore,
 close and shutdown messages while paused. Without active maintenance or an
 in-flight operation, it issues no recurring GPU telemetry reads.
 
+## Verify a live clock offset
+
+Druta discovers the live clock-offset fields the selected adapter can read.
+When a field and its clock counters match a previously measured dictionary
+entry, both skins show its slider immediately. **Known pattern** lists the
+clocks that moved in the earlier measurement. Opening the panel or matching
+a pattern issues no test offset. To measure that response on your own card,
+choose **Clocks → Recheck a known offset at P0** and select the field.
+
+A writable field with an unfamiliar pattern offers **Verify at P0**.
+Unlock controls and select the action. The additional memory offset also
+requires **XOC**. If the card is below P0, Druta tries a temporary hold using
+the legacy P0 interface or an existing V/F point at or below 950 mV. A lower
+reported rail ceiling reduces that cap. Druta checks that the GPU reaches
+P0 before changing the offset. If the hold cannot establish P0, bring the
+selected card to a steady P0 and retry.
+Use **Clocks → Verify all clock offsets at P0** to check the remaining
+candidates. Druta finishes and restores each offset before starting the next.
+During the batch, **Clocks → Stop after current clock offset** lets the
+current check finish and restore its request.
+
+Verify tests one field at a time. It records the original offset, briefly
+requests 45 MHz less, and restores the original value. It compares the clock
+counters before, during and after the change and checks the other offset
+requests throughout. When several clocks move together, Druta repeats the
+restored trial and reports the group if the response repeats. A driver can
+store the requested offset even when the clock stays put.
+
+A successful check labels the slider **Observed** for this adapter session.
+If a recheck runs and finds insufficient evidence, the field returns to
+**Verify at P0** so you can check it again at a steadier operating point.
+Druta releases a hold acquired for the test after restoring the offset.
+If cleanup is pending, **Restore test** checks ownership, restores the offset
+at P0, and releases the test's hold. Opening another adapter or explicitly refreshing
+capabilities clears session measurements and matches the dictionary again.
+
+Discovery uses clock-packet layouts Druta understands. The driver supplies
+the fields present on this adapter. Each test establishes the response at the
+operating point where it ran.
+
 ## Firmware clock controls in the native GUI
 
 Druta opens in **Verbose**. Use **Skin** in the menu bar to switch layouts.
@@ -307,6 +347,13 @@ snapshot cannot be saved, with a log message. Power actions can change pin
 intent even when their displayed number is unchanged, so they still save a
 snapshot. These Undo profiles are manually loaded and never replay after reset.
 
+On the GTX 1050 Ti with driver 375.63, Druta recognized the older power-policy
+transport and read a 66–113 W board range through NVML. When NVML owns the
+configured board request and there are no policy pins, the native GUI can use
+NVML for ordinary board Apply and Undo. Both require exact configured-request
+readback. Individual policy sliders and extended requests still require their
+own supported interfaces.
+
 Ordinary rail-limit **Apply** now saves only the selected fields; linked
 reliability edits save both fields. Each field's **Stock** saves its preceding
 value, and **Reset all** captures all affected rail fields. These resets restore
@@ -397,7 +444,22 @@ I2C requests use the identified controller's step. Core offsets snap to the
 card's physical frequency bin on Apply, and the displayed result can be
 reapplied without moving to another bin.
 
-Only ordinary full-tune profiles support startup loading. For one of these,
+In the native Classic UI, the five numbered **Profile** buttons apply your
+assigned profiles. Open the selector to see their names or change a slot.
+Choosing a profile assigned to another slot swaps those two buttons.
+Click **Save...** on the bar to save the current GPU settings. Choose the
+library or a numbered slot as the destination. Clicking an empty numbered
+button opens the form for that slot. Right-click a filled button to update
+its profile or enter a new name to replace the slot assignment. Choose
+**Daily / Advanced** for everyday settings, **V/F curve** for the configured
+curve, or **Full tune** for a broader capture. Druta remembers your **Capture**
+and **Save to** choices as soon as you select them, including after a restart.
+Select a profile and check **Apply on startup** to save a copy for that GPU
+at Windows sign-in. Open Druta from the notification area to resume
+monitoring after startup. **Profile actions** can disable startup even when
+the original profile is unavailable.
+
+In the Python frontend, only ordinary full-tune profiles support startup loading. For one of these,
 choose **Load at startup** beside its named profile to apply a saved copy at
 Windows sign-in. Configure this while running Druta as administrator. Selecting
 it again updates that copy; **Disable startup loading** turns it off. The card,
@@ -493,12 +555,16 @@ This mode is actually the opposite of deflatten. It flattens everything after 80
 
 ## 3. (my favorite function) `Max it`: 
 
-Had enough with boring sliders to the maximum? Click "max it". It does the V/F deflatten, maxes out the voltage boost, power limit, fan, and holds at 1093mv all in one click. You click it once, and the rest is the actual part of overclocking: changing the frequency. 
+Hover over **Max it** to see the fan duty and board power it would request for the selected card. Druta chooses the highest common manual duty across its fans and the maximum of its normal board-power range. The tooltip identifies the source of the fan limits. XOC leaves the Max it power target at the normal maximum.
 
-While the hold lasts, Druta also raises the voltage limits to the held point +
+Click **Max it** to apply those targets, request 100% voltage boost, shape the V/F curve, and hold its cap point. Druta checks the target and the settings needed for Undo again at Apply. When hold headroom is enabled and the card reports a lower NVVDD ceiling after boost, Max it uses the highest curve point at or below that ceiling. The operation log shows the chosen point when it changes.
+
+On cards with a qualified rail writer, Druta can also raise the voltage limits to the held point +
 25 mV (Clocks > Keep headroom above a held point, on by default), because a
 point held on the voltage ceiling runs below the clock it shows. 25 mV is a
-fixed safe margin for every card. The limits go back when the hold ends.
+default margin. The limits go back when the hold ends. If the rail writer
+confirms that its single attempt issued no SET and the V/F hold still reads
+back correctly, the native Max it log reports the skipped headroom separately.
 The 1200 mV normal limit (1500 mV with XOC) applies before adding headroom,
 so a 1200 mV hold can temporarily raise the rail ceiling to 1225 mV without
 XOC. The held voltage must already be at or below the current rail ceiling.
@@ -670,7 +736,21 @@ use the controller's Stock/Auto action or a full power cycle as appropriate.
 
 ## Registry and BIOS overrides
 
-Open **Advanced > Registry / BIOS overrides**, then **Read current fields**.
+In Verbose, **Retry** next to the Rail limits badge reads the selected GPU again. In Focused, use **Rails → Retry rail detection**. **Detected** means the driver returned fresh limit fields for at least one rail. Hover the badge or use **Copy info** to see which rail answered and whether Druta has observed a compatible write interface. Apply checks the requested value separately. A card can report NVVDD even when MSVDD is unavailable.
+
+On Pascal, compare the reported effective ceiling with both reliability fields
+and overvoltage. The lowest of reliability plus the active boost contribution,
+alternate reliability, and overvoltage can cap the rail. **Vmin** requests a
+floor. The available V/F points and the current operating mode determine the
+live voltage. The Rails panel shows the driver's effective ceiling separately.
+
+In the native GUI, open **Advanced → Registry / BIOS overrides → Tuning support** in Verbose, or **Advanced → Tuning support** in Focused. **Read tuning support** shows the Max it targets, the configured power range available under XOC, and fields recognized in the running firmware image. You can run it with XOC off. Reading the report leaves the settings as they are. Each firmware family has its own result, so an unfamiliar fan layout can appear alongside a recognized thermal or power-management table.
+
+The same report reads the driver's Speedo and IDDQ model inputs. Each available input shows its active value, hardware value, default, range, and any override. IDDQ values use raw driver units. The memory timing editor needs a stable P0 controller reading, which you can obtain separately through **Timings → BIOS memory timing → Read P0 BIOS timings**.
+
+Use **Power relationship weights → Read relationships** to compare firmware policy definitions with the driver's INFO records, including their units and bounds. The native clock, timing and relationship editors apply their own field, readback and recovery checks before an edit.
+
+In the legacy Python frontend, open **Advanced > Registry / BIOS overrides**, then **Read current fields**.
 The **Advanced** tab groups everything beyond daily tuning into **Power
 policies**, **Registry / BIOS overrides** (the fields described in this
 section persist across GPU restarts; native Pascal clock edits last for one
@@ -1385,6 +1465,12 @@ existing driver path. Extended requests take effect without restarting the
 GPU or Windows. The configured request and measured draw remain separate;
 **Advanced > Diagnostics > Power/current arbitration** shows host and
 firmware votes and effective limits.
+
+With XOC enabled, a slider that stays within the ordinary range shows the
+available interval and the driver's diagnostic when one is available.
+On driver 512.15, the RTX 3070 Ti and TITAN Xp each accepted a 1,999 W
+configured request at idle. Undo restored their starting requests of 310 W
+and 300 W respectively. [Hardware test results](experiments/titan-xp-max-it-51215.md#1999-w-xoc-slider-and-apply-on-driver-51215)
 
 On adapters using v30 firmware power-policy definitions, changing the board
 request can also recalculate other power and current requests, including when

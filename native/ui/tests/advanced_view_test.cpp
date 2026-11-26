@@ -547,6 +547,15 @@ std::string daily_rails(Harness& h, const RailReadouts* readouts, bool classic =
 bool contains(const std::string& text, const char* value) { return text.find(value) != std::string::npos; }
 void classic_rail_summary_and_link() {
     Harness h; h.unlocked = true;
+    h.s.data.firmware_rail_clamps = {{false, 1012375.0f, {}}, {true, {}, 805125.0f}};
+    for (bool classic : {true, false}) {
+        auto text = daily_rails(h, nullptr, classic);
+        check(contains(text, "Logic BIOS REL upper bound: 1012.375 mV") &&
+              contains(text, "SRAM BIOS ALT upper bound: 805.125 mV") &&
+              !contains(text, "Logic BIOS ALT") && h.commands.empty(),
+              "both skins display the available firmware bounds in millivolts without issuing requests");
+    }
+    h.s.data.firmware_rail_clamps.clear();
     h.s.data.advanced_controls.clear(); h.s.data.power_policies.clear(); h.s.data.rail_controls.clear();
     // Alternate adapter: each field has its own estimated base, not one board's constants.
     const double bases[4] = {1001.5, 1012.25, 990.0, 700.125};
@@ -572,18 +581,18 @@ void classic_rail_summary_and_link() {
     check(contains(text, "estimated cap 997.75"), "cap is min(rel + reported boost, alt, ov)");
     check(contains(text, "live 887.5 mV") && contains(text, "eff 997.75"), "live and effective come from the rail state read");
     check(summary_fits(2, 4), "the estimated cap, live reading and effective limit fit their Classic table cells");
-    check(contains(text, "Ceilings") && contains(text, "Link reliability + alt-reliability") && contains(text, "Reference")
-        && contains(text, "first stable driver reading"), "writable rails show the Link and Reference rows");
-    check(contains(text, "Driver reports NVVDD only"), "an NVVDD-only adapter shows the NVVDD note");
+    check(contains(text, "Ceilings") && contains(text, "Link reliability + alt-reliability") && !contains(text, "Reference")
+        && !contains(text, "first stable driver reading") && !contains(text, "Driver reports NVVDD only"),
+        "writable rails show Link and the readout without the two explanatory rows");
     check(!contains(text, "MSVDD estimated limits") && !contains(text, "MSVDD (read-only)"), "an absent rail gets no summary row");
     check(h.state.rail_link && h.commands.empty(), "Link defaults on and drawing writes nothing");
 
-    // MSVDD listed without a usable reference: Python's read-only row, no cap, no NVVDD-only note.
+    // MSVDD listed without a usable reference keeps its read-only row.
     readouts[1].listed = true; dc_rails_state_row msvdd{}; msvdd.live = 0; msvdd.reliability = 850; msvdd.alt_reliability = 860;
     msvdd.overvoltage = 870; msvdd.vmin = 600; readouts[1].state = msvdd;
     text = daily_rails(h, &readouts);
-    check(contains(text, "MSVDD (read-only)") && contains(text, "rel 850 / alt 860") && contains(text, "live --")
-        && !contains(text, "Driver reports NVVDD only"), "a listed rail without reference shows driver absolutes read-only");
+    check(contains(text, "MSVDD (read-only)") && contains(text, "rel 850 / alt 860") && contains(text, "live --"),
+        "a listed rail without reference shows driver absolutes read-only");
 
     // A failed read keeps the last reading, marked stale; the cap waits for a fresh read.
     readouts[0].stale = true; text = daily_rails(h, &readouts);
@@ -594,8 +603,6 @@ void classic_rail_summary_and_link() {
     text = daily_rails(h, nullptr);
     check(contains(text, "rel 991.5 / alt 1014.75") && contains(text, "live --") && !contains(text, "estimated cap"),
         "without readouts the summary keeps the request fields and reads live as unknown");
-    check(!contains(text, "Driver reports NVVDD only"),
-        "without readouts which rails the driver lists is unknown, so the NVVDD-only note is not claimed");
     readouts[0].stale = false;
     // A listed rail missing from the state read: the core's boost default is 0.0, as Python's.
     readouts[0].boost_mv = 0; text = daily_rails(h, &readouts);
@@ -656,9 +663,9 @@ void classic_rail_summary_and_link() {
     ImGui::ActivateItemByID(link_id); daily_rails(h, &readouts);
     check(h.state.rail_link && h.commands.empty() && h.state.log_notes.empty(), "Link cannot change while Rail limits is off, and nothing is logged");
     h.s.data.rail_mode_enabled = true;
-    // Not writable: no Ceilings or Reference rows, as Python returns before them.
+    // Non-writable blocks keep only the live summary.
     h.s.data.rail_writable = false; text = daily_rails(h, &readouts);
-    check(contains(text, "NVVDD estimated limits") && !contains(text, "Ceilings") && !contains(text, "Reference"),
+    check(contains(text, "NVVDD estimated limits") && !contains(text, "Ceilings"),
         "a non-writable block shows only the summary");
     // Without the Ceilings row Python has no vlim_link, so nothing is linked.
     h.state.drafts[3000].value = 1040.5; h.state.drafts[3000].dirty = true; apply(3000);
@@ -687,6 +694,25 @@ void classic_rail_summary_and_link() {
 }
 // Python domain_knob_label / DOMAIN_KNOBS: names and grades come from the
 // pairing and the Monitor's classified rows, never from one adapter's table.
+void known_clock_slider(bool verbose) {
+    Harness h;
+    auto& known = h.s.data.advanced_controls.front();
+    known.clock_check = ClockCheck::known_pattern;
+    known.known_clocks = "xbar, sys, video, private.5 (coupled)";
+    auto& candidate = h.s.data.advanced_controls[1];
+    candidate.clock_check = ClockCheck::candidate;
+    candidate.can_verify = true;
+    candidate.state.writable = false;
+    h.unlocked = true;
+    const auto shown = h.frame(verbose);
+    check(shown.find("Known pattern / " + known.known_clocks) != std::string::npos &&
+        shown.find("Observed ") == std::string::npos, "a known slider identifies the previously measured coupled clocks");
+    check(clock_domain_label(h.s, known, false).text == known.label + " [" + std::to_string(known.id.domain) + "]",
+        "the Classic row keeps its control name and domain ID without the diagnostic subtitle");
+    check(h.state.drafts.count(1000 + known.id.domain) == 1 && h.state.drafts.count(1000 + candidate.id.domain) == 0 &&
+        shown.find("Verify at P0") != std::string::npos && h.commands.empty(),
+        "only the known field gets an editor and neither field submits a test or write while rendering");
+}
 void classic_clock_domain_labels_and_order() {
     SessionSnapshot s = snapshot();
     // Adapter order differs from Python's knob order; control 7 is one Python does not list.
@@ -1009,6 +1035,8 @@ int main() {
         rail_sliders_use_whole_number_grid(true);
         classic_rail_summary_and_link();
         classic_clock_domain_labels_and_order();
+        known_clock_slider(false);
+        known_clock_slider(true);
         classic_rail_labels_and_soft_gate();
         classic_knob_text_colour();
         power_request_status_sentences();

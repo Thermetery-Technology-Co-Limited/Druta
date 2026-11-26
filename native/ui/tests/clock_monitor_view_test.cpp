@@ -104,7 +104,7 @@ static void classic_tooltips(){
     CHECK(has(text,"\nColour, from the median of up to 15 readings at load under one A: plain = within one clock bin"));
     // No measured clock step: the gap is not put in bins.
     r.bin_mhz.reset();text=classic_clock_tooltip(tip);
-    CHECK(has(text,"\xCE\x94 B-A +82.1 MHz. Not judged: this card's clock step could not be measured") && !has(text,"bins of"));
+    CHECK(has(text,"\xCE\x94 B-A +82.1 MHz. Clock Monitor needs an independent measurement") && !has(text,"bins of"));
     r.bin_mhz=15;
     // Judged: the window's load span and Δ range, and a held band says so.
     r.state="judged";r.verdict="warn";r.window={-15,-14,-14.5,-14.6,-14.4};r.window_util=std::make_pair(95.4,99.0);

@@ -115,7 +115,11 @@ struct Session::Impl {
     std::shared_ptr<const SessionSnapshot> published = std::make_shared<SessionSnapshot>();
     SessionSnapshot state;
     bool started = false, stopping = false, done = false, switch_pending = false,restart_exit=false;
-    bool poll_pending = false, details_pending = false, command_pending = false;
+    bool command_pending = false;
+    std::optional<PollKind> pending_poll;
+    void queue_poll(PollKind kind) {
+        pending_poll = std::max(pending_poll.value_or(PollKind::telemetry), kind);
+    }
     bool live_readouts = false; // the host shows the Classic-only readouts
     bool policy_readouts = false; // Classic's Power policies section is open
     bool backend_opened = false;
@@ -132,6 +136,7 @@ struct Session::Impl {
     bool identity_mismatch = false;
     std::atomic<bool> discovery_cancelled{false};
     std::atomic<bool> timing_capture_cancelled{false};
+    bool clock_checks_cancelled = false;
     std::optional<std::uint64_t> discovery_generation;
     static bool discovery_action(Command::Operation op) { return op==Command::Operation::i2c_scan || op==Command::Operation::i2c_select; }
     static bool annotation_producer(Command::Operation op) {
@@ -157,6 +162,9 @@ struct Session::Impl {
         InitializeCriticalSection(&lock);
         wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (backend) backend->configure_timing_capture_cancellation([this] { return timing_capture_cancelled.load(); });
+        if (backend) backend->configure_clock_check_cancellation([this] {
+            Guard guard(lock); return stopping || state.paused || clock_checks_cancelled;
+        });
         if (backend) backend->configure_i2c_discovery([this] { return discovery_cancelled.load(); }, [this](const I2cDiscoveryProgress& progress) {
             {
                 Guard guard(lock);
@@ -168,7 +176,10 @@ struct Session::Impl {
         }, cache_path);
     }
     ~Impl() { if (thread) CloseHandle(thread); if (wake) CloseHandle(wake); DeleteCriticalSection(&lock); }
-    void publish_locked() { ++state.revision; published = std::make_shared<SessionSnapshot>(state); }
+    void publish_locked() {
+        state.verifying_clock_offsets = state.busy && command.operation == Command::Operation::verify_all_clock_offsets;
+        ++state.revision; published = std::make_shared<SessionSnapshot>(state);
+    }
     void signal() { if (wake) SetEvent(wake); }
     void announce() noexcept { try { if (notify) notify(); } catch (...) {} }
     static DWORD WINAPI entry(void* p) { static_cast<Impl*>(p)->run(); return 0; }
@@ -183,11 +194,18 @@ struct Session::Impl {
         struct Reservation { Impl& owner; ~Reservation(){Guard guard(owner.lock);owner.backend_call_admitted=false;} } reservation{*this};
         fn();return true;
     }
-    bool read_and_publish(std::uint64_t generation, bool details, bool initial = false, bool finish_action = false) {
+    bool read_and_publish(std::uint64_t generation, PollKind kind, bool initial = false, bool finish_action = false) {
+        const bool details = kind != PollKind::telemetry;
         LiveData fresh;
         bool failed = false;
         bool readouts = false, policies = false; { Guard guard(lock); readouts = live_readouts; policies = policy_readouts; }
-        try { if(!admitted_backend_call([&]{backend->set_live_readouts(readouts);backend->set_policy_readouts(policies);fresh=backend->read(details);}))return false; }
+        try {
+            if (!admitted_backend_call([&] {
+                backend->set_live_readouts(readouts);
+                backend->set_policy_readouts(policies);
+                fresh = kind == PollKind::capabilities ? backend->rediscover_capabilities() : backend->read(details);
+            })) return false;
+        }
         catch (...) { failed = true; }
         std::optional<TuningState> tuning;
         std::optional<bool> needs_maintenance;
@@ -278,7 +296,7 @@ struct Session::Impl {
         } else { state.curve_stale = false; ++state.curve_revision; }
         if (fresh.connected) read_retries = 0;
         else if (backend_opened && !state.paused && read_retries < 3) {
-            ++read_retries; poll_pending = true; details_pending |= details; signal();
+            ++read_retries; queue_poll(details ? PollKind::details : PollKind::telemetry); signal();
         }
         state.data = std::move(fresh);
         state.status = state.data.status;
@@ -297,7 +315,7 @@ struct Session::Impl {
             enum class Work { none, change, poll, action, maintain, stop } work = Work::none;
             std::uint64_t generation = 0;
             std::string slot, required_uuid;
-            bool details = false;
+            PollKind poll = PollKind::telemetry;
             DWORD wait_ms = INFINITE;
             Command task;
             bool automatic = false;
@@ -309,7 +327,7 @@ struct Session::Impl {
                     if (discovery_action(task.operation)) discovery_generation=generation;
                 }
                 else if (maintenance_active && GetTickCount64() >= maintenance_due) { work = Work::maintain; generation = state.generation; maintenance_inflight = true; maintenance_due = GetTickCount64() + 1000; }
-                else if (poll_pending && !state.paused) { work = Work::poll; poll_pending = false; details = details_pending; details_pending = false; generation = state.generation; }
+                else if (pending_poll && !state.paused) { work = Work::poll; poll = *pending_poll; pending_poll.reset(); generation = state.generation; }
                 if (work == Work::none && maintenance_active) {
                     const auto now = GetTickCount64();
                     wait_ms = maintenance_due <= now ? 0 : static_cast<DWORD>(std::min<ULONGLONG>(maintenance_due - now, 1000));
@@ -359,9 +377,9 @@ struct Session::Impl {
                         publish_locked();
                     }
                 }
-                if (current) { announce(); if (opened) { if (read_and_publish(generation, true, true)) announce(); } }
+                if (current) { announce(); if (opened) { if (read_and_publish(generation, PollKind::details, true)) announce(); } }
             } else if (work == Work::poll) {
-                if (read_and_publish(generation, details)) announce();
+                if (read_and_publish(generation, poll)) announce();
             } else if (work == Work::maintain) {
                 ActionResult result;
                 try { if(!admitted_backend_call([&]{result=backend->maintain();})){Guard guard(lock);maintenance_inflight=false;continue;} } catch (...) { result.message = "Owned control maintenance failed"; }
@@ -428,6 +446,10 @@ struct Session::Impl {
                                 state.i2c_ownership_uncertain=true;
                         }
                         state.last_action_operation = task.operation; state.last_action_ok = result.ok;
+                        if (task.return_captured_profile) {
+                            state.profile_capture = SessionSnapshot::ProfileCaptureCompletion{state.completed_actions,
+                                task.operation, result.ok ? std::move(result.captured_profile) : nullptr, result.message};
+                        }
                         state.last_action_requested = result.requested; state.last_action_readback = result.readback;
                         state.last_action_may_have_changed = result.may_have_changed;
                         if(task.operation==Command::Operation::timings_capture_p0 && state.data.timings){
@@ -457,7 +479,7 @@ struct Session::Impl {
                     publish_locked();
                 }
                 announce();
-                if (current && read_and_publish(generation, true, false, true)) announce();
+                if (current && read_and_publish(generation, PollKind::details, false, true)) announce();
             }
         }
         // The out-of-process helper waits for actual process exit before PnP.
@@ -491,7 +513,9 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       const bool i2c_busy=impl_->state.busy && is_i2c_operation(impl_->command.operation);
       const bool frequency_busy=impl_->state.busy && is_frequency_operation(impl_->command.operation);
       const bool timing_busy=impl_->state.busy && (impl_->command.operation==Command::Operation::timings_capture_p0 || impl_->command.operation==Command::Operation::timings_release_capture_hold);
-      const bool auxiliary_busy=impl_->state.busy&&is_auxiliary_operation(impl_->command.operation);
+      const bool auxiliary_busy=impl_->state.busy&&(is_auxiliary_operation(impl_->command.operation) ||
+          impl_->command.operation == Command::Operation::verify_clock_offset || impl_->command.operation == Command::Operation::restore_clock_test ||
+          impl_->command.operation == Command::Operation::verify_all_clock_offsets);
       if (auxiliary_busy || impl_->state.auxiliary_cleanup_pending || timing_busy || frequency_busy || impl_->state.frequency_ownership_uncertain || impl_->state.data.frequency.ownership.needs_cleanup() || i2c.clock_owned || i2c.status.owned || i2c.status.recovery_pending || i2c_busy || impl_->state.i2c_ownership_uncertain || tuning_busy || impl_->maintenance_inflight || impl_->state.data.tuning.maintenance_needed() || impl_->state.tuning_ownership_uncertain) {
           impl_->log_locked(false,"Release owned controls before switching GPUs"); impl_->publish_locked(); return false;
       }
@@ -502,10 +526,11 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       ++impl_->state.generation; impl_->desired_slot = target_slot; impl_->switch_pending = true;
       impl_->timing_capture_cancelled=true;
       impl_->state.annotation_completions.clear(); impl_->next_annotation_event = 0;
-      impl_->poll_pending = impl_->details_pending = impl_->command_pending = false;
+      impl_->pending_poll.reset(); impl_->command_pending = false;
       impl_->state.selected_slot = target_slot; impl_->state.opening = true; impl_->state.busy = false;
       impl_->state.data = {}; impl_->state.history.clear(); impl_->state.telemetry_stale_mask = 0; impl_->state.curve_stale = false; impl_->state.fan_readings_stale = false;
       impl_->state.fan_duty_stale_mask = impl_->state.fan_rpm_stale_mask = 0;
+      impl_->state.profile_capture.reset();
       impl_->state.last_action_operation.reset(); impl_->state.last_action_ok = false; impl_->state.last_action_log_id = 0;
       impl_->state.last_action_requested.reset(); impl_->state.last_action_readback.reset(); impl_->state.last_action_may_have_changed = false;
       impl_->state.frequency_ownership_uncertain = false;
@@ -513,7 +538,8 @@ bool Session::change_device(const std::string& slot, bool preserve_constraint) {
       impl_->publish_locked(); }
     impl_->signal(); impl_->announce(); return true;
 }
-void Session::request_poll(bool details) {
+void Session::request_poll(PollKind kind) {
+    const bool details = kind != PollKind::telemetry;
     { Guard guard(impl_->lock); if (!impl_->started || impl_->stopping || impl_->done || impl_->state.paused || impl_->state.opening) return;
       if (!impl_->backend_opened) {
           // An explicit details refresh may retry a failed constrained startup,
@@ -524,7 +550,7 @@ void Session::request_poll(bool details) {
       } else {
           if (!details && !impl_->state.data.connected && impl_->read_retries>=3) return;
           if (details) impl_->read_retries=0;
-          impl_->poll_pending = true; impl_->details_pending |= details;
+          impl_->queue_poll(kind);
       } }
     impl_->signal();
 }
@@ -538,7 +564,7 @@ void Session::note(bool ok, const std::string& message) {
 void Session::set_paused(bool paused) {
     { Guard guard(impl_->lock); if (impl_->stopping || impl_->state.paused == paused) return;
       impl_->state.paused = paused;
-      if (paused) {impl_->poll_pending = impl_->details_pending = false;impl_->timing_capture_cancelled=true;}
+      if (paused) {impl_->pending_poll.reset();impl_->timing_capture_cancelled=true;}
       else {
           impl_->state.telemetry_stale_mask |= impl_->state.data.telemetry.present;
           for(uint32_t i=0;i<std::min(impl_->state.data.telemetry.fan_count,uint32_t{32});++i){
@@ -558,7 +584,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation, bool au
       if (!impl_->started || impl_->stopping || impl_->done) reason = "Session is closing or unavailable";
       else if (expected_generation != impl_->state.generation) reason = "Selected GPU session changed";
       else if (impl_->identity_mismatch) reason = "GPU identity does not match the requested adapter";
-      else if (impl_->state.opening || (!impl_->state.data.connected && !impl_->disconnected_annotation(command) && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh || command.operation==Command::Operation::timings_release_capture_hold)))) reason = "GPU is not ready";
+      else if (impl_->state.opening || (!impl_->state.data.connected && !impl_->disconnected_annotation(command) && !(impl_->backend_opened && (is_auxiliary_recovery(command.operation) || is_integral_policy_recovery(command.operation) || command.operation==Command::Operation::i2c_release || command.operation==Command::Operation::i2c_read || command.operation==Command::Operation::release_hold || command.operation==Command::Operation::frequency_lock_release || command.operation==Command::Operation::frequency_lock_refresh || command.operation==Command::Operation::timings_release_capture_hold || command.operation==Command::Operation::restore_clock_test)))) reason = "GPU is not ready";
       else if (impl_->state.busy) reason = "Another operation is still running";
       else if (command.operation==Command::Operation::timings_capture_p0 && impl_->state.paused)
           reason = "Resume before starting a timing capture workload";
@@ -567,6 +593,7 @@ bool Session::submit(Command command, std::uint64_t expected_generation, bool au
           reason = "Consume pending policy label completions before applying or undoing another catalog profile";
       if (reason) impl_->log_locked(false, std::string("Action not queued: ") + reason);
       else { if (Impl::discovery_action(command.operation)) impl_->discovery_cancelled=false;
+          if (command.operation == Command::Operation::verify_all_clock_offsets) impl_->clock_checks_cancelled = false;
           if(command.operation==Command::Operation::timings_capture_p0){
               impl_->timing_capture_cancelled=false;
               if(impl_->state.data.timings){auto timing=std::make_shared<TimingViewData>(*impl_->state.data.timings);timing->capture_running=true;impl_->state.data.timings=std::move(timing);}
@@ -603,15 +630,21 @@ bool Session::cancel_timing_capture(std::uint64_t expected_generation) {
     if(expected_generation!=impl_->state.generation || !impl_->state.busy || impl_->command.operation!=Command::Operation::timings_capture_p0)return false;
     impl_->timing_capture_cancelled=true;return true;
 }
+bool Session::cancel_clock_checks(std::uint64_t generation) {
+    Guard guard(impl_->lock);
+    if (generation != impl_->state.generation || !impl_->state.verifying_clock_offsets) return false;
+    impl_->clock_checks_cancelled = true;
+    return true;
+}
 void Session::begin_device_restart_shutdown(){
     {Guard guard(impl_->lock);if(impl_->done)return;impl_->restart_exit=true;impl_->stopping=true;impl_->state.close_refused=false;
-     impl_->poll_pending=impl_->details_pending=impl_->command_pending=impl_->switch_pending=false;impl_->maintenance_active=false;impl_->discovery_cancelled=true;impl_->timing_capture_cancelled=true;
+     impl_->pending_poll.reset();impl_->command_pending=impl_->switch_pending=false;impl_->maintenance_active=false;impl_->discovery_cancelled=true;impl_->timing_capture_cancelled=true;
      if(!impl_->thread){(void)impl_->backend.release();impl_->done=true;}}
     impl_->signal();
 }
 void Session::begin_shutdown() {
     { Guard guard(impl_->lock); if (impl_->stopping) return; impl_->stopping = true; impl_->state.close_refused=false;
-      impl_->poll_pending = impl_->details_pending = impl_->command_pending = impl_->switch_pending = false;
+      impl_->pending_poll.reset(); impl_->command_pending = impl_->switch_pending = false;
       impl_->discovery_cancelled=true;
       impl_->timing_capture_cancelled=true;
       if (!impl_->thread) impl_->done = true; }

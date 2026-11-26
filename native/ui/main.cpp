@@ -23,6 +23,7 @@
 #include "curve_profile.h"
 #include "policy_annotation_profile.h"
 #include "profile_capture_request.h"
+#include "profile_startup.h"
 #include "timing_setup_host.h"
 #include <algorithm>
 #include <cmath>
@@ -36,6 +37,9 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 namespace {
 constexpr int restore_hotkey = 1;
 constexpr UINT session_update_message = WM_APP + 1;
+constexpr UINT tray_message = WM_APP + 2;
+constexpr UINT_PTR tray_retry = 2;
+const UINT taskbar_created = RegisterWindowMessageW(L"TaskbarCreated");
 // Only delivered by newer Windows; do not raise the Vista API import floor.
 constexpr UINT dpi_changed_message = 0x02e0;
 constexpr wchar_t window_class[] = L"DrutaNativePreview";
@@ -95,7 +99,7 @@ struct Options {
     std::string slot, expected_uuid,weight_result;
     druta::ui::Page page = druta::ui::Page::daily;
     std::optional<druta::ui::Presentation> presentation;
-    bool preview = false;
+    bool preview = false, startup_profile = false;
 };
 bool parse_options(Options& o) {
     int count = 0;
@@ -109,6 +113,7 @@ bool parse_options(Options& o) {
         else if (key == L"--classic" || key == L"--verbose") o.presentation = druta::ui::Presentation::classic;
         else if (key == L"--focused") o.presentation = druta::ui::Presentation::focused;
         else if (key == L"--preview") o.preview = true;
+        else if (key == L"--startup-profile") o.startup_profile = true;
         else if (i + 1 >= count) valid = false;
         else {
             const wchar_t* value = args[++i];
@@ -152,6 +157,13 @@ bool parse_options(Options& o) {
             } else valid = false;
         }
     }
+    if (o.startup_profile) {
+        for (int i = 1; i < count && valid; ++i) {
+            const std::wstring arg = args[i];
+            if (arg == L"--core" && i + 1 < count) ++i;
+            else if (arg != L"--startup-profile") valid = false;
+        }
+    }
     LocalFree(args); return valid && (o.expected_uuid.empty() || (!o.slot.empty() && !o.preview)) && (o.weight_result.empty()||(!o.slot.empty()&&!o.expected_uuid.empty()&&!o.preview));
 }
 struct App {
@@ -163,7 +175,87 @@ struct App {
     druta::ui::ViewState view;
     std::unique_ptr<druta::ui::Session> session;
     std::wstring active_core_path, app_executable, app_directory;
-    bool closing = false;
+    bool closing = false, startup_hidden = false, tray_present = false;
+    druta::ui::StartupProfileLaunch startup_launch;
+    void show_startup_binding(const std::optional<druta::ui::StartupProfile>& binding) {
+        view.startup_profile_id = binding ? binding->id : std::string{};
+        view.startup_profile_uuid = binding ? binding->uuid : std::string{};
+        view.startup_profile_slot = binding ? binding->slot : std::string{};
+    }
+    void configure_startup() {
+        if (!view.startup_profile_request) return;
+        const bool enable = *view.startup_profile_request;
+        view.startup_profile_request.reset();
+        try {
+            if (enable) {
+                const auto& selected = view.classic_profile_bar.selected;
+                auto current = session->snapshot();
+                if (!selected || selected->generation != current->generation || view.select_slot ||
+                    !current->data.connected || current->opening || current->busy ||
+                    (!selected->metadata_only && !view.controls_unlocked))
+                    throw std::runtime_error("Select a profile on the current GPU and unlock its controls");
+                druta::ui::StartupProfile binding{selected->id, selected->name, current->data.identity.uuid,
+                                                 current->selected_slot, selected->document};
+                druta::ui::register_startup_profile(binding,active_core_path);
+                show_startup_binding(binding);
+                view.startup_profile_status = binding.name + " will load at Windows sign-in.";
+            } else {
+                druta::ui::unregister_startup_profile();
+                show_startup_binding({});
+                view.startup_profile_status = "Windows sign-in loading turned off.";
+            }
+            session->note(true,view.startup_profile_status);
+        } catch (const std::exception& e) {
+            view.startup_profile_status = e.what();
+            session->note(false,view.startup_profile_status);
+        }
+    }
+    bool set_tray_icon(bool add) {
+        NOTIFYICONDATAW icon{};
+        icon.cbSize = sizeof(icon);
+        icon.hWnd = window;
+        icon.uID = 1;
+        icon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+        icon.uCallbackMessage = tray_message;
+        icon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+        wcscpy_s(icon.szTip,L"Druta – Open profile controls");
+        if (!add) {
+            KillTimer(window,tray_retry);
+            if (tray_present) Shell_NotifyIconW(NIM_DELETE,&icon);
+            tray_present = false;
+            return true;
+        }
+        tray_present = Shell_NotifyIconW(NIM_ADD,&icon) != FALSE;
+        if (tray_present) KillTimer(window,tray_retry);
+        else SetTimer(window,tray_retry,3000,nullptr);
+        return tray_present;
+    }
+    void on_tray_message(LPARAM event) {
+        if (event == WM_LBUTTONUP || event == WM_LBUTTONDBLCLK) { restore(); return; }
+        if (event != WM_RBUTTONUP && event != WM_CONTEXTMENU) return;
+        POINT point{};
+        GetCursorPos(&point);
+        HMENU menu = CreatePopupMenu();
+        if (!menu) return;
+        AppendMenuW(menu,MF_STRING,1,L"Open Druta");
+        AppendMenuW(menu,MF_STRING,2,L"Exit");
+        SetForegroundWindow(window);
+        const auto selected = TrackPopupMenu(menu,TPM_RETURNCMD|TPM_RIGHTBUTTON,
+                                             point.x,point.y,0,window,nullptr);
+        DestroyMenu(menu);
+        PostMessageW(window,WM_NULL,0,0);
+        if (selected == 1) restore();
+        if (selected == 2) request_close();
+    }
+    void tick_startup_profile() {
+        if (!session || closing) return;
+        auto result = startup_launch.tick(*session,startup_hidden,view.policy_annotations,annotation_action_log,annotation_action_ok);
+        if (!result) return;
+        try { druta::ui::finish_profile_startup(); }
+        catch (const std::exception& e) { result->message += " "; result->message += e.what(); result->ok = false; }
+        view.startup_profile_status = result->message;
+        session->note(result->ok,result->message);
+    }
     std::future<druta::ui::DeviceRecoveryRequest> recovery_preparation;
     std::optional<druta::ui::AppTarget> recovery_target;
     UINT width = 1280, height = 800;
@@ -177,9 +269,18 @@ struct App {
         uint64_t generation=0,actions=0;
         druta::ui::Command::Operation operation;
         druta::ui::ProfileJson document;
+        bool from_toolbar=false;
     };
     std::optional<CatalogPending> catalog_pending;
     std::optional<CatalogPending> capture_pending;
+    struct ToolbarCapture {
+        druta::ui::ToolbarProfileSaveRequest request;
+        uint64_t previous_actions;
+        druta::ui::Command::Operation operation;
+        std::string uuid, pci_slot;
+    };
+    std::optional<ToolbarCapture> toolbar_capture;
+    bool refresh_after_library_read = false;
     std::optional<druta::ui::Command> capture_after_prepare;
     std::future<std::vector<druta::ui::ProfileLibraryEntry>> library_read;
     std::optional<uint64_t> history_stage_generation;
@@ -197,6 +298,7 @@ struct App {
     druta::ui::PolicyAnnotationCommits annotation_commits;
     uint64_t annotation_generation=0,annotation_action_log=0;
     std::string annotation_status;
+    bool annotation_action_ok=true;
     bool submit_command(druta::ui::Command command,uint64_t generation) {
         if(!command.annotation_snapshot)
             command.annotation_snapshot=std::make_shared<const druta::ui::PolicyAnnotations>(view.policy_annotations);
@@ -208,13 +310,14 @@ struct App {
         if(annotation_generation!=current->generation){annotation_commits={};annotation_generation=current->generation;annotation_action_log=0;annotation_status.clear();}
         for(const auto& event:current->annotation_completions){
             if(event.generation!=current->generation)continue;
+            annotation_action_ok=true;
             try {
                 if(!event.effect||!event.effect->plan||event.effect->plan->target.uuid!=current->data.identity.uuid||event.effect->plan->target.slot!=current->selected_slot)
                     throw std::runtime_error("Power labels belong to another adapter; no notes changed");
                 const auto committed=commit_policy_annotation_effect(*event.effect,view.policy_annotations,annotation_commits);
                 annotation_status=committed.message;
                 if(committed.changed){view.save_policy_annotations=true;view.policy_workspace.annotations_dirty=true;}
-            }catch(const std::exception& e){annotation_status=std::string("Power label update not committed: ")+e.what();}
+            }catch(const std::exception& e){annotation_action_ok=false;annotation_status=std::string("Power label update not committed: ")+e.what();}
             annotation_action_log=event.action_log_id;
             view.policy_workspace.status=annotation_status;view.profile_catalog_view.status=annotation_status;
             session->acknowledge_annotation_completion(event.generation,event.event_id);
@@ -531,8 +634,11 @@ struct App {
             voltage_profile_or_command(std::move(command),false,save,load);
         }
     }
-    void refresh_profile_library() {
-        if(library_read.valid())return;
+    void refresh_profile_library(bool after_save = false) {
+        if (library_read.valid()) {
+            refresh_after_library_read |= after_save;
+            return;
+        }
         view.profile_catalog_view.library_loading=true;
         library_read_for_history=history_stage_generation.has_value();
         const HWND notify=window;
@@ -541,11 +647,108 @@ struct App {
             catch(...){PostMessageW(notify,WM_NULL,0,0);throw;}
         });
     }
+    void consume_toolbar_save() {
+        using namespace druta::ui;
+        if (!view.toolbar_save_request) return;
+        auto request = std::move(*view.toolbar_save_request);
+        view.toolbar_save_request.reset();
+        try {
+            const auto live = session->snapshot();
+            if (view.select_slot || live->opening || request.generation != live->generation ||
+                live->selected_slot != live->data.identity.slot || !live->data.identity.uuid[0])
+                throw std::runtime_error("Choose the current GPU again before saving");
+            if (toolbar_capture || capture_pending || catalog_pending)
+                throw std::runtime_error("Wait for the current profile operation");
+            if (request.scope != ProfileScope::daily && request.scope != ProfileScope::curve && request.scope != ProfileScope::full_tune)
+                throw std::runtime_error("Choose a supported capture scope");
+            auto command = profile_capture_request(request.scope, view, *live);
+            command.return_captured_profile = true;
+            const auto operation = command.operation;
+            if (!submit_command(std::move(command), request.generation))
+                throw std::runtime_error("The GPU session changed or is busy. Try saving again.");
+            toolbar_capture.emplace(ToolbarCapture{std::move(request), live->completed_actions, operation,
+                live->data.identity.uuid, live->selected_slot});
+            view.toolbar_save_pending = true;
+            view.toolbar_save_status = "Capturing current settings...";
+        } catch (const std::exception& e) { view.toolbar_save_status = e.what(); }
+    }
+    void consume_toolbar_save_preferences() {
+        const auto change = view.toolbar_save_preference_change;
+        if (!change.scope && !change.destination_changed) return;
+        view.toolbar_save_preference_change = {};
+        try {
+            view.quick_profiles = druta::ui::remember_toolbar_save_preferences(druta::ui::quick_profile_settings_path(), change);
+        } catch (const std::exception& e) {
+            view.toolbar_save_status = std::string("Could not remember the Save selection: ") + e.what();
+        }
+    }
+    void poll_toolbar_save() {
+        using namespace druta::ui;
+        if (!toolbar_capture || !session) return;
+        const auto live = session->snapshot();
+        const auto& pending = *toolbar_capture;
+        try {
+            if (closing || view.select_slot || pending.request.generation != live->generation ||
+                pending.pci_slot != live->selected_slot || pending.uuid != live->data.identity.uuid)
+                throw std::runtime_error("The selected GPU changed during capture. Choose Save again.");
+            const auto& capture = live->profile_capture;
+            if (!capture || capture->action <= pending.previous_actions) return;
+            if (capture->operation != pending.operation || !capture->document)
+                throw std::runtime_error(capture->message.empty() ? "Profile capture failed" : capture->message);
+            const auto result = save_toolbar_profile(discover_profile_directories().front(), quick_profile_settings_path(),
+                pending.request, *capture->document, pending.uuid, pending.pci_slot);
+            auto& bar = view.classic_profile_bar;
+            bar.selected = ViewState::ClassicProfileBar::Selection{live->generation, result.entry.id,
+                result.entry.name, *result.entry.document, result.entry.description.targets == std::vector<std::string>{"annotation:power"}};
+            bar.apply = ViewState::ClassicProfileBar::ApplyState::idle;
+            bar.status.clear();
+            if (result.slots) view.quick_profiles = *result.slots;
+            view.toolbar_save_status = "Saved " + result.entry.name;
+            if (result.slots && pending.request.slot) view.toolbar_save_status += " to slot " + std::to_string(*pending.request.slot + 1);
+            if (!result.settings_error.empty()) {
+                view.toolbar_save_status += pending.request.slot ? ". Slot assignment failed: " : ". Could not remember the Save selection: ";
+                view.toolbar_save_status += result.settings_error;
+            }
+            session->note(result.settings_error.empty(), view.toolbar_save_status);
+            refresh_profile_library(true);
+        } catch (const std::exception& e) {
+            view.toolbar_save_status = e.what();
+            session->note(false, view.toolbar_save_status);
+            if (!closing) refresh_profile_library(true);
+        }
+        toolbar_capture.reset();
+        view.toolbar_save_pending = false;
+    }
+    void consume_quick_profile_assignment() {
+        if (!view.quick_profile_assignment) return;
+        const auto [slot, id] = std::move(*view.quick_profile_assignment);
+        view.quick_profile_assignment.reset();
+        try {
+            view.quick_profiles = druta::ui::assign_quick_profile(druta::ui::quick_profile_settings_path(),
+                view.profile_catalog_view.library, slot, id);
+            view.quick_profile_status.clear();
+        } catch (const std::exception& e) { view.quick_profile_status = e.what(); }
+    }
+    bool reload_quick_settings = true;
     void poll_profile_library() {
         using namespace druta::ui;
+        if (reload_quick_settings && !startup_hidden) {
+            reload_quick_settings = false;
+            try {
+                // Read preferences before the first frame and when returning from another GPU window.
+                auto settings = load_quick_profiles(quick_profile_settings_path(), {});
+                const bool slots_changed = view.quick_profiles.ids != settings.ids;
+                view.quick_profiles = std::move(settings);
+                if (slots_changed && view.quick_library_requested) refresh_profile_library(true);
+            } catch (const std::exception& e) { view.quick_profile_status = e.what(); }
+        }
         if(library_read.valid()&&library_read.wait_for(std::chrono::seconds(0))==std::future_status::ready){
             try{
-                auto entries=library_read.get();const auto count=entries.size();record_profile_library(view.profile_catalog_view,std::move(entries),std::to_string(count)+" saved entries");
+                record_profile_library(view.profile_catalog_view,library_read.get());
+                try {
+                    view.quick_profiles = load_quick_profiles(quick_profile_settings_path(), view.profile_catalog_view.library);
+                    view.quick_profile_status.clear();
+                } catch (const std::exception& e) { view.quick_profile_status = e.what(); }
                 if(library_read_for_history&&history_stage_generation){
                     const auto expected=*history_stage_generation;history_stage_generation.reset();
                     if(session&&session->snapshot()->generation==expected)
@@ -560,9 +763,13 @@ struct App {
             library_read_for_history=false;
             // A history click during an older library refresh needs its own fresh
             // listing, so a snapshot created since that read is not missed.
-            if(history_stage_generation)refresh_profile_library();
+            if (history_stage_generation || refresh_after_library_read) {
+                refresh_after_library_read = false;
+                refresh_profile_library();
+            }
             policy.note_activity(now_seconds());
         }
+        poll_toolbar_save();
         if(!capture_pending||!session)return;
         const auto snapshot=session->snapshot();
         if(snapshot->generation!=capture_pending->generation){capture_pending.reset();capture_after_prepare.reset();view.profile_catalog_view.status="Adapter changed during capture; inspect the operation log before using the saved file";return;}
@@ -587,21 +794,29 @@ struct App {
     void consume_profile_catalog() {
         using namespace druta::ui;
         auto& workspace=view.profile_catalog_view;
+        auto& bar=view.classic_profile_bar;
+        using ApplyState=ViewState::ClassicProfileBar::ApplyState;
         const auto snapshot=session->snapshot();
         sync_profile_catalog_generation(workspace,snapshot->generation);
         if(catalog_pending) {
             if(snapshot->generation!=catalog_pending->generation) catalog_pending.reset();
             else if(!snapshot->busy && snapshot->completed_actions>catalog_pending->actions) {
                 const auto pending=*catalog_pending; catalog_pending.reset();
-                std::string message="Profile result unavailable; run preflight again.";
+                std::string message="Profile result unavailable. See the operation log.";
                 bool ok=false;
                 if(snapshot->last_action_operation==pending.operation) {
                     ok=snapshot->last_action_ok;
                     const auto log=std::find_if(snapshot->log.begin(),snapshot->log.end(),[&](const auto& entry){return entry.id==snapshot->last_action_log_id;});
                     if(log!=snapshot->log.end()) message=log->message;
-                    if(annotation_action_log==snapshot->last_action_log_id&&!annotation_status.empty())message+="; "+annotation_status;
+                    if(annotation_action_log==snapshot->last_action_log_id&&!annotation_status.empty()) {
+                        message+="\n"+annotation_status;
+                        ok=ok&&annotation_action_ok;
+                    }
                 }
-                record_profile_catalog_preflight(workspace,pending.generation,pending.document,
+                if(pending.from_toolbar) {
+                    bar.apply=ok?ApplyState::applied:ApplyState::failed;
+                    bar.status=std::move(message);
+                } else record_profile_catalog_preflight(workspace,pending.generation,pending.document,
                     pending.operation==Command::Operation::preflight_catalog_profile && ok,message);
                 if(pending.operation==Command::Operation::apply_catalog_profile)refresh_profile_library();
             }
@@ -620,7 +835,7 @@ struct App {
             if(intent.operation==ProfileCatalogIntent::Operation::refresh_library){refresh_profile_library();continue;}
             if(intent.operation==ProfileCatalogIntent::Operation::save_named||
                (intent.operation==ProfileCatalogIntent::Operation::save_capture&&intent.scope==ProfileScope::full_tune)){
-                if(capture_pending)throw std::runtime_error("A profile capture is still running");
+                if(capture_pending || toolbar_capture)throw std::runtime_error("A profile capture is still running");
                 auto command=profile_capture_request(intent.scope,view,*snapshot);
                 if(intent.operation==ProfileCatalogIntent::Operation::save_named){
                     const auto directories=discover_profile_directories();const auto destination=std::find_if(directories.begin(),directories.end(),[](const auto& d){return d.writable;});
@@ -660,14 +875,27 @@ struct App {
             }
             if(intent.operation==ProfileCatalogIntent::Operation::preflight || intent.operation==ProfileCatalogIntent::Operation::apply) {
                 if(catalog_pending) throw std::runtime_error("A profile operation is still running.");
-                Command command; command.operation=intent.operation==ProfileCatalogIntent::Operation::preflight ? Command::Operation::preflight_catalog_profile : Command::Operation::apply_catalog_profile;
+                const bool applying=intent.operation==ProfileCatalogIntent::Operation::apply;
+                const bool from_toolbar=intent.toolbar_generation.has_value();
+                const auto before=session->snapshot();
+                if(from_toolbar) {
+                    if(view.select_slot || *intent.toolbar_generation!=before->generation || !bar.selected
+                        || bar.selected->generation!=before->generation)
+                        throw std::runtime_error("GPU session changed. Choose the profile again.");
+                    if(!view.controls_unlocked && !bar.selected->metadata_only)
+                        throw std::runtime_error("Unlock controls to apply this profile.");
+                }
+                Command command;
+                command.operation=applying?Command::Operation::apply_catalog_profile:Command::Operation::preflight_catalog_profile;
                 command.catalog_profile=std::make_shared<const ProfileJson>(intent.document);
                 command.annotation_snapshot=std::make_shared<const PolicyAnnotations>(view.policy_annotations);
-                const auto before=session->snapshot();
-                if(before->generation!=workspace.generation || !submit_command(command,before->generation)) throw std::runtime_error("GPU session changed or is busy; run preflight again.");
-                catalog_pending=CatalogPending{before->generation,before->completed_actions,command.operation,intent.document};
+                if(before->generation!=workspace.generation || !submit_command(command,before->generation))
+                    throw std::runtime_error("GPU session changed or is busy. Try again.");
+                catalog_pending=CatalogPending{before->generation,before->completed_actions,command.operation,intent.document,from_toolbar};
+                if(applying) mark_catalog_profile_apply(view,intent.document);
+                if(!from_toolbar) workspace.status=applying?"Applying profile...":"Checking profile...";
+                else if(workspace.preflight_ok) workspace.status="Run preflight again after applying a saved profile.";
                 workspace.preflight_ok=false;
-                workspace.status=intent.operation==ProfileCatalogIntent::Operation::preflight ? "Checking all selected scopes; no writes." : "Applying selected scopes; see operation log.";
                 continue;
             }
             const bool save=intent.operation==ProfileCatalogIntent::Operation::save_composed;
@@ -691,7 +919,10 @@ struct App {
                 add_profile_catalog_item(workspace,path_utf8(path),name,document);
             } catch(const std::exception& error) {if(!errors.empty())errors+="; ";errors+=path_utf8(path)+": "+error.what();}
             workspace.status=errors.empty()?"Files loaded. Choose included controls and compose to stage.":errors;
-        } catch(const std::exception& error) {workspace.preflight_ok=false;workspace.status=error.what();}
+        } catch(const std::exception& error) {
+            if(intent.toolbar_generation) {bar.apply=ApplyState::failed;bar.status=error.what();}
+            else {workspace.preflight_ok=false;workspace.status=error.what();}
+        }
     }
 
     void i2c_profile_dialog(bool save, const druta::ui::SessionSnapshot& snapshot) {
@@ -720,11 +951,16 @@ struct App {
         ShowWindow(window, SW_MINIMIZE);
     }
     void restore() {
+        if (startup_hidden) {
+            startup_hidden = false;
+            set_tray_icon(false);
+            ShowWindow(window,SW_SHOW);
+        }
         if (IsIconic(window)) ShowWindow(window, SW_RESTORE);
         policy.set_minimized(false, now_seconds());
         policy.set_explicit_pause(false, now_seconds());
         policy.note_activity(now_seconds());
-        if (session) { session->set_paused(false); session->request_poll(); }
+        if (session) druta::ui::StartupProfileLaunch::resume(*session);
         SetForegroundWindow(window);
     }
     void request_close(bool for_device_restart=false) {
@@ -976,6 +1212,10 @@ struct App {
     void consume_actions() {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
+        consume_quick_profile_assignment();
+        consume_toolbar_save_preferences();
+        consume_toolbar_save();
+        configure_startup();
         consume_profile_catalog();
         consume_voltage_controls();consume_saving_controls();consume_policy_profiles();consume_power_weights();
         // Python logs the rail Link toggle as "[ok] rail ceilings ...": a log line only.
@@ -1008,7 +1248,10 @@ struct App {
             view.reconnect_requested = false;
             session->reconnect();
         }
-        if (view.refresh_requested) { session->request_poll(true); view.refresh_requested = false; }
+        if (view.capability_refresh_requested || view.refresh_requested) {
+            session->request_poll(view.capability_refresh_requested ? druta::ui::PollKind::capabilities : druta::ui::PollKind::details);
+            view.capability_refresh_requested = view.refresh_requested = false;
+        }
         if (view.i2c_cancel_requested) {
             view.i2c_cancel_requested=false;
             if (view.live) session->cancel_i2c_discovery(view.live->generation);
@@ -1197,6 +1440,10 @@ struct App {
             view.timing_capture_cancel_requested=false;
             if(view.live)session->cancel_timing_capture(view.live->generation);
         }
+        if (view.clock_checks_cancel_requested) {
+            view.clock_checks_cancel_requested = false;
+            if (view.live) session->cancel_clock_checks(view.live->generation);
+        }
         if (view.live) for (const auto& command : view.commands) {
             const auto baseline = session->snapshot();
             if (submit_command(command, view.live->generation) &&
@@ -1319,8 +1566,20 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
     if (app) {
         if ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST)
             || (message >= WM_KEYFIRST && message <= WM_KEYLAST)) app->policy.note_activity(now_seconds());
+        if (taskbar_created && message == taskbar_created && app->startup_hidden) {
+            app->set_tray_icon(true);
+            return 0;
+        }
         switch (message) {
+        case WM_ACTIVATEAPP:
+            if (wparam) app->reload_quick_settings = true;
+            break;
+        case WM_TIMER:
+            if (wparam == tray_retry && app->startup_hidden) { app->set_tray_icon(true); return 0; }
+            break;
+        case tray_message: app->on_tray_message(lparam); return 0;
         case WM_SIZE:
+            if (app->startup_hidden) return 0;
             app->policy.set_minimized(wparam == SIZE_MINIMIZED, now_seconds());
             if (app->session) app->session->set_paused(!app->policy.telemetry_enabled());
             if (wparam != SIZE_MINIMIZED && LOWORD(lparam) && HIWORD(lparam)) {
@@ -1557,6 +1816,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if(options.restart_child||options.parent_pid||!options.restart_instance.empty())return 2;
     ImGui_ImplWin32_EnableDpiAwareness();
     App app; active = &app;
+    std::optional<druta::ui::StartupProfile> sign_in_binding;
+    if (!options.preview) {
+        try {
+            auto binding = druta::ui::registered_startup_profile();
+            app.show_startup_binding(binding);
+            if (options.startup_profile) {
+                if (!binding) return 0;
+                options.slot = binding->slot;
+                options.expected_uuid = binding->uuid;
+                sign_in_binding = std::move(binding);
+            }
+        } catch (const std::exception& e) {
+            app.view.startup_profile_status = e.what();
+            if (options.startup_profile) return 3;
+        }
+    }
     app.scale_override = options.scale;
     // The renderer harness has named captures beginning with its Focused layout.
     app.view.presentation = options.presentation.value_or(options.smoke_dir.empty() ?
@@ -1622,11 +1897,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         app.session = std::make_unique<druta::ui::Session>(std::move(backend),
             [window = app.window] { PostMessageW(window, session_update_message, 0, 0); },
             app.view.shunt.config.path.empty() ? std::wstring{} : app.view.shunt.config.path.substr(0,app.view.shunt.config.path.find_last_of(L"\\/")) + L"\\i2c-routes-native.json");
-        app.session->set_live_readouts(app.view.presentation == druta::ui::Presentation::classic);
+        if (options.startup_profile) {
+            app.startup_hidden = true;
+            app.set_tray_icon(true);
+            app.policy.set_explicit_pause(app.startup_hidden,now_seconds());
+            try { druta::ui::claim_profile_startup(); }
+            catch (const std::exception& e) {
+                app.view.startup_profile_status = e.what();
+                sign_in_binding.reset();
+                app.session->note(false,app.view.startup_profile_status);
+            }
+        }
+        app.session->set_live_readouts(!app.startup_hidden && app.view.presentation == druta::ui::Presentation::classic);
         app.session->start(options.slot,options.expected_uuid);
+        app.startup_launch.start(*app.session,std::move(sign_in_binding),app.startup_hidden);
         app.view.live = app.session->snapshot();
     }
-    ShowWindow(app.window, SW_SHOW); UpdateWindow(app.window);
+    if (!app.startup_hidden) { ShowWindow(app.window, SW_SHOW); UpdateWindow(app.window); }
     app.weight_initial_receipt=options.weight_result;app.weight_expected_slot=options.slot;app.weight_expected_uuid=options.expected_uuid;
     app.weight_reopen_page=options.page;
     Smoke smoke(app); MessageWait waiter; const bool testing = !options.smoke_dir.empty();
@@ -1643,7 +1930,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
         if (app.session) {
             app.view.live = app.session->snapshot();
             app.consume_annotation_completions();app.save_policy_notes();
-            app.poll_profile_library();app.timing_setup.consume(*app.session,app.view,app.window);
+            app.tick_startup_profile();
+            app.poll_profile_library();
+            if (!app.startup_hidden && !app.startup_launch.pending()) app.timing_setup.consume(*app.session,app.view,app.window);
             if(app.weight_prepare_pending||app.canceled_clock_refresh||!app.weight_initial_receipt.empty())app.consume_power_weights();
             if (app.closing && app.session->finished()) break;
             if (app.closing && app.view.live->close_refused) {
@@ -1656,11 +1945,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
             if (smoke.finished) { success = smoke.passed; break; }
         }
         const double now = now_seconds();
-        app.consume_timing_profile_save();
-        if (!testing) app.consume_timing_startup_read();
-        app.consume_timing_captures();
-        // Smoke renders Timings but does not execute the helper or capture registers.
-        if (!testing) app.consume_timing_auto();
+        if (!app.startup_hidden && !app.startup_launch.pending()) {
+            app.consume_timing_profile_save();
+            if (!testing) app.consume_timing_startup_read();
+            app.consume_timing_captures();
+            // Smoke renders Timings but does not execute the helper or capture registers.
+            if (!testing) app.consume_timing_auto();
+        }
         if(app.view.advanced_view.rail_gate_flash_until>ImGui::GetTime() || app.view.advanced_view.xoc_gate_flash_until>ImGui::GetTime() || app.view.i2c_gate_flash_until>ImGui::GetTime())
             app.policy.note_activity(now);
         if (app.policy.telemetry_due(now)) {
@@ -1716,6 +2007,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     if (testing && !smoke.finished) success = false;
     if (!options.capture.empty() && !captured_output) success = false;
     if (app.session) { app.session->begin_shutdown(); app.session.reset(); }
+    app.set_tray_icon(false);
     if (app.view.hotkey_available) UnregisterHotKey(app.window, restore_hotkey);
     ImGui_ImplDX9_Shutdown(); ImGui_ImplWin32_Shutdown(); app.initialized = false;
     ImPlot::DestroyContext(); ImGui::DestroyContext();

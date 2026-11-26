@@ -256,6 +256,53 @@ void rm26_tests() {
   check(!plan_power_relationship_weights(rom,wrong_identity,layout,info,requests).ok,
         "The exact architecture and ROM/INFO combination is required for a write");
   const auto target=layout.policy_base+layout.policy_stride*(policy_count-1);
+  const struct {
+   PowerRelationshipLayout layout;
+   size_t relation_base, weight_offset;
+  } alternate_layouts[] = {
+   {{0x20802618,5392,0x3c,0x80},0x1040,4},
+   {{0x2080a618,7724,0x58,0xc8},0x195c,6},
+   {{0x2080a618,8620,0x58,0xe4},0x1cdc,6},
+   {{0x2080a618,8632,0x58,0xe4},0x1cdc,6},
+  };
+  for(const auto& alternate : alternate_layouts) {
+   const auto& wire=alternate.layout;
+   const auto row=alternate.relation_base+0x24*selected;
+   const auto wire_target=wire.policy_base+wire.policy_stride*(policy_count-1);
+   auto packet=single_target_packet(wire,alternate.relation_base,selected,policy_count-1,
+                                    info.data()+target,4096);
+   word(packet,row+(alternate.weight_offset==6?4:6),0xa55a);
+   packet.back()=0x5a;
+   if(wire.info_size==8632) {
+    dword(packet,0x21ac,1u<<2);
+    dword(packet,0x21b0,1u<<6);
+    dword(packet,0x21b4,1u<<11);
+   }
+   const auto alternate_plan=plan_power_relationship_weights(rom,identity,wire,packet,requests);
+   check(alternate_plan.ok==(ampere||wire.info_command==layout.info_command),
+         "Alternate INFO geometry requires its matching V30 ROM");
+   if(!alternate_plan.ok) continue;
+   auto expected_rom=rom, expected_info=packet;
+   word(expected_rom,selected_rom+2,5120);
+   word(expected_info,row+alternate.weight_offset,5120);
+   check(alternate_plan.patches.size()==1 && alternate_plan.patches.front().offset==selected_rom+2 &&
+         *alternate_plan.expected_image==expected_rom && *alternate_plan.expected_info==expected_info,
+         "Alternate INFO edits preserve every byte outside the selected weight");
+   check(verify_power_relationship_weights(alternate_plan,identity,wire,expected_info,&expected_rom).ok &&
+         verify_power_relationship_weights(alternate_plan,identity,wire,packet,&rom,true).ok,
+         "Apply and Restore require both exact buffers on alternate INFO layouts");
+   expected_info.back()^=1;
+   check(!verify_power_relationship_weights(alternate_plan,identity,wire,expected_info).ok,
+         "Unexpected trailing bytes invalidate activation evidence");
+   for(const auto field : {0,4,5,6,8,12,16}) {
+    auto changed=packet;
+    changed[wire_target+field]^=field==0?0x70:1;
+    check(!plan_power_relationship_weights(rom,identity,wire,changed,requests).ok,
+          "Alternate INFO writes require a V30 target and all paired policy fields");
+   }
+   check(!plan_power_relationship_weights(rom,wrong_identity,wire,packet,requests).ok,
+         "The alternate INFO layout alone cannot qualify a different architecture");
+  }
   for (const auto& a618 : {PowerRelationshipLayout{},PowerRelationshipLayout{0x2080a618,20000,0xcc,0xfc}}) {
    const auto packet=single_target_packet(a618,a618.info_size==20000?0x3fd0:0x41d0,selected,
                                           policy_count-1,info.data()+target,4096);
@@ -345,6 +392,101 @@ void modern_pairing_tests() {
  check(!inspect_power_weight_image(rom).ok,"Power inspection validates the adjacent EFI identity");
 }
 
+void individual_policy_readbacks() {
+ auto test=power_case();
+ const PowerRelationshipLayout layout{};
+ dword(test.info,0x41cc,0); // An adapter can expose policy definitions with no weighted edges.
+ auto image=inspect_power_weight_image(test.image,test.identity.device_id);
+ auto read=[&]{ return decode_power_relationships(layout,test.info); };
+ const auto& current=image.policies.at(9);
+ auto live=read();
+ check(live.available && live.relationships.empty() && live.policies[9] &&
+       std::string(firmware_power_policy_evidence(current,live))=="Matches driver definition",
+       "Policy-only INFO independently corroborates the BIOS current row");
+ const auto at=layout.policy_base+9*layout.policy_stride;
+ test.info[at+6]=0;
+ check(std::string(firmware_power_policy_evidence(current,read()))=="Driver binding differs",
+       "A watt row cannot confirm a firmware current definition with the same bounds");
+ test.info[at+6]=1;
+ dword(test.info,at+16,81000);
+ auto changed=read();
+ check(std::string(firmware_power_policy_evidence(current,changed))=="Driver bounds differ" &&
+       std::string(firmware_power_policy_evidence(image.policies[2],changed))=="Matches driver definition",
+       "Changed driver ceiling leaves an independently matched sibling available");
+ test.info[at+6]=3;
+ check(std::string(firmware_power_policy_evidence(current,read()))=="Unknown driver row",
+       "Unknown live units do not corroborate a BIOS row");
+ dword(test.info,4,1u<<2);
+ check(std::string(firmware_power_policy_evidence(current,read()))=="Absent from driver" &&
+       std::string(firmware_power_policy_evidence(current,{}))=="BIOS only",
+       "An absent policy and a missing live packet remain distinct");
+ auto foreign=test.identity;
+ foreign.device_id^=1;
+ auto qualified=power_case();
+ check(!inspect_power_weight_image(qualified.image,foreign.device_id).ok &&
+       !plan_power_relationship_weights(qualified.image,foreign,layout,qualified.info,{{0,1.25,4096}}).ok,
+       "Another PCI device's complete image cannot qualify a relationship preview");
+ for (const PowerRelationshipLayout partial : {PowerRelationshipLayout{0x2080a618,5392,60,128},
+                                               PowerRelationshipLayout{0x2080a618,8236,88,216}}) {
+  std::vector<uint8_t> packet(partial.info_size);
+  dword(packet,4,1u<<9);
+  const auto base=partial.policy_base+9*partial.policy_stride;
+  packet[base]=0x30; packet[base+4]=30; packet[base+5]=9; packet[base+6]=1;
+  dword(packet,base+8,1); dword(packet,base+12,45000); dword(packet,base+16,45000);
+  const auto policy_only=decode_power_relationships(partial,packet);
+  check(policy_only.policies_available && !policy_only.available && policy_only.relationships.empty() &&
+        std::string(firmware_power_policy_evidence(current,policy_only))=="Matches driver definition" &&
+        !plan_power_relationship_weights(test.image,test.identity,partial,packet,{{0,1.25,4096}}).ok,
+        "A cataloged INFO header can corroborate definitions without interpreting the relationship tail");
+ }
+}
+void older_relationship_rows() {
+ const auto test = power_case();
+ const PowerRelationshipLayout layouts[] = {{0x20802618,5392,0x3c,0x80}, {0x2080a618,7724,0x58,0xc8},
+                                            {0x2080a618,8620,0x58,0xe4}};
+ const size_t bases[] = {0x1040, 0x195c, 0x1cdc};
+ const size_t weights[] = {4, 6, 6};
+ for (size_t n = 0; n < 3; ++n) {
+  const auto& layout = layouts[n];
+  const auto base = bases[n];
+  std::vector<uint8_t> info(layout.info_size);
+  dword(info,4,1u<<9);
+  const auto target = layout.policy_base + 9 * layout.policy_stride;
+  info[target]=0x30;info[target+4]=30;info[target+5]=9;info[target+6]=1;
+  dword(info,target+8,1);dword(info,target+12,45000);dword(info,target+16,45000);
+  dword(info,base-4,1u<<1);
+  const auto row = base + 0x24;
+  info[row+1]=9;word(info,row+weights[n],4096);
+  const auto report=decode_power_relationships(layout,info);
+  check(report.available && report.relationships.size()==1 && report.relationships[0].target==9 &&
+        report.relationships[0].weight_raw==4096 && report.relationships[0].target_metadata &&
+        report.source_uninterpreted_policies==std::vector<uint32_t>{9},
+        "Older relationship rows report exact target and weight without guessing source fields");
+  check(!plan_power_relationship_weights(test.image,test.identity,layout,info,{{1,1.25,4096}}).ok,
+        "A readable relationship row alone does not qualify a firmware write");
+ }
+}
+void extended_relationship_info() {
+ const auto test=power_case();
+ const PowerRelationshipLayout layout{0x2080a618,8632,0x58,0xe4};
+ std::vector<uint8_t> info(layout.info_size);
+ dword(info,4,1u<<2);
+ const auto policy=layout.policy_base+2*layout.policy_stride;
+ info[policy]=0x30;info[policy+5]=3;
+ dword(info,policy+8,5);dword(info,policy+12,100);dword(info,policy+16,300);
+ dword(info,0x1cd8,1u<<31);
+ const auto row=0x1cdc+31*0x24;
+ info[row+1]=2;word(info,row+4,4096);word(info,row+6,6144);
+ dword(info,0x21ac,1u<<2);dword(info,0x21b0,1u<<6);dword(info,0x21b4,1u<<11);
+ const auto report=decode_power_relationships(layout,info);
+ check(report.available && report.relationships.size()==1 && report.relationships[0].index==31 &&
+       report.relationships[0].target==2 && report.relationships[0].target_metadata &&
+       report.relationships[0].weight_raw==6144 && report.source_uninterpreted_policies==std::vector<uint32_t>{2},
+       "8632-byte INFO decodes the final relationship row independently of the appended masks");
+ const auto plan=plan_power_relationship_weights(test.image,test.identity,layout,info,{{31,1.25,6144}});
+ check(!plan.ok && plan.message.find("write layout is unqualified")!=std::string::npos,
+       "8632-byte INFO remains inspection-only for the matching V40 firmware rows");
+}
 void power_tests(){PowerRelationshipLayout layout;
  for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}){auto c=power_case(header);const auto original=c.image,info=c.info;const auto image=inspect_power_weight_image(c.image);const auto report=decode_power_relationships(layout,c.info);
   check(image.ok&&image.relationships_available&&image.header_size==header&&image.selector_version==0x12345678&&image.selector_oem==0x9a,"Both released V40 headers and current ROM ownership/selector parsed");
@@ -379,4 +521,4 @@ void power_tests(){PowerRelationshipLayout layout;
  c.identity.architecture=10;c.identity.device_id=0x1234;c.identity.subsystem_id=0x76543210;c.identity.slot="0000:7b:01.1";for(const auto at:{0x86u,0x1086u,0x2706u,0x3086u})word(c.image,at,0x1234);dword(c.image,0x220c,0x1234);check(plan_power_relationship_weights(c.image,c.identity,layout,c.info,{{0,1,{}}}).ok,"Alternate current architecture/identity not selected by board or driver lists");
 }
 }
-int main(){power_tests();short_v30_tests();legacy_info_tests();rm26_tests();read_only_table_tests();modern_pairing_tests();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}
+int main(){power_tests();short_v30_tests();legacy_info_tests();rm26_tests();read_only_table_tests();modern_pairing_tests();individual_policy_readbacks();older_relationship_rows();extended_relationship_info();std::printf("Power relationships: %d checks, %d failures\n",checks,failures);return failures?1:0;}

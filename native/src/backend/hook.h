@@ -77,6 +77,7 @@ struct CaptureResult {
     Observed observed;                           // what this attempt saw (power capture only)
     bool hooked = false;                         // a hook was installed and the getter ran
     bool no_escape_path = false;                 // stopped because gdi32 lacks the escape path (D5)
+    bool legacy_power_pair = false;              // successful PowerPolInfo through the older dispatch envelope
 };
 
 // The captures. Each takes the process-wide hook mutex; the caller holds Gpu::lock().
@@ -90,6 +91,11 @@ CaptureResult capture_legacy_clk_transport(Gpu& gpu);
 // SET with the prepared records is issued in its place. Never more than one SET.
 struct RailWriteResult {
     bool done = false;
+    // An uninterrupted, successful singleton GET with its header echoed
+    // emitted inspected traffic, but no recognized control packet.
+    bool no_matching_get = false;
+    bool v1_972_get = false;  // Qualified successful 972-byte GET matched the public V1 record.
+    bool direct_v1 = false;  // A direct NVAPI V1 SET was dispatched, with no RM splice.
     std::optional<std::uint32_t> status;  // RM status of the SET (NTSTATUS & 0xFFFFFFFF when it failed)
     std::string error;                    // _volt_rail_write_error; "" is Python's None
     struct Protocol {

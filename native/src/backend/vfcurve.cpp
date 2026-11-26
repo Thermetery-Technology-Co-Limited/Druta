@@ -55,6 +55,15 @@ void set_point_masks(std::uint32_t masks[4], std::int64_t nbits) {
     }
 }
 
+namespace {
+template <class Packet>
+bool matches_request(const Packet& reply, std::uint32_t n) {
+    std::uint32_t expected[4]{};
+    set_point_masks(expected, n);
+    return reply.version == nvapi_ver<Packet>(1) && std::equal(expected, expected + 4, reply.masks);
+}
+} // namespace
+
 bool VfCurve::vf_curve_applicable() {
     auto arch = telemetry_.arch();
     return !(arch && *arch == kArchKepler);
@@ -64,6 +73,7 @@ std::string VfCurve::curve_error(const VfpCurve& cv, std::uint32_t n) {
     // A driver can accept every mask bit and return only a placeholder row:
     // all requested rows must carry voltage and frequency before the
     // boundary or the frequency scale can be inferred.
+    if (!matches_request(cv, n)) return "V/F reply version or mask changed; press Read curve to retry";
     std::uint32_t valid = 0;
     for (std::uint32_t i = 0; i < std::min(n, kVfpPoints); ++i)
         if (cv.entries[i].volt_uV > 0 && cv.entries[i].freq_kHz >= 1000) ++valid;
@@ -73,26 +83,60 @@ std::string VfCurve::curve_error(const VfpCurve& cv, std::uint32_t n) {
     return "";
 }
 
+bool VfCurve::valid_boost_reply(const BoostTable& table, std::uint32_t n) const {
+    if (!matches_request(table, n)) return false;
+    if (!marked_width_limit_) return true;
+    // This getter uses the same all-row marker as the curve getter on an
+    // oversized mask. Its apparent deltas are all zero and cannot seed Undo.
+    return !std::all_of(table.rows, table.rows + n, [](const BoostRow& row) {
+        return row.w[0] == 1 && std::all_of(row.w + 1, row.w + 9, [](auto word) { return word == 0; });
+    });
+}
+
 std::uint32_t VfCurve::probe_entry_count() {
-    // Acceptance is monotonic, so a binary search finds the width in about
-    // seven calls instead of walking 128. All reads.
+    // Some drivers return success for an oversized mask and fill every requested
+    // row with the same marker. A partly populated curve must still be checked as
+    // a whole by curve_error; truncating it could expose the wrong writable rows.
     Nvapi& a = gpu_.nvapi;
     auto fn = a.get<HandlePtrFn>(VfpCurveGet);
-    auto accepted = [&](std::uint32_t n) {
+    marked_width_limit_ = false;
+    enum class Reply { accepted, rejected, marker, invalid };
+    auto read = [&](std::uint32_t n) {
         VfpCurve cv{};
         cv.version = nvapi_ver<VfpCurve>(1);
         set_point_masks(cv.masks, n);
-        return fn(a.gpu, &cv) == 0;
+        if (fn(a.gpu, &cv) != 0) return Reply::rejected;
+        if (!matches_request(cv, n)) return Reply::invalid;
+        const bool markers = std::all_of(cv.entries, cv.entries + n, [](const VfpEntry& e) {
+            return e.u0 == 1 && !e.freq_kHz && !e.volt_uV && !e.u3 && !e.u4 && !e.u5 && !e.u6;
+        });
+        return markers ? Reply::marker : Reply::accepted;
     };
-    if (accepted(kVfpPoints)) return kVfpPoints;
+    const auto widest = read(kVfpPoints);
+    if (widest == Reply::accepted) return kVfpPoints;
+    if (widest == Reply::invalid) {
+        layout_error_ = "V/F reply version or mask changed; press Read curve to retry";
+        return 0;
+    }
     std::uint32_t lo = 0, hi = kVfpPoints;  // accepted(lo), not accepted(hi)
     while (hi - lo > 1) {
         const std::uint32_t mid = (lo + hi) / 2;
-        if (accepted(mid))
+        const auto reply = read(mid);
+        // A single discovery must see one consistent form of width rejection.
+        if (reply == Reply::invalid || (reply != Reply::accepted && reply != widest)) {
+            layout_error_ = "V/F mask probing failed during a read; press Read curve to retry";
+            return 0;
+        }
+        if (reply == Reply::accepted)
             lo = mid;
         else
             hi = mid;
     }
+    if (widest == Reply::marker && (!lo || read(hi) != Reply::marker)) {
+        layout_error_ = "The V/F mask boundary could not be confirmed; press Read curve to retry";
+        return 0;
+    }
+    marked_width_limit_ = widest == Reply::marker;
     return lo;
 }
 
@@ -199,6 +243,7 @@ CurveResult VfCurve::read_vf_curve() {
     set_point_masks(bt.masks, lay->n_entries);
     st = table_fn(a.gpu, &bt);
     if (st != 0) return {std::nullopt, "delta-table read failed (status " + std::to_string(st) + ")"};
+    if (!valid_boost_reply(bt, lay->n_entries)) return {std::nullopt, "Incomplete delta-table reply; press Read curve to retry"};
     // GPU rows only: the trailing rows on Pascal are the MEMORY points.
     std::vector<VfPoint> points;
     for (std::uint32_t i : lay->gpu_idx) {
@@ -219,7 +264,12 @@ std::vector<VfOtherRow> VfCurve::read_vfp_other_rows() {
     VfpCurve cv{};
     cv.version = nvapi_ver<VfpCurve>(1);
     set_point_masks(cv.masks, lay->n_entries);
-    if (fn(a.gpu, &cv) != 0) return {};
+    const int status = fn(a.gpu, &cv);
+    layout_error_ = status ? "V/F row read failed (status " + std::to_string(status) + ")" : curve_error(cv, lay->n_entries);
+    if (!layout_error_.empty()) {
+        layout_cache_.reset();
+        return {};
+    }
     std::set<std::uint32_t> mem(caps_.mem_clocks.begin(), caps_.mem_clocks.end());
     std::vector<VfOtherRow> out;
     for (std::uint32_t i : lay->other_idx) {
@@ -246,6 +296,7 @@ Outcome VfCurve::apply_vf_deltas(const std::vector<std::pair<std::int64_t, std::
     set_point_masks(bt.masks, lay->n_entries);
     int st = get(a.gpu, &bt);
     if (st != 0) return {false, "pre-write table read failed (status " + std::to_string(st) + ")"};
+    if (!valid_boost_reply(bt, lay->n_entries)) return {false, "Pre-write delta-table reply was incomplete"};
     std::uint32_t nchg = 0;
     for (const auto& [idx, delta] : deltas) {
         // GPU rows only: a delta written to a memory V/F row is not a core overclock at all.

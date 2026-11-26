@@ -3,9 +3,19 @@
 #pragma once
 #include "curve_planner.h"
 #include <drutacore/drutacore.h>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace druta::ui {
+struct LiveData;
+struct MaxItPlan {
+    uint32_t fan_percent = 0, board_mw = 0;
+    std::string reason, fan_range_note;
+    bool ready() const { return fan_percent && board_mw && reason.empty(); }
+};
+MaxItPlan discover_max_it(const LiveData& live, const dc_fan_state& fans, const dc_fan_capabilities& fan_caps,
+                          const dc_capabilities* static_caps, uint32_t nominal_power_mw, bool curve_planner_available);
 struct TuningApi {
     decltype(&dc_gpu_lock) lock = nullptr;
     decltype(&dc_gpu_unlock) unlock = nullptr;
@@ -23,14 +33,29 @@ struct TuningApi {
     decltype(&dc_rails_hold_overwritten) headroom_overwritten = nullptr;
 };
 struct TuningResult { bool ok = false; bool may_have_changed = false; std::string message; };
-struct TuningState { bool owned = false; bool confirmed = false; bool headroom = false; bool recovery = false; bool tripped = false; uint32_t domain = 0; uint32_t voltage_uv = 0; bool maintenance_needed() const { return owned || headroom || recovery; } };
+enum class HeadroomApplyOutcome { unverified, skipped_before_writer, no_set_issued, already_sufficient, request_verified };
+struct HeadroomApplyEvidence {
+    HeadroomApplyOutcome outcome = HeadroomApplyOutcome::unverified;
+    uint32_t target_uv = 0;
+    double margin_mv = 0;
+    std::string detail;
+    std::vector<std::string> last_writer_observations;
+};
+struct TuningState {
+    bool owned = false, confirmed = false, headroom = false, recovery = false, tripped = false;
+    uint32_t domain = 0, voltage_uv = 0;
+    // Last apply on this open handle. Release and Undo only change current ownership.
+    std::shared_ptr<const HeadroomApplyEvidence> last_headroom_apply;
+    bool maintenance_needed() const { return owned || headroom || recovery; }
+};
 // One instance per opened handle. The caller must serialize calls and keep this object
 // alive while state().owned, state().headroom or state().recovery is true.
 class TuningActions {
 public:
     TuningActions(TuningApi api, dc_gpu* gpu, const dc_gpu_identity& identity);
-    CurvePlan prepare_max(const PlannerApi& api, CurvePlanRequest request) const;
-    TuningResult hold(uint32_t domain, uint32_t voltage_uv, bool headroom, double margin_mv, bool xoc);
+    CurvePlan prepare_max(const PlannerApi& api, CurvePlanRequest request, bool step_measured) const;
+    TuningResult hold(uint32_t domain, uint32_t voltage_uv, bool headroom, double margin_mv, bool xoc,
+                      bool allow_skipped_headroom = false);
     TuningResult maintain(); // minimal read/restore work even when the UI is paused
     TuningResult release();
     // Python restore_raised_limits_now: takes this session's headroom raise off

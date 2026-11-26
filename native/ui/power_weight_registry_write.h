@@ -5,6 +5,7 @@
 #include <optional>
 namespace druta::ui {
 struct PowerWeightRegistryWriteResult {bool ok=false,may_have_changed=false;std::string message;};
+std::string format_power_weight_registry_open_error(long status, std::optional<bool> administrators_enabled);
 struct PowerWeightRegistryWriteApi {
  PowerWeightRegistryReader read;
  // A false result is potentially dispatched; caller must retain its journal.

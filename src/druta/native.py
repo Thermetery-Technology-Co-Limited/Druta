@@ -1328,7 +1328,7 @@ class Gpu(FrontendSurface):
 
     # dc_cpc_state.sizes: the DC_CP_*_SIZES group, by its client_power_runtime name.
     _CP_SIZE_GROUPS = ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES",
-                       "RM26_EXTENDED_SIZES", "A612_COMPACT_SIZES")
+                       "RM26_EXTENDED_SIZES", "A612_COMPACT_SIZES", "INFO200_SIZES")
 
     def _cp_raise(self, error):
         """The ClientPowerError a dc_error stands for; DC_ERR_INVALID is the one bare ValueError."""
@@ -1452,7 +1452,7 @@ class Gpu(FrontendSurface):
 
     # dc_cpc_metadata.layout / native_layout: the DC_CP_LAYOUT_* / DC_CP_NATIVE_* values present.
     _CP_LAYOUTS = {2: "rm26", 3: "legacy32"}
-    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended"}
+    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended", 4: "policy116"}
 
     def _cp_read_metadata(self):
         """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.

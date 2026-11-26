@@ -1,0 +1,125 @@
+{
+  "date_local": "2026-11-25",
+  "timezone": "Asia/Shanghai",
+  "adapter": {
+    "name": "GeForce GTX 1050 Ti",
+    "slot": "0000:03:00.0",
+    "driver": "375.63",
+    "vbios": "86.07.39.00.E9"
+  },
+  "source": {
+    "base_commit": "eeb6182037464be88c0e53f6a58c77e9fa57b4d3",
+    "revision": "local working tree",
+    "tested_core_sha256": "c25389415bbbc6a99019d15974cd4426d78a6cf4d50d19cd570c389f982079e2"
+  },
+  "method": "One daily offset per trial through the shipping C++ backend. Held the existing 950 mV V/F point with headroom disabled. Sampled both clocks at P0 before Apply, after Apply and after session Undo. A separate nvidia-smi process sampled operating clocks at 200 ms. Released each hold before starting another.",
+  "detection": {
+    "selectable_adapters": 1,
+    "vf_gpu_points": 80,
+    "vf_trailing_memory_points": 3,
+    "inferred_graphics_step_khz": 12656,
+    "rail_limits": {
+      "source": "GPU driver NVVDD reference estimates in mV; read-only Retry",
+      "reliability_mv": 1056.25,
+      "alternate_reliability_mv": 1118.75,
+      "overvoltage_mv": 1200.0,
+      "minimum_mv": 675.0,
+      "msvdd_detected": false,
+      "physical_write_tested": false
+    },
+    "board_power": {
+      "configured_w": 90.0,
+      "nvml_range_w": [
+        66,
+        113
+      ],
+      "private_policies": 0,
+      "live_write_tested": false
+    },
+    "max_it_preflight": true
+  },
+  "trials": [
+    {
+      "control": "memory",
+      "slider_input_mhz": -25,
+      "slider_unit": "true memory MHz",
+      "phases": {
+        "baseline": {
+          "samples": 8,
+          "pstate": "P0",
+          "graphics_mhz": 1657,
+          "memory_nvidia_mhz": 3504,
+          "slider_readback_mhz": 0,
+          "peer_offset_mhz": 0
+        },
+        "applied": {
+          "samples": 12,
+          "pstate": "P0",
+          "graphics_mhz": 1657,
+          "memory_nvidia_mhz": 3453,
+          "slider_readback_mhz": -25,
+          "peer_offset_mhz": 0
+        },
+        "restored": {
+          "samples": 10,
+          "pstate": "P0",
+          "graphics_mhz": 1657,
+          "memory_nvidia_mhz": 3504,
+          "slider_readback_mhz": 0,
+          "peer_offset_mhz": 0
+        }
+      },
+      "independent_nvidia_smi": {
+        "baseline_seen_before_change": true,
+        "matching_changed_samples": 12,
+        "baseline_seen_after_change": true
+      },
+      "all_80_curve_deltas_restored": true,
+      "both_scalar_offsets_restored": true,
+      "hold_released": true
+    },
+    {
+      "control": "core",
+      "slider_input_mhz": -39,
+      "slider_unit": "graphics MHz",
+      "phases": {
+        "baseline": {
+          "samples": 8,
+          "pstate": "P0",
+          "graphics_mhz": 1657,
+          "memory_nvidia_mhz": 3504,
+          "slider_readback_mhz": 0,
+          "peer_offset_mhz": 0
+        },
+        "applied": {
+          "samples": 12,
+          "pstate": "P0",
+          "graphics_mhz": 1620,
+          "memory_nvidia_mhz": 3504,
+          "slider_readback_mhz": -37,
+          "peer_offset_mhz": 0
+        },
+        "restored": {
+          "samples": 10,
+          "pstate": "P0",
+          "graphics_mhz": 1657,
+          "memory_nvidia_mhz": 3504,
+          "slider_readback_mhz": 0,
+          "peer_offset_mhz": 0
+        }
+      },
+      "independent_nvidia_smi": {
+        "baseline_seen_before_change": true,
+        "matching_changed_samples": 12,
+        "baseline_seen_after_change": true
+      },
+      "all_80_curve_deltas_restored": true,
+      "both_scalar_offsets_restored": true,
+      "hold_released": true
+    }
+  ],
+  "after_both_trials": {
+    "active_vf_lock_count": 0,
+    "board_power_request_w": 90.0
+  }
+}

@@ -39,7 +39,7 @@ class Loader {
 public:
     virtual ~Loader() = default;
     virtual std::unique_ptr<ExportSource> open_nvapi(std::string& error) = 0;
-    virtual std::unique_ptr<ExportSource> open_nvml(std::string& error) = 0;
+    virtual std::unique_ptr<ExportSource> open_nvml(bool standard_install, std::string& error) = 0;
     virtual std::unique_ptr<ExportSource> open_gdi32(std::string& error) = 0;
     virtual std::unique_ptr<ExportSource> open_user32(std::string& error) = 0;
     virtual std::unique_ptr<ExportSource> open_cfgmgr32(std::string& error) = 0;
@@ -47,6 +47,8 @@ public:
 
 // The process-wide loader: the platform default, or the test resolver.
 Loader& loader();
+// Use one successfully initialized driver module for handles and their raw exports.
+std::shared_ptr<ExportSource> initialized_nvml(std::string& error, std::string& path);
 // Bumped whenever the loader changes, so per-process capability caches
 // (which assume export presence never changes) can tell a test resolver swap.
 unsigned loader_generation();
@@ -60,6 +62,7 @@ bool test_resolver_installed();
 void* export_address(const char* library, const char* name);
 
 // Test seam: resolve(context, library, name) with library "nvapi", "nvml",
+// "nvml_standard" (the alternate installed NVML),
 // "gdi32", "user32" or "cfgmgr32"; name "" asks whether the library loads at all.
 using ResolveFn = void*(DRUTA_CDECL*)(void* context, const char* library, const char* name);
 void set_export_resolver(ResolveFn resolve, void* context);

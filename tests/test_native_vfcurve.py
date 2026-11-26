@@ -40,6 +40,88 @@ def layout_and_error(g, **kw):
 
 
 class VfLayoutTests(ParityCase):
+    def marked_width_rig(self, rows, *, unstable=False, malformed=False, mixed=False):
+        rig = CurveRig(arch=4, rows=rows)
+        ordinary = rig.nvapi.interfaces[VFP_CURVE]
+        boundary_reads = 0
+
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        def get_curve(handle, pointer):
+            nonlocal boundary_reads
+            packet = NV._VfpCurve.from_address(pointer)
+            width = mask_bits(packet.masks)
+            if width <= len(rows):
+                return ordinary(handle, pointer)
+            rig.calls.append(("VfpCurve", width))
+            if mixed and width == 128:
+                return -1
+            if width == len(rows) + 1:
+                boundary_reads += 1
+                if unstable and boundary_reads > 1:
+                    return -1
+            for row in packet.entries[:width]:
+                row.u0 = 1
+            if malformed:
+                packet.entries[0].u0 = 0
+            return 0
+
+        rig.nvapi.interfaces[VFP_CURVE] = get_curve
+        return rig
+
+    def test_status_zero_oversize_recovers_exact_width_and_all_curve_deltas(self):
+        # Driver 375.63 on GP107 marks every oversized row (1,0,0,0,0,0,0).
+        # Replay different capacities as well so the result cannot depend on 83.
+        for rows in (pascal_rows()[:-1], pascal_rows()[:61], pascal_rows()[:64] + pascal_rows()[80:]):
+            with self.subTest(width=len(rows)):
+                rig = self.marked_width_rig(rows)
+                rig.deltas[37] = 26000
+                with rig.native_gpu() as gpu:
+                    layout = gpu.vfp_layout()
+                    self.assertEqual(layout.n_entries, len(rows))
+                    points, err = gpu.read_vf_curve()
+                    self.assertFalse(err)
+                    self.assertEqual([p["idx"] for p in points], list(layout.gpu_idx))
+                    self.assertEqual(gpu.vf_delta_snapshot()["deltas"][37], 26000)
+                self.assertGreaterEqual(rig.calls.count(("VfpCurve", len(rows) + 1)), 2)
+                self.assertFalse(any(c[0] == "BoostTableSet" for c in rig.calls))
+
+    def test_unstable_boundary_and_unrecognized_partial_replies_refuse_writes(self):
+        for options in ({"unstable": True}, {"malformed": True}, {"mixed": True}):
+            rig = self.marked_width_rig(pascal_rows()[:-1], **options)
+            with self.subTest(options=options), rig.native_gpu() as gpu:
+                self.assertFalse(gpu.apply_vf_deltas({3: 15000})[0])
+                self.assertFalse(any(c[0] == "BoostTableSet" for c in rig.calls))
+
+    def test_all_marker_delta_table_cannot_seed_a_write(self):
+        rig = self.marked_width_rig(pascal_rows()[:-1])
+
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        def get_boost(_handle, pointer):
+            table = NV._BoostTable.from_address(pointer)
+            for row in table.rows[:mask_bits(table.masks)]:
+                row.w[0] = 1
+            return 0
+
+        rig.nvapi.interfaces[BOOST_GET] = get_boost
+        with rig.native_gpu() as gpu:
+            self.assertIsNotNone(gpu.vfp_layout())
+            self.assertIsNone(gpu.vf_delta_snapshot())
+            self.assertFalse(gpu.apply_vf_deltas({3: 15000})[0])
+        self.assertFalse(any(c[0] == "BoostTableSet" for c in rig.calls))
+
+    def test_memory_rows_discard_stale_width_and_retry_after_partial_read(self):
+        rows = pascal_rows()[:-1]
+        rig = self.marked_width_rig(rows)
+        with rig.native_gpu() as gpu:
+            self.assertEqual(len(gpu.read_vfp_other_rows()), 3)
+            previous = rig.rows[81]
+            rig.rows[81] = (0, 0)
+            self.assertEqual(gpu.read_vfp_other_rows(), [])
+            rig.rows[81] = previous
+            rig.calls.clear()
+            self.assertEqual(len(gpu.read_vfp_other_rows()), 3)
+            self.assertIn(("VfpCurve", 128), rig.calls)
+
     def test_turing_table_all_gpu_points(self):
         rig = CurveRig()
         (layout, error), calls, _ = self.both(rig, layout_and_error)

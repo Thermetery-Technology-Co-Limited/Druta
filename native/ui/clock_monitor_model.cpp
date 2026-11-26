@@ -176,15 +176,14 @@ std::string classic_clock_tooltip(const ClassicClockTip& in){
     lines.push_back("A (programmed)  "+number(a_raw)+" MHz"+(two?" = 2 x "+number(a_raw/2):""));
     lines.push_back("B (second array)  "+number(b_raw)+" MHz"+(two?" = 2 x "+number(b_raw/2):""));
     const std::string delta="\xCE\x94 B-A "+number(r->delta_mhz,1,true)+" MHz";
-    if(in.key=="mem")lines.push_back("Shown, never judged: Druta knows this card's graphics clock bin, not a memory one, and "
+    if(in.key=="mem")lines.push_back("Memory clock differences are shown in MHz. Memory bin spacing is unknown, and "
         "on one TITAN RTX the two memory arrays differed by a fixed -6.8 MHz (raw) in every state, loaded or idle - so a "
         "memory \xCE\x94 is not by itself a lower memory clock."+(div!=1.0?" Shown divided by "+g(div)+", as the tile is.":""));
     else if(in.key=="xbar")lines.push_back(delta+". Shown, never judged: XBAR follows the core clock, and its own clock bin "
         "is not known here.");
     else if(bin)lines.push_back(delta+" = "+number(r->delta_mhz / *bin,2,true)+" bins of "+number(*bin,3)+
         " MHz (this card's clock step)");
-    else lines.push_back(delta+". Not judged: this card's clock step could not be measured, and a colour is not claimed "
-        "against a borrowed one.");
+    else lines.push_back(delta+". Clock Monitor needs an independent measurement of this card's clock step to grade this difference.");
     const std::string ev=std::to_string(r->events),n=std::to_string(r->samples),run=std::to_string(r->mirror_run),
         need=std::to_string(evidence_events);
     const std::string counted="B turning back on its own - up after down, or down after up - while A holds still, to a "

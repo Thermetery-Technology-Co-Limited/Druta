@@ -121,7 +121,8 @@ void rendering() {
     check(!stack.empty() && stack.back().Window,"Device menu opens on the same page");
     if(!stack.empty() && stack.back().Window) {
         ImGui::ActivateItemByID(stack.back().Window->GetID("Refresh capabilities"));frame(v);
-        check(v.refresh_requested && v.page==Page::monitor && v.drafts[0].dirty && v.drafts[0].value==37.5,
+        check(v.capability_refresh_requested && !v.refresh_requested && v.page==Page::monitor &&
+              v.drafts[0].dirty && v.drafts[0].value==37.5,
             "capability refresh preserves page, selection and unfinished draft");
     }
     v.app_actions.report=selected_device_report(*live);v.app_actions.report_open=true;
@@ -140,6 +141,13 @@ ImGuiWindow* open_menu(ViewState& v,const char* label){
     auto* workspace=ImGui::FindWindowByName("Druta workspace");
     if(!workspace)return nullptr;
     ImGui::ActivateItemByID(ImHashStr(label,0,workspace->GetID("##MenuBar")));frame(v);
+    const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+    return stack.empty()?nullptr:stack.back().Window;
+}
+ImGuiWindow* open_profile_popup(ViewState& v,const char* label="Profile actions"){
+    auto* workspace=ImGui::FindWindowByName("Druta workspace");
+    if(!workspace)return nullptr;
+    ImGui::ActivateItemByID(workspace->GetID(label));frame(v);
     const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
     return stack.empty()?nullptr:stack.back().Window;
 }
@@ -219,6 +227,63 @@ void classic_headroom_restore(ViewState& v,SessionSnapshot& live){
 // Released 1.9.1 menu bar: File (Exit), Device, Profiles (Save, Load, Undo last
 // write), Clocks (Limited de-flatten first), Help. Classic moves the native
 // header row's profile, refresh, pause and presentation controls into it.
+void clock_verification_menu() {
+    for (const auto skin : {Presentation::classic, Presentation::focused}) {
+        auto live = std::make_shared<SessionSnapshot>(fixture());
+        live->data.connected = true;
+        AdvancedControl candidate; candidate.id = {AdvancedKind::clock_domain, 5};
+        candidate.clock_check = ClockCheck::candidate; candidate.can_verify = true;
+        live->data.advanced_controls = {candidate};
+        ViewState view; view.preview = false; view.live = live; view.presentation = skin; view.controls_unlocked = true;
+        frame(view);
+        if (auto* menu = open_menu(view, "Clocks")) {
+            ImGui::ActivateItemByID(menu->GetID("Verify all clock offsets at P0")); frame(view);
+        }
+        check(view.commands.size() == 1 && view.commands.front().operation == Command::Operation::verify_all_clock_offsets,
+              "Clocks menu queues one explicit qualification command");
+        close_menus(view);
+        auto known = candidate;
+        known.clock_check = ClockCheck::known_pattern; known.label = "Clock"; known.binding = "field-five";
+        auto another = known; another.id.domain = 9; another.binding = "field-nine";
+        live->data.advanced_controls = {known, another};
+        view.commands.clear();
+        if (auto* menu = open_menu(view, "Clocks")) {
+            ImGui::ActivateItemByID(menu->GetID("Verify all clock offsets at P0")); frame(view);
+        }
+        check(view.commands.empty(), "known patterns alone do not offer a batch of hardware checks");
+        const auto recheck = [&] {
+            close_menus(view);
+            if (auto* menu = open_menu(view, "Clocks")) {
+                ImGui::ActivateItemByID(menu->GetID("Recheck a known offset at P0")); frame(view); frame(view);
+                const auto& stack = ImGui::GetCurrentContext()->OpenPopupStack;
+                if (stack.Size >= 2 && stack.back().Window) {
+                    ImGui::ActivateItemByID(stack.back().Window->GetID("Clock [9]")); frame(view);
+                }
+            }
+        };
+        live->data.advanced_controls[1].can_verify = false;
+        recheck();
+        check(view.commands.empty(), "a known offset with an unavailable verifier cannot be rechecked");
+        live->data.advanced_controls[1].can_verify = true;
+        live->paused = true;
+        recheck();
+        check(view.commands.empty(), "rechecking a known offset waits for a live session");
+        live->paused = false;
+        recheck();
+        check(view.commands.size() == 1 && view.commands.front().operation == Command::Operation::verify_clock_offset &&
+              view.commands.front().advanced && view.commands.front().advanced->domain == 9 &&
+              view.commands.front().expected_binding == "field-nine",
+              "a manual recheck targets the selected field and binding when two known offsets share a label");
+        close_menus(view);
+        live->verifying_clock_offsets = true; live->busy = true;
+        if (auto* menu = open_menu(view, "Clocks")) {
+            ImGui::ActivateItemByID(menu->GetID("Stop after current clock offset")); frame(view);
+        }
+        check(view.clock_checks_cancel_requested && view.commands.size() == 1,
+              "Stop cancels after restoration without queuing another hardware command");
+        close_menus(view);
+    }
+}
 void classic_menus(){
     auto live=std::make_shared<SessionSnapshot>(fixture());
     live->data.curve.push_back({0,750,1400,0});live->data.curve.push_back({1,900,1890,0});
@@ -228,8 +293,11 @@ void classic_menus(){
     check(v.presentation==Presentation::classic,"a new view starts in Verbose");
     v.planner_api.deflatten=menu_deflatten;v.planner_api.predict=menu_predict;
     auto text=frame(v);
-    check(has(text,"Skin")&&has(text,"Profiles")&&!has(text,"Save profile...")&&!has(text,"Always refresh")&&!has(text,"Session-only tuning"),
-        "Verbose has a top-level Skin menu beside its regular menus");
+    check(has(text,"Skin")&&has(text,"Select saved profile")&&has(text,"Profile actions")&&!has(text,"Save profile...")
+        &&!has(text,"Always refresh")&&!has(text,"Session-only tuning"),
+        "Classic shows the profile selector and actions alongside its regular controls");
+    check(text.find("Select saved profile")<text.find("Reset controls")&&text.find("Profile actions")<text.find("Max it"),
+        "the profile selector and actions are drawn before Reset controls and Max it");
     v.drafts[0].value=37.5;v.drafts[0].dirty=true;
     auto* skin=open_menu(v,"Skin");
     check(skin!=nullptr,"the Skin menu opens directly from the Verbose bar");
@@ -242,24 +310,24 @@ void classic_menus(){
     check(has(focused_text,"Save profile...")&&has(focused_text,"Always refresh")&&has(focused_text,"Session-only tuning")&&!has(focused_text,"Profiles"),
         "Focused keeps its header controls, footer and menu bar unchanged");
     frame(v);
-    auto* profiles=open_menu(v,"Profiles");
-    check(profiles!=nullptr,"Classic Profiles menu opens");
+    auto* profiles=open_profile_popup(v);
+    check(profiles!=nullptr,"Classic Profile actions opens from the selector bar");
     if(profiles){
         ImGui::ActivateItemByID(profiles->GetID("Load profile..."));frame(v);
         ImGui::ActivateItemByID(profiles->GetID("Undo last write"));frame(v);
-        check(!v.load_profile_requested&&v.commands.empty(),"locked or empty-history Profiles entries stay inert");
+        check(!v.load_profile_requested&&v.commands.empty(),"locked or empty-history profile actions stay inert");
     }
     close_menus(v);
     v.controls_unlocked=true;live->data.undo_available=true;
-    profiles=open_menu(v,"Profiles");
+    profiles=open_profile_popup(v);
     if(profiles){ImGui::ActivateItemByID(profiles->GetID("Save profile..."));frame(v);}
-    check(v.save_profile_requested&&v.commands.empty(),"Profiles > Save profile requests the save dialog without writing");
-    close_menus(v);profiles=open_menu(v,"Profiles");
+    check(v.save_profile_requested&&v.commands.empty(),"Profile actions > Save profile requests the save dialog without writing");
+    close_menus(v);profiles=open_profile_popup(v);
     if(profiles){ImGui::ActivateItemByID(profiles->GetID("Load profile..."));frame(v);}
-    check(v.load_profile_requested,"Profiles > Load profile is reachable once unlocked");
-    close_menus(v);profiles=open_menu(v,"Profiles");
+    check(v.load_profile_requested,"Profile actions > Load profile is reachable once unlocked");
+    close_menus(v);profiles=open_profile_popup(v);
     if(profiles){ImGui::ActivateItemByID(profiles->GetID("Undo last write"));frame(v);}
-    check(v.commands.size()==1&&v.commands[0].operation==Command::Operation::undo,"Profiles > Undo last write queues the existing explicit Undo");
+    check(v.commands.size()==1&&v.commands[0].operation==Command::Operation::undo,"Profile actions > Undo last write queues the existing explicit Undo");
     v.commands.clear();close_menus(v);
     auto* file=open_menu(v,"File");
     if(file){ImGui::ActivateItemByID(file->GetID("Always refresh"));frame(v);}
@@ -374,9 +442,9 @@ void classic_menus(){
     close_menus(v);
     // Preview keeps the catalog reachable, as the former Classic header button did.
     ViewState preview;preview.presentation=Presentation::classic;frame(preview);
-    auto* catalog=open_menu(preview,"Profiles");
+    auto* catalog=open_profile_popup(preview);
     if(catalog){ImGui::ActivateItemByID(catalog->GetID("Profile catalog..."));frame(preview);}
-    check(preview.profile_catalog_view.open,"Profiles > Profile catalog opens in preview");
+    check(preview.profile_catalog_view.open,"Profile actions > Profile catalog opens in preview");
     close_menus(preview);
 }
 size_t at(const std::string& text,const char* value){return text.find(value);}
@@ -463,7 +531,9 @@ void classic_device_and_help_menus(){
         "Focused Copy device report keeps its result window");
     focused.app_actions.status.clear();frame(focused);
     focused.app_actions.about_open=true;text=frame(focused);
-    check(has(text,"A second window opens only the selected PCI slot with an expected GPU UUID"),"Focused About is unchanged");
+    check(has(text,"A second window opens one explicit PCI slot with that card's expected GPU UUID")
+        &&has(text,"Selecting a different GPU during an owned V/F hold"),
+        "Focused About also describes opening another adapter while a curve hold is active");
     focused.app_actions.about_open=false;frame(focused);
     check(v.commands.empty()&&focused.commands.empty(),"menus queue no hardware command");
 }
@@ -489,9 +559,9 @@ void classic_header_and_profile_wording(){
         &&!has(text,"Profile catalog...")&&!has(text,"Undo from history...")&&!has(text,"Rail / power profiles..."),
         "Classic File keeps Exit and the native view controls; profile windows are not in it");
     close_menus(v);
-    auto* profiles=open_menu(v,"Profiles");text=frame(v);
+    auto* profiles=open_profile_popup(v);text=frame(v);
     check(profiles!=nullptr&&has(text,"Profile catalog...")&&has(text,"Undo from history...")&&has(text,"Rail / power profiles..."),
-        "the native profile windows stay reachable from Profiles");
+        "the native profile windows stay reachable from Profile actions");
     check(has(text,"restores the snapshot taken automatically")&&has(text,"immediately before the most recent write.")&&!has(text,"It is a write itself"),
         "the Undo note carries 1.9.1's wording for what native Undo does");
     close_menus(v);
@@ -500,19 +570,350 @@ void classic_header_and_profile_wording(){
 void history_menu() {
     for(const auto skin:{Presentation::focused,Presentation::classic}) {
         ViewState v;v.preview=false;v.live=std::make_shared<SessionSnapshot>(fixture());v.presentation=skin;
-        frame(v);auto* workspace=ImGui::FindWindowByName("Druta workspace");
-        // Classic keeps the native history beside 1.9.1's profile actions.
-        ImGui::ActivateItemByID(ImHashStr(skin==Presentation::classic?"Profiles":"File",0,workspace->GetID("##MenuBar")));frame(v);
-        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
-        check(!stack.empty()&&stack.back().Window,"profile menu exposes history in both skins");
-        if(!stack.empty()&&stack.back().Window) {
-            ImGui::ActivateItemByID(stack.back().Window->GetID("Undo from history..."));frame(v);
+        frame(v);
+        auto* profiles=skin==Presentation::classic?open_profile_popup(v):open_menu(v,"File");
+        check(profiles!=nullptr,"profile actions expose history in both skins");
+        if(profiles) {
+            ImGui::ActivateItemByID(profiles->GetID("Undo from history..."));frame(v);
             const auto history=std::count_if(v.profile_catalog_intents.begin(),v.profile_catalog_intents.end(),[](const auto& intent){return intent.operation==ProfileCatalogIntent::Operation::stage_newest_history;});
             const auto apply=std::any_of(v.profile_catalog_intents.begin(),v.profile_catalog_intents.end(),[](const auto& intent){return intent.operation==ProfileCatalogIntent::Operation::apply||intent.operation==ProfileCatalogIntent::Operation::preflight;});
             check(history==1&&v.profile_catalog_view.open&&!apply&&v.commands.empty(),"History menu requests a fresh staged snapshot without preflight or hardware Apply");
         }
         v.profile_catalog_view.open=false;frame(v);
     }
+}
+void classic_profile_selector(){
+    auto live=std::make_shared<SessionSnapshot>(fixture());
+    ViewState v;v.preview=false;v.live=live;v.controls_unlocked=false;
+    frame(v);
+    check(v.quick_library_requested&&v.profile_catalog_view.library_loading&&v.profile_catalog_intents.size()==1
+        &&v.profile_catalog_intents.front().operation==ProfileCatalogIntent::Operation::refresh_library,
+        "the connected Classic bar preloads the shared library");
+    v.profile_catalog_intents.clear();
+    auto* workspace=ImGui::FindWindowByName("Druta workspace");
+    check(workspace!=nullptr,"profile bar belongs to the workspace");
+    if(!workspace)return;
+    const auto click_apply=[&] {
+        ImGui::ActivateItemByID(workspace->GetID("Apply##classic-profile-apply"));
+        return frame(v);
+    };
+    click_apply();
+    check(v.profile_catalog_intents.empty(),"Apply stays disabled until a profile is selected");
+    auto* selector=open_profile_popup(v,"##classic-profile");
+    check(selector&&v.profile_catalog_view.library_loading&&v.profile_catalog_intents.empty(),
+        "the selector shares the in-flight preload without requesting it again");
+    ProfileLibraryEntry named;
+    named.id="named.json";named.name="Named memory";
+    named.document=ProfileJson{{"format","druta-native-daily"},{"version",1},
+        {"target",{{"uuid",live->data.identity.uuid},{"slot",live->selected_slot}}},
+        {"controls",{{"memory",{{"value",400},{"unit","MHz"},{"scale",2}}}}}};
+    ProfileLibraryEntry history=named;
+    history.id="autosave.json";history.name="History memory";history.autosave=true;
+    ProfileLibraryEntry legacy;
+    legacy.id="legacy.json";legacy.name="Legacy tune";legacy.document=ProfileJson{{"schema",1}};
+    record_profile_library(v.profile_catalog_view,{named,history,legacy});
+    const auto text=frame(v);
+    check(has(text,"Named memory")&&has(text,"Legacy tune")&&!has(text,"History memory")&&v.profile_catalog_intents.empty(),
+        "the selector lists saved profiles and keeps Undo snapshots in history");
+    if(selector){
+        const auto choose=[&](const ProfileLibraryEntry& entry) {
+            const ImGuiID seed=selector->GetID(entry.id.c_str());
+            ImGui::ActivateItemByID(ImHashStr(entry.name.c_str(),0,seed));frame(v);
+        };
+        choose(legacy);
+        check(!v.classic_profile_bar.selected&&v.profile_catalog_intents.empty(),"an unsupported profile is visible and cannot be selected");
+        choose(named);
+    }
+    check(v.classic_profile_bar.selected&&v.classic_profile_bar.selected->id==named.id
+        &&!v.profile_catalog_view.open&&!v.profile_catalog_view.staged&&v.profile_catalog_intents.empty()&&v.commands.empty(),
+        "choosing a named profile only selects it on the bar");
+    click_apply();
+    check(v.profile_catalog_intents.empty(),"a locked profile cannot queue a tuning write");
+    v.controls_unlocked=true;
+    auto replacement=named;
+    (*replacement.document)["controls"]["memory"]["value"]=600;
+    record_profile_library(v.profile_catalog_view,{replacement});
+    live->busy=true;click_apply();
+    check(v.profile_catalog_intents.empty(),"Apply stays disabled while the selected GPU is busy");
+    live->busy=false;
+    const auto applying=click_apply();
+    check(has(applying,"Applying...")&&!v.profile_catalog_view.open&&v.profile_catalog_intents.size()==1
+        &&v.profile_catalog_intents.front().operation==ProfileCatalogIntent::Operation::apply
+        &&v.profile_catalog_intents.front().toolbar_generation==live->generation
+        &&v.profile_catalog_intents.front().document==*named.document,
+        "Apply queues the selected document and its adapter generation without opening the catalog");
+    v.profile_catalog_intents.clear();
+    click_apply();
+    check(v.profile_catalog_intents.empty(),"a pending Apply cannot queue a duplicate profile apply");
+    ++live->generation;
+    click_apply();
+    check(!v.classic_profile_bar.selected&&v.profile_catalog_intents.empty(),"changing adapters clears the selected profile");
+    live->busy=true;
+    check(!open_profile_popup(v,"##classic-profile"),"the selector stays closed while the adapter is busy");
+}
+void classic_quick_profiles(){
+    auto live=std::make_shared<SessionSnapshot>(fixture());
+    ViewState v;v.preview=false;v.live=live;
+    frame(v);v.profile_catalog_intents.clear();
+    const auto profile=[&](const char* id,const char* name,int value) {
+        ProfileLibraryEntry entry;
+        entry.id=id;entry.name=name;
+        entry.document=ProfileJson{{"format","druta-native-daily"},{"version",1},
+            {"target",{{"uuid",live->data.identity.uuid},{"slot",live->selected_slot}}},
+            {"controls",{{"memory",{{"value",value},{"unit","MHz"},{"scale",2}}}}}};
+        return entry;
+    };
+    auto first=profile("first.json","First quick profile",300);
+    auto second=profile("second.json","Second quick profile",400);
+    auto ordinary=profile("other.json","Ordinary profile",500);
+    auto autosave=profile("autosave.json","Automatic snapshot",600);
+    autosave.autosave=true;
+    const auto load_library=[&] {
+        record_profile_library(v.profile_catalog_view,{ordinary,second,first,autosave});
+    };
+    v.quick_profiles.ids={first.id,second.id,"missing.json",{},{}};
+    load_library();
+    frame(v);
+    auto* workspace=ImGui::FindWindowByName("Druta workspace");
+    if(!workspace){check(false,"quick profile bar belongs to the workspace");return;}
+    const auto click=[&](const char* label) {
+        ImGui::ActivateItemByID(workspace->GetID(label));
+        return frame(v);
+    };
+    auto* selector=open_profile_popup(v,"##classic-profile");
+    check(selector&&v.profile_catalog_view.library_loading&&v.profile_catalog_intents.size()==1
+        &&v.profile_catalog_intents.front().operation==ProfileCatalogIntent::Operation::refresh_library,
+        "opening a loaded quick selector refreshes saved profiles");
+    v.profile_catalog_intents.clear();
+    load_library();
+    const auto listed=frame(v);
+    check(has(listed,"1  First quick profile")&&has(listed,"2  Second quick profile")
+        &&has(listed,"3  Profile unavailable")&&has(listed,"4  Unassigned")&&has(listed,"5  Unassigned")
+        &&at(listed,"2  Second quick profile")<at(listed,"Ordinary profile")&&!has(listed,"Automatic snapshot"),
+        "five quick rows precede the unassigned named library and exclude history");
+    if(selector){
+        ImGui::ActivateItemByID(ImHashStr("Change",0,selector->GetID("1")));frame(v);
+        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        auto* assignments=stack.empty()?nullptr:stack.back().Window;
+        check(assignments&&assignments!=selector,"the pinned slot exposes its assignment menu");
+        if(assignments&&assignments!=selector){
+            ImGui::ActivateItemByID(ImHashStr("Second quick profile  (slot 2)",0,assignments->GetID(second.id.c_str())));
+            frame(v);
+        }
+    }
+    check(v.quick_profile_assignment&&v.quick_profile_assignment->first==0
+        &&v.quick_profile_assignment->second==second.id&&v.quick_profiles.ids[0]==first.id
+        &&v.profile_catalog_intents.empty()&&v.commands.empty(),
+        "assigning an already pinned profile requests a swap without applying it");
+    v.quick_profile_assignment.reset();
+    close_menus(v);
+
+    v.controls_unlocked=false;
+    click("1##classic-profile-quick");
+    check(v.profile_catalog_intents.empty(),"quick Apply is disabled while controls are locked");
+    v.controls_unlocked=true;
+    click("3##classic-profile-quick");click("4##classic-profile-quick");
+    check(v.profile_catalog_intents.empty()&&v.toolbar_save_draft.slot==3&&!v.toolbar_save_request,
+        "an empty slot opens Save on its own destination without applying a profile");
+    close_menus(v);
+    live->busy=true;
+    click("1##classic-profile-quick");
+    check(v.profile_catalog_intents.empty(),"quick Apply is disabled while a GPU command is pending");
+    live->busy=false;
+    (*first.document)["controls"]["memory"]["value"]=350;
+    load_library();
+    click("1##classic-profile-quick");
+    check(v.profile_catalog_intents.size()==1
+        &&v.profile_catalog_intents.front().operation==ProfileCatalogIntent::Operation::apply
+        &&v.profile_catalog_intents.front().toolbar_generation==live->generation
+        &&v.profile_catalog_intents.front().document==*first.document
+        &&v.classic_profile_bar.selected&&v.classic_profile_bar.selected->id==first.id,
+        "quick Apply binds the latest saved document to the selected adapter through checked Apply");
+    v.profile_catalog_intents.clear();
+    click("2##classic-profile-quick");
+    check(v.profile_catalog_intents.empty(),"a running quick Apply blocks other quick Apply requests");
+
+    v.classic_profile_bar.apply=ViewState::ClassicProfileBar::ApplyState::applied;
+    v.controls_unlocked=false;
+    click("Apply on startup");
+    check(!v.startup_profile_request,"startup for a hardware profile requires unlocked controls");
+    v.controls_unlocked=true;
+    click("Apply on startup");
+    check(v.startup_profile_request==true&&v.profile_catalog_intents.empty()&&v.commands.empty(),
+        "enabling startup for the selected named profile only requests a preference change");
+    v.startup_profile_request.reset();
+    v.startup_profile_id=first.id;
+    v.startup_profile_uuid=live->data.identity.uuid;
+    v.startup_profile_slot=live->selected_slot;
+    v.controls_unlocked=false;
+    click("Apply on startup");
+    check(v.startup_profile_request==false&&v.profile_catalog_intents.empty()&&v.commands.empty(),
+        "the currently bound profile can disable its startup application while controls are locked");
+    v.startup_profile_request.reset();
+    ++live->generation;
+    click("Apply on startup");
+    check(!v.startup_profile_request,"an adapter change clears the selection before a startup request");
+    v.live.reset();
+    record_profile_library(v.profile_catalog_view,{});
+    if(auto* actions=open_profile_popup(v)){
+        ImGui::ActivateItemByID(actions->GetID("Disable startup profile"));frame(v);
+    }
+    check(v.startup_profile_request==false&&v.profile_catalog_intents.empty()&&v.commands.empty(),
+        "startup can be disabled when the configured profile and its adapter are unavailable");
+}
+
+void classic_profile_save() {
+    auto live=std::make_shared<SessionSnapshot>(fixture());
+    ViewState v;
+    v.live=live;v.preview=false;v.controls_unlocked=false;
+    frame(v);v.profile_catalog_intents.clear();
+    const char* save_button="Save...##classic-profile-save";
+    const auto press=[&](ImGuiWindow* popup,const char* label) {
+        ImGui::ActivateItemByID(popup->GetID(label));return frame(v);
+    };
+    auto* popup=open_profile_popup(v,save_button);
+    check(popup&&!v.toolbar_save_request&&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "Save opens on a locked GPU while the empty library is loading");
+    if (!popup) return;
+    auto text=frame(v);
+    check(!v.toolbar_save_draft.slot&&!v.toolbar_save_draft.name[0]&&has(text,"Reading saved profiles"),
+          "a new library save starts with an empty name and shares the existing read");
+    record_profile_library(v.profile_catalog_view,{});
+    press(popup,"Save profile");
+    check(!v.toolbar_save_request,"a blank profile name cannot be submitted");
+    press(popup,"##save-profile-name");ImGui::GetIO().AddInputCharactersUTF8("Quiet");frame(v);
+    press(popup,"Save profile");
+    check(v.toolbar_save_request&&v.toolbar_save_request->name=="Quiet"&&!v.toolbar_save_request->slot
+          &&v.toolbar_save_request->scope==ProfileScope::daily&&v.toolbar_save_request->replace_id.empty()
+          &&v.toolbar_save_request->generation==live->generation&&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "library Save captures current daily settings while locked and queues only its save request");
+    check(!open_profile_popup(v,save_button),"the pending request blocks duplicate saves");
+    v.toolbar_save_request.reset();v.toolbar_save_pending=true;
+    check(!open_profile_popup(v,save_button),"capture in progress blocks another toolbar save");
+    v.toolbar_save_pending=false;
+
+    popup=open_profile_popup(v,"3##classic-profile-quick");
+    if (!popup) {check(false,"empty quick slot opens Save");return;}
+    check(v.toolbar_save_draft.slot==2&&std::string(v.toolbar_save_draft.name.data())=="Profile 3",
+          "empty slot Save suggests an editable name and picks the clicked slot");
+    v.quick_profiles.ids[2]="assigned-in-another-window";press(popup,"Save profile");
+    check(!v.toolbar_save_request,"a changed slot cannot silently receive a save");
+    press(popup,"Cancel");
+    v.quick_profiles.ids[2].clear();
+    popup=open_profile_popup(v,"3##classic-profile-quick");
+    if (!popup) {check(false,"empty quick slot reopens after cancel");return;}
+    press(popup,"##save-profile-scope");
+    const auto& scope_stack=ImGui::GetCurrentContext()->OpenPopupStack;
+    auto* scopes=scope_stack.empty()?nullptr:scope_stack.back().Window;
+    if (scopes&&scopes!=popup) press(scopes,profile_scope_name(ProfileScope::curve));
+    press(popup,"Save profile");
+    check(v.toolbar_save_request&&v.toolbar_save_request->slot==2&&v.toolbar_save_request->name=="Profile 3"
+          &&v.toolbar_save_request->expected_slot_id==std::string{}&&v.toolbar_save_request->scope==ProfileScope::curve,
+          "an empty slot saves the chosen capture scope with its original empty assignment");
+    v.toolbar_save_request.reset();
+
+    ProfileLibraryEntry entry;
+    entry.name="Desk";entry.id="native/desk.json";entry.source="Native";
+    entry.document=ProfileJson{{"format","druta-native-daily"},{"version",1},
+        {"target",{{"uuid",live->data.identity.uuid},{"slot",live->selected_slot}}},
+        {"controls",{{"boost",{{"value",15},{"unit","%"}}}}}};
+    record_profile_library(v.profile_catalog_view,{entry});
+    v.quick_profiles.ids[0]=entry.id;
+    v.classic_profile_bar.selected=ViewState::ClassicProfileBar::Selection{
+        live->generation,entry.id,entry.name,*entry.document,false};
+    auto* workspace=ImGui::FindWindowByName("Druta workspace");
+    ImGui::FocusWindow(workspace);
+    ImGui::SetNavID(workspace->GetID("1##classic-profile-quick"),ImGuiNavLayer_Main,workspace->NavRootFocusScopeId,{});
+    frame(v);
+    const auto slot_center=ImGui::WindowRectRelToAbs(workspace,workspace->NavRectRel[ImGuiNavLayer_Main]).GetCenter();
+    const auto right_click_slot=[&]() -> ImGuiWindow* {
+        auto& io=ImGui::GetIO();
+        io.AddMousePosEvent(slot_center.x,slot_center.y);frame(v);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Right,true);frame(v);
+        io.AddMouseButtonEvent(ImGuiMouseButton_Right,false);frame(v);
+        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        return stack.empty()?nullptr:stack.back().Window;
+    };
+    popup=right_click_slot();
+    check(popup&&v.toolbar_save_draft.slot==0&&std::string(v.toolbar_save_draft.name.data())=="Desk"
+          &&!v.toolbar_save_request&&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "right-clicking an occupied slot opens its Update form while controls are locked");
+    if (popup) press(popup,"Cancel");
+    v.quick_profiles.ids[0]="missing-profile.json";
+    popup=right_click_slot();
+    check(popup&&v.toolbar_save_draft.slot==0&&v.toolbar_save_draft.expected_slot_id=="missing-profile.json"
+          &&std::string(v.toolbar_save_draft.name.data())=="Profile 1"&&!v.toolbar_save_request
+          &&v.commands.empty()&&v.profile_catalog_intents.empty(),
+          "right-clicking an unavailable slot opens Save with a new name and the original assignment");
+    if (popup) press(popup,"Cancel");
+    v.quick_profiles.ids[0]=entry.id;
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"selected profile opens Save");return;}
+    text=frame(v);
+    check(std::string(v.toolbar_save_draft.name.data())=="Desk"&&has(text,"Update profile"),
+          "saving an existing named profile prefills the name and explicitly offers Update");
+    press(popup,"##save-profile-destination");
+    const auto& destination_stack=ImGui::GetCurrentContext()->OpenPopupStack;
+    auto* destinations=destination_stack.empty()?nullptr:destination_stack.back().Window;
+    if (destinations&&destinations!=popup) press(destinations,"Slot 1  Desk");
+    press(popup,"Update profile");
+    check(v.toolbar_save_request&&v.toolbar_save_request->slot==0&&v.toolbar_save_request->expected_slot_id==entry.id
+          &&v.toolbar_save_request->replace_id==entry.id&&v.toolbar_save_request->replace_document==entry.document,
+          "Update identifies the chosen slot and the exact native profile document approved for replacement");
+    v.toolbar_save_request.reset();
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"profile update popup reopens");return;}
+    auto foreign=entry;(*foreign.document)["target"]["uuid"]="GPU-other";
+    record_profile_library(v.profile_catalog_view,{foreign});
+    text=press(popup,"Update profile");
+    check(!v.toolbar_save_request&&has(text,"Choose another name"),"Save blocks an existing name bound to another GPU");
+    ++live->generation;frame(v);
+    check(ImGui::GetCurrentContext()->OpenPopupStack.empty()&&!v.toolbar_save_request&&v.commands.empty(),
+          "adapter changes discard the open Save popup without applying or saving");
+
+    v.toolbar_save_preference_change={};
+    v.quick_profiles.save_scope=ProfileScope::daily;
+    v.quick_profiles.save_slot=0;
+    v.profile_catalog_view.library.clear();
+    v.profile_catalog_view.library_loading=true;
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"toolbar Save opens with stored defaults while loading");return;}
+    const auto& draft=v.toolbar_save_draft;
+    const auto& change=v.toolbar_save_preference_change;
+    check(draft.slot==0&&draft.scope==ProfileScope::daily&&draft.expected_slot_id==entry.id
+          &&!change.scope&&!change.destination_changed,"opening Save reads both defaults without rewriting them");
+    record_profile_library(v.profile_catalog_view,{entry});frame(v);
+    check(std::string(draft.name.data())==entry.name&&draft.expected_slot_id==entry.id,
+          "the first library result fills the matching saved profile name for the remembered slot");
+    const auto choose=[&](const char* selector,const char* label) {
+        press(popup,selector);
+        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        if (!stack.empty()&&stack.back().Window&&stack.back().Window!=popup) press(stack.back().Window,label);
+        else check(false,"Save preference dropdown opens");
+    };
+    choose("##save-profile-scope",profile_scope_name(ProfileScope::full_tune));
+    check(change.scope==ProfileScope::full_tune&&!change.destination_changed&&draft.slot==0
+          &&std::string(draft.name.data())=="Profile 1",
+          "choosing another scope remembers only Capture and suggests a fresh name for the occupied slot");
+    choose("##save-profile-destination","Slot 4  Unassigned");
+    press(popup,"Cancel");
+    check(change.destination_changed&&change.slot==3&&change.scope==ProfileScope::full_tune
+          &&!v.toolbar_save_request&&v.commands.empty(),"both choices survive Cancel without capturing settings");
+    v.quick_profiles.save_scope=change.scope;
+    v.quick_profiles.save_slot=change.slot;
+    v.toolbar_save_preference_change={};
+    popup=open_profile_popup(v,"3##classic-profile-quick");
+    if (!popup) {check(false,"explicit slot opens with stored Capture");return;}
+    check(draft.slot==2&&draft.scope==ProfileScope::full_tune&&!change.destination_changed,
+          "a clicked slot overrides the stored destination only for that form");
+    press(popup,"Cancel");
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"toolbar Save reopens after a slot override");return;}
+    check(draft.slot==3&&draft.scope==ProfileScope::full_tune,"toolbar Save reuses both remembered choices");
+    choose("##save-profile-destination","Library");
+    check(change.destination_changed&&!change.slot&&!change.scope&&draft.scope==ProfileScope::full_tune,
+          "Library can replace a remembered slot without changing Capture");
+    press(popup,"Cancel");
 }
 }
 int main(int argc,char** argv) {
@@ -528,6 +929,6 @@ int main(int argc,char** argv) {
     ImGui::CreateContext();ImPlot::CreateContext();auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DeltaTime=1.0f/60;
     ImFontConfig config;config.SizePixels=18;io.Fonts->AddFontDefault(&config);
     unsigned char* pixels;int width,height;io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);apply_theme(1);
-    rendering();history_menu();classic_menus();classic_device_and_help_menus();classic_header_and_profile_wording();ImPlot::DestroyContext();ImGui::DestroyContext();
+    rendering();history_menu();clock_verification_menu();classic_menus();classic_device_and_help_menus();classic_header_and_profile_wording();classic_profile_selector();classic_quick_profiles();classic_profile_save();ImPlot::DestroyContext();ImGui::DestroyContext();
     std::printf("App actions: %d failures\n",failures);return failures?1:0;
 }

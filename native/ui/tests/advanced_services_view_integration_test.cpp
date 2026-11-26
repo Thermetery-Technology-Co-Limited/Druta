@@ -47,12 +47,10 @@ void pages(Presentation presentation){
     check(root!=nullptr,"profile host exists");
     if(root){
         if(presentation==Presentation::classic){
-            // Classic follows 1.9.1: no header profile row; the native catalog
-            // is an entry of the menu bar's Profiles menu.
-            ImGui::ActivateItemByID(ImHashStr("Profiles",0,root->GetID("##MenuBar")));frame(state);
+            ImGui::ActivateItemByID(root->GetID("Profile actions"));frame(state);
             const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
             auto* menu=stack.empty()?nullptr:stack.back().Window;
-            check(menu!=nullptr,"Classic Profiles menu opens");
+            check(menu!=nullptr,"Classic Profile actions opens from the selector bar");
             if(menu){ImGui::ActivateItemByID(menu->GetID("Profile catalog..."));text=frame(state);}
         }else{
             ImGui::ActivateItemByID(root->GetID("Profile catalog..."));text=frame(state);

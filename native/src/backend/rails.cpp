@@ -16,6 +16,7 @@
 #include "backend/telemetry.h"
 #include "core/calling.h"
 #include "core/mutex.h"
+#include "core/slot.h"
 #include "core/sleep.h"
 
 namespace druta::backend {
@@ -494,7 +495,92 @@ std::optional<double> Rails::live_mv(std::int32_t rail) {
     return row->live;
 }
 
-bool Rails::write_records_locked(const RailRecords& records, RailWriteOutcome& out) {
+void Rails::write_direct_v1(const RailRecord& wanted, const RailDeltas& previous,
+                            std::int32_t boost, RailWriteResult& result) {
+    // The direct V1 contract was qualified for the Pascal NVVDD record.
+    // Require both PCI providers to identify the selected card before use.
+    const Nvapi& nvapi = gpu_.nvapi;
+    const auto* nv = gpu_.nvml.selected;
+    if (!nvapi.ok || !nvapi.selected || !nvapi.gpu || nvapi.gpu != nvapi.selected->handle ||
+        !gpu_.nvml.ok || !nv || !nv->dev || gpu_.nvml.dev != nv->dev || gpu_.requested_slot.empty() ||
+        !gpu_.pairing_error.empty() || !same_slot(gpu_.requested_slot, nvapi.selected->slot) ||
+        !same_slot(gpu_.requested_slot, nv->slot) || nv->devid != nvapi.selected->devid ||
+        nv->subsys != nvapi.selected->subsys || nv->uuid.empty()) return;
+    const auto setter = nvapi.get<HandlePtrFn>(nvapi_id::VoltRailsCtlSet);
+    if (!setter || boost < 0 || boost > 100) return;
+
+    constexpr std::size_t nvvdd = 0, peer = 1;
+    constexpr std::size_t size = kRailControlV1 & 0xffff;
+    constexpr std::size_t row = kRailRecordBase / sizeof(std::uint32_t);
+    constexpr std::size_t row_end = kRailRecordBase + 7 * sizeof(std::uint32_t);
+    const auto abs = state_or_empty(state());
+    const auto before = blocks(RailGetter::Control, kRailControlV1);
+    const auto again = blocks(RailGetter::Control, kRailControlV1);
+    if (!valid_state(nvvdd, abs[nvvdd]) || !before.rails[nvvdd] || before.rails != again.rails ||
+        telemetry_.read_voltage_boost() != boost) {
+        result.error = "Legacy NVVDD control, peer state or boost could not be confirmed before SET.";
+        return;
+    }
+    const auto& original = *before.rails[nvvdd];
+    const auto zero = [&](std::size_t start, std::size_t end) {
+        return std::all_of(original.begin() + start, original.begin() + end, [](auto byte) { return byte == 0; });
+    };
+    if (word_u32(original, 0) != kRailControlV1 || word_u32(original, 1) != 1 ||
+        word_u32(original, 2) != static_cast<std::uint32_t>(boost) ||
+        word_i32(original, row) != previous.type || word_u32(original, row) != abs[nvvdd]->type ||
+        !zero(3 * sizeof(std::uint32_t), kRailRecordBase) || !zero(row_end, original.size()) ||
+        (abs[peer] && (!valid_state(peer, abs[peer]) || !before.rails[peer] ||
+                      word_u32(*before.rails[peer], record_word(peer)) != abs[peer]->type)) ||
+        (!abs[peer] && before.rails[peer] && word_u32(*before.rails[peer], record_word(peer)) != 0)) {
+        result.error = "Legacy V1 rail reply does not match the qualified NVVDD layout. No SET issued.";
+        return;
+    }
+    const auto prior = fields_of(previous);
+    RailBlock expected = original;
+    for (std::size_t field = 0; field < wanted.count; ++field) {
+        if (word_i32(original, row + 1 + field) != microvolts(prior[field])) {
+            result.error = "The NVVDD requests changed before the legacy V1 SET. No SET issued.";
+            return;
+        }
+        put_u32(expected, row + 1 + field, static_cast<std::uint32_t>(wanted.values[field]));
+    }
+
+    // Submit only the declared record with guards. The two additional signed
+    // offsets are opaque and are carried over exactly from the singleton GET.
+    constexpr std::size_t guard_words = 16;
+    constexpr std::uint32_t guard = 0xA5A5A5A5u;
+    std::array<std::uint32_t, size / sizeof(std::uint32_t) + 2 * guard_words> storage;
+    storage.fill(guard);
+    auto* request = storage.data() + guard_words;
+    std::memcpy(request, expected.data(), size);
+    result.direct_v1 = true;
+    const int status = setter(nvapi.gpu, request);
+    result.status = static_cast<std::uint32_t>(status);
+    const auto intact = [](std::uint32_t value) { return value == guard; };
+    if (!std::all_of(storage.begin(), storage.begin() + guard_words, intact) ||
+        !std::all_of(storage.end() - guard_words, storage.end(), intact) ||
+        std::memcmp(request, expected.data(), size) != 0) {
+        result.error = "The driver modified the legacy V1 SET buffer. Rail state is unverified.";
+        return;
+    }
+    if (status != 0) {
+        result.error = "Legacy V1 rail SET returned NVAPI status " + std::to_string(status) + ".";
+        return;
+    }
+    const auto after = blocks(RailGetter::Control, kRailControlV1);
+    const auto after_abs = state_or_empty(state());
+    if (after.rails[nvvdd] != expected || after.rails[peer] != before.rails[peer] ||
+        !valid_state(nvvdd, after_abs[nvvdd]) || after_abs[peer].has_value() != abs[peer].has_value() ||
+        (abs[peer] && !valid_state(peer, after_abs[peer])) || telemetry_.read_voltage_boost() != boost) {
+        result.error = "Legacy V1 rail SET returned success, but the request, peer or boost readback differs.";
+        return;
+    }
+    result.error.clear();
+    result.done = true;
+}
+
+bool Rails::write_records_locked(const RailRecords& records, const std::optional<RailLimits>& previous,
+                                 RailWriteOutcome& out) {
     // _write_rail_records_locked: recognize the observed RM packet independently of the NVAPI getter
     // version; the preconditions below return (False, None) without touching the attributes.
     if (!limits_supported(std::nullopt)) return false;
@@ -552,6 +638,15 @@ bool Rails::write_records_locked(const RailRecords& records, RailWriteOutcome& o
     }
     out.result = rail_write_locked(gpu_, control_version, rail_mask, raw, records.count,
                                    static_cast<std::uint32_t>(*boost));
+    if (out.result.no_matching_get && control_version == kRailControlV1 && rail_mask == 1 &&
+        (telemetry_.arch() == kArchPascal ||
+         (telemetry_.arch() == kArchAmpere && out.result.v1_972_get)) && previous && (*previous)[0])
+        write_direct_v1(records.records[0], (*previous)[0]->deltas, *boost, out.result);
+    if (records.count == 1) {
+        auto& evidence = caches_.writer_evidence[raw[0].rail];
+        if (out.result.protocol || (out.result.direct_v1 && out.result.done)) evidence = RailWriterEvidence::recognized;
+        else if (out.result.no_matching_get && !out.result.direct_v1) evidence = RailWriterEvidence::no_match;
+    }
     return true;
 }
 
@@ -573,7 +668,7 @@ RailWriteOutcome Rails::write_records(const RailRecords& records) {
         }
         if (settle) boost = telemetry_.read_voltage_boost();
     }
-    bool ran = write_records_locked(records, out);
+    bool ran = write_records_locked(records, previous, out);
     if (out.type_error) return out;  // Python raised: nothing after it runs
     out.ok = ran && out.result.done;
     out.status = ran ? out.result.status : std::nullopt;
@@ -586,7 +681,7 @@ RailWriteOutcome Rails::write_records(const RailRecords& records) {
             out.ok = false;
             return out;
         }
-        ran = write_records_locked(records, out);
+        ran = write_records_locked(records, verified.back, out);
         out.ok = ran && out.result.done;
         out.status = ran ? out.result.status : std::nullopt;
     }
@@ -1248,10 +1343,14 @@ HoldOutcome Rails::apply_hold(double hold_mv, double margin_mv, std::uint32_t in
         return failed(prefix + (back.ok == 1 ? std::string("limits restored") : "RESTORE FAILED: " + back.message));
     };
     if (!w.ok && !w.status) {
-        // no SET was issued
         hold_ = HoldRecord{};
-        if (trace.last_attributes && !trace.result.error.empty()) return failed(trace.result.error);
-        return failed("the rails request was not seen - nothing was written");
+        HoldOutcome outcome=failed(trace.last_attributes && !trace.result.error.empty()
+            ? trace.result.error : "the rails request was not seen - nothing was written");
+        // One outer writer call can contain two locked writes for VMIN settling.
+        // Only a single traced attempt proves its final result covers every SET.
+        outcome.writer_issued_no_set=!replanning && exact && trace.calls==1 && w.writes==1 &&
+            w.attributes && !w.result.done && !w.result.status;
+        return outcome;
     }
     // a SET was issued but not confirmed (a follow-up step failed)
     if (!w.ok) return rollback("the headroom write was issued but not confirmed; ");

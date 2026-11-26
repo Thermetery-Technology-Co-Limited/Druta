@@ -109,17 +109,21 @@ struct RailState {
     double live = 0, reliability = 0, alt_reliability = 0, overvoltage = 0, effective = 0, vmin = 0;
 };
 
-// The four caches, as the GPU keeps them. An absent optional is an absent dict key.
+enum class RailWriterEvidence : std::uint32_t { untested, recognized, no_match };
+
+// Getter caches and independent per-rail observations of the write transport.
 struct RailCaches {
     std::array<std::optional<std::uint32_t>, kRailGetters> known;  // bit r: rail r in the tuple
     std::array<std::array<std::optional<double>, kRailCount>, kRailGetters> retry_after;
     std::array<std::array<std::optional<RailDiagnostic>, kRailCount>, kRailGetters> diagnostics;
     std::array<std::optional<std::uint32_t>, kRailGetters> versions;
+    std::array<RailWriterEvidence, kRailCount> writer_evidence{};
 };
 
 inline constexpr double kVoltLimitMinMv = 650.0;   // VOLT_LIMIT_MIN_MV (a request bound, not a measurement)
 inline constexpr double kVoltLimitMaxMv = 1200.0;  // VOLT_LIMIT_MAX_MV (the same)
 inline constexpr double kVoltLimitXocMaxMv = 1500.0;  // VOLT_LIMIT_XOC_MAX_MV (the same, with XOC on)
+inline constexpr std::uint32_t kArchAmpere = 7;
 inline constexpr std::uint32_t kArchPascal = 4;    // GPU.ARCH_PASCAL (NVML's enum)
 
 // _RAIL_NAME[rail] for rails 0 and 1 ("core rail (NVVDD)", "MSVDD"); nullptr for any other rail.
@@ -269,6 +273,7 @@ struct HoldOutcome {
     std::string message;
     std::optional<std::size_t> key_error;
     bool aborted = false;  // the before_write hook raised a BaseException: the binding re-raises it
+    bool writer_issued_no_set = false;
 };
 
 // What apply_hold_headroom's before_write(record) returned: anything but False (proceed), False,
@@ -421,7 +426,10 @@ private:
     bool has_reference() const { return !order_.empty(); }
     // _write_rail_records_locked: false when a precondition refused or the rail mask raised (nothing
     // ran, attributes untouched; out.type_error tells the two apart).
-    bool write_records_locked(const RailRecords& records, RailWriteOutcome& out);
+    bool write_records_locked(const RailRecords& records, const std::optional<RailLimits>& previous,
+                              RailWriteOutcome& out);
+    void write_direct_v1(const RailRecord& wanted, const RailDeltas& previous,
+                         std::int32_t boost, RailWriteResult& result);
     // write_records, noting what it left in the writer's attributes.
     RailWriteOutcome write_traced(const RailRecords& records, RailWriterTrace& trace);
 

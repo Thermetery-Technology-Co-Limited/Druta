@@ -53,10 +53,8 @@ Divergences of R3:
   without raising when the profile is None.
 - ``stock_limit_mv`` raises KeyError for a key outside ``VOLT_LIMIT_FIELDS`` (TypeError for an
   unhashable key) at the point Python does: after the reads and the profile and first-read checks.
-- ``volt_rail_diagnostics``: ``"getters"`` is a rebuilt copy of the getter diagnostics cache (Python
-  returns the cache dict itself); ``"adapter"`` comes from ``gpu.static``; ``"last_write_error"``,
-  ``"observed_packets"`` and ``"write_protocol"`` are None, [] and None, because the rail writer
-  that owns them is not ported yet.
+- ``volt_rail_diagnostics`` rebuilds ``"getters"`` from the native getter diagnostics cache.
+  The adapter identity and the writer's last observations come from the selected GPU object.
 - ``_headroom_mv`` and the profile's ``headroom_mv`` are always None: the reference holds only
   ``"bases"``, as Python's does (R6 does not change that).
 
@@ -586,7 +584,7 @@ def volt_rail_profile(gpu):
 
 
 def volt_rail_diagnostics(gpu):
-    """GPU.volt_rail_diagnostics(); the writer's keys are None, [] and None (not ported yet)."""
+    """Report current rail reads alongside the writer observations retained by this GPU."""
     d = _new(_Diagnosis)
     _check(load().dc_rails_diagnostics(gpu._handle, ctypes.byref(d)))
     rails = {}
@@ -595,6 +593,8 @@ def volt_rail_diagnostics(gpu):
         if e.present:
             rails[rail] = {"available": bool(e.available), "reason": e.reason.decode()}
     identity = getattr(gpu, "static", {})
+    # A fresh handle has no writer observations until the first write attempt.
+    observations = vars(gpu)
     return {"available": bool(d.available),
             "reason": d.reason.decode(),
             "architecture": d.architecture if d.has_architecture else None,
@@ -603,9 +603,9 @@ def volt_rail_diagnostics(gpu):
             "adapter": {"slot": identity.get("slot"),
                         **{key: identity.get(key) for key in ("name", "driver", "vbios")}},
             "getters": caches(gpu)["_volt_rail_getter_diagnostics"],
-            "last_write_error": None,
-            "observed_packets": [],
-            "write_protocol": None}
+            "last_write_error": observations.get("_volt_rail_write_error"),
+            "observed_packets": observations.get("_volt_rail_observed_packets", []),
+            "write_protocol": observations.get("_volt_rail_write_protocol")}
 
 
 def volt_rail_limits_supported(gpu, rail=None):

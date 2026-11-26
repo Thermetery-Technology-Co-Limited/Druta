@@ -47,6 +47,7 @@ std::optional<CapturedTransport> RmTransport::capture_power() {
     CaptureResult r = capture_power_transport(gpu_, telemetry_);
     observed = r.observed;
     last_capture_no_escape_path_ = r.no_escape_path;
+    last_capture_legacy_power_pair_ = r.legacy_power_pair;
     return r.transport;
 }
 
@@ -60,6 +61,11 @@ TransportResult RmTransport::power_transport() {
         layout_choice.reset();
         std::optional<CapturedTransport> captured = capture_power();
         if (!captured) {
+            if (last_capture_legacy_power_pair_) {
+                out.error = unsupported("The driver uses a legacy power-policy envelope without a supported private table reader");
+                out.error.legacy_power_pair = true;
+                return out;
+            }
             char seen[96];
             std::snprintf(seen, sizeof seen, "observed 0x%08X, %u/%u bytes", static_cast<unsigned>(observed.command_id),
                           static_cast<unsigned>(observed.packet_bytes), static_cast<unsigned>(observed.parameter_bytes));

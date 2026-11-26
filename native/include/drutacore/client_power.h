@@ -28,7 +28,8 @@ extern "C" {
 #define DC_CP_FIRST_PAYLOAD_KEY 5  /* state_keys[5 + i] is payload i */
 
 /* group_sizes[] rows: SIZES, LEGACY_SIZES, TURING_SIZES, INFO216_SIZES, RM26_SIZES,
- * RM26_EXTENDED_SIZES, A612_COMPACT_SIZES. */
+ * RM26_EXTENDED_SIZES, A612_COMPACT_SIZES. INFO200_SIZES is a runtime
+ * controller group and is outside the fixed-size constants catalog. */
 enum {
     DC_CP_SIZES = 0,
     DC_CP_LEGACY_SIZES = 1,
@@ -36,7 +37,8 @@ enum {
     DC_CP_INFO216_SIZES = 3,
     DC_CP_RM26_SIZES = 4,
     DC_CP_RM26_EXTENDED_SIZES = 5,
-    DC_CP_A612_COMPACT_SIZES = 6
+    DC_CP_A612_COMPACT_SIZES = 6,
+    DC_CP_INFO200_SIZES = 7
 };
 
 typedef struct dc_cp_constants {
@@ -64,7 +66,7 @@ DC_API dc_status DC_CALL dc_cp_constants_get(dc_cp_constants* out);
  * present value that matches no understood name. */
 enum { DC_CP_ABSENT = 0, DC_CP_OTHER = 1 };
 enum { DC_CP_LAYOUT_RM26 = 2, DC_CP_LAYOUT_LEGACY32 = 3 };
-enum { DC_CP_NATIVE_POLICY124 = 2, DC_CP_NATIVE_RM26_EXTENDED = 3 };
+enum { DC_CP_NATIVE_POLICY124 = 2, DC_CP_NATIVE_RM26_EXTENDED = 3, DC_CP_NATIVE_POLICY116 = 4 };
 
 typedef struct dc_cp_binding {
     int32_t layout;        /* DC_CP_ABSENT, DC_CP_OTHER or DC_CP_LAYOUT_* */

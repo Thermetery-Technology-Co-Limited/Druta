@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "profile_io.h"
+#include "profile_catalog.h"
 #include <optional>
 #include <vector>
 namespace druta::ui {
@@ -16,6 +16,7 @@ struct ProfileLibraryEntry {
  bool autosave=false,library_owned=false;
  double timestamp=0;
  std::optional<ProfileJson> document;
+ ProfileDescription description;
 };
 // Resolving/discovering never creates directories or reads profiles.
 std::vector<ProfileLibraryDirectory> discover_profile_directories(const ProfileLibraryPaths& paths={});
@@ -24,6 +25,8 @@ std::vector<ProfileLibraryEntry> list_profile_library(const std::vector<ProfileL
 const ProfileLibraryEntry* newest_profile_autosave(const std::vector<ProfileLibraryEntry>& newest_first);
 // Exact typed JSON is preserved. Only the native destination is written.
 // Named saves replace the same sanitized name atomically; autosaves never collide.
+std::string profile_library_named_stem(const std::string& name);
+std::string profile_library_id(const std::wstring& path);
 std::wstring profile_library_named_path(const ProfileLibraryDirectory& native,const std::string& name);
 std::wstring save_library_profile(const ProfileLibraryDirectory& native,const std::string& name,const ProfileJson&);
 std::wstring save_library_autosave(const ProfileLibraryDirectory& native,const std::string& action,const ProfileJson&);

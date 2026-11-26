@@ -50,6 +50,14 @@ INFO216_SIZES = {
     ROLE_INFO: 220,
     NATIVE_INFO: 8236, NATIVE_CONTROL: 4432, NATIVE_STATUS: 171048,
 }
+# The 560.94 kernel dispatch uses a 204-byte role GET and 200-byte INFO
+# records. The role and native GETs must agree on the selected definition.
+INFO200_SIZES = {
+    **LEGACY_SIZES,
+    ROLE_INFO: 204,
+    NATIVE_INFO: 7724, NATIVE_CONTROL: 4172, NATIVE_STATUS: 149928,
+}
+_INFO200_KEY = (0x2080A612, 3676, 3608)
 # Generations whose client power-policy semantics have been validated against
 # a live adapter, and so may fall back from the modern client group to the
 # smaller one. Generation decides whether the semantics are understood at all;
@@ -69,11 +77,9 @@ RM26_EXTENDED_SIZES = {
     INFO: 900, CONTROL: 388, SET: 388, ROLE_INFO: 136,
     NATIVE_INFO: 5520, NATIVE_CONTROL: 2124, NATIVE_STATUS: 69148,
 }
-# The compact record layout above, reached through the A612 command family
-# rather than the 26xx one. Command family and record layout are independent:
-# this driver answers 0x2080A6xx while laying its policies out the compact
-# way, with a 128-byte native INFO record of its own. Selected by read-only
-# INFO acceptance like every other group.
+# Both A612 and extended RM26 can carry this 128-byte native INFO record.
+# Its 132-byte role GET distinguishes it from the 136-byte extended RM26
+# role. The transport continues to determine the wire commands.
 A612_COMPACT_SIZES = {
     INFO: 900, CONTROL: 388, SET: 388, ROLE_INFO: 132,
     NATIVE_INFO: 5392, NATIVE_CONTROL: 2124, NATIVE_STATUS: 70684,
@@ -156,6 +162,8 @@ def _small_native_geometry(binding):
     """Native control size/stride selected by the accepted INFO geometry."""
     if binding.get("native_layout") == "policy124":
         return TURING_SIZES[NATIVE_CONTROL], 124
+    if binding.get("native_layout") == "policy116":
+        return INFO200_SIZES[NATIVE_CONTROL], 116
     return LEGACY_SIZES[NATIVE_CONTROL], 184
 
 
@@ -165,7 +173,7 @@ def _definition_stride(role_info_size):
     The role parameter is a 4-byte semantic selector followed by exactly one
     native policy INFO record, so its accepted size fixes that record's
     stride. This holds for every ABI measured so far - 264/260, 232/228,
-    220/216, 136/132 and 120/116 - which is why the stride is derived from
+    220/216, 204/200, 136/132, 132/128 and 120/116 - which is why the stride is derived from
     the accepted role size rather than carried as a per-table constant. The
     derived value is not trusted blindly: it has to bind the role definition
     to exactly one occupied native policy before anything uses it.
@@ -187,7 +195,8 @@ def _native_geometry(binding):
         return 52, stride or 116, 4, 52, RM26_SIZES[NATIVE_CONTROL]
     if binding.get("layout") == "legacy32":
         size, control_stride = _small_native_geometry(binding)
-        return 88, stride or 228, 20, control_stride, size
+        info_stride = 200 if binding.get("native_layout") == "policy116" else 228
+        return 88, stride or info_stride, 20, control_stride, size
     return (NATIVE_INFO_BASE, stride or NATIVE_INFO_STRIDE,
             NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE, SIZES[NATIVE_CONTROL])
 
@@ -262,6 +271,8 @@ class ClientPowerController:
         self._rm26_records = False
         self._rm26 = False
         self._rm26_extended = False
+        self._rm26_role_selected = False
+        self._legacy_metadata_matched = False
         self._transport_key = None
 
     def _reset_transport(self):
@@ -309,7 +320,8 @@ class ClientPowerController:
                     raise ClientPowerError(
                         "unsupported", "This client-power RM26 ABI is not qualified for this GPU generation")
                 self._rm26_extended = extended
-                self.sizes = RM26_EXTENDED_SIZES if self._rm26_extended else RM26_SIZES
+                if self._transport_key is None:
+                    self.sizes = RM26_EXTENDED_SIZES if extended else RM26_SIZES
                 self._rm26 = self._rm26_records = True
             else:
                 if self._rm26:
@@ -410,6 +422,36 @@ class ClientPowerController:
             return info
         raise ClientPowerError("unsupported", "No understood client-power group was accepted")
 
+    def _read_role_info(self):
+        selector = struct.pack("<I", ROLE)
+        while True:
+            try:
+                role = self._exchange(ROLE_INFO, selector.ljust(self.sizes[ROLE_INFO], b"\x00"))
+                break
+            except ClientPowerError as exc:
+                if exc.rm_status not in SIZE_REFUSALS:
+                    raise
+                if self._legacy and not self._legacy_metadata_matched:
+                    if not self._role_info216 and self.sizes is not INFO200_SIZES:
+                        self.sizes, self._role_info216 = INFO216_SIZES, True
+                        continue
+                    if self.sizes is INFO216_SIZES and self._transport_key == _INFO200_KEY:
+                        self.sizes, self._role_info216 = INFO200_SIZES, False
+                        continue
+                if not self._rm26 or not self._rm26_extended or self._rm26_role_selected:
+                    raise
+                previous = self.sizes
+                self.sizes = A612_COMPACT_SIZES
+                try:
+                    role = self._exchange(ROLE_INFO, selector.ljust(self.sizes[ROLE_INFO], b"\x00"))
+                except ClientPowerError:
+                    self.sizes = previous
+                    raise
+                break
+        if self._rm26 and self._rm26_extended:
+            self._rm26_role_selected = True
+        return role
+
     def _metadata_once(self):
         identity = self._binding()
         self._transport()  # Select the command family before allocating INFO.
@@ -432,20 +474,8 @@ class ClientPowerController:
         limits = struct.unpack_from("<III", row, 4)
         if not limits[0] <= limits[1] <= limits[2]:
             raise ClientPowerError("malformed", "Client-power ordinary limits are inconsistent")
-        role_request = bytes([ROLE]) + bytes(self.sizes[ROLE_INFO] - 1)
-        try:
-            role = self._exchange(ROLE_INFO, role_request)
-        except ClientPowerError as exc:
-            # A role GET refused for its SIZE means this driver's native policy
-            # INFO record is not the one this table describes. That is a
-            # definite capability answer, so try the one other understood
-            # small-group record size; a transient error selects nothing.
-            if not self._legacy or self._role_info216 or exc.rm_status != 0x1F:
-                raise
-            self.sizes, self._role_info216 = INFO216_SIZES, True
-            role_request = bytes([ROLE]) + bytes(self.sizes[ROLE_INFO] - 1)
-            role = self._exchange(ROLE_INFO, role_request)
-        if role[:4] != role_request[:4]:
+        role = self._read_role_info()
+        if _u32(role, 0) != ROLE:
             raise ClientPowerError("malformed", "Power-role INFO changed its semantic selector")
         native_stride = _definition_stride(len(role))
         if native_stride <= 0 or native_stride % 4 or native_stride < 20:
@@ -454,8 +484,9 @@ class ClientPowerController:
         try:
             native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
         except ClientPowerError as exc:
-            if (not self._legacy or self._native_policy124 or self._role_info216
-                    or exc.rm_status != 0x1F):
+            if (not self._legacy or self._legacy_metadata_matched or self._native_policy124 or self._role_info216
+                    or self.sizes is INFO200_SIZES
+                    or exc.rm_status not in SIZE_REFUSALS):
                 raise
             self.sizes, self._native_policy124 = TURING_SIZES, True
             native_info = self._exchange(NATIVE_INFO, bytes(self.sizes[NATIVE_INFO]))
@@ -478,6 +509,10 @@ class ClientPowerController:
             raise ClientPowerError("malformed", "Client INFO differs from the bound native policy definition")
         if self._binding() != identity:
             raise ClientPowerError("identity", "Client-power target changed during metadata capture")
+        if self._legacy:
+            self._legacy_metadata_matched = True
+        if self.sizes is INFO200_SIZES:
+            default_stride = 200
         return {
             "schema": 1,
             "stable_reads": 2,
@@ -496,6 +531,7 @@ class ClientPowerController:
                 **({"native_layout": "rm26_extended"} if self._rm26_extended else {}),
                 **({"native_layout": "policy124"}
                    if self._native_policy124 or self._role_info216 else {}),
+                **({"native_layout": "policy116"} if self.sizes is INFO200_SIZES else {}),
                 # Recorded only when the derived record stride differs from
                 # this layout's usual one, so bindings captured on every
                 # previously supported ABI stay byte-identical.

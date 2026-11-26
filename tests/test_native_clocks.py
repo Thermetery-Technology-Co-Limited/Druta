@@ -34,11 +34,48 @@ class ClockGridTests(ParityCase):
         self.assertEqual(len(rows[3][1]), 100)
 
     def test_grid_falls_back_without_a_table(self):
-        rig = ClockRig()
+        rig = ClockRig(with_curve=False)
         rig.nvml.exports.pop("nvmlDeviceGetSupportedGraphicsClocks")
         self.assertEqual(self.both(rig, lambda g: (g.clock_step_khz(), g.step_is_measured()))[0], (15000, False))
-        short = ClockRig(grid=[2100, 2085, 2070])
+        short = ClockRig(grid=[2100, 2085, 2070], with_curve=False)
         self.assertEqual(self.both(short, lambda g: (g.clock_step_khz(), g.step_is_measured()))[0], (15000, False))
+
+    def test_grid_from_sparse_curve_and_quantized_adjacent_bins(self):
+        # Driver rounds to whole MHz in the wire domain. Neither the frequency
+        # base nor the skipped V/F rows need match the hardware used to qualify it.
+        bins = [0, 0, 3, 8, 16, 19, 22, 24, 31, 32, 35, *range(36, 65), 64]
+        for arch, divisor, step in ((4, 2, 12656.25), (6, 1, 18500)):
+            rows = [(500000 + i * 6250, 1000 * round((412500 + b * step) * divisor / 1000))
+                    for i, b in enumerate(bins)]
+            rig = ClockRig(arch=arch, grid=[], rows=rows)
+            with self.subTest(arch=arch), rig.native_gpu() as gpu:
+                self.assertAlmostEqual(gpu.clock_step_khz(), step, delta=10)
+                self.assertFalse(gpu.step_is_measured())
+                self.assertEqual(gpu.max_rise_khz(), 3 * gpu.clock_step_khz())
+                self.assertFalse(any(c[0] in ("BoostTableSet", "Pstates20Set", "SetClockOffsets") for c in rig.calls))
+
+    def test_irregular_shaped_flat_or_uniformly_sampled_curves_do_not_qualify_a_grid(self):
+        bins = [0, 3, 8, 15, *range(16, 34)]
+        base = [(500000 + i * 6250, 300000 + 12500 * b) for i, b in enumerate(bins)]
+        for kind in ("irregular", "shaped", "flat", "uniform"):
+            rows = list(base)
+            if kind == "irregular":
+                rows[1] = (rows[1][0], rows[1][1] + 5000)
+            elif kind == "flat":
+                rows = [(v, 900000) for v, f in rows]
+            elif kind == "uniform":
+                rows = [(v, 300000 + i * 30000) for i, (v, f) in enumerate(rows)]
+            rig = ClockRig(arch=6, grid=[], rows=rows)
+            if kind == "shaped":
+                rig.deltas[3] = 30000
+            with self.subTest(kind=kind), rig.native_gpu() as gpu:
+                self.assertEqual(gpu.clock_step_khz(), 15000)
+                self.assertFalse(gpu.step_is_measured())
+                if kind == "shaped":
+                    rig.deltas[3] = 0
+                    gpu.refresh_capabilities()
+                    self.assertEqual(gpu.clock_step_khz(), 12500)
+                    self.assertFalse(gpu.step_is_measured())
 
 
 class ClockOffsetTests(ParityCase):

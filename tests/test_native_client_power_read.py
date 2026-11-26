@@ -765,7 +765,7 @@ class AbiTests(unittest.TestCase):
     def test_the_payload_arrays_hold_every_group(self):
         o = native.Gpu._cp_observation_type()
         for name in ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES", "RM26_EXTENDED_SIZES",
-                     "A612_COMPACT_SIZES"):
+                     "A612_COMPACT_SIZES", "INFO200_SIZES"):
             sizes = getattr(cp, name)
             self.assertLessEqual(sizes[cp.CONTROL], o.control.size)
             self.assertLessEqual(sizes[cp.NATIVE_CONTROL], o.native_control.size)

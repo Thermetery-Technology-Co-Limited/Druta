@@ -145,6 +145,7 @@ struct PolicyInputs {
 using ReadPolicyInputs = PolicyInputs (*)(void* context);
 
 struct ReadPoliciesResult {  // read_power_policies: (rows, error)
+    bool legacy_power_pair = false;
     bool in_bounds = true;  // as PolicyRowsResult::in_bounds (Python raises instead of returning)
     bool caller_failed = false;  // PolicyInputs::failed: Python raised; no rows, nothing to store
     std::vector<PolicyRow> rows;

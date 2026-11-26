@@ -14,8 +14,10 @@ the implementation.
 
 # Active-goal priority
 
-This session targets parity with the released Python 1.9.1 frontend and
-behavior, including the user's explicitly requested layout differences. Work
+The shipping frontend is C++. The Python frontend is deprecated for future
+releases. Use the released 1.9.1 behavior as a reference when porting existing
+features. New frontend features and compatibility fixes belong in C++.
+Python remains supported for plug-in experiment scripts. Work
 only on concrete missing or mismatched functionality. Do not pursue purely
 theoretical issues, improvements beyond that scope, or closed GitHub issues.
 Check the current issue state before starting issue-linked work. Keep broader
@@ -33,9 +35,10 @@ panic/reset action: do not persist or automatically reapply tuning requests
 across it. Do not add restart-persistence validation as a functional objective.
 Releasing a live control's own request or freeing its owned API object is part
 of that control's lifecycle, not saved-profile restoration.
-Saving a profile does not authorize automatic startup or post-reset application
-of the new session-only controls. Applying their saved settings requires an
-explicit user action in the current session.
+Saving a profile and assigning a quick button are separate from authorizing
+startup application. The user may explicitly bind one supported named profile
+to its adapter for application at Windows sign-in. GPU driver resets continue
+to clear ordinary tuning for the session.
 
 The user authorizes a narrow exception for power relationship-weight overrides
 through registry/VBIOS configuration. These overrides require a GPU driver

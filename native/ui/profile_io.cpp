@@ -146,7 +146,8 @@ ProfileJson read_profile(const std::wstring& path, std::size_t maximum_bytes) {
     }
 }
 
-void write_profile(const std::wstring& path, const ProfileJson& document) {
+void write_profile(const std::wstring& path, const ProfileJson& document, ProfileWriteMode mode,
+                   const ProfileJson* expected_document) {
     const auto full_path = absolute_path(path);
     std::string bytes;
     try {
@@ -172,8 +173,22 @@ void write_profile(const std::wstring& path, const ProfileJson& document) {
     if (!FlushFileBuffers(temporary.file.handle)) failure("Flush profile temporary file", temporary.path, GetLastError());
     if (!CloseHandle(temporary.file.handle)) failure("Close profile temporary file", temporary.path, GetLastError());
     temporary.file.handle = INVALID_HANDLE_VALUE;
-    if (!MoveFileExW(temporary.path.c_str(), full_path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        failure("Replace profile", full_path, GetLastError());
+    // Serialize Druta writers across windows. Validate the reviewed document after staging
+    // the new bytes so a stale capture cannot overwrite a newer named profile.
+    File publication(CreateFileW((full_path + L".druta-write-lock").c_str(), GENERIC_WRITE | DELETE, 0,
+        nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr));
+    if (publication.handle == INVALID_HANDLE_VALUE) failure("Lock profile for saving", full_path, GetLastError());
+    if (mode == ProfileWriteMode::update_only) {
+        if (!expected_document || read_profile(full_path) != *expected_document)
+            throw std::runtime_error("The named profile changed. Refresh the library and review the update again.");
+        if (!ReplaceFileW(full_path.c_str(), temporary.path.c_str(), nullptr, 0, nullptr, nullptr))
+            failure("Update existing profile", full_path, GetLastError());
+    } else {
+        DWORD flags = MOVEFILE_WRITE_THROUGH;
+        if (mode == ProfileWriteMode::replace_or_create) flags |= MOVEFILE_REPLACE_EXISTING;
+        if (!MoveFileExW(temporary.path.c_str(), full_path.c_str(), flags))
+            failure(mode == ProfileWriteMode::create_only ? "Create new profile" : "Replace profile", full_path, GetLastError());
+    }
     temporary.owned = false;
 }
 }

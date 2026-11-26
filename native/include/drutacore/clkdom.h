@@ -18,6 +18,14 @@ extern "C" {
 #define DC_PRIV_DOMAINS 32
 #define DC_PRIV_CLK_WORDS 288
 
+/* NVML current clock readings from this adapter. Bits 0, 2, 3 select
+ * graphics, memory, video respectively. No private-array fallback. */
+typedef struct dc_public_clock_readings {
+    uint32_t size, present;
+    uint32_t mhz[4];
+} dc_public_clock_readings;
+DC_API dc_status DC_CALL dc_gpu_public_clock_readings(dc_gpu* gpu, dc_public_clock_readings* out);
+
 /* One row of read_clock_domains. has_* == 0 is Python's None. */
 typedef struct dc_clock_domain_row {
     uint32_t domain;

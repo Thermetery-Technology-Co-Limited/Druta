@@ -16,6 +16,8 @@ _volt_rail_observed_packets, the getter's block words 0-1, every forwarded
 escape with its packet bytes at the moment of the forward, and the final
 packet bytes."""
 import ctypes
+import json
+from pathlib import Path
 import threading
 import unittest
 from unittest.mock import Mock
@@ -227,6 +229,48 @@ class RailSpliceTests(HookCase):
                 self.assertEqual(sent[14 * 4:15 * 4], (0x20803214).to_bytes(4, "little"))
         _, sent = self.happy(1104, version=0x10AC8)  # and the version does not choose 716 either
         self.assertEqual(sent[14 * 4:15 * 4], (0x2080F214).to_bytes(4, "little"))
+
+    def test_titan_xp_same_getter_different_wire_geometry(self):
+        # Replay only the recorded getter metadata. The model supplies synthetic
+        # handles and payloads; all dispatches below go to its fake driver.
+        directory = Path(__file__).resolve().parents[1] / "experiments"
+        legacy = json.loads((directory / "runtime-rails-47212.json").read_text(encoding="utf-8"))
+        current = json.loads((directory / "titan-xp-rail-get-51215.json").read_text(encoding="utf-8"))
+        version = int(current["getter_version"], 16)
+        self.assertEqual(version, int(legacy["before"]["getters"]["VoltRailsCtlGet"]["0"]["version"], 16))
+        known = legacy["after"]["write_protocol"]
+        request, _ = self.happy(known["packet_size"], version=version)
+        self.assertEqual([rail_transport.packet_summary(request)], legacy["after"]["observed_packets"])
+
+        self.assertEqual(len(current["samples"]), 2)
+        for sample in current["samples"]:
+            self.assertEqual(sample["getter_status"], 0)
+            packet, = sample["escapes"]
+            incoming, returned = packet["input"], packet["returned"]
+            self.assertEqual(incoming["command"], known["get_command"])
+            self.assertEqual(returned["command"], incoming["command"])
+            self.assertEqual(returned["parameter_bytes"], incoming["parameter_bytes"])
+            self.assertEqual((packet["ntstatus"], returned["rm_status"]), (0, 0))
+            self.assertNotEqual(packet["packet_bytes"], known["packet_size"])
+
+            def get_request():
+                words = (u32 * (packet["packet_bytes"] // 4))()
+                words[2], words[11] = packet["packet_bytes"], incoming["completion"]
+                words[14:17] = [int(incoming["command"], 16), incoming["parameter_bytes"], incoming["rm_status"]]
+                # Give every known selector offset a matching value. The shape alone
+                # must distinguish these GETs; the new wire selector is unknown.
+                for layout in rail_transport.KNOWN_LAYOUTS:
+                    words[layout.mask_word] = current["requested_mask"]
+                return words
+
+            (_, (result, error, protocol_used, seen)), calls, _ = self.both(
+                RailRig([owner(get_request)]), write(control_version=version))
+            self.assertEqual(result, (False, None))
+            self.assertEqual(error, no_packet(0))
+            self.assertIsNone(protocol_used)
+            self.assertEqual(seen, [summary(get_request)])
+            self.assertEqual([event for event in calls if event[0] == "Escape"],
+                             [escape_log(build(get_request))])
 
     def test_an_unrelated_escape_first_is_forwarded_unchanged_and_rearms(self):
         steps = [owner(unrelated_packet()), owner(unrelated_packet(64)), owner(unrelated_packet(8196)),

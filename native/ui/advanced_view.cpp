@@ -7,6 +7,7 @@
 #include "classic_section.h"
 #include "policy_workspace.h"
 #include "clock_monitor_model.h"
+#include "vendor/json/json.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -53,6 +54,26 @@ bool private_clocks_stale(const SessionSnapshot& s) {
 // domain table shows; on Blackwell the requested control-block offset instead.
 LiveCell clock_domain_live(const SessionSnapshot& s, const AdvancedControl& c) {
     LiveCell live;
+    if (c.clock_check == ClockCheck::known_pattern) {
+        if (c.state.current) live.text = mhz(*c.state.current, true);
+        live.detail = "Configured offset. Previous tests of this pattern moved " + c.known_clocks + ".";
+        return live;
+    }
+    if (!c.observed_clocks.empty()) {
+        if (c.observed_private_domain && s.data.clock_monitor) {
+            for (const auto& sample : s.data.clock_monitor->rows) {
+                if (sample.raw.domain != *c.observed_private_domain || !sample.raw.has_meas_mhz) continue;
+                live.text = mhz(sample.raw.meas_mhz, false);
+                live.stale = private_clocks_stale(s);
+                live.detail = "Private clock counter B, domain " + std::to_string(sample.raw.domain) +
+                    ". P0 verification observed " + c.observed_clocks + ".";
+                return live;
+            }
+        }
+        if (c.state.current) live.text = mhz(*c.state.current, true);
+        live.detail = "Configured offset. P0 verification observed " + c.observed_clocks + ".";
+        return live;
+    }
     if (s.data.clock_domain_requests_only) {
         if (c.state.current && std::isfinite(*c.state.current)) live.text = mhz(*c.state.current, true);
         live.detail = "Requested control-block offset. On this generation the private clock getter's domains are not "
@@ -79,6 +100,46 @@ LiveCell clock_domain_live(const SessionSnapshot& s, const AdvancedControl& c) {
 std::string request_text(const ControlState& c) {
     if (!c.current || !std::isfinite(*c.current)) return "Configured request: --.";
     char buffer[96]{}; std::snprintf(buffer, sizeof(buffer), "Configured request: %.6g %s.", *c.current, c.unit.c_str()); return buffer;
+}
+// A readable offset can be tested before an editor exists for it. Both skins
+// dispatch the same worker command and show a fresh binding with each action.
+bool clock_check_row(const SessionSnapshot& s, const AdvancedControl& c, const char* label,
+                     bool unlocked, bool classic, std::vector<Command>& commands) {
+    if (!c.clock_check || *c.clock_check == ClockCheck::verified || *c.clock_check == ClockCheck::known_pattern) return false;
+    const bool restore = *c.clock_check == ClockCheck::recovery;
+    ImGui::PushID(static_cast<int>(c.id.domain));
+    ImGui::TableNextRow(); ImGui::TableNextColumn();
+    ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(label);
+    ImGui::TableNextColumn(); ImGui::TextWrapped("%s", c.state.detail.c_str());
+    if (classic) ImGui::TableNextColumn();
+    ImGui::TableNextColumn();
+    if (c.state.current) ImGui::Text("%.3g MHz", *c.state.current);
+    else ImGui::TextDisabled("--");
+    ImGui::TableNextColumn();
+    if (*c.clock_check != ClockCheck::unavailable) {
+        ImGui::BeginDisabled(restore ? (s.opening || s.busy) : (!ready(s) || !unlocked || !c.can_verify));
+        if (ImGui::Button(restore ? "Restore test" : "Verify at P0")) {
+            Command command;
+            command.operation = restore ? Command::Operation::restore_clock_test : Command::Operation::verify_clock_offset;
+            command.advanced = c.id;
+            command.expected_binding = c.binding;
+            commands.push_back(std::move(command));
+        }
+        hint(restore ? "Restore the saved offset at P0 and release any hold acquired for this test." :
+            "Use current P0 or try a temporary hold. Briefly change this offset, sample the clock counters at P0, then restore the request and release the test hold.");
+        ImGui::EndDisabled();
+    }
+    if (!restore && c.state.stock_writable) {
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!ready(s) || !unlocked);
+        if (ImGui::Button("Stock")) {
+            Command command; command.operation = Command::Operation::stock; command.advanced = c.id;
+            command.expected_binding = c.binding; commands.push_back(std::move(command));
+        }
+        ImGui::EndDisabled();
+    }
+    ImGui::PopID();
+    return true;
 }
 void row(uint64_t key, const char* label, const ControlState& c, const char* stock_label,
     Command action, const SessionSnapshot& snapshot, bool unlocked, bool verbose,
@@ -111,7 +172,8 @@ void row(uint64_t key, const char* label, const ControlState& c, const char* sto
     else if (verbose) {
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + classic_px(classic_knob_widths[0] - 10));
         ImGui::TextUnformatted(label); ImGui::PopTextWrapPos();
-    } else ImGui::TextUnformatted(label);
+    } else if (std::strchr(label, '\n')) ImGui::TextWrapped("%s", label);
+    else ImGui::TextUnformatted(label);
     if (label_tone) ImGui::PopStyleColor();
     if (!label_cell) hint(c.detail);
     ImGui::TableNextColumn();
@@ -284,7 +346,6 @@ void rail_summary_text(const char* text, const ImVec4& color = rail_dim) {
     ImGui::PopStyleColor();
 }
 void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const RailReadouts* readouts) {
-    bool listed[DC_RAILS_COUNT]{};
     for (uint32_t rail = 0; rail < DC_RAILS_COUNT; ++rail) {
         std::optional<double> absolute[DC_RAILS_LIMIT_FIELDS];
         for (const auto& r : s.data.rail_controls)
@@ -297,9 +358,6 @@ void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const
         const char* stale_mark = stale ? " (stale)" : "";
         const auto known = [](const std::optional<double>& v) { return v.has_value(); };
         const bool supported = std::all_of(std::begin(absolute), std::end(absolute), known);
-        // Which rails the driver lists is known only from a readout; without
-        // one the NVVDD-only note is not claimed.
-        listed[rail] = readout && readout->listed;
         std::string label = rail == 0 ? "NVVDD" : "MSVDD", fields, cap;
         if (supported) {
             label += " estimated limits";
@@ -369,15 +427,6 @@ void rail_summary_rows(const SessionSnapshot& s, AdvancedViewState& state, const
             "Apply on either is refused while Link is ticked.", rail == 0 ? "NVVDD" : "MSVDD");
         ImGui::PopStyleColor();
     }
-    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text("Reference");
-    ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-    rail_summary_text("Absolute values are estimates from this card's first stable driver reading, which may be quantized. "
-        "Initial restores exact first-read controls, not factory defaults.");
-    if (listed[0] && !listed[1]) {
-        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding(); rail_summary_text("NVVDD");
-        ImGui::TableNextColumn(); ImGui::AlignTextToFramePadding();
-        rail_summary_text("Driver reports NVVDD only. Absolute requests use this card's first-read reference.");
-    }
 }
 // Python: the NVVDD offset row shows the same live Vcore as the boost row
 // ("%.2f mV"); the MSVDD request has no live reading.
@@ -421,23 +470,20 @@ RiskAssessment session_risk(const LiveData& data) {
 }
 namespace {
 const char* rail_name(uint32_t rail) { return rail == 0 ? "NVVDD" : rail == 1 ? "MSVDD" : "rail"; }
-std::string json_string(const std::string& text) {
-    std::string out = "\"";
-    for (const char c : text) {
-        if (c == '"' || c == '\\') { out += '\\'; out += c; }
-        else if (c == '\n') out += "\\n";
-        else if (static_cast<unsigned char>(c) < 0x20) { char b[8]{}; std::snprintf(b, sizeof(b), "\\u%04x", c); out += b; }
-        else out += c;
+using RailJson = nlohmann::ordered_json;
+const char* headroom_outcome_name(HeadroomApplyOutcome outcome) {
+    switch (outcome) {
+        case HeadroomApplyOutcome::request_verified: return "request_verified";
+        case HeadroomApplyOutcome::no_set_issued: return "no_set_issued";
+        case HeadroomApplyOutcome::skipped_before_writer: return "skipped_before_writer";
+        case HeadroomApplyOutcome::already_sufficient: return "already_sufficient";
+        default: return "unverified";
     }
-    return out + "\"";
 }
-std::string json_number(const std::optional<double>& value) {
-    if (!value || !std::isfinite(*value)) return "null";
-    char b[48]{}; std::snprintf(b, sizeof(b), "%.9g", *value); return b;
+RailJson json_number(const std::optional<double>& value) {
+    return value && std::isfinite(*value) ? RailJson(*value) : RailJson(nullptr);
 }
 }
-// Python rail_limit_status: a rail is ready when the driver reports it writable
-// and its fresh control carries an estimated base; the others are named missing.
 RailLimitBadge rail_limit_badge(const SessionSnapshot& s) {
     RailLimitBadge badge;
     const auto& d = s.data;
@@ -446,20 +492,40 @@ RailLimitBadge rail_limit_badge(const SessionSnapshot& s) {
         badge.detail = "Checking whether this GPU can safely use rail limits\xE2\x80\xA6";
         return badge;
     }
-    bool seen[DC_RAILS_COUNT]{}, based[DC_RAILS_COUNT]{};
+    bool seen[DC_RAILS_COUNT]{}, based[DC_RAILS_COUNT]{}, eligible[DC_RAILS_COUNT]{};
     for (const auto& r : d.rail_controls) if (r.id.rail < DC_RAILS_COUNT) {
         seen[r.id.rail] = true;
-        if (r.estimated_base_mv) based[r.id.rail] = true;
+        if (r.estimated_base_mv && r.state.availability == Availability::available) {
+            based[r.id.rail] = true;
+            eligible[r.id.rail] |= r.request_available;
+        }
     }
-    std::string ready, missing;
+    std::string ready, readable, missing;
     for (uint32_t rail = 0; rail < DC_RAILS_COUNT; ++rail) {
-        if (based[rail]) { ready += ready.empty() ? "" : ", "; ready += rail_name(rail); }
-        else { missing += " "; missing += rail_name(rail); missing += seen[rail] ? ": no base-voltage estimate" : " unavailable"; }
+        if (!based[rail]) {
+            missing += " "; missing += rail_name(rail);
+            missing += seen[rail] ? " has no fresh base-voltage estimate." : " unavailable.";
+            continue;
+        }
+        if (eligible[rail] && d.rail_writer_evidence[rail] == DC_RAILS_WRITER_RECOGNIZED) {
+            ready += ready.empty() ? "" : ", "; ready += rail_name(rail);
+        } else {
+            readable += " "; readable += rail_name(rail); readable += " limits read.";
+            if (d.rail_writer_evidence[rail] == DC_RAILS_WRITER_NO_MATCH)
+                readable += " The last write attempt found no matching driver interface.";
+            else if (!eligible[rail] && d.rail_writable_known)
+                readable += " A write request is unavailable.";
+            else readable += " The write interface is unverified.";
+        }
     }
-    if (d.rail_writable_known && d.rail_writable && !ready.empty()) {
-        badge.state = RailLimitBadge::State::ready;
-        badge.text = "Rail limits: ready";
-        badge.detail = "Rail limits ready for " + ready + "." + missing;
+    if (d.connected && (!ready.empty() || !readable.empty())) {
+        badge.state = ready.empty() ? RailLimitBadge::State::readable : RailLimitBadge::State::ready;
+        badge.text = ready.empty() ? "Rail limits: detected" : "Rail limits: ready";
+        badge.detail = ready.empty() ? readable.substr(1) : "Writer layout recognized for " + ready + ". Apply checks the request readback." + readable;
+        badge.detail += missing;
+        if (d.tuning.last_headroom_apply &&
+            d.tuning.last_headroom_apply->outcome == HeadroomApplyOutcome::no_set_issued)
+            badge.detail += " The last NVVDD headroom attempt issued no write. See Copy info for details.";
         return badge;
     }
     badge.state = RailLimitBadge::State::unavailable;
@@ -478,34 +544,49 @@ std::string rail_limit_diagnostics(const SessionSnapshot& s) {
     const auto& d = s.data;
     const auto badge = rail_limit_badge(s);
     const char* fields[] = {"reliability", "alt_reliability", "overvoltage", "vmin"};
-    std::string out = "{\n  \"available\": ";
-    out += badge.state == RailLimitBadge::State::ready ? "true" : badge.state == RailLimitBadge::State::unavailable ? "false" : "null";
-    out += ",\n  \"reason\": " + json_string(badge.detail);
-    out += ",\n  \"writable\": " + std::string(!d.rail_writable_known ? "null" : d.rail_writable ? "true" : "false");
-    out += ",\n  \"session_mode\": " + std::string(!d.rail_mode_known ? "null" : d.rail_mode_enabled ? "true" : "false");
-    out += ",\n  \"rails\": {";
-    bool first_rail = true;
-    for (uint32_t rail = 0; rail < DC_RAILS_COUNT; ++rail) {
-        bool first_field = true;
-        for (const auto& r : d.rail_controls) {
-            if (r.id.rail != rail) continue;
-            if (first_field) {
-                out += first_rail ? "\n" : ",\n";
-                out += "    " + json_string(std::to_string(rail)) + ": {\n      \"name\": " + json_string(rail_name(rail)) + ",\n      \"fields\": {";
-                first_rail = false;
-            }
-            out += first_field ? "\n" : ",\n"; first_field = false;
-            const std::string field = r.id.field < 4 ? fields[r.id.field] : "field_" + std::to_string(r.id.field);
-            out += "        " + json_string(field) + ": {\"requested_delta_mv\": " + json_number(r.state.current)
-                + ", \"initial_delta_mv\": " + json_number(r.state.stock)
-                + ", \"estimated_base_mv\": " + json_number(r.estimated_base_mv)
-                + ", \"stale\": " + (r.state.availability == Availability::transient ? "true" : "false")
-                + ", \"detail\": " + json_string(r.state.detail) + "}";
-        }
-        if (!first_field) out += "\n      }\n    }";
+    RailJson report = RailJson::object();
+    report["available"] = badge.state == RailLimitBadge::State::checking ? RailJson(nullptr) :
+        RailJson(badge.state == RailLimitBadge::State::ready || badge.state == RailLimitBadge::State::readable);
+    report["reason"] = badge.detail;
+    report["write_request_available"] = d.rail_writable_known ? RailJson(d.rail_writable) : RailJson(nullptr);
+    // The inventory never issues a SET. Its historical attempt record is reported separately.
+    report["writable"] = d.connected && d.rail_writable_known && !d.rail_writable ? RailJson(false) : RailJson(nullptr);
+    report["session_mode"] = d.rail_mode_known ? RailJson(d.rail_mode_enabled) : RailJson(nullptr);
+    report["adapter"] = {{"slot", d.identity.slot}, {"name", d.identity.name}, {"driver", d.identity.driver}, {"vbios", d.identity.vbios}};
+    auto& rails = report["rails"] = RailJson::object();
+    for (const auto& r : d.rail_controls) {
+        if (r.id.rail >= DC_RAILS_COUNT) continue;
+        auto& rail = rails[std::to_string(r.id.rail)];
+        rail["name"] = rail_name(r.id.rail);
+        const auto writer = d.rail_writer_evidence[r.id.rail];
+        rail["writer"] = writer == DC_RAILS_WRITER_RECOGNIZED ? "recognized" :
+                         writer == DC_RAILS_WRITER_NO_MATCH ? "no_match_on_last_attempt" : "unverified";
+        const std::string field = r.id.field < 4 ? fields[r.id.field] : "field_" + std::to_string(r.id.field);
+        rail["fields"][field] = {{"requested_delta_mv", json_number(r.state.current)},
+            {"initial_delta_mv", json_number(r.state.stock)}, {"estimated_base_mv", json_number(r.estimated_base_mv)},
+            {"stale", !d.connected || r.state.availability == Availability::transient},
+            {"request_available", d.connected && r.request_available}, {"detail", r.state.detail}};
     }
-    out += first_rail ? "}\n}" : "\n  }\n}";
-    return out;
+    auto& getters = report["cached_rail_getters"];
+    if (d.rail_getter_cache) {
+        getters = RailJson::object();
+        for (const auto which : {DC_RAILS_CONTROL, DC_RAILS_ABS}) {
+            for (unsigned rail = 0; rail < DC_RAILS_COUNT; ++rail) {
+                const auto& entry = d.rail_getter_cache->diagnostics[which][rail];
+                if (!entry.present) continue;
+                getters[which == DC_RAILS_CONTROL ? "VoltRailsCtlGet" : "VoltRailsAbs"][std::to_string(rail)] = {
+                    {"version", entry.version}, {"status", entry.status}, {"valid", entry.valid != 0}, {"attempts", entry.attempts}};
+            }
+        }
+    }
+    report["headroom_cleanup_tracked"] = d.tuning.headroom;
+    auto& last = report["last_headroom_apply"];
+    if (const auto& attempted = d.tuning.last_headroom_apply) {
+        last = {{"rail", "NVVDD"}, {"outcome", headroom_outcome_name(attempted->outcome)},
+            {"target_mv", attempted->target_uv / 1000.0}, {"margin_mv", attempted->margin_mv}, {"detail", attempted->detail},
+            {"last_writer_observed_packets", attempted->last_writer_observations}};
+    }
+    return report.dump(2, ' ', false, RailJson::error_handler_t::replace);
 }
 void draw_mode_bar(const SessionSnapshot& s, bool& unlocked, std::vector<Command>& commands,
     bool classic, const std::function<void()>& i2c_gate, AdvancedViewState* view) {
@@ -565,9 +646,12 @@ void draw_clock_voltage_offsets(const SessionSnapshot& s, bool unlocked, bool ve
             for (const auto& c : s.data.advanced_controls) {
                 if (!included(c)) continue;
                 Command cmd; cmd.advanced = c.id;
-                const char* name = c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2 ? "Additional memory offset" : c.label.c_str();
+                std::string name = c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2 ? "Additional memory offset" : c.label;
+                if (!c.observed_clocks.empty() || c.clock_check == ClockCheck::known_pattern)
+                    name = clock_domain_label(s, c).text;
+                if (clock_check_row(s, c, name.c_str(), unlocked, verbose, commands)) continue;
                 const bool xoc_required = c.id.kind == AdvancedKind::msvdd || (c.id.kind == AdvancedKind::clock_domain && c.id.domain == 2);
-                row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, name, c.state, "Stock", cmd, s, unlocked, verbose, state, commands, c.binding, false,
+                row(1000 + static_cast<uint64_t>(c.id.kind) * 100 + c.id.domain, name.c_str(), c.state, "Stock", cmd, s, unlocked, verbose, state, commands, c.binding, false,
                     !xoc_required || (s.data.xoc_known && s.data.xoc_enabled), xoc_required);
             }
             ImGui::EndTable();
@@ -629,10 +713,17 @@ void draw_advanced_controls(const SessionSnapshot& s, bool unlocked, bool verbos
     ImGui::EndDisabled(); hint(s.data.undo_label);
 }
 
-ClockDomainLabel clock_domain_label(const SessionSnapshot& s, const AdvancedControl& c) {
+ClockDomainLabel clock_domain_label(const SessionSnapshot& s, const AdvancedControl& c, bool show_known_pattern) {
     using Tone = ClockDomainLabel::Tone;
     const uint32_t control = c.id.domain;
     const std::string memory = "Additional Memory Clock Offset (MHz)";
+    if (!c.observed_clocks.empty())
+        return {Tone::good, c.label + " [" + std::to_string(control) + "]\nObserved " + c.observed_clocks};
+    if (c.clock_check == ClockCheck::known_pattern) {
+        std::string label = c.label + " [" + std::to_string(control) + "]";
+        if (show_known_pattern) label += "\nKnown pattern / " + c.known_clocks;
+        return {Tone::text, std::move(label)};
+    }
     // Blackwell: the control block's own label, never paired with a private getter domain.
     if (s.data.clock_domain_requests_only)
         return {Tone::good, control == 2 ? memory : c.label + " requested offset (MHz)"};
@@ -701,7 +792,8 @@ void draw_clock_domain_controls(const SessionSnapshot& s, bool unlocked, bool cl
         const auto& c = *control;
         if (std::find(replaced.begin(), replaced.end(), c.id.domain) != replaced.end()) continue;
         Command cmd; cmd.advanced = c.id;
-        const auto label = clock_domain_label(s, c);
+        const auto label = clock_domain_label(s, c, !classic);
+        if (clock_check_row(s, c, label.text.c_str(), unlocked, classic, commands)) continue;
         const ImVec4 tone = label.tone == ClockDomainLabel::Tone::warn ? classic_warn : label.tone == ClockDomainLabel::Tone::good ? classic_good
             : label.tone == ClockDomainLabel::Tone::dim ? classic_dim : classic ? classic_text_tone : ImGui::GetStyleColorVec4(ImGuiCol_Text);
         const bool xoc_required = c.id.domain == 2;
@@ -766,6 +858,11 @@ void draw_daily_rail_controls(const SessionSnapshot& s, bool unlocked, bool clas
     }
     ImGui::EndTable();
     if (s.data.rail_controls.empty()) ImGui::TextDisabled("Rail-limit requests unavailable");
+    for (const auto& rail : s.data.firmware_rail_clamps) {
+        const char* name = rail.sram ? "SRAM" : "Logic";
+        if (rail.rel_uv) ImGui::Text("%s BIOS REL upper bound: %.3f mV", name, *rail.rel_uv / 1000.0);
+        if (rail.alt_uv) ImGui::Text("%s BIOS ALT upper bound: %.3f mV", name, *rail.alt_uv / 1000.0);
+    }
 }
 
 namespace {

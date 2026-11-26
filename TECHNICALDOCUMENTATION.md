@@ -111,10 +111,18 @@ So the tool now derives per-card quantities from the driver at runtime:
 
 | quantity | how it is found | TU102 | GP102 |
 |---|---|---|---|
-| V/F table size | widen the point mask until the call fails | 128, all GPU | **84** = 80 GPU + 4 memory |
+| V/F table size | probe the point mask and validate the returned rows | 128, all GPU | **84** = 80 GPU + 4 memory |
 | GPU frequency scale | compare the table's top against `gfx_max` | direct MHz | **`GPC2CLK`**, i.e. 2× |
 | clock grid | span ÷ gaps over the driver's lockable-clock table | 15.000 MHz | **12.657 MHz** |
 | clock-domain names | correlate each domain against the driver's own core/memory figures | GPC at domain 0 | **GPC2CLK at domain 15** |
+
+On a GP107 running 375.63, a 128-point request returned success with a
+placeholder in every row. The native backend narrowed the mask and found
+80 graphics points and three memory points. NVML supplied no lockable graphics
+clocks, so the offset slider used the spacing inferred from the graphics
+points. The Clock Monitor requires independent clock-table evidence before
+it expresses a measured deviation in bins.
+[GP107 readings and restoration](experiments/gp107-37563-native-offsets-20261125.json)
 
 **Read every number in this document as a measurement on a named card, not as a
 property of the architecture.** Where a section states a figure without naming
@@ -657,6 +665,17 @@ Detect that signature through `GPU.read()`, never a bare
 `read_clock_domains()` — without `core_mhz` the naming runs blind, cannot apply
 the unpopulated check, names a dead domain 0 "GPC", and reports every card as
 Turing.
+
+The native C++ frontend also uses the clock dictionary to qualify offset
+sliders. A **Known pattern** requires a previously measured clock response,
+a matching request layout and field mode, a setter, and readable counters
+with the expected sources. On the tested RTX 3070 Ti, control 1 moved private
+domains 1, 2, 5 and 21 together. On the TITAN Xp, the independent NVML memory
+counter established the effect of control 2. A match can be recognized at
+idle. Fields with incomplete historical evidence can earn a slider through
+the [P0 verification procedure](MANUAL.md#verify-a-live-clock-offset).
+The [hardware report](experiments/p0-clock-offset-effects-56094-20261125.json)
+records both cards’ baseline, offset and restoration measurements.
 
 ### Blackwell adaptation
 

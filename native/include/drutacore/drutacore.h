@@ -664,7 +664,9 @@ typedef struct dc_mem_offset_scale {
 DC_API dc_status DC_CALL dc_gpu_mem_offset_scale(dc_gpu* gpu, dc_mem_offset_scale* out);
 DC_API uint32_t DC_CALL dc_gpu_memory_offset_step_units(dc_gpu* gpu);
 
-/* clock_step_khz / step_is_measured / max_rise_khz: this card's core-clock grid in kHz. */
+/* Request spacing in kHz for offset snapping and V/F ramps. measured is 1 only
+ * for a grid derived from the driver's independently reported supported clocks.
+ * A curve-derived or fallback spacing returns measured=0. */
 DC_API dc_status DC_CALL dc_gpu_clock_step_khz(dc_gpu* gpu, uint32_t* step_khz, int32_t* measured);
 DC_API dc_status DC_CALL dc_gpu_max_rise_khz(dc_gpu* gpu, uint32_t* khz);
 
@@ -785,6 +787,19 @@ DC_API dc_status DC_CALL dc_gpu_clkdom_step_mhz(dc_gpu* gpu, uint32_t* step_mhz)
 DC_API dc_status DC_CALL dc_gpu_clkdom_delta_inert(dc_gpu* gpu, int32_t has_domain, int64_t domain, int32_t* out);
 DC_API dc_status DC_CALL dc_gpu_clkdom_delta_clears_ceiling(dc_gpu* gpu, int64_t domain, int32_t* out);
 DC_API int32_t DC_CALL dc_gpu_clkdom_offset_slider_offered(dc_gpu* gpu, int64_t control);
+/* Advisory write availability for a discovered domain and the mode from its
+ * latest dc_gpu_clkdom_requests row. Reads cached geometry and driver exports.
+ * The actual setter independently verifies its current request. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_offset_write_capability(dc_gpu* gpu, uint32_t domain, int32_t observed_mode,
+                                                               dc_outcome* out);
+/* Optional read-only historical match for a row from dc_gpu_clkdom_requests.
+ * On DC_OK, out->ok means the selected packet, mode and clock sources match
+ * a previously measured pattern. Bits identify its affected clock groups by
+ * private-domain index. Physical evidence can come from an independent public
+ * getter for that group. The message names the groups. A miss returns ok=0
+ * and a zero mask. A match does not constitute a new test of this adapter. */
+DC_API dc_status DC_CALL dc_gpu_clkdom_known_offset_pattern(dc_gpu* gpu, uint32_t control, int32_t observed_mode,
+                                                            uint32_t* expected_private_mask, dc_outcome* out);
 /* clkdom_pairing(rows): has_rows == 0 reads a snapshot; otherwise live_domains are the rows whose
  * prog_mhz is non-zero. */
 DC_API dc_status DC_CALL dc_gpu_clkdom_pairing(dc_gpu* gpu, int32_t has_rows, const uint32_t* live_domains,
@@ -1125,7 +1140,8 @@ DC_API dc_status DC_CALL dc_cl_policy_rows(dc_gpu* gpu, const dc_power_layout* l
 typedef int32_t (DC_CALL *dc_cl_policy_inputs_fn)(void* context, int32_t* has_board_mw, int64_t* board_mw,
                                                   dc_cl_statics* statics);
 /* GPU.read_power_policies: DC_OK with the rows, or DC_E_FAILED with Python's error text in
- * error->message (kind DC_ERR_INVALID; DC_ERR_TRANSIENT is the guard's allocation failure) and no
+ * error->message (DC_ERR_UNSUPPORTED for a witnessed legacy power envelope with a qualified
+ * nominal NVML board request, otherwise DC_ERR_INVALID or the guard's DC_ERR_TRANSIENT) and no
  * rows, or DC_E_CALLER when inputs returned nonzero (no rows, nothing stored). confirm is
  * get_current_limits' callback; inputs must not be NULL. A unique board candidate is stored as
  * GPU._board_policy. */

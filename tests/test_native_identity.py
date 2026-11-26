@@ -137,6 +137,83 @@ class NativeIdentityTests(unittest.TestCase):
         with native.Gpu() as gpu:
             self.assertEqual(gpu.nvml.err_detail, "NVML has no initialization export")
 
+    def test_pci_v3_runtime_capability_selects_v2_on_the_same_device(self):
+        for status in (0, 3, 13, 15):
+            with self.subTest(status=status):
+                driver = FakeNvml([XP, TITAN], pci_version=2)
+                v2 = driver.exports["nvmlDeviceGetPciInfo_v2"]
+                used_v2 = []
+
+                @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+                def get_v3(device, out):
+                    if status:
+                        # A failed getter is allowed to leave a partial result.
+                        ctypes.memset(out, 0xCC, 36)
+                        return status
+                    return v2(device, out)
+
+                @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+                def get_v2(device, out):
+                    used_v2.append(device)
+                    return v2(device, out)
+
+                driver.exports.update(nvmlDeviceGetPciInfo_v3=get_v3, nvmlDeviceGetPciInfo_v2=get_v2)
+                install(driver, FakeNvapi([TITAN, XP]))
+                with native.Gpu("0000:01:00.0") as gpu:
+                    self.assertTrue(gpu.nvapi.ok)
+                    self.assertEqual(gpu.nvml.ok, status in (0, 3, 13))
+                    if gpu.nvml.ok:
+                        self.assertEqual(gpu.static["uuid"], TITAN["uuid"])
+                    self.assertEqual(used_v2, [0x1000, 0x1001] if status in (3, 13) else [])
+
+    def test_dll_that_fails_init_does_not_hide_the_usable_standard_installation(self):
+        system = FakeNvml([TITAN], init_status=9)
+        standard = FakeNvml([XP], pci_version=2)
+        shutdowns = []
+        for label, provider in (("system", system), ("standard", standard)):
+            @CDECL(ctypes.c_int)
+            def shutdown(name=label):
+                shutdowns.append(name)
+                return 0
+            provider.exports["nvmlShutdown"] = shutdown
+        providers = {"nvml": system, "nvml_standard": standard}
+        def resolve(library, name):
+            if library not in providers:
+                return None
+            if not name:
+                return 1
+            return ctypes.cast(providers[library].exports.get(name), ctypes.c_void_p).value
+
+        native.set_export_resolver(resolve)
+        lookup = native.load().dc_export_address
+        before = ctypes.c_void_p()
+        self.assertEqual(lookup(b"nvml", b"nvmlInit_v2", ctypes.byref(before)), native.DC_OK)
+        self.assertEqual(before.value, ctypes.cast(system.exports["nvmlInit_v2"], ctypes.c_void_p).value)
+        with native.Gpu("0000:02:00.0") as gpu:
+            self.assertTrue(gpu.nvml.ok)
+            self.assertEqual(gpu.static["uuid"], XP["uuid"])
+            self.assertEqual(gpu.nvml.dll_path, "<resolver:nvml_standard>")
+            after = ctypes.c_void_p()
+            self.assertEqual(lookup(b"nvml", b"nvmlInit_v2", ctypes.byref(after)), native.DC_OK)
+            self.assertEqual(after.value, ctypes.cast(standard.exports["nvmlInit_v2"], ctypes.c_void_p).value)
+            with native.Gpu("0000:05:00.0") as missing:
+                self.assertFalse(missing.nvml.ok)
+            del missing  # the context closes access; the final owner frees the C handle
+            self.assertEqual(shutdowns, ["standard"])
+            # New handles cannot switch the provider used by an open card.
+            system.exports["nvmlInit_v2"], standard.exports["nvmlInit_v2"] = (
+                standard.exports["nvmlInit_v2"], system.exports["nvmlInit_v2"])
+            with native.Gpu("0000:01:00.0") as blocked:
+                self.assertFalse(blocked.nvml.ok)
+            self.assertEqual(gpu.static["uuid"], XP["uuid"])
+        del gpu
+        self.assertEqual(shutdowns, ["standard", "standard"])
+        with native.Gpu("0000:01:00.0") as available:
+            self.assertTrue(available.nvml.ok)
+            self.assertEqual(available.static["uuid"], TITAN["uuid"])
+        del available
+        self.assertEqual(shutdowns, ["standard", "standard", "system"])
+
     def test_unversioned_pci_is_never_used_for_pairing(self):
         install(FakeNvml([TITAN], pci_version=0), None)
         with native.Gpu() as gpu:

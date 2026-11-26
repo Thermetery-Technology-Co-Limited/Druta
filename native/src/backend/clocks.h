@@ -42,7 +42,8 @@ public:
 
     MemOffsetScale mem_offset_scale() const;
     std::uint32_t memory_offset_step_units() const { return 1; }
-    std::uint32_t clock_step_khz();     // measured from the lockable table, else kVfStepKhz; cached
+    std::uint32_t clock_step_khz();     // NVML lockable table, validated V/F grid, or fallback
+    void reset_clock_grid() { step_cache_.reset(); step_measured_ = false; }
     std::uint32_t max_rise_khz() { return kVfMaxRiseBins * clock_step_khz(); }
     bool step_is_measured();
     std::vector<ClockRow> lockable_clocks_by_mem();

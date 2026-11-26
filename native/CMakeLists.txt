@@ -196,6 +196,7 @@ add_library(drutacore SHARED
   src/core/abi_perf_diagnostics.cpp
   src/core/abi_clock_bios.cpp
   src/core/abi_vbios_image.cpp
+  src/core/abi_model_inputs.cpp
   src/core/abi_voltage_peers.cpp
   src/core/abi_power_arbitration.cpp
   src/core/abi_rail_limits.cpp
@@ -229,6 +230,13 @@ endif()
 
 # ---- tests (Linux and Windows hosts) -----------------------------------------------------------
 enable_testing()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../src/druta/power_layout_catalog.py")
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME drutacore-power-layout-catalog
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_power_layouts.py --check)
+  endif()
+endif()
 add_executable(drutacore-selftest src/core/selftest.cpp)
 target_link_libraries(drutacore-selftest PRIVATE drutacore_impl)
 druta_windows_binary(drutacore-selftest)
@@ -261,6 +269,11 @@ if(DRUTA_FUZZ)
   target_link_options(perf_decode_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
 endif()
 # Injected NVAPI packet and target checks; no driver or GPU access.
+add_executable(drutacore-clock-discovery-test tests/clock_discovery_test.cpp)
+target_include_directories(drutacore-clock-discovery-test PRIVATE include src)
+target_link_libraries(drutacore-clock-discovery-test PRIVATE drutacore druta_options)
+druta_windows_binary(drutacore-clock-discovery-test)
+add_test(NAME drutacore-clock-discovery COMMAND drutacore-clock-discovery-test)
 add_executable(drutacore-i2c-test tests/i2c_test.cpp)
 target_include_directories(drutacore-i2c-test PRIVATE include src)
 target_link_libraries(drutacore-i2c-test PRIVATE drutacore drutacore_impl druta_options)
@@ -276,6 +289,12 @@ target_include_directories(drutacore-vbios-image-test PRIVATE include src)
 target_link_libraries(drutacore-vbios-image-test PRIVATE drutacore drutacore_impl druta_options)
 druta_windows_binary(drutacore-vbios-image-test)
 add_test(NAME drutacore-vbios-image COMMAND drutacore-vbios-image-test)
+
+add_executable(drutacore-model-inputs-test tests/model_inputs_test.cpp)
+target_include_directories(drutacore-model-inputs-test PRIVATE include)
+target_link_libraries(drutacore-model-inputs-test PRIVATE drutacore druta_options)
+druta_windows_binary(drutacore-model-inputs-test)
+add_test(NAME drutacore-model-inputs COMMAND drutacore-model-inputs-test)
 add_executable(drutacore-voltage-peers-test tests/voltage_peers_test.cpp)
 target_include_directories(drutacore-voltage-peers-test PRIVATE include src)
 target_link_libraries(drutacore-voltage-peers-test PRIVATE drutacore drutacore_impl druta_options)

@@ -33,7 +33,12 @@ class ExtendedRm26Gpu:
              0x2080261C: 136, 0x20802618: 5520, 0x2080261A: 2124}
 
     def __init__(self, *, client=11, native=31, slot="0000:52:1d.3",
-                 device=0xABCD, subsystem=0x87654321, pinned=False):
+                 device=0xABCD, subsystem=0x87654321, pinned=False,
+                 compact=False, refusal=0x3A):
+        self.record_stride = 128 if compact else 132
+        self.refusal = refusal
+        if compact:
+            self.sizes = {**self.sizes, 0x2080261C: 132, 0x20802618: 5392}
         self._lock = Lock()
         self.client, self.native = client, native
         self.peers = (6, 18) if native not in (6, 18) else (7, 19)
@@ -61,7 +66,7 @@ class ExtendedRm26Gpu:
         self.info[at:at + 4] = b"\x57\x57\x01\x00"
         struct.pack_into("<III", self.info, at + 4, 123000, 321000, 550000)
 
-        self.native_info = bytearray((i * 13 + 43) % 256 for i in range(5520))
+        self.native_info = bytearray((i * 13 + 43) % 256 for i in range(self.sizes[0x20802618]))
         put(self.native_info, 4, self.native_mask)
         for index, kind, channel, units, bounds in (
             (native, 10, 9, 0, (123000, 321000, 550000)),
@@ -69,7 +74,7 @@ class ExtendedRm26Gpu:
             (self.peers[1], 4, 17, 0, (1000, 80000, 85000)),
             (self.unknown, 213, 22, 9, (0, 0, 0)),
         ):
-            at = 60 + index * 132
+            at = 60 + index * self.record_stride
             self.native_info[at:at + 7] = bytes([0x81 if index == self.unknown else 0x30,
                                                0x17, 0x28, 0x39, kind, channel, units])
             struct.pack_into("<III", self.native_info, at + 8, *bounds)
@@ -77,7 +82,7 @@ class ExtendedRm26Gpu:
         self.native_control = bytearray((i * 19 + 31) % 256 for i in range(2124))
         struct.pack_into("<5I", self.native_control, 0, 0, 0, 0, 255, self.native_mask)
         for index in (native, *self.peers, self.unknown):
-            put(self.native_control, 20 + index * 52, self.native_info[60 + index * 132 + 4])
+            put(self.native_control, 20 + index * 52, self.native_info[60 + index * self.record_stride + 4])
         put(self.native_control, 20 + self.unknown * 52 + 4, 76543)
         self.client_template = bytearray((i * 23 + 51) % 256 for i in range(388))
         put(self.client_template, 0, 1 << client)
@@ -132,7 +137,8 @@ class ExtendedRm26Gpu:
     def _legacy_clk_escape(self, packet, fields):
         assert self._lock.held
         command, size = int(packet[14]), int(packet[15])
-        assert command in self.sizes and size == self.sizes[command]
+        refused_role = command == 0x2080261C and self.record_stride == 128 and size == 136
+        assert command in self.sizes and (size == self.sizes[command] or refused_role)
         assert len(packet) * 4 == packet[2] == 68 + size
         assert packet[5] == packet[11] == 0
         assert fields == {"hAdapter": 83, "hDevice": 0, "Type": 0, "Flags": 1, "hContext": 0}
@@ -143,15 +149,18 @@ class ExtendedRm26Gpu:
         if callable(fault):
             fault = fault(self, request) or {}
         response = bytearray(request)
-        if command == 0x20802630:
+        if refused_role:
+            assert request == b"\x01" + bytes(135)
+            fault = {"rm": self.refusal, **fault}
+        elif command == 0x20802630:
             assert request == bytes(900)
             response[:] = self.info
         elif command == 0x2080261C:
-            assert request == b"\x01" + bytes(135)
-            at = 60 + self.native * 132
-            response[4:] = self.native_info[at:at + 132]
+            assert request == b"\x01" + bytes(size - 1)
+            at = 60 + self.native * self.record_stride
+            response[4:] = self.native_info[at:at + self.record_stride]
         elif command == 0x20802618:
-            assert request == bytes(5520)
+            assert request == bytes(len(self.native_info))
             response[:] = self.native_info
         elif command == 0x2080261A:
             assert word(request, 16) == word(self.native_info, 4)
@@ -440,5 +449,83 @@ def test_extended_transport_change_after_set_refuses_restore_into_new_geometry()
     assert not caught.value.rollback["attempted"]
     assert not caught.value.rollback["verified"]
     assert len(gpu.set_payloads) == 1
+
+
+def role_sizes(gpu):
+    return [len(request) for command, request in gpu.calls if command == 0x2080261C]
+
+
+@pytest.mark.parametrize("architecture, refusal", [(4, 0x3A), (7, 0x1F)])
+def test_extended_128_byte_role_binds_and_restores_exact_request(architecture, refusal):
+    gpu = ExtendedRm26Gpu(compact=True, refusal=refusal)
+    gpu.architecture = architecture
+    controller = cp.ClientPowerController(gpu)
+    before = controller.read()
+    assert before["binding"]["native_info_stride"] == 128
+    assert before["binding"]["native_index"] == gpu.native
+    assert before["binding"]["native_layout"] == "rm26_extended"
+    assert role_sizes(gpu) == [136, 132, 132] and not gpu.set_payloads
+    after = controller.set_request(1_999_000)["after"]
+    assert after["requested_mw"] == 1_999_000
+    expected = bytearray.fromhex(before["control_hex"])
+    put(expected, 4 + gpu.client * 12 + 4, 1_999_000)
+    assert gpu.set_payloads == [bytes(expected)]
+    controller.set_request(gpu.original)
+    assert cp._state(controller.read()) == cp._state(before)
+    assert role_sizes(gpu).count(136) == 1
+
+
+@pytest.mark.parametrize("status,kind,attempts", [
+    (0x56, "unsupported", 1), (0x40, "unsupported", 1), (0x55, "transient", 2),
+])
+def test_extended_role_other_errors_do_not_probe_an_alternate(status, kind, attempts):
+    gpu = ExtendedRm26Gpu(compact=True, refusal=status)
+    with pytest.raises(cp.ClientPowerError) as caught:
+        cp.ClientPowerController(gpu).set_request(1_999_000)
+    assert caught.value.kind == kind and caught.value.rollback is None
+    assert role_sizes(gpu) == [136] * attempts and not gpu.set_payloads
+
+
+def test_extended_failed_alternate_probe_does_not_commit_geometry_before_retry():
+    gpu = ExtendedRm26Gpu(compact=True)
+    gpu.faults[0x2080261C, 2] = {"rm": 0x55}
+    observed = cp.ClientPowerController(gpu).read()
+    assert observed["requested_mw"] == gpu.original
+    assert role_sizes(gpu) == [136, 132, 136, 132, 132]
+    assert not gpu.set_payloads
+
+
+def test_extended_refusal_of_both_role_sizes_leaves_the_write_undispatched():
+    gpu = ExtendedRm26Gpu(compact=True)
+    gpu.faults[0x2080261C, 2] = {"rm": 0x3A}
+    controller = cp.ClientPowerController(gpu)
+    with pytest.raises(cp.ClientPowerError) as caught:
+        controller.set_request(1_999_000)
+    assert caught.value.kind == "unsupported" and caught.value.rollback is None
+    assert role_sizes(gpu) == [136, 132] and not gpu.set_payloads
+    assert controller.read()["requested_mw"] == gpu.original
+    assert role_sizes(gpu)[2:] == [136, 132, 132]
+
+
+@pytest.mark.parametrize("compact,selected_size", [(False, 136), (True, 132)])
+def test_extended_accepted_role_size_stays_selected_on_subsequent_refusal(compact, selected_size):
+    gpu = ExtendedRm26Gpu(compact=compact)
+    controller = cp.ClientPowerController(gpu)
+    controller.read()
+    earlier = len(role_sizes(gpu))
+    gpu.faults[0x2080261C, earlier + 1] = {"rm": 0x3A}
+    with pytest.raises(cp.ClientPowerError) as caught:
+        controller.set_request(1_999_000)
+    assert caught.value.kind == "unsupported" and caught.value.rollback is None
+    assert role_sizes(gpu)[earlier:] == [selected_size] and not gpu.set_payloads
+
+
+def test_extended_128_byte_role_requires_exact_native_definition():
+    gpu = ExtendedRm26Gpu(compact=True)
+    gpu.faults[0x2080261C, 2] = {"payload": lambda raw: raw.__setitem__(-1, raw[-1] ^ 1)}
+    with pytest.raises(cp.ClientPowerError, match="uniquely bind") as caught:
+        cp.ClientPowerController(gpu).set_request(1_999_000)
+    assert caught.value.kind == "malformed" and caught.value.rollback is None
+    assert not gpu.set_payloads
 
 

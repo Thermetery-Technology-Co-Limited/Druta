@@ -41,7 +41,7 @@ RiskAssessment session_risk(const LiveData& data);
 // Released 1.9.1 gate-row badge (vlim_badge, its vlim_status tooltip) built from
 // the adapter's rail-limit read; Copy info carries the same read as JSON.
 struct RailLimitBadge {
-    enum class State { checking, ready, unavailable } state = State::checking;
+    enum class State { checking, readable, ready, unavailable } state = State::checking;
     std::string text, detail;
 };
 RailLimitBadge rail_limit_badge(const SessionSnapshot& snapshot);
@@ -62,7 +62,7 @@ struct ClockDomainLabel {
     enum class Tone { text, warn, dim, good } tone = Tone::dim;
     std::string text;
 };
-ClockDomainLabel clock_domain_label(const SessionSnapshot& snapshot, const AdvancedControl& control);
+ClockDomainLabel clock_domain_label(const SessionSnapshot& snapshot, const AdvancedControl& control, bool show_known_pattern = true);
 // Python DOMAIN_KNOBS order (controls 1, 3, 5, 4, 9, then 2 last); a control the
 // table does not list keeps its adapter order ahead of the additional-memory row.
 std::vector<const AdvancedControl*> classic_clock_domain_order(const LiveData& data);
@@ -83,8 +83,8 @@ void draw_clock_domain_controls(const SessionSnapshot& snapshot, bool unlocked, 
 void draw_core_current_limit(const SessionSnapshot& snapshot, bool unlocked, bool classic,
     AdvancedViewState& state, std::vector<Command>& commands, bool in_open_table = false);
 using RailReadouts = std::array<RailReadout, DC_RAILS_COUNT>;
-// Classic adds Python's rail summary rows (estimated limits, cap, live, eff),
-// the Link checkbox and the Reference notes. Readouts are optional: without
+// Classic adds rail summary rows for the estimated limits, cap, live and effective values,
+// plus the Link checkbox. Readouts are optional: without
 // them the live and effective cells read "--".
 void draw_daily_rail_controls(const SessionSnapshot& snapshot, bool unlocked, bool classic,
     AdvancedViewState& state, std::vector<Command>& commands, bool include_offsets = true,

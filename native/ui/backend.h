@@ -9,6 +9,7 @@
 #include "tuning_actions.h"
 #include "frequency_lock.h"
 #include "rail_controls.h"
+#include "vbios_rail_clamps.h"
 #include <array>
 #include <memory>
 #include <optional>
@@ -26,6 +27,7 @@ struct PerfViewModel;
 struct PowerArbitrationModel;
 struct PowerWeightsData;struct PowerWeightRequest;
 struct PascalClockTable;
+struct VbiosOverrideInventory;
 struct PascalClockEdit;
 struct PowerIntegralData;
 struct PowerIntegralRequest;
@@ -52,9 +54,26 @@ struct ControlState {
 };
 enum class AdvancedKind { clock_domain, nvvdd, msvdd };
 struct AdvancedId { AdvancedKind kind = AdvancedKind::clock_domain; uint32_t domain = 0; };
-struct AdvancedControl { AdvancedId id; std::string label; ControlState state; std::string binding; };
+enum class ClockCheck { unavailable, candidate, known_pattern, verified, recovery };
+struct AdvancedControl {
+    AdvancedId id;
+    std::string label;
+    ControlState state;
+    std::string binding;
+    std::optional<ClockCheck> clock_check;
+    bool can_verify = false;
+    std::string observed_clocks;
+    std::optional<uint32_t> observed_private_domain;
+    std::string known_clocks;
+};
 struct RailId { uint32_t rail = 0; uint32_t field = 0; };
-struct RailControl { RailId id; ControlState state; std::optional<double> estimated_base_mv; std::string binding; };
+struct RailControl {
+    RailId id;
+    ControlState state;
+    std::optional<double> estimated_base_mv;
+    std::string binding;
+    bool request_available = false; // Fresh field and unowned rail, independent of the session write gate.
+};
 // Python apply_vlim with Link ticked: the other field of the same rail, written
 // in the same setter call as Command::rail. Value is the request delta in mV.
 struct RailPartnerRequest { RailId id; double value = 0; std::string expected_binding; };
@@ -86,6 +105,7 @@ struct I2cViewData {
     std::string preset_preview;
     uint64_t prepared_preset_revision = 0;
 };
+struct ModelInputInventory;
 struct LiveData {
     FrequencyLockData frequency;
     std::shared_ptr<const PowerSavingData> power_saving;
@@ -95,6 +115,11 @@ struct LiveData {
     std::shared_ptr<const PowerWeightsData> power_weights;
     std::optional<uint32_t> clock_architecture;
     std::shared_ptr<const PascalClockTable> pascal_clocks;
+    std::vector<VbiosRailClamps> firmware_rail_clamps;
+    std::shared_ptr<const VbiosOverrideInventory> firmware_inventory;
+    std::shared_ptr<const ModelInputInventory> model_inputs;
+    std::optional<double> inspected_xoc_max_w;
+    std::string inspected_xoc_note;
     std::string pascal_clock_status;
     bool pascal_clock_fresh = false;
     Availability pascal_clock_availability = Availability::unknown;
@@ -119,6 +144,7 @@ struct LiveData {
     std::vector<dc_clkdom_pair> clock_domain_pairs;
     // tuning.headroom: this session's hold raised the voltage limits and the raise is in force.
     TuningState tuning;
+    MaxItPlan max_it;
     bool max_it_available = false, reset_controls_available = false, hold_available = false;
     // dc_rails_hold_architecture (Python hold_headroom_architecture): whether this
     // GPU generation has the rail-limit control a hold raises. Unset: not read
@@ -135,12 +161,15 @@ struct LiveData {
     std::string telemetry_error;
     std::array<ControlState, static_cast<size_t>(ControlId::count)> controls{};
     std::optional<double> enforced_power_w;
+    std::string xoc_power_range_note;
     // Python native_power_limit_for_ui (W): read on Classic polls only; unset
     // while hidden or after a failed read, which Python shows as unavailable.
     std::optional<double> native_power_limit_w;
     std::vector<AdvancedControl> advanced_controls;
     std::vector<PowerPolicy> power_policies;
     std::vector<RailControl> rail_controls;
+    std::optional<dc_rails_caches> rail_getter_cache;
+    std::array<uint32_t, DC_RAILS_COUNT> rail_writer_evidence{};
     bool rail_mode_known = false, rail_mode_enabled = false;
     bool rail_writable_known = false, rail_writable = false;
     // Python build_volt_limits_rows / refresh_rail_live display readout: the
@@ -185,7 +214,8 @@ struct Command {
         save_full_profile,timings_forget_helper,
         // Python restore_raised_limits_now and the headroom setting turned off:
         // take this session's hold raise off; the hold stays.
-        restore_raised_limits, pascal_clock_read, pascal_clock_prepare, pascal_timing_read };
+        restore_raised_limits, pascal_clock_read, pascal_clock_prepare, pascal_timing_read,
+        verify_clock_offset, restore_clock_test, verify_all_clock_offsets, read_tuning_support };
     Operation operation = Operation::apply;
     ControlId control = ControlId::memory;
     double value = 0;
@@ -242,9 +272,11 @@ struct Command {
     std::optional<int64_t> expected_request_raw;
     std::optional<std::string> expected_power_state;
     std::vector<dc_vf_point> expected_curve;
+    std::optional<MaxItPlan> expected_max_it;
     uint32_t expected_curve_freq_div = 0;
     std::vector<dc_vf_delta> curve_deltas;
     std::shared_ptr<const dc_vf_layout> expected_curve_layout;
+    bool return_captured_profile = false;
 };
 // One step of a multi-step action (Reset controls, Max it) as the step itself
 // reported it; message already holds the same text.
@@ -258,6 +290,7 @@ struct ActionResult {
     std::shared_ptr<const PolicyAnnotationEffect> annotation_effect;
     // Reset controls and Max it: each step in the order it ran.
     std::vector<ActionStep> steps;
+    std::shared_ptr<const ProfileJson> captured_profile;
 };
 inline bool is_i2c_operation(Command::Operation operation) {
     return (operation >= Command::Operation::i2c_scan && operation <= Command::Operation::i2c_release)
@@ -289,6 +322,7 @@ public:
     // cancellation; restoration and hardware writes always finish normally.
     virtual void configure_i2c_discovery(std::function<bool()>, std::function<void(const I2cDiscoveryProgress&)>, const std::wstring&) {}
     virtual void configure_timing_capture_cancellation(std::function<bool()>) {}
+    virtual void configure_clock_check_cancellation(std::function<bool()>) {}
     virtual std::vector<Device> enumerate() = 0;
     virtual bool open(const std::string& slot, std::string& error) = 0;
     virtual void close() = 0;
@@ -307,6 +341,7 @@ public:
     // second (Python refresh_power_policies, POLICY_REFRESH_S). Read-only.
     virtual void set_policy_readouts(bool) {}
     virtual LiveData read(bool details) = 0;
+    virtual LiveData rediscover_capabilities() { return read(true); }
     virtual ActionResult execute(const Command& command) = 0;
 };
 std::unique_ptr<IBackend> create_core_backend(const std::wstring& exact_dll_path);

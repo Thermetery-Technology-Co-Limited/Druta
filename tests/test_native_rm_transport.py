@@ -147,11 +147,12 @@ class HookRig(TransportRig):
     """
 
     def __init__(self, steps=(), *, rounds=None, status=0, arch=7, power=True, volt=True, fail_protect=False,
-                 python_nvapi_ok=True, **kw):
+                 python_nvapi_ok=True, power_info=False, **kw):
         self.rounds = [list(steps)] if rounds is None else [list(r) for r in rounds]
         self.getter_status = status
         self.fail_protect = fail_protect
         self.python_nvapi_ok = python_nvapi_ok
+        self.power_info = power_info
         self.errors = []
         self.probe = lambda: False
         self.enter = None
@@ -224,6 +225,11 @@ class HookRig(TransportRig):
                 for step, _, escape in script:
                     self._issue(step, escape)
                     self.calls.append(armed(self.probe()))
+                if self.power_info and name == "PowerPolInfo":
+                    info = NV._PwrPolInfo.from_address(block)
+                    info.valid = info.count = 1
+                    row = info.entries[0]
+                    row.min_pcm, row.def_pcm, row.max_pcm = 73333, 100000, 125556
             except BaseException as exc:
                 self.errors.append(repr(exc))
             return self.getter_status
@@ -605,6 +611,33 @@ NOTHING_SEEN = ("raised", "ValueError", "unsupported current-policy transport: n
 
 
 class RmPowerTransportTests(HookCase):
+    def test_legacy_dispatch_needs_both_power_gets_on_the_same_object_and_a_valid_role(self):
+        def get(cmd, object_id=0x404):
+            def make():
+                words = (u32 * (13592 // 4))()
+                words[:5] = [0x4e564441, 0x10002, 13592, 0x4e562a2a, 0x07000047]
+                words[12:14] = [object_id, cmd]
+                return words
+            return owner(make)
+
+        role, info = get(0x20802612), get(0x20802618)
+        for steps, valid_role, status, qualified in [
+            ([role, info], True, 0, True),
+            ([role], True, 0, False),
+            ([info, role], True, 0, False),
+            ([role, get(0x20802618, 0x405)], True, 0, False),
+            ([role, info], False, 0, False),
+            ([role, info], True, -1, False),
+        ]:
+            rig = HookRig(steps, power_info=valid_role, status=status)
+            (_, (result, (stored, _, _))) = self.sides(rig, transport_then_cache)
+            self.assertIsNone(stored)
+            if qualified:
+                self.assertEqual(result[:2], ("raised", "CurrentLimitUnsupported"))
+                self.assertIn("legacy power-policy envelope", result[2])
+            else:
+                self.assertEqual(result, NOTHING_SEEN)
+
     def test_a_fresh_capture_is_cached_and_the_choice_cleared(self):
         rig = HookRig([ARCH_STEP, owner(power_packet())])
         (_, (result, (stored, choice, seen))), calls, _ = self.both(rig, transport_then_cache)
@@ -691,7 +724,7 @@ class RmPowerTransportTests(HookCase):
 
 class TransportLayoutsTests(HookCase):
     def test_captured_keys_return_the_layout_and_its_fallbacks(self):
-        for command, packet_bytes, parameter_bytes, count in ((A612, 54420, 54352, 3), (P2612, 3548, 3480, 1)):
+        for command, packet_bytes, parameter_bytes, count in ((A612, 54420, 54352, 3), (P2612, 3548, 3480, 2)):
             with self.subTest(command=hex(command), packet_bytes=packet_bytes):
                 key = (command, packet_bytes, parameter_bytes)
                 rig = HookRig([ARCH_STEP, owner(power_packet(packet_bytes, parameter_bytes, command=command))])

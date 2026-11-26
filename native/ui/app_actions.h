@@ -52,6 +52,7 @@ std::wstring second_window_command(const std::wstring& executable, const std::ws
     const AppTarget& target, bool classic);
 std::vector<BundledNotice> load_bundled_notices(const std::wstring& directory);
 void draw_app_actions_menu(ViewState& state);
+void draw_classic_profile_bar(ViewState& state);
 void draw_app_actions_windows(ViewState& state);
 // Released 1.9.1 vfheadroom.clamp_margin: DEFAULT_MARGIN_MV, MIN_MARGIN_MV and
 // MAX_MARGIN_MV (= drutacore's HOLD_HEADROOM_MAX_MARGIN_MV). A non-finite entry

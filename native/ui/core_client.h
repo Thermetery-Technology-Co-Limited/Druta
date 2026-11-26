@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include "backend.h"
+#include <drutacore/model_inputs.h>
 #include "profile_history.h"
 #include "rail_controls.h"
 #include "i2c_session.h"
@@ -31,11 +32,13 @@ struct CoreApi {
     VoltageTablesApi voltage_tables{};
     VoltageLimitsApi voltage_limits{};
     VoltageEvidenceApi voltage_evidence{};
+    decltype(&dc_gpu_model_inputs_get) model_inputs = nullptr;
     PowerSavingApi power_saving{};
     ClockGatingApi clock_gating{};
     TuningApi tuning{};
     // Optional: Python hold_headroom_architecture, read for the Clocks menu only.
     decltype(&dc_rails_hold_architecture) hold_architecture = nullptr;
+    decltype(&dc_rl_hold_headroom_ceiling_mv) hold_ceiling = nullptr;
     decltype(&dc_gpu_reset_all) reset_all = nullptr;
     I2cApi i2c{};
     PlannerApi planner{};
@@ -47,6 +50,11 @@ struct CoreApi {
     decltype(&dc_gpu_identity_get) identity = nullptr;
     decltype(&dc_gpu_read_telemetry) telemetry = nullptr;
     decltype(&dc_clock_domains_classify) clock_classify = nullptr;
+    decltype(&dc_gpu_public_clock_readings) public_clocks = nullptr;
+    decltype(&dc_gpu_clkdom_measurements) clock_measurements = nullptr;
+    std::function<void(unsigned)> clock_test_wait;
+    decltype(&dc_gpu_retry_clock_capabilities) clock_retry = nullptr;
+    decltype(&dc_gpu_refresh_capabilities) refresh_capabilities = nullptr;
     decltype(&dc_gpu_capabilities_get) capabilities = nullptr;
     decltype(&dc_gpu_clock_offset_range_get) range = nullptr;
     decltype(&dc_gpu_mem_offset_scale) scale = nullptr;
@@ -71,6 +79,8 @@ struct CoreApi {
     decltype(&dc_gpu_clkdom_domains) clkdom_domains = nullptr;
     decltype(&dc_gpu_clkdom_controls_for_ui) clkdom_controls = nullptr;
     decltype(&dc_gpu_clkdom_offset_slider_offered) clkdom_offered = nullptr;
+    decltype(&dc_gpu_clkdom_offset_write_capability) clkdom_write_capability = nullptr;
+    decltype(&dc_gpu_clkdom_known_offset_pattern) clkdom_known_pattern = nullptr;
     decltype(&dc_gpu_clkdom_control_label) clkdom_label = nullptr;
     decltype(&dc_gpu_clkdom_requests) clkdom_requests = nullptr;
     decltype(&dc_gpu_clkdom_offset_set) clkdom_set = nullptr;
@@ -89,9 +99,11 @@ struct CoreApi {
     decltype(&dc_gpu_unlock) unlock = nullptr;
     decltype(&dc_pl_bounds) power_bounds = nullptr;
     decltype(&dc_pl_set) power_set = nullptr;
+    decltype(&dc_pl_set_nvml) power_set_nvml = nullptr;
     decltype(&dc_pl_message_get) power_message = nullptr;
     decltype(&dc_cl_get_current_limits) current_limits = nullptr;
     decltype(&dc_cpc_live_read) cpc_live_read = nullptr;
+    decltype(&dc_cpc_live_state_get) cpc_live_state = nullptr;
     decltype(&dc_cl_power_policies_read) policy_read = nullptr;
     decltype(&dc_cl_set_power_policy) policy_set = nullptr;
     decltype(&dc_cl_policy_message_get) policy_message = nullptr;

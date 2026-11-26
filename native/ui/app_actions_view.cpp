@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app_actions.h"
 #include "app_version.h"
+#include "profile_startup.h"
 #include "ui_view.h"
 #include "session.h"
 #include "classic_layout.h"
@@ -109,16 +110,20 @@ void classic_file_menu(ViewState& state){
     if(ImGui::MenuItem("Exit"))actions.exit_requested=true;
     ImGui::EndMenu();
 }
-// Released 1.9.1 Profiles menu: Save, Load, then Undo last write with its note.
-// The native catalog, history and scoped profile windows follow.
-void classic_profiles_menu(ViewState& state){
-    if(!ImGui::BeginMenu("Profiles"))return;
+void classic_profile_actions(ViewState& state){
     const auto snapshot=state.live;
     const bool ready=!state.preview&&snapshot&&snapshot->data.connected&&!snapshot->busy&&!snapshot->opening;
     if(ImGui::MenuItem("Save profile...",nullptr,false,ready))state.save_profile_requested=true;
     classic_menu_hint("Capture current requests to a file you select. Saving does not apply tuning.");
     if(ImGui::MenuItem("Load profile...",nullptr,false,ready&&state.controls_unlocked))state.load_profile_requested=true;
     classic_menu_hint("Select a saved profile to apply explicitly in this session. Unlock tuning controls first.");
+    if (!state.startup_profile_id.empty()) {
+        if (ImGui::MenuItem("Disable startup profile", nullptr, false, !state.startup_profile_request.has_value())) {
+            state.startup_profile_request = false;
+            state.startup_profile_status.clear();
+        }
+        classic_menu_hint("Stop applying the configured profile at sign-in");
+    }
     ImGui::Separator();
     const bool metadata=snapshot&&snapshot->data.undo_metadata_only;
     const bool undo=!state.preview&&snapshot&&snapshot->data.undo_available&&(state.controls_unlocked||metadata)
@@ -130,8 +135,6 @@ void classic_profiles_menu(ViewState& state){
     // no snapshot of its own (it consumes the entry), so that line is not ported.
     ImGui::TextColored(classic_dim,"restores the snapshot taken automatically\nimmediately before the most recent write.");
     ImGui::Separator();
-    // The catalog opens in any state, as the former Classic header button did;
-    // the catalog itself gates each action on the session.
     if(ImGui::MenuItem("Profile catalog..."))state.profile_catalog_view.open=true;
     ImGui::BeginDisabled(state.preview||!snapshot);
     if(ImGui::MenuItem("Undo from history...")){
@@ -140,7 +143,6 @@ void classic_profiles_menu(ViewState& state){
     }
     if(ImGui::MenuItem("Rail / power profiles..."))state.scoped_profile_view.open=true;
     ImGui::EndDisabled();
-    ImGui::EndMenu();
 }
 // Released 1.9.1 Device menu order and wording. The native-only Save device
 // report and timings page entries sit beside their 1.9.1 neighbours.
@@ -174,7 +176,7 @@ void classic_device_menu(ViewState& state){
     if(ImGui::MenuItem("Save device report...")){capture_report(state);actions.save_report_requested=true;}
     ImGui::EndDisabled();
     ImGui::BeginDisabled(!snapshot||snapshot->opening||snapshot->busy||bool(state.select_slot));
-    if(ImGui::MenuItem("Refresh capabilities"))state.refresh_requested=true;
+    if(ImGui::MenuItem("Refresh capabilities"))state.capability_refresh_requested=true;
     ImGui::EndDisabled();
     std::string why;const auto restart=snapshot?restart_device_target(*snapshot,why,actions.administrator):std::optional<AppTarget>{};
     ImGui::BeginDisabled(!restart||bool(state.select_slot)||actions.recovery_preparing);
@@ -271,7 +273,393 @@ void classic_clocks_body(ViewState& state){
         ImGui::Separator();
     }
 }
+
+const ProfileLibraryEntry* named_profile(const ViewState& state, const std::string& id) {
+    if (id.empty()) return nullptr;
+    const auto& library = state.profile_catalog_view.library;
+    const auto entry = std::find_if(library.begin(), library.end(), [&](const auto& item) {
+        return !item.autosave && item.id == id;
+    });
+    return entry == library.end() ? nullptr : &*entry;
 }
+
+const ProfileLibraryEntry* native_profile_with_stem(const ViewState& state, const std::string& stem) {
+    const auto& library = state.profile_catalog_view.library;
+    const auto entry = std::find_if(library.begin(), library.end(), [&](const auto& item) {
+        return item.source == "Native" && ImStricmp(item.name.c_str(), stem.c_str()) == 0;
+    });
+    return entry == library.end() ? nullptr : &*entry;
+}
+
+ProfileScope capture_scope(const ProfileLibraryEntry& entry) {
+    return entry.description.scope == ProfileScope::python_full_tune ? ProfileScope::full_tune : entry.description.scope;
+}
+
+bool same_capture_gpu(const ProfileLibraryEntry& entry, const SessionSnapshot& live) {
+    return entry.document && entry.error.empty() && entry.description.valid &&
+        entry.description.slot == live.selected_slot && entry.description.uuid == live.data.identity.uuid;
+}
+
+void suggest_save_defaults(ViewState& state) {
+    auto& draft = state.toolbar_save_draft;
+    const auto& selected = state.classic_profile_bar.selected;
+    const auto* entry = draft.slot ? named_profile(state, *draft.expected_slot_id)
+                                   : selected ? named_profile(state, selected->id) : nullptr;
+    std::string name;
+    if (!draft.scope_chosen) draft.scope = ProfileScope::daily;
+    if (entry && same_capture_gpu(*entry, *state.live)) {
+        const auto scope = capture_scope(*entry);
+        if (scope == ProfileScope::daily || scope == ProfileScope::curve || scope == ProfileScope::full_tune) {
+            if (!draft.scope_chosen) draft.scope = scope;
+            if (draft.scope == scope) name = entry->name;
+        }
+    }
+    if (draft.slot && name.empty() && !draft.name_edited) {
+        const auto base = "Profile " + std::to_string(*draft.slot + 1);
+        name = base;
+        for (unsigned suffix = 2; native_profile_with_stem(state, profile_library_named_stem(name)); ++suffix)
+            name = base + "-" + std::to_string(suffix);
+    }
+    if (!draft.name_edited) ImStrncpy(draft.name.data(), name.c_str(), draft.name.size());
+}
+
+void select_save_destination(ViewState& state, std::optional<std::size_t> slot) {
+    auto& draft = state.toolbar_save_draft;
+    draft.slot = slot;
+    draft.expected_slot_id = slot ? std::optional<std::string>(state.quick_profiles.ids[*slot]) : std::nullopt;
+    suggest_save_defaults(state);
+}
+
+void open_profile_save(ViewState& state, std::optional<std::size_t> slot) {
+    auto& draft = state.toolbar_save_draft;
+    draft = {};
+    draft.generation = state.live->generation;
+    draft.awaiting_library = state.profile_catalog_view.library_loading;
+    if (state.quick_profiles.save_scope) {
+        draft.scope = *state.quick_profiles.save_scope;
+        draft.scope_chosen = true;
+    }
+    select_save_destination(state, slot ? slot : state.quick_profiles.save_slot);
+    state.toolbar_save_status.clear();
+    ImGui::OpenPopup("##classic-profile-save-dialog");
+}
+
+void draw_profile_save_popup(ViewState& state, bool ready) {
+    if (!ImGui::IsPopupOpen("##classic-profile-save-dialog")) return;
+    const float width = std::min(classic_px(320), ImGui::GetMainViewport()->WorkSize.x);
+    ImGui::SetNextWindowSize({width, 0});
+    if (!ImGui::BeginPopup("##classic-profile-save-dialog")) return;
+    auto& draft = state.toolbar_save_draft;
+    if (!state.live || state.live->generation != draft.generation || state.select_slot) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    if (draft.awaiting_library && !state.profile_catalog_view.library_loading) {
+        draft.awaiting_library = false;
+        suggest_save_defaults(state);
+    }
+    const auto slot_label = [&](std::size_t slot) {
+        const auto& id = state.quick_profiles.ids[slot];
+        const auto* entry = named_profile(state, id);
+        return "Slot " + std::to_string(slot + 1) + "  " +
+            (entry ? entry->name : id.empty() ? "Unassigned" : "Profile unavailable");
+    };
+    ImGui::TextUnformatted("Profile name");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::IsWindowAppearing() && !draft.slot && !draft.name[0]) ImGui::SetKeyboardFocusHere();
+    if (ImGui::InputText("##save-profile-name", draft.name.data(), draft.name.size()))
+        draft.name_edited = true;
+    ImGui::TextUnformatted("Capture");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##save-profile-scope", profile_scope_name(draft.scope))) {
+        for (auto scope : {ProfileScope::daily, ProfileScope::curve, ProfileScope::full_tune}) {
+            if (ImGui::Selectable(profile_scope_name(scope), draft.scope == scope)) {
+                draft.scope = scope;
+                draft.scope_chosen = true;
+                state.toolbar_save_preference_change.scope = scope;
+                suggest_save_defaults(state);
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::TextUnformatted("Save to");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    const auto destination = draft.slot ? slot_label(*draft.slot) : std::string("Library");
+    if (ImGui::BeginCombo("##save-profile-destination", destination.c_str())) {
+        const auto choose = [&](std::optional<std::size_t> slot) {
+            select_save_destination(state, slot);
+            state.toolbar_save_preference_change.destination_changed = true;
+            state.toolbar_save_preference_change.slot = slot;
+        };
+        if (ImGui::Selectable("Library", !draft.slot)) choose(std::nullopt);
+        for (std::size_t i = 0; i < state.quick_profiles.ids.size(); ++i) {
+            if (ImGui::Selectable(slot_label(i).c_str(), draft.slot == i)) choose(i);
+        }
+        ImGui::EndCombo();
+    }
+
+    const std::string name = draft.name.data();
+    std::string stem, problem;
+    const ProfileLibraryEntry* existing = nullptr;
+    const bool has_name = name.find_first_not_of(" \t\r\n") != std::string::npos;
+    if (has_name) {
+        try { stem = profile_library_named_stem(name); }
+        catch (const std::exception& e) { problem = e.what(); }
+        if (!stem.empty()) existing = native_profile_with_stem(state, stem);
+        if (existing && (existing->autosave || !same_capture_gpu(*existing, *state.live) || capture_scope(*existing) != draft.scope))
+            problem = "This name is in use by a different profile. Choose another name.";
+    }
+    if (state.profile_catalog_view.library_loading) problem = "Reading saved profiles...";
+    else if (draft.slot && draft.expected_slot_id != state.quick_profiles.ids[*draft.slot])
+        problem = "The slot assignment changed. Choose the destination again.";
+    if (!problem.empty()) ImGui::TextWrapped("%s", problem.c_str());
+    else if (has_name && name != stem) ImGui::TextDisabled("%s.json", stem.c_str());
+
+    ImGui::BeginDisabled(!ready || !has_name || !problem.empty());
+    if (ImGui::Button(existing ? "Update profile" : "Save profile")) {
+        ViewState::ToolbarSaveRequest request{draft.generation, name, draft.slot, {}, draft.scope, {}, draft.expected_slot_id};
+        if (existing) {
+            request.replace_id = existing->id;
+            request.replace_document = existing->document;
+        }
+        state.toolbar_save_request = std::move(request);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+}
+void draw_classic_profile_bar(ViewState& state) {
+    auto& catalog = state.profile_catalog_view;
+    auto& bar = state.classic_profile_bar;
+    using ApplyState = ViewState::ClassicProfileBar::ApplyState;
+    const auto& live = state.live;
+    if (bar.selected && (!live || bar.selected->generation != live->generation)) bar = {};
+    const bool connected = !state.preview && live && live->data.connected;
+    const bool ready = connected && !live->busy && !live->opening && !state.select_slot
+        && bar.apply != ApplyState::running;
+    const bool can_save = ready && !state.toolbar_save_pending && !state.toolbar_save_request &&
+        !state.quick_profile_assignment;
+    const auto refresh_library = [&] {
+        if (catalog.library_loading) return;
+        catalog.library_loading = true;
+        state.profile_catalog_intents.push_back({ProfileCatalogIntent::Operation::refresh_library});
+    };
+    if (connected && !state.quick_library_requested) {
+        state.quick_library_requested = true;
+        refresh_library();
+    }
+
+    const auto& slots = state.quick_profiles.ids;
+    const auto find_profile = [&](const std::string& id) -> const ProfileLibraryEntry* {
+        return named_profile(state, id);
+    };
+    const auto selectable = [](const ProfileLibraryEntry* entry) {
+        return entry && entry->document && entry->error.empty() && entry->description.valid;
+    };
+    const auto metadata_only = [](const ProfileLibraryEntry& entry) {
+        return entry.description.targets.size() == 1 && entry.description.targets.front() == "annotation:power";
+    };
+    const auto select = [&](const ProfileLibraryEntry& entry) {
+        bar.selected = ViewState::ClassicProfileBar::Selection{
+            live->generation, entry.id, entry.name, *entry.document, metadata_only(entry)};
+        bar.apply = ApplyState::idle;
+        bar.status.clear();
+    };
+    const auto apply = [&] {
+        const auto& selected = *bar.selected;
+        state.profile_catalog_intents.push_back({
+            ProfileCatalogIntent::Operation::apply, {}, selected.document, {}, selected.generation});
+        bar.apply = ApplyState::running;
+        bar.status.clear();
+    };
+    const auto profile_hint = [&](const ProfileLibraryEntry* entry) {
+        if (!entry) return "The saved profile is unavailable";
+        if (selectable(entry)) return entry->source.c_str();
+        if (!entry->error.empty()) return entry->error.c_str();
+        return !entry->description.error.empty() ? entry->description.error.c_str() : "Unreadable profile";
+    };
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(classic_accent, "Profile");
+    ImGui::SameLine();
+    const auto& style = ImGui::GetStyle();
+    const char* actions = "Profile actions";
+    const char* startup = "Apply on startup";
+    const float spacing = style.ItemSpacing.x;
+    const float apply_width = ImGui::CalcTextSize("Apply").x + 2 * style.FramePadding.x;
+    const char* save = "Save...";
+    const float save_width = ImGui::CalcTextSize(save).x + 2 * style.FramePadding.x;
+    const float actions_width = ImGui::CalcTextSize(actions).x + 2 * style.FramePadding.x;
+    const float startup_width = ImGui::CalcTextSize(startup).x + ImGui::GetFrameHeight() + style.ItemInnerSpacing.x;
+    const float slot_width = std::max(classic_px(28), ImGui::CalcTextSize("5").x + 2 * style.FramePadding.x);
+    const float quick_space = static_cast<float>(slots.size()) * (slot_width + spacing);
+    const float actions_space = apply_width + save_width + actions_width + 3 * spacing;
+    const float available = ImGui::GetContentRegionAvail().x;
+    const float minimum_combo = classic_px(160);
+    float reserved = 0;
+    for (float group : {quick_space, actions_space, startup_width + spacing}) {
+        if (available - reserved < minimum_combo + group) break;
+        reserved += group;
+    }
+    const auto same_line_if_fits = [&](float width) {
+        const float line_end = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        if (ImGui::GetItemRectMax().x + spacing + width <= line_end) ImGui::SameLine();
+    };
+    const bool inline_quick = available >= minimum_combo + quick_space;
+    ImGui::SetNextItemWidth(std::max(1.0f, std::min(classic_px(410), available - reserved)));
+    ImGui::BeginDisabled(!ready);
+    if (ImGui::BeginCombo("##classic-profile", bar.selected ? bar.selected->name.c_str() : "Select saved profile",
+                          ImGuiComboFlags_HeightLarge)) {
+        if (ImGui::IsWindowAppearing()) refresh_library();
+        if (catalog.library_loading) ImGui::TextDisabled("Reading saved profiles...");
+        else {
+            ImGui::TextColored(classic_accent, "Quick slots");
+            for (std::size_t i = 0; i < slots.size(); ++i) {
+                const auto* entry = find_profile(slots[i]);
+                const auto number = std::to_string(i + 1);
+                ImGui::PushID(number.c_str());
+                const auto label = number + "  " + (entry ? entry->name : slots[i].empty() ? "Unassigned" : "Profile unavailable");
+                const char* assignment = slots[i].empty() ? "Assign" : "Change";
+                const float assignment_width = ImGui::CalcTextSize(assignment).x + 2 * style.FramePadding.x;
+                const float row_width = std::max(1.0f, ImGui::GetContentRegionAvail().x - assignment_width - spacing);
+                ImGui::AlignTextToFramePadding();
+                ImGui::BeginDisabled(!selectable(entry));
+                if (ImGui::Selectable(label.c_str(), entry && bar.selected && bar.selected->id == entry->id, 0, {row_width, 0}))
+                    select(*entry);
+                ImGui::EndDisabled();
+                classic_menu_hint(entry ? profile_hint(entry) : slots[i].empty()
+                    ? "Assign a saved profile to this quick slot" : "The saved profile is unavailable");
+                ImGui::SameLine();
+                ImGui::BeginDisabled(state.quick_profile_assignment.has_value());
+                if (ImGui::Button(assignment)) ImGui::OpenPopup("##assign-quick-slot");
+                if (ImGui::BeginPopup("##assign-quick-slot")) {
+                    bool found = false;
+                    for (const auto& choice : catalog.library) {
+                        if (choice.autosave || !selectable(&choice)) continue;
+                        found = true;
+                        const auto existing = std::find(slots.begin(), slots.end(), choice.id);
+                        const bool swap = existing != slots.end() && existing != slots.begin() + i;
+                        const auto name = swap
+                            ? choice.name + "  (slot " + std::to_string(existing - slots.begin() + 1) + ")"
+                            : choice.name;
+                        ImGui::PushID(choice.id.c_str());
+                        if (ImGui::MenuItem(name.c_str(), nullptr, choice.id == slots[i])) {
+                            state.quick_profile_assignment.emplace(i, choice.id);
+                            state.quick_profile_status.clear();
+                        }
+                        if (swap) classic_menu_hint("Swap this quick slot with the indicated slot");
+                        ImGui::PopID();
+                    }
+                    if (!found) ImGui::TextDisabled("No selectable profiles");
+                    ImGui::EndPopup();
+                }
+                ImGui::EndDisabled();
+                ImGui::PopID();
+            }
+            ImGui::Separator();
+            bool has_profiles = false;
+            for (const auto& entry : catalog.library) {
+                if (entry.autosave) continue;
+                has_profiles = true;
+                if (std::find(slots.begin(), slots.end(), entry.id) != slots.end()) continue;
+                ImGui::PushID(entry.id.c_str());
+                ImGui::BeginDisabled(!selectable(&entry));
+                if (ImGui::Selectable(entry.name.c_str(), bar.selected && bar.selected->id == entry.id)) select(entry);
+                ImGui::EndDisabled();
+                classic_menu_hint(profile_hint(&entry));
+                ImGui::PopID();
+            }
+            if (!has_profiles) ImGui::TextDisabled("No saved profiles");
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::EndDisabled();
+    for (std::size_t i = 0; i < slots.size(); ++i) {
+        if (i || inline_quick) same_line_if_fits(slot_width);
+        const auto* entry = find_profile(slots[i]);
+        const bool usable = selectable(entry) && !catalog.library_loading;
+        const bool unlocked = usable && (state.controls_unlocked || metadata_only(*entry));
+        const bool empty_slot = slots[i].empty();
+        const auto label = std::to_string(i + 1) + "##classic-profile-quick";
+        ImGui::BeginDisabled(empty_slot ? (!can_save || catalog.library_loading) : (!ready || !unlocked));
+        if (ImGui::Button(label.c_str(), {slot_width, 0})) {
+            if (empty_slot) open_profile_save(state, i);
+            else { select(*entry); apply(); }
+        }
+        ImGui::EndDisabled();
+        if (empty_slot) {
+            classic_menu_hint("Save current GPU settings to this slot");
+        } else {
+            if (can_save && !catalog.library_loading && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)
+                && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) open_profile_save(state, i);
+            std::string detail = !usable ? profile_hint(entry) : unlocked ? "Apply " + entry->name
+                : "Unlock controls to apply " + entry->name;
+            detail += "\nRight-click to save current settings to this slot";
+            classic_menu_hint(detail.c_str());
+        }
+    }
+
+    same_line_if_fits(apply_width + save_width + spacing);
+    const bool apply_allowed = bar.selected && (state.controls_unlocked || bar.selected->metadata_only);
+    ImGui::BeginDisabled(!ready || !apply_allowed || bar.apply == ApplyState::running);
+    if (ImGui::Button("Apply##classic-profile-apply")) apply();
+    ImGui::EndDisabled();
+    classic_menu_hint(!bar.selected ? "Select a saved profile" : !apply_allowed ? "Unlock controls to apply this profile"
+        : "Check and apply the selected profile to this GPU");
+    same_line_if_fits(save_width);
+    ImGui::BeginDisabled(!can_save);
+    if (ImGui::Button("Save...##classic-profile-save")) open_profile_save(state, std::nullopt);
+    ImGui::EndDisabled();
+    classic_menu_hint("Save current GPU settings to the library or a quick slot");
+    draw_profile_save_popup(state, can_save);
+    same_line_if_fits(actions_width);
+    if (ImGui::Button(actions)) ImGui::OpenPopup("##classic-profile-actions");
+    if (ImGui::BeginPopup("##classic-profile-actions")) {
+        classic_profile_actions(state);
+        ImGui::EndPopup();
+    }
+
+    same_line_if_fits(startup_width);
+    const bool has_identity = live && live->data.identity.uuid[0] && !live->selected_slot.empty();
+    const auto* startup_entry = bar.selected ? find_profile(bar.selected->id) : nullptr;
+    const bool startup_selected = has_identity && bar.selected && !state.startup_profile_id.empty()
+        && state.startup_profile_id == bar.selected->id && state.startup_profile_uuid == live->data.identity.uuid
+        && state.startup_profile_slot == live->selected_slot;
+    std::string startup_reason;
+    if (!startup_selected) {
+        if (!has_identity) startup_reason = "The selected GPU identity is unavailable";
+        else if (!selectable(startup_entry)) startup_reason = "Select an available named profile";
+        else if (!apply_allowed) startup_reason = "Unlock controls to enable startup for this profile";
+        else startup_reason = startup_profile_reason(startup_entry->description, live->data.identity.uuid, live->selected_slot);
+    }
+    bool startup_enabled = state.startup_profile_request.value_or(startup_selected);
+    ImGui::BeginDisabled(!ready || bar.apply == ApplyState::running || !startup_reason.empty()
+        || state.startup_profile_request.has_value());
+    if (ImGui::Checkbox(startup, &startup_enabled)) {
+        state.startup_profile_request = startup_enabled;
+        state.startup_profile_status.clear();
+    }
+    ImGui::EndDisabled();
+    classic_menu_hint(startup_reason.empty()
+        ? "Apply this saved profile automatically at sign-in on the selected GPU" : startup_reason.c_str());
+
+    if (bar.apply != ApplyState::idle) {
+        same_line_if_fits(classic_px(84));
+        ImGui::AlignTextToFramePadding();
+        if (bar.apply == ApplyState::running) ImGui::TextDisabled("Applying...");
+        else if (bar.apply == ApplyState::applied) ImGui::TextColored(classic_accent, "Applied");
+        else ImGui::TextColored(classic_warn, "Apply failed");
+        classic_menu_hint(bar.status.c_str());
+    }
+    if (!state.quick_profile_status.empty()) ImGui::TextWrapped("%s", state.quick_profile_status.c_str());
+    if (!state.toolbar_save_status.empty()) ImGui::TextWrapped("%s", state.toolbar_save_status.c_str());
+    if (!state.startup_profile_status.empty()) ImGui::TextWrapped("%s", state.startup_profile_status.c_str());
+}
+
 void draw_app_actions_menu(ViewState& state) {
     // Each frame, whether or not the bar draws: the Clocks menu's headroom
     // restore and its note follow the setting and the session.
@@ -303,7 +691,7 @@ void draw_app_actions_menu(ViewState& state) {
         if(ImGui::MenuItem("Save device report...")){capture_report(state);actions.save_report_requested=true;}
         ImGui::EndDisabled();
         ImGui::BeginDisabled(!state.live || state.live->opening || state.live->busy || bool(state.select_slot));
-        if(ImGui::MenuItem("Refresh capabilities"))state.refresh_requested=true;
+        if(ImGui::MenuItem("Refresh capabilities"))state.capability_refresh_requested=true;
         ImGui::EndDisabled();
         std::string why;const auto target=state.live?second_window_target(*state.live,why):std::optional<AppTarget>{};
         ImGui::BeginDisabled(!target || bool(state.select_slot));
@@ -325,9 +713,40 @@ void draw_app_actions_menu(ViewState& state) {
         ImGui::BeginDisabled(!restart||bool(state.select_slot)||actions.recovery_preparing);if(ImGui::MenuItem("Restart selected GPU (PnP)"))actions.restart_device=restart;ImGui::EndDisabled();
         ImGui::EndMenu();
     }
-    if(classic)classic_profiles_menu(state);
     if(ImGui::BeginMenu("Clocks")) {
         if(classic)classic_clocks_body(state);
+        const auto* live = state.live.get();
+        if (live && live->verifying_clock_offsets) {
+            if (ImGui::MenuItem("Stop after current clock offset")) state.clock_checks_cancel_requested = true;
+        } else {
+            const bool ready = live && !state.preview && state.controls_unlocked && live->data.connected &&
+                !live->busy && !live->opening && !live->paused && !state.select_slot;
+            const bool available = ready && std::any_of(live->data.advanced_controls.begin(),
+                live->data.advanced_controls.end(), [](const AdvancedControl& row) {
+                    return row.clock_check == ClockCheck::candidate && row.can_verify;
+                });
+            if (ImGui::MenuItem("Verify all clock offsets at P0", nullptr, false, available)) {
+                Command command; command.operation = Command::Operation::verify_all_clock_offsets;
+                state.commands.push_back(std::move(command));
+            }
+            const bool has_known = live && std::any_of(live->data.advanced_controls.begin(),
+                live->data.advanced_controls.end(), [](const AdvancedControl& row) {
+                    return row.clock_check == ClockCheck::known_pattern;
+                });
+            if (has_known && ImGui::BeginMenu("Recheck a known offset at P0", ready)) {
+                for (const auto& row : live->data.advanced_controls) {
+                    if (row.clock_check != ClockCheck::known_pattern) continue;
+                    const auto label = row.label + " [" + std::to_string(row.id.domain) + "]";
+                    if (ImGui::MenuItem(label.c_str(), nullptr, false, row.can_verify && !row.binding.empty())) {
+                        Command command; command.operation = Command::Operation::verify_clock_offset;
+                        command.advanced = row.id;
+                        command.expected_binding = row.binding;
+                        state.commands.push_back(std::move(command));
+                    }
+                }
+                ImGui::EndMenu();
+            }
+        }
         ImGui::BeginDisabled(state.preview || !state.live);
         if(ImGui::MenuItem("Frequency locks / legacy P0..."))state.frequency_view.open=true;
         if(ImGui::MenuItem("Voltage admission / V/F policies...")){state.page=Page::advanced;state.open_voltage_policy_requested=true;if(state.classic_floating[1])state.classic_float_focus[1]=true;}
@@ -421,10 +840,9 @@ void draw_app_actions_windows(ViewState& state) {
             ImGui::TextWrapped("GNU General Public License, version 3 or later. See Licences for the complete bundled COPYING text and third-party notices.");
             ImGui::Text("Dear ImGui %s / ImPlot %s / nlohmann JSON",IMGUI_VERSION,IMPLOT_VERSION);
             ImGui::TextWrapped("The native frontend uses the selected drutacore DLL through its C API. Reported capability and telemetry availability belong to the current adapter; incomplete evidence is shown explicitly.");
-            // Classic opens a second window on any enumerated card (1.9.1); Focused only on the selected one.
-            ImGui::TextWrapped("Tuning is session-only. Saved settings require an explicit load. %s",state.presentation==Presentation::classic
-                ?"A second window opens one explicit PCI slot with that card's expected GPU UUID and receives no startup tuning settings."
-                :"A second window opens only the selected PCI slot with an expected GPU UUID and receives no startup tuning settings.");
+            ImGui::TextWrapped("The Classic profile bar can apply a selected profile at Windows sign-in. "
+                "A second window opens one explicit PCI slot with that card's expected GPU UUID and receives no startup tuning settings.");
+            ImGui::TextWrapped("Selecting a different GPU during an owned V/F hold opens that GPU in a second window.");
             if(ImGui::Button("View licences / bundled sources"))a.licences_open=true;
         }ImGui::End();
     }

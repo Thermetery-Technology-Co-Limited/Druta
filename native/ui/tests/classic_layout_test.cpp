@@ -3,12 +3,14 @@
 // Headless production-view geometry checks. No Session/backend/GPU is opened.
 #include "ui_view.h"
 #include "session.h"
+#include "vendor/json/json.hpp"
 #include "classic_layout.h"
 #include "../window_placement.h"
 #include "imgui_internal.h"
 #include "implot.h"
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace {
 using namespace druta::ui;
@@ -59,7 +61,7 @@ void layout(float width, float dpi, bool both_fit) {
             check(header->Columns[0].WidthGiven > header->Columns[1].WidthGiven, "identity column takes the remaining width");
             // Dear PyGui 2.3.1 rebuild of the 1.9.1 header: table at y 36, row 36-124
             // (title line 32, details and empty status lines 22 each, as DPG gives
-            // every text a frame-height line), so the gate row starts at y 128.
+            // every text a frame-height line), so the profile bar starts at y 128.
             check(std::abs(header->OuterRect.Min.y - 36 * dpi) <= 1.1f, "header starts below the menu bar at the released offset");
             if (width >= 1900) check(std::abs((header->RowPosY2 - header->RowPosY1) - 88 * dpi) <= 1.6f,
                 "inline header row matches the released title, details and status line heights");
@@ -130,6 +132,8 @@ void gate_row(float dpi) {
     ControlState rail; rail.availability = Availability::available; rail.current = 5; rail.stock = 0; rail.detail = "fixture";
     s->data.rail_controls.push_back({{1, 2}, rail, 640.5, "alternate-msvdd-overvoltage"});
     s->data.rail_writable_known = true; s->data.rail_writable = true;
+    s->data.rail_writer_evidence[1] = DC_RAILS_WRITER_RECOGNIZED;
+    s->data.rail_controls.front().request_available = true;
     // An adapter whose mode states are read: risk score zero, so no banner.
     s->data.xoc_known = s->data.rail_mode_known = true;
     ViewState state; state.preview = false; state.presentation = Presentation::classic; state.live = s; state.controls_unlocked = true;
@@ -139,9 +143,10 @@ void gate_row(float dpi) {
     auto& bars = ImGui::GetCurrentContext()->TabBars;
     for (int n = 0; n < bars.GetMapSize(); ++n) if (auto* bar = bars.TryGetMapData(n)) if (root && bar->ID == root->GetID("legacy-tabs")) tabs = bar;
     check(tabs != nullptr, "Classic tab bar is drawn in the workspace");
-    // Header 36 + 88, 4 px spacing, 28 px gate row, 4 px spacing.
-    if (tabs) check(std::abs(tabs->BarRect.Min.y - 160 * dpi) <= 1.6f, "tabs sit directly under the 28 px gate row at the released offset");
-    // 1.9.1 risk_banner sits above the gate row only while the score is above
+    // Header 36 + 88, profile row 22, gate row 28, and 4 px after each row.
+    const float tabs_y = 186 * dpi;
+    if (tabs) check(std::abs(tabs->BarRect.Min.y - tabs_y) <= 1.6f, "tabs sit directly below the profile and gate rows");
+    // The risk banner sits above the profile and gate rows while the score is above
     // zero: one text item on a frame-height line, wrapped at s(sum(KNOB_COLS)) =
     // 720 px, pushing the row and tabs down by its wrapped height. XOC alone
     // gives 1.9.1's AMBER and XOC sentences, several lines at that width.
@@ -157,25 +162,55 @@ void gate_row(float dpi) {
         ImGui::PopFont(); ImGui::EndFrame();
         const float line = std::max(22 * dpi, wrapped + 3 * dpi) + 4 * dpi;
         check(wrapped >= 3 * 16 * dpi - 0.5f, "the banner text wraps onto several lines at 720 px");
-        if (tabs) check(std::abs(tabs->BarRect.Min.y - (160 * dpi + line)) <= 1.6f, "a risk banner wrapped at 720 px sits above the gate row");
+        if (tabs) check(std::abs(tabs->BarRect.Min.y - (tabs_y + line)) <= 1.6f, "a risk banner wrapped at 720 px sits above the profile and gate rows");
     }
     s->data.xoc_enabled = false;
     for (int n = 0; n < 2; ++n) frame(state, 1900, dpi);
-    if (tabs) check(std::abs(tabs->BarRect.Min.y - 160 * dpi) <= 1.6f, "the banner goes with the score");
+    if (tabs) check(std::abs(tabs->BarRect.Min.y - tabs_y) <= 1.6f, "the banner goes with the score");
     auto badge = rail_limit_badge(*s);
     check(badge.state == RailLimitBadge::State::ready && badge.text == "Rail limits: ready"
-        && badge.detail == "Rail limits ready for MSVDD. NVVDD unavailable",
+        && badge.detail == "Writer layout recognized for MSVDD. Apply checks the request readback. NVVDD unavailable.",
         "a second-rail-only adapter reports MSVDD ready and names the missing rail");
     const auto info = rail_limit_diagnostics(*s);
     check(info.find("\"MSVDD\"") != std::string::npos && info.find("640.5") != std::string::npos
         && info.find("NVVDD") != std::string::npos && info.find("\"available\": true") != std::string::npos,
         "Copy info carries the adapter's rail read and verdict");
+    auto report = nlohmann::json::parse(info);
+    check(report.at("last_headroom_apply").is_null() && report.at("cached_rail_getters").is_null(),
+          "empty diagnostics distinguish a ready rail from a headroom attempt");
+    auto attempt = std::make_shared<HeadroomApplyEvidence>();
+    attempt->outcome = HeadroomApplyOutcome::no_set_issued;
+    attempt->target_uv = 1093750;
+    attempt->margin_mv = 25;
+    attempt->detail = "Refusal with a \"quoted\" detail";
+    attempt->last_writer_observations.push_back("rail packet size=972 layout=unknown");
+    s->data.tuning.last_headroom_apply = attempt;
+    check(rail_limit_badge(*s).detail.find("last NVVDD headroom attempt issued no write") != std::string::npos,
+          "a readable rail can report that its most recent headroom attempt issued no write");
+    auto& cache = s->data.rail_getter_cache.emplace();
+    cache.diagnostics[DC_RAILS_CONTROL][0] = {1, 0x10AC8, 0, 1, 1};
+    cache.diagnostics[DC_RAILS_ABS][1] = {1, 0x10AC8, -1, 0, 2};
+    std::strcpy(s->data.identity.slot, "0000:04:00.0");
+    report = nlohmann::json::parse(rail_limit_diagnostics(*s));
+    const auto& apply = report.at("last_headroom_apply");
+    const auto& getters = report.at("cached_rail_getters");
+    check(report.at("adapter").at("slot") == "0000:04:00.0" && getters.at("VoltRailsCtlGet").at("0").at("version") == 0x10AC8 &&
+          getters.at("VoltRailsAbs").at("1").at("status") == -1, "Copy info identifies the adapter and preserves cached getter outcomes");
+    check(apply.at("outcome") == "no_set_issued" && apply.at("detail") == attempt->detail && apply.at("target_mv") == 1093.75 &&
+          !report.at("headroom_cleanup_tracked").get<bool>() && apply.at("last_writer_observed_packets").at(0) == attempt->last_writer_observations[0],
+          "Copy info keeps the last headroom attempt and its observed packet summaries after the hold is released");
     s->data.rail_writable = false;
-    check(rail_limit_badge(*s).state == RailLimitBadge::State::unavailable, "a known non-writable rail block reads unavailable");
+    s->data.rail_controls.front().request_available = false;
+    check(rail_limit_badge(*s).state == RailLimitBadge::State::readable, "a readable rail remains visible if the writer is unavailable");
     s->data.rail_writable_known = false;
     badge = rail_limit_badge(*s);
-    check(badge.state == RailLimitBadge::State::unavailable && badge.detail.find("Retry") != std::string::npos,
-        "an unestablished rail read offers Retry instead of claiming support");
+    check(badge.state == RailLimitBadge::State::readable && badge.detail.find("unverified") != std::string::npos,
+        "a good read is independent of unestablished write capabilities");
+    s->data.rail_writer_evidence[1] = DC_RAILS_WRITER_NO_MATCH;
+    check(rail_limit_badge(*s).detail.find("no matching driver interface") != std::string::npos,
+        "a previously unmatched writer leaves the rail read visible");
+    s->data.rail_controls.front().state.availability = Availability::transient;
+    check(rail_limit_badge(*s).state == RailLimitBadge::State::unavailable, "a stale base is not a fresh detection");
     s->opening = true;
     check(rail_limit_badge(*s).state == RailLimitBadge::State::checking, "an opening adapter is still being checked");
     s->opening = false; s->data.rail_controls.clear(); s->data.rail_writable_known = true; s->data.rail_writable = true;
@@ -198,7 +233,11 @@ void gate_row_spacing(float dpi) {
     const char* labels[]{"Unlock controls", "XOC", "Rail limits", "Reset controls", "Max it  (fan + power + volts + curve)"};
     Span spans[5];
     auto& io = ImGui::GetIO();
-    const float y = (128 + 10) * dpi;
+    io.AddMousePosEvent(100 * dpi, (128 + 10) * dpi);
+    frame(state, 1900, dpi);
+    check(ImGui::GetCurrentContext()->HoveredId == root->GetID("##classic-profile"),
+        "the profile selector is on its own row above the Reset controls and Max it row");
+    const float y = (128 + 26 + 10) * dpi;
     for (float x = 0; x < 1000 * dpi; x += 1) {
         io.AddMousePosEvent(x, y); frame(state, 1900, dpi);
         const ImGuiID hovered = ImGui::GetCurrentContext()->HoveredId;

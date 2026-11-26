@@ -273,6 +273,7 @@ void put_hold_outcome(const druta::backend::HoldOutcome& o, dc_rails_hold_outcom
     out->ok = o.ok;
     out->key_error = o.key_error ? static_cast<int32_t>(*o.key_error) + 1 : 0;
     out->aborted = o.aborted ? 1 : 0;
+    out->reserved = o.writer_issued_no_set ? DC_RAILS_HOLD_WRITER_ISSUED_NO_SET : 0;
     put_text(out->message, o.message.c_str());
 }
 
@@ -391,6 +392,21 @@ DC_API dc_status DC_CALL dc_rails_live_mv(dc_gpu* handle, int32_t rail, int32_t*
         std::optional<double> live = handle->rails.live_mv(rail);
         *has = live ? 1 : 0;
         *mv = live.value_or(0.0);
+        return DC_OK;
+    });
+}
+
+DC_API dc_status DC_CALL dc_rails_writer_evidence_get(dc_gpu* handle, dc_rails_writer_evidence* out) {
+    using druta::backend::RailWriterEvidence;
+    static_assert(static_cast<unsigned>(RailWriterEvidence::untested) == DC_RAILS_WRITER_UNTESTED);
+    static_assert(static_cast<unsigned>(RailWriterEvidence::recognized) == DC_RAILS_WRITER_RECOGNIZED);
+    static_assert(static_cast<unsigned>(RailWriterEvidence::no_match) == DC_RAILS_WRITER_NO_MATCH);
+    if (!handle || !out || out->size != sizeof(*out)) return DC_E_ARGUMENT;
+    return guarded([&]() -> dc_status {
+        druta::LockGuard guard(handle->gpu.lock());
+        const auto& evidence = handle->rails.caches().writer_evidence;
+        for (std::size_t r = 0; r < evidence.size(); ++r)
+            out->state[r] = static_cast<std::uint32_t>(evidence[r]);
         return DC_OK;
     });
 }
@@ -566,7 +582,7 @@ DC_API dc_status DC_CALL dc_rails_request_packet_set(dc_gpu* handle, const uint8
                 return unavailable(DC_ERR_IDENTITY,"NVAPI and NVML targets disagree");
         }
         using Setter=int(DRUTA_CDECL*)(void*,void*);
-        const auto set=api.get<Setter>(0x87C55C8Au);
+        const auto set=api.get<Setter>(druta::backend::nvapi_id::VoltRailsCtlSet);
         if(!set)return unavailable(DC_ERR_UNSUPPORTED,"Voltage request setter unavailable");
         constexpr size_t guard_words=16;
         std::array<uint32_t,DC_RAILS_REQUEST_PACKET_BYTES/sizeof(uint32_t)+2*guard_words> storage{};

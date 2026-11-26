@@ -316,17 +316,14 @@ void readback_contract() {
     check(count(text,"unavailable")==unavailable_before+1 && !has(text,"\xE2\x89\xA4" "612.5 A"),"missing current reading prints Python's unavailable");
     check(!has(text,"Estimated limits;") && !has(text,"Link reliability"),"a rail block that is not writable shows no Ceilings row");
     d.rail_writable_known=d.rail_writable=true;text=frame(v);
-    check(has(text,"Ceilings") && has(text,"Link reliability + alt-reliability") && has(text,"first stable driver reading")
+    check(has(text,"Ceilings") && has(text,"Link reliability + alt-reliability") && !has(text,"first stable driver reading")
         && !has(text,"NVVDD estimated limits"),
-        "Classic Rails column leads with Python's Ceilings and Reference rows; a partial rail gets no summary");
-    // Which rails the driver lists comes only from the rail readout; established
-    // controls alone do not prove MSVDD is absent, so the NVVDD-only note waits for it.
-    check(!has(text,"Driver reports NVVDD only"),"without a rail readout the NVVDD-only note is not claimed");
+        "Classic Rails shows Ceilings and skips the explanation and incomplete summary");
     // The backend's rail readout reaches the Classic Control page (Python refresh_rail_live).
     std::array<RailReadout,DC_RAILS_COUNT> rails{};rails[0].listed=true;dc_rails_state_row rail_state{};rail_state.live=917.5;rail_state.effective=1081.25;rails[0].state=rail_state;
     d.rail_readouts=rails;text=frame(v);
-    check(has(text,"live 917.5 mV") && has(text,"eff 1081.25") && has(text,"Driver reports NVVDD only"),
-        "the Classic Rails column shows the live and effective readout and the NVVDD-only note once the driver lists only NVVDD");
+    check(has(text,"live 917.5 mV") && has(text,"eff 1081.25") && !has(text,"Driver reports NVVDD only"),
+        "the Classic Rails column keeps the live and effective readout without the NVVDD paragraph");
     (*d.rail_readouts)[0].stale=true;text=frame(v);
     check(has(text,"live 917.5 mV (stale)"),"a failed rail read keeps the last reading, marked stale");
     d.rail_readouts.reset();

@@ -12,7 +12,8 @@ from druta import nvbackend as n
 from tests.fixture_current_47212 import TITAN_INFO
 
 
-def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_status=False):
+def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_status=False,
+            compact_rm26=False, compact_a618=False):
     g = n.GPU.__new__(n.GPU)
     g._lock = threading.RLock()
     g.static = {"driver": "580.97", "vbios": "98.03.3b.c0.6f"}
@@ -50,6 +51,12 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_statu
         packet_bytes, param_bytes = 11740, 11672
         status_bytes = 171048
         status_base, status_stride = 0x68, 0x1434
+    if compact_a618:
+        packet_bytes, param_bytes = 3676, 3608
+        info_bytes, status_bytes, control_bytes = 7724, 149928, 4172
+        info_base, info_stride = 0x58, 0xC8
+        status_base, status_stride = 0x68, 0x11A8
+        control_base, control_stride = 0x14, 0x74
     status_mask_word = 0 if legacy else 1
     wire = {c: c for c in (0x2080A618, 0x2080A619, 0x2080A61A, 0x2080E61B)}
     if legacy:
@@ -59,6 +66,9 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_statu
         status_base, status_stride = 0x64, 0x828
         control_base, control_stride = 0x14, 0x34
         wire = dict(zip(wire, (0x20802618, 0x20802619, 0x2080261A, 0x2080261B)))
+        if compact_rm26:
+            info_bytes, status_bytes = 5392, 70684
+            info_stride, status_stride = 128, 2136
     info = [0] * (info_bytes // 4)
     info[1] = mask
     control = [(i * 17) & 0xFFFFFFFF for i in range(control_bytes // 4)]
@@ -115,9 +125,9 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_statu
             raise OSError("readback disconnected")
         data = {0x2080A618: state.info, 0x2080A619: state.dynamic,
                 0x2080A61A: state.control}[command]
-        if (ampere_layout and command == 0x2080A618 and packet[15] != 8632):
+        if command == 0x2080A618 and packet[15] != 4 * len(state.info):
             state.rejected_info_bytes.append(packet[15])
-            packet[16] = 31
+            packet[16] = 0x3A if compact_rm26 else 0x1F
             return 0
         if command == 0x2080A618:
             assert not any(packet[17:])
@@ -136,6 +146,68 @@ def fixture(arch=10, newer=False, legacy=False, ampere_layout=False, short_statu
 
 
 class CurrentLimitTests(unittest.TestCase):
+    def test_compact_rm26_reads_pascal_policy_with_26xx_commands(self):
+        g, state = fixture(n.GPU.ARCH_PASCAL, legacy=True, compact_rm26=True)
+        row, = g.get_current_limits()
+        self.assertEqual((row["policy"], row["channel"], row["requested_ma"], row["limit_ma"]),
+                         (13, 11, 204700, 204700))
+        self.assertEqual(state.rejected_info_bytes, [5520])
+        self.assertEqual([(call.args[0][14], call.args[0][15])
+                          for call in g._legacy_clk_escape.call_args_list],
+                         [(0x20802618, 5520), (0x20802618, 5392),
+                          (0x20802618, 5392), (0x2080261A, 2124), (0x20802619, 70684)])
+        # The board request Max it captures goes through the same table.
+        board = 1
+        meta = (60 + board * 128) // 4
+        current = (20 + board * 52) // 4
+        status = (100 + board * 2136) // 4
+        state.info[meta + 1:meta + 5] = [7, 100000, 200000, 250000]
+        state.control[current:current + 2] = [7, 200000]
+        state.dynamic[status:status + 3] = [7, 200000, 120000]
+        g.read_power_limit_mw = Mock(return_value=200000)
+        rows, error = g.read_power_policies()
+        self.assertIsNone(error)
+        self.assertEqual([(r["policy"], r["requested"], r["maximum"])
+                          for r in rows if r["board"] and r["consistent"]],
+                         [(board, 200000, 250000)])
+        self.assertEqual(state.rejected_info_bytes, [5520])
+        self.assertEqual(state.writes, [])
+
+    def test_compact_rm26_mixed_probe_refusal_recovers_on_next_read(self):
+        g, state = fixture(n.GPU.ARCH_PASCAL, legacy=True, compact_rm26=True)
+        escape = g._legacy_clk_escape.side_effect
+
+        def transient(packet, fields):
+            if packet[14] == 0x20802618 and packet[15] == 5392:
+                packet[16] = 0x57
+                return 0
+            return escape(packet, fields)
+
+        g._legacy_clk_escape.side_effect = transient
+        with self.assertRaises(ValueError) as failed:
+            g._current_limit_abi()
+        self.assertNotIsInstance(failed.exception, n.CurrentLimitUnsupported)
+        self.assertIn("RM 0x3A", str(failed.exception))
+        self.assertIn("RM 0x57", str(failed.exception))
+        g._legacy_clk_escape.side_effect = escape
+        self.assertEqual([row["policy"] for row in g.get_current_limits()], [13])
+        self.assertEqual(state.rejected_info_bytes, [5520, 5520])
+        self.assertEqual(state.writes, [])
+
+    def test_compact_rm26_all_fixed_size_refusals_are_unsupported(self):
+        g, state = fixture(n.GPU.ARCH_PASCAL, legacy=True, compact_rm26=True)
+        def reject(packet, fields):
+            self.assertEqual(packet[14], 0x20802618)
+            packet[16] = 0x3A
+            return 0
+
+        g._legacy_clk_escape.side_effect = reject
+        with self.assertRaises(n.CurrentLimitUnsupported) as failed:
+            g._current_limit_abi()
+        self.assertIn("5520-byte info", str(failed.exception))
+        self.assertIn("5392-byte info", str(failed.exception))
+        self.assertEqual(state.writes, [])
+
     def test_original_47212_titan_info_capture_decodes_current_descriptor(self):
         g, state = fixture(n.GPU.ARCH_TURING, legacy=True)
         state.info = list(TITAN_INFO)

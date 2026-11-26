@@ -52,7 +52,7 @@ A612, P2612 = 0x2080A612, 0x20802612
 FIELDS = dict(hAdapter=987, hDevice=0x11, Type=0x22, Flags=8, hContext=0x44)
 NTSTATUS_INVALID_PARAMETER = -1073741811
 GROUPS = ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES", "RM26_EXTENDED_SIZES",
-          "A612_COMPACT_SIZES")
+          "A612_COMPACT_SIZES", "INFO200_SIZES")
 MALFORMED_GEOMETRY = ("ClientPowerError", "malformed", "Client-power command or packet geometry is not understood",
                       None)
 

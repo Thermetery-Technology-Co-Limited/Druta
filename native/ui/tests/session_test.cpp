@@ -32,6 +32,7 @@ struct Fake : IBackend {
     std::string opened_slot;
     std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
     std::atomic<int> fan_mode{0}, readout_hint{-1}, hinted_reads{0}, policy_hint{-1};
+    std::atomic<int> rediscoveries{0};
     bool xoc = false, rails = false;
     void set_live_readouts(bool shown) override { readout_hint = shown ? 1 : 0; ++hinted_reads; }
     void set_policy_readouts(bool open) override { policy_hint = open ? 1 : 0; }
@@ -69,6 +70,7 @@ struct Fake : IBackend {
         if (missing_i2c_state.load()) return {};
         I2cViewData d; d.clock_owned=i2c_owned.load(); return d;
     }
+    LiveData rediscover_capabilities() override { ++rediscoveries; return read(true); }
     LiveData read(bool details) override {
         record(details ? "details" : "read"); ++total_reads; if (details) ++detail_reads;
         if (hold_read.exchange(false)) block();
@@ -129,6 +131,8 @@ struct Fake : IBackend {
         if (cmd.operation == Command::Operation::set_rail_mode) rails = cmd.enabled;
         if (throw_after_action.load()) throw_reads = true;
         ActionResult r; r.ok = !fail_gate.load(); r.message = "done";
+        if (cmd.return_captured_profile) r.captured_profile = std::make_shared<const ProfileJson>(
+            ProfileJson{{"test_gpu", opened_slot}});
         r.requested = result_requested; r.readback = result_readback; r.may_have_changed = result_changed; return r;
     }
     // Set before a submit; the session's lock orders it before the worker reads it.
@@ -188,6 +192,21 @@ static void notes_and_readout_hint() {
     CHECK(until([&]{return session.snapshot()->completed_reads>open;}));CHECK(fake->policy_hint==1);
     session.set_policy_readouts(false);const auto closed=session.snapshot()->completed_reads;session.request_poll();
     CHECK(until([&]{return session.snapshot()->completed_reads>closed;}));CHECK(fake->policy_hint==0);
+    CHECK(fake->rediscoveries == 0);
+    // Coalescing telemetry and details with a pending manual retry must
+    // preserve exactly one discovery on this worker and GPU.
+    fake->stall_read(); session.request_poll();
+    CHECK(WaitForSingleObject(fake->entered, 2000) == WAIT_OBJECT_0);
+    session.request_poll(PollKind::capabilities);
+    session.request_poll(true); session.request_poll(PollKind::capabilities);
+    const int details_before = fake->detail_reads;
+    SetEvent(fake->release);
+    CHECK(until([&]{return fake->detail_reads > details_before;}));
+    CHECK(fake->rediscoveries == 1);
+    session.set_paused(true); session.request_poll(PollKind::capabilities);
+    session.set_paused(false); session.request_poll();
+    CHECK(until([&]{return session.snapshot()->completed_reads >= closed + 4;}));
+    CHECK(fake->rediscoveries == 1);
     session.begin_shutdown();CHECK(until([&]{return session.finished();}));
     const auto entries=session.snapshot()->log.size();session.note(true,"after shutdown");CHECK(session.snapshot()->log.size()==entries);
 }
@@ -220,7 +239,35 @@ static void action_entries_name_their_result() {
     s=session.snapshot();CHECK(!s->last_action_requested&&!s->last_action_readback&&!s->last_action_may_have_changed);
     session.begin_shutdown();CHECK(until([&]{return session.finished();}));
 }
+static void profile_capture_completion() {
+    auto fixture = std::make_unique<Fake>();
+    auto* fake = fixture.get();
+    Session session(std::move(fixture), [] {});
+    session.start("a");
+    CHECK(until([&]{const auto s=session.snapshot(); return !s->opening && s->data.connected;}));
+    const auto generation = session.snapshot()->generation;
+    Command capture;
+    capture.operation = Command::Operation::save_profile;
+    capture.return_captured_profile = true;
+    CHECK(session.submit(capture,generation));
+    CHECK(until([&]{const auto s=session.snapshot(); return !s->busy && s->profile_capture;}));
+    const auto first = session.snapshot()->profile_capture;
+    CHECK(first && first->document && first->document->at("test_gpu") == "a");
+    CHECK(session.submit({},generation,true));
+    CHECK(until([&]{return !session.snapshot()->busy;}));
+    const auto after = session.snapshot()->profile_capture;
+    CHECK(first && after && after->action == first->action && after->document == first->document);
+    fake->fail_gate = true;
+    CHECK(session.submit(capture,generation));
+    CHECK(until([&]{return !session.snapshot()->busy;}));
+    const auto failure = session.snapshot()->profile_capture;
+    CHECK(failure && first && failure->action > first->action && !failure->document && !failure->message.empty());
+    CHECK(session.select_device("b") && !session.snapshot()->profile_capture);
+    session.begin_shutdown();
+    CHECK(until([&]{return session.finished();}));
+}
 int main() {
+    profile_capture_completion();
     disconnected_integral_policy_recovery();
     notes_and_readout_hint();
     action_entries_name_their_result();
