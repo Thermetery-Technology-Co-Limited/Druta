@@ -870,6 +870,50 @@ void classic_profile_save() {
     ++live->generation;frame(v);
     check(ImGui::GetCurrentContext()->OpenPopupStack.empty()&&!v.toolbar_save_request&&v.commands.empty(),
           "adapter changes discard the open Save popup without applying or saving");
+
+    v.toolbar_save_preference_change={};
+    v.quick_profiles.save_scope=ProfileScope::daily;
+    v.quick_profiles.save_slot=0;
+    v.profile_catalog_view.library.clear();
+    v.profile_catalog_view.library_loading=true;
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"toolbar Save opens with stored defaults while loading");return;}
+    const auto& draft=v.toolbar_save_draft;
+    const auto& change=v.toolbar_save_preference_change;
+    check(draft.slot==0&&draft.scope==ProfileScope::daily&&draft.expected_slot_id==entry.id
+          &&!change.scope&&!change.destination_changed,"opening Save reads both defaults without rewriting them");
+    record_profile_library(v.profile_catalog_view,{entry});frame(v);
+    check(std::string(draft.name.data())==entry.name&&draft.expected_slot_id==entry.id,
+          "the first library result fills the matching saved profile name for the remembered slot");
+    const auto choose=[&](const char* selector,const char* label) {
+        press(popup,selector);
+        const auto& stack=ImGui::GetCurrentContext()->OpenPopupStack;
+        if (!stack.empty()&&stack.back().Window&&stack.back().Window!=popup) press(stack.back().Window,label);
+        else check(false,"Save preference dropdown opens");
+    };
+    choose("##save-profile-scope",profile_scope_name(ProfileScope::full_tune));
+    check(change.scope==ProfileScope::full_tune&&!change.destination_changed&&draft.slot==0
+          &&std::string(draft.name.data())=="Profile 1",
+          "choosing another scope remembers only Capture and suggests a fresh name for the occupied slot");
+    choose("##save-profile-destination","Slot 4  Unassigned");
+    press(popup,"Cancel");
+    check(change.destination_changed&&change.slot==3&&change.scope==ProfileScope::full_tune
+          &&!v.toolbar_save_request&&v.commands.empty(),"both choices survive Cancel without capturing settings");
+    v.quick_profiles.save_scope=change.scope;
+    v.quick_profiles.save_slot=change.slot;
+    v.toolbar_save_preference_change={};
+    popup=open_profile_popup(v,"3##classic-profile-quick");
+    if (!popup) {check(false,"explicit slot opens with stored Capture");return;}
+    check(draft.slot==2&&draft.scope==ProfileScope::full_tune&&!change.destination_changed,
+          "a clicked slot overrides the stored destination only for that form");
+    press(popup,"Cancel");
+    popup=open_profile_popup(v,save_button);
+    if (!popup) {check(false,"toolbar Save reopens after a slot override");return;}
+    check(draft.slot==3&&draft.scope==ProfileScope::full_tune,"toolbar Save reuses both remembered choices");
+    choose("##save-profile-destination","Library");
+    check(change.destination_changed&&!change.slot&&!change.scope&&draft.scope==ProfileScope::full_tune,
+          "Library can replace a remembered slot without changing Capture");
+    press(popup,"Cancel");
 }
 }
 int main(int argc,char** argv) {

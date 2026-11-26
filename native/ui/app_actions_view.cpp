@@ -300,36 +300,46 @@ bool same_capture_gpu(const ProfileLibraryEntry& entry, const SessionSnapshot& l
         entry.description.slot == live.selected_slot && entry.description.uuid == live.data.identity.uuid;
 }
 
-void select_save_destination(ViewState& state, std::optional<std::size_t> slot) {
+void suggest_save_defaults(ViewState& state) {
     auto& draft = state.toolbar_save_draft;
-    draft.slot = slot;
-    draft.expected_slot_id = slot ? std::optional<std::string>(state.quick_profiles.ids[*slot]) : std::nullopt;
     const auto& selected = state.classic_profile_bar.selected;
-    const auto* entry = slot ? named_profile(state, *draft.expected_slot_id)
-                             : selected ? named_profile(state, selected->id) : nullptr;
+    const auto* entry = draft.slot ? named_profile(state, *draft.expected_slot_id)
+                                   : selected ? named_profile(state, selected->id) : nullptr;
     std::string name;
-    auto preferred_scope = ProfileScope::daily;
+    if (!draft.scope_chosen) draft.scope = ProfileScope::daily;
     if (entry && same_capture_gpu(*entry, *state.live)) {
         const auto scope = capture_scope(*entry);
         if (scope == ProfileScope::daily || scope == ProfileScope::curve || scope == ProfileScope::full_tune) {
-            name = entry->name;
-            preferred_scope = scope;
+            if (!draft.scope_chosen) draft.scope = scope;
+            if (draft.scope == scope) name = entry->name;
         }
     }
-    if (slot && name.empty() && !draft.name_edited) {
-        const auto base = "Profile " + std::to_string(*slot + 1);
+    if (draft.slot && name.empty() && !draft.name_edited) {
+        const auto base = "Profile " + std::to_string(*draft.slot + 1);
         name = base;
         for (unsigned suffix = 2; native_profile_with_stem(state, profile_library_named_stem(name)); ++suffix)
             name = base + "-" + std::to_string(suffix);
     }
     if (!draft.name_edited) ImStrncpy(draft.name.data(), name.c_str(), draft.name.size());
-    if (!draft.scope_edited) draft.scope = preferred_scope;
+}
+
+void select_save_destination(ViewState& state, std::optional<std::size_t> slot) {
+    auto& draft = state.toolbar_save_draft;
+    draft.slot = slot;
+    draft.expected_slot_id = slot ? std::optional<std::string>(state.quick_profiles.ids[*slot]) : std::nullopt;
+    suggest_save_defaults(state);
 }
 
 void open_profile_save(ViewState& state, std::optional<std::size_t> slot) {
-    state.toolbar_save_draft = {};
-    state.toolbar_save_draft.generation = state.live->generation;
-    select_save_destination(state, slot);
+    auto& draft = state.toolbar_save_draft;
+    draft = {};
+    draft.generation = state.live->generation;
+    draft.awaiting_library = state.profile_catalog_view.library_loading;
+    if (state.quick_profiles.save_scope) {
+        draft.scope = *state.quick_profiles.save_scope;
+        draft.scope_chosen = true;
+    }
+    select_save_destination(state, slot ? slot : state.quick_profiles.save_slot);
     state.toolbar_save_status.clear();
     ImGui::OpenPopup("##classic-profile-save-dialog");
 }
@@ -344,6 +354,10 @@ void draw_profile_save_popup(ViewState& state, bool ready) {
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;
+    }
+    if (draft.awaiting_library && !state.profile_catalog_view.library_loading) {
+        draft.awaiting_library = false;
+        suggest_save_defaults(state);
     }
     const auto slot_label = [&](std::size_t slot) {
         const auto& id = state.quick_profiles.ids[slot];
@@ -362,7 +376,9 @@ void draw_profile_save_popup(ViewState& state, bool ready) {
         for (auto scope : {ProfileScope::daily, ProfileScope::curve, ProfileScope::full_tune}) {
             if (ImGui::Selectable(profile_scope_name(scope), draft.scope == scope)) {
                 draft.scope = scope;
-                draft.scope_edited = true;
+                draft.scope_chosen = true;
+                state.toolbar_save_preference_change.scope = scope;
+                suggest_save_defaults(state);
             }
         }
         ImGui::EndCombo();
@@ -371,9 +387,14 @@ void draw_profile_save_popup(ViewState& state, bool ready) {
     ImGui::SetNextItemWidth(-FLT_MIN);
     const auto destination = draft.slot ? slot_label(*draft.slot) : std::string("Library");
     if (ImGui::BeginCombo("##save-profile-destination", destination.c_str())) {
-        if (ImGui::Selectable("Library", !draft.slot)) select_save_destination(state, std::nullopt);
+        const auto choose = [&](std::optional<std::size_t> slot) {
+            select_save_destination(state, slot);
+            state.toolbar_save_preference_change.destination_changed = true;
+            state.toolbar_save_preference_change.slot = slot;
+        };
+        if (ImGui::Selectable("Library", !draft.slot)) choose(std::nullopt);
         for (std::size_t i = 0; i < state.quick_profiles.ids.size(); ++i) {
-            if (ImGui::Selectable(slot_label(i).c_str(), draft.slot == i)) select_save_destination(state, i);
+            if (ImGui::Selectable(slot_label(i).c_str(), draft.slot == i)) choose(i);
         }
         ImGui::EndCombo();
     }

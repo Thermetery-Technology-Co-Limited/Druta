@@ -628,6 +628,8 @@ profile library or directly into slot 1–5. Clicking an empty slot opens Save
 with that slot selected. Right-click a filled slot to update its profile or
 save under a different name and assign it there. Choose **Daily / Advanced**,
 **V/F curve**, or **Full tune**. Saving selects the captured profile for later use.
+The bar remembers the last **Capture** and **Save to** choices across launches.
+Opening Save from a numbered slot targets that slot directly.
 
 **Apply on startup** saves a copy of the selected profile for the current GPU.
 At Windows sign-in Druta opens in the notification area, checks the adapter

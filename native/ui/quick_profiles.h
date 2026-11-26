@@ -7,6 +7,13 @@
 namespace druta::ui {
 struct QuickProfileSlots {
     std::array<std::string, 5> ids{};
+    std::optional<ProfileScope> save_scope;
+    std::optional<std::size_t> save_slot; // Library when empty.
+};
+struct ToolbarSavePreferenceChange {
+    std::optional<ProfileScope> scope;
+    bool destination_changed = false;
+    std::optional<std::size_t> slot;
 };
 
 struct ToolbarProfileSaveRequest {
@@ -21,12 +28,13 @@ struct ToolbarProfileSaveRequest {
 struct ToolbarProfileSaveResult {
     ProfileLibraryEntry entry;
     std::optional<QuickProfileSlots> slots;
-    std::string slot_error;
+    std::string settings_error;
 };
 ToolbarProfileSaveResult save_toolbar_profile(const ProfileLibraryDirectory& native, const std::wstring& settings,
     const ToolbarProfileSaveRequest&, const ProfileJson& captured, const std::string& uuid, const std::string& pci_slot);
 std::wstring quick_profile_settings_path();
 QuickProfileSlots load_quick_profiles(const std::wstring& path, const std::vector<ProfileLibraryEntry>& library);
+QuickProfileSlots remember_toolbar_save_preferences(const std::wstring& path, const ToolbarSavePreferenceChange& change);
 QuickProfileSlots assign_quick_profile(const std::wstring& path, const std::vector<ProfileLibraryEntry>& library,
                                       std::size_t slot, const std::string& profile_id);
 }

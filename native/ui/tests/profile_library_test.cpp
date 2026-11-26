@@ -59,7 +59,9 @@ void toolbar_saving() {
     const auto save = [&](const ProfileJson& doc) { return save_toolbar_profile(native, settings, request, doc, gpu, pci); };
     const auto first = save(daily);
     CHECK(first.entry.name == "Daily-tune" && first.entry.description.valid && first.entry.document == daily);
-    CHECK(first.slot_error.empty() && first.slots && first.slots->ids[3] == first.entry.id);
+    CHECK(first.settings_error.empty() && first.slots && first.slots->ids[3] == first.entry.id);
+    const auto saved_slot = load_quick_profiles(settings, {});
+    CHECK(saved_slot.save_scope == ProfileScope::daily && saved_slot.save_slot == 3);
     CHECK(list_profile_library({native}).front().id == first.entry.id && read_profile(first.entry.path) == daily);
     request.slot.reset(); request.expected_slot_id.reset();
     request.name = "DAILY / tune";  // Same Windows filename after normalization.
@@ -80,6 +82,7 @@ void toolbar_saving() {
     reject([&]{save(other_gpu);});
     CHECK(read_profile(first.entry.path) == daily);
     CHECK(save(fresh).entry.document == fresh);
+    CHECK(!load_quick_profiles(settings, {}).save_slot);
     reject([&]{save(daily);});  // Another window already updated the reviewed document.
     const auto renamed = fs::path(native.path) / L"moved.json";
     fs::rename(first.entry.path, renamed);
@@ -102,6 +105,7 @@ void toolbar_saving() {
         {"vf_deltas",{{"1",15000},{"2",30000}}}};
     const auto first_full = save(full);
     CHECK(first_full.entry.description.scope == ProfileScope::python_full_tune);
+    CHECK(load_quick_profiles(settings, {}).save_scope == ProfileScope::full_tune);
     request.replace_id = first_full.entry.id; request.replace_document = full;
     auto partial = full;
     partial["current_limits_ma"].erase("2");
@@ -120,9 +124,11 @@ void toolbar_saving() {
     HANDLE held = CreateFileW(settings.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     CHECK(held != INVALID_HANDLE_VALUE);
     const auto durable = save(fresh);
-    CHECK(!durable.slot_error.empty() && !durable.slots && read_profile(durable.entry.path) == fresh);
+    CHECK(!durable.settings_error.empty() && !durable.slots && read_profile(durable.entry.path) == fresh);
     CloseHandle(held);
     CHECK(read_profile(settings)["slots"][0] == "");
+    const auto after_failure = load_quick_profiles(settings, {});
+    CHECK(after_failure.save_scope == ProfileScope::full_tune && !after_failure.save_slot);
 }
 void quick_profile_assignments() {
     Temp temp;
@@ -140,10 +146,34 @@ void quick_profile_assignments() {
     entries[1].description=inspect_profile(ProfileJson::object());
     const auto defaults=load_quick_profiles(settings,entries);
     CHECK((defaults.ids==std::array<std::string,5>{"A","B","C","D","E"}));
+    CHECK(!defaults.save_scope && !defaults.save_slot);
+    // Two windows select individual fields. Each action merges with the current on-disk choices.
+    auto legacy = read_profile(settings);
+    legacy["future_option"] = {{"enabled", true}};
+    write_profile(settings, legacy);
+    const auto scoped = remember_toolbar_save_preferences(settings, {ProfileScope::curve});
+    CHECK(scoped.save_scope == ProfileScope::curve && !scoped.save_slot);
+    const auto numbered = remember_toolbar_save_preferences(settings, {std::nullopt, true, 4});
+    CHECK(numbered.save_scope == ProfileScope::curve && numbered.save_slot == 4 && numbered.ids == defaults.ids);
     const std::vector<ProfileLibraryEntry> reordered(entries.rbegin(),entries.rend());
     CHECK(load_quick_profiles(settings,reordered).ids==defaults.ids);
     const auto swapped=assign_quick_profile(settings,entries,1,"E");
     CHECK((swapped.ids==std::array<std::string,5>{"A","E","C","D","B"}));
+    const auto next_window = load_quick_profiles(settings, {});
+    CHECK(next_window.save_scope == ProfileScope::curve && next_window.save_slot == 4);
+    const auto library = remember_toolbar_save_preferences(settings, {std::nullopt, true, std::nullopt});
+    CHECK(library.save_scope == ProfileScope::curve && !library.save_slot && library.ids == swapped.ids);
+    const auto saved = read_profile(settings);
+    CHECK(saved.at("future_option") == legacy.at("future_option") && saved.at("save_slot").is_null());
+    reject([&]{remember_toolbar_save_preferences(settings, {ProfileScope::fan});});
+    reject([&]{remember_toolbar_save_preferences(settings, {std::nullopt, true, 5});});
+    CHECK(saved == read_profile(settings));
+    auto newer = saved;
+    newer["save_scope"] = "unknown";
+    newer["save_slot"] = 999;
+    write_profile(settings, newer);
+    const auto fallback = load_quick_profiles(settings, {});
+    CHECK(!fallback.save_scope && !fallback.save_slot && fallback.ids == swapped.ids);
     const auto replaced=assign_quick_profile(settings,entries,2,"F");
     CHECK((replaced.ids==std::array<std::string,5>{"A","E","F","D","B"}));
     entries.erase(entries.begin()+6); // E's portable file is offline

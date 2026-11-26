@@ -22,36 +22,75 @@ public:
     explicit AssignmentLock(const std::wstring& path) {
         const auto parent = std::filesystem::path(path).parent_path();
         if (!parent.empty()) std::filesystem::create_directories(parent);
-        handle_ = CreateFileW((path + L".lock").c_str(), GENERIC_WRITE | DELETE, 0, nullptr,
-                              OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
-        if (handle_ == INVALID_HANDLE_VALUE) {
+        const auto filename = path + L".lock";
+        for (unsigned attempt = 0; ; ++attempt) {
+            handle_ = CreateFileW(filename.c_str(), GENERIC_WRITE | DELETE, 0, nullptr,
+                                  OPEN_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+            if (handle_ != INVALID_HANDLE_VALUE) break;
             const auto error = GetLastError();
-            if (error == ERROR_SHARING_VIOLATION)
-                throw std::runtime_error("Another Druta window is updating quick profiles. Try again.");
-            throw std::runtime_error("Cannot lock quick profile settings (Windows error " + std::to_string(error) + ")");
+            if (error != ERROR_SHARING_VIOLATION)
+                throw std::runtime_error("Cannot lock quick profile settings (Windows error " + std::to_string(error) + ")");
+            if (attempt == 8) throw std::runtime_error("Another Druta window is updating quick profiles. Try again.");
+            Sleep(10);
         }
     }
     ~AssignmentLock() { CloseHandle(handle_); }
     AssignmentLock(const AssignmentLock&) = delete;
     AssignmentLock& operator=(const AssignmentLock&) = delete;
 };
-QuickProfileSlots read_slots(const std::wstring& path) {
-    QuickProfileSlots result;
-    if (std::filesystem::exists(path)) {
-        const auto settings = read_profile(path);
-        if (settings.value("version", 0) != 1 || !settings.contains("slots") ||
-            !settings["slots"].is_array() || settings["slots"].size() != result.ids.size())
-            throw std::runtime_error("Unrecognized quick profile settings");
-        for (std::size_t i = 0; i < result.ids.size(); ++i) {
-            const auto& id = settings["slots"][i].get_ref<const std::string&>();
-            const auto current = result.ids.begin() + i;
-            if (!id.empty() && std::find(result.ids.begin(), current, id) != current)
-                throw std::runtime_error("Duplicate quick profile assignment");
-            *current = id;
-        }
-    }
+struct QuickSettings {
+    QuickProfileSlots slots;
+    ProfileJson document = {{"version", 1}};
+};
 
-    return result;
+QuickSettings read_settings(const std::wstring& path) {
+    QuickSettings settings;
+    if (!std::filesystem::exists(path)) return settings;
+    settings.document = read_profile(path);
+    const auto& doc = settings.document;
+    auto& slots = settings.slots;
+    if (doc.value("version", 0) != 1 || !doc.contains("slots") ||
+        !doc["slots"].is_array() || doc["slots"].size() != slots.ids.size())
+        throw std::runtime_error("Unrecognized quick profile settings");
+    for (std::size_t i = 0; i < slots.ids.size(); ++i) {
+        const auto& id = doc["slots"][i].get_ref<const std::string&>();
+        const auto current = slots.ids.begin() + i;
+        if (!id.empty() && std::find(slots.ids.begin(), current, id) != current)
+            throw std::runtime_error("Duplicate quick profile assignment");
+        *current = id;
+    }
+    const auto scope = doc.find("save_scope");
+    if (scope != doc.end()) {
+        if (*scope == "daily") slots.save_scope = ProfileScope::daily;
+        else if (*scope == "curve") slots.save_scope = ProfileScope::curve;
+        else if (*scope == "full_tune") slots.save_scope = ProfileScope::full_tune;
+    }
+    const auto slot = doc.find("save_slot");
+    if (slot != doc.end() && slot->is_number_integer() && *slot >= 1 && *slot <= slots.ids.size())
+        slots.save_slot = slot->get<std::size_t>() - 1;
+    return settings;
+}
+
+void change_save_preferences(QuickSettings& settings, const ToolbarSavePreferenceChange& change) {
+    if (change.scope) {
+        switch (*change.scope) {
+        case ProfileScope::daily: settings.document["save_scope"] = "daily"; break;
+        case ProfileScope::curve: settings.document["save_scope"] = "curve"; break;
+        case ProfileScope::full_tune: settings.document["save_scope"] = "full_tune"; break;
+        default: throw std::invalid_argument("Unknown profile capture scope");
+        }
+        settings.slots.save_scope = change.scope;
+    }
+    if (change.destination_changed) {
+        if (change.slot && *change.slot >= settings.slots.ids.size()) throw std::out_of_range("Invalid quick profile slot");
+        settings.slots.save_slot = change.slot;
+        settings.document["save_slot"] = change.slot ? ProfileJson(*change.slot + 1) : ProfileJson(nullptr);
+    }
+}
+
+void write_settings(const std::wstring& path, QuickSettings& settings) {
+    settings.document["slots"] = settings.slots.ids;
+    write_profile(path, settings.document);
 }
 
 // The catalog intentionally groups jointly applied fields (power, fan, V/F) under
@@ -157,25 +196,29 @@ ToolbarProfileSaveResult save_toolbar_profile(const ProfileLibraryDirectory& nat
     // Use the same lock as quick-slot assignment, from the last slot check through
     // the file commit and pin. A failed capture or stale request cannot move a slot.
     std::optional<AssignmentLock> slot_lock;
-    QuickProfileSlots slots;
+    QuickSettings quick;
     if (request.slot) {
         slot_lock.emplace(settings);
-        slots = read_slots(settings);
-        if (slots.ids[*request.slot] != *request.expected_slot_id)
+        quick = read_settings(settings);
+        if (quick.slots.ids[*request.slot] != *request.expected_slot_id)
             throw std::runtime_error("The quick profile slot changed. Choose the destination again.");
     }
     if (request.replace_document)
         write_profile(entry.path, captured, ProfileWriteMode::update_only, &*request.replace_document);
     else
         write_profile(entry.path, captured, ProfileWriteMode::create_only);
-    if (request.slot) {
-        try {
-            set_slot(slots, *request.slot, entry.id);
-            write_profile(settings, {{"version", 1}, {"slots", slots.ids}});
-            result.slots = std::move(slots);
-        } catch (const std::exception& error) {
-            result.slot_error = error.what();  // The named profile is already durable and remains selectable.
+    const ToolbarSavePreferenceChange used{request.scope, true, request.slot};
+    try {
+        if (request.slot) {
+            set_slot(quick.slots, *request.slot, entry.id);
+            change_save_preferences(quick, used);
+            write_settings(settings, quick);
+            result.slots = std::move(quick.slots);
+        } else {
+            result.slots = remember_toolbar_save_preferences(settings, used);
         }
+    } catch (const std::exception& error) {
+        result.settings_error = error.what();  // The named profile is already durable and remains selectable.
     }
     return result;
 }
@@ -186,13 +229,23 @@ std::wstring quick_profile_settings_path() {
 }
 
 QuickProfileSlots load_quick_profiles(const std::wstring& path, const std::vector<ProfileLibraryEntry>& library) {
-    auto result = read_slots(path);
-    if (!fill_empty_slots(result, library)) return result;
+    auto settings = read_settings(path);
+    if (!fill_empty_slots(settings.slots, library)) return settings.slots;
     AssignmentLock lock(path);
-    result = read_slots(path);
-    if (fill_empty_slots(result, library))
-        write_profile(path, {{"version", 1}, {"slots", result.ids}});
-    return result;
+    settings = read_settings(path);
+    if (fill_empty_slots(settings.slots, library)) write_settings(path, settings);
+    return settings.slots;
+}
+
+QuickProfileSlots remember_toolbar_save_preferences(const std::wstring& path, const ToolbarSavePreferenceChange& change) {
+    AssignmentLock lock(path);
+    auto settings = read_settings(path);
+    if ((change.scope && change.scope != settings.slots.save_scope) ||
+        (change.destination_changed && change.slot != settings.slots.save_slot)) {
+        change_save_preferences(settings, change);
+        write_settings(path, settings);
+    }
+    return settings.slots;
 }
 
 QuickProfileSlots assign_quick_profile(const std::wstring& path, const std::vector<ProfileLibraryEntry>& library,
@@ -204,10 +257,10 @@ QuickProfileSlots assign_quick_profile(const std::wstring& path, const std::vect
         throw std::runtime_error("Choose an available named profile");
 
     AssignmentLock lock(path);
-    auto result = read_slots(path);
-    fill_empty_slots(result, library);
-    set_slot(result, slot, profile_id);
-    write_profile(path, {{"version", 1}, {"slots", result.ids}});
-    return result;
+    auto settings = read_settings(path);
+    fill_empty_slots(settings.slots, library);
+    set_slot(settings.slots, slot, profile_id);
+    write_settings(path, settings);
+    return settings.slots;
 }
 }

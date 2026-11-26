@@ -70,9 +70,10 @@ struct ViewState {
         std::optional<std::size_t> slot;
         std::optional<std::string> expected_slot_id;
         ProfileScope scope = ProfileScope::daily;
-        bool name_edited = false, scope_edited = false;
+        bool name_edited = false, scope_chosen = false, awaiting_library = false;
     } toolbar_save_draft;
     std::optional<ToolbarSaveRequest> toolbar_save_request;
+    ToolbarSavePreferenceChange toolbar_save_preference_change;
     bool toolbar_save_pending = false;
     std::string toolbar_save_status;
     QuickProfileSlots quick_profiles;

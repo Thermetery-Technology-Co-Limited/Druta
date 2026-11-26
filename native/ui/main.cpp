@@ -672,6 +672,16 @@ struct App {
             view.toolbar_save_status = "Capturing current settings...";
         } catch (const std::exception& e) { view.toolbar_save_status = e.what(); }
     }
+    void consume_toolbar_save_preferences() {
+        const auto change = view.toolbar_save_preference_change;
+        if (!change.scope && !change.destination_changed) return;
+        view.toolbar_save_preference_change = {};
+        try {
+            view.quick_profiles = druta::ui::remember_toolbar_save_preferences(druta::ui::quick_profile_settings_path(), change);
+        } catch (const std::exception& e) {
+            view.toolbar_save_status = std::string("Could not remember the Save selection: ") + e.what();
+        }
+    }
     void poll_toolbar_save() {
         using namespace druta::ui;
         if (!toolbar_capture || !session) return;
@@ -694,9 +704,12 @@ struct App {
             bar.status.clear();
             if (result.slots) view.quick_profiles = *result.slots;
             view.toolbar_save_status = "Saved " + result.entry.name;
-            if (result.slots) view.toolbar_save_status += " to slot " + std::to_string(*pending.request.slot + 1);
-            if (!result.slot_error.empty()) view.toolbar_save_status += ". Slot assignment failed: " + result.slot_error;
-            session->note(result.slot_error.empty(), view.toolbar_save_status);
+            if (result.slots && pending.request.slot) view.toolbar_save_status += " to slot " + std::to_string(*pending.request.slot + 1);
+            if (!result.settings_error.empty()) {
+                view.toolbar_save_status += pending.request.slot ? ". Slot assignment failed: " : ". Could not remember the Save selection: ";
+                view.toolbar_save_status += result.settings_error;
+            }
+            session->note(result.settings_error.empty(), view.toolbar_save_status);
             refresh_profile_library(true);
         } catch (const std::exception& e) {
             view.toolbar_save_status = e.what();
@@ -716,8 +729,19 @@ struct App {
             view.quick_profile_status.clear();
         } catch (const std::exception& e) { view.quick_profile_status = e.what(); }
     }
+    bool reload_quick_settings = true;
     void poll_profile_library() {
         using namespace druta::ui;
+        if (reload_quick_settings && !startup_hidden) {
+            reload_quick_settings = false;
+            try {
+                // Read preferences before the first frame and when returning from another GPU window.
+                auto settings = load_quick_profiles(quick_profile_settings_path(), {});
+                const bool slots_changed = view.quick_profiles.ids != settings.ids;
+                view.quick_profiles = std::move(settings);
+                if (slots_changed && view.quick_library_requested) refresh_profile_library(true);
+            } catch (const std::exception& e) { view.quick_profile_status = e.what(); }
+        }
         if(library_read.valid()&&library_read.wait_for(std::chrono::seconds(0))==std::future_status::ready){
             try{
                 record_profile_library(view.profile_catalog_view,library_read.get());
@@ -1189,6 +1213,7 @@ struct App {
         consume_app_actions();
         if (!session || closing) { view.commands.clear(); return; }
         consume_quick_profile_assignment();
+        consume_toolbar_save_preferences();
         consume_toolbar_save();
         configure_startup();
         consume_profile_catalog();
@@ -1546,6 +1571,9 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
             return 0;
         }
         switch (message) {
+        case WM_ACTIVATEAPP:
+            if (wparam) app->reload_quick_settings = true;
+            break;
         case WM_TIMER:
             if (wparam == tray_retry && app->startup_hidden) { app->set_tray_icon(true); return 0; }
             break;
