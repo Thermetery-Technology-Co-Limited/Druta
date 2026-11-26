@@ -4,9 +4,24 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <winerror.h>
 using namespace druta::ui;
 #define CHECK(x) do{if(!(x)){std::fprintf(stderr,"%d: %s\n",__LINE__,#x);std::abort();}}while(false)
-int main(){VoltageScaffoldWindowsTarget target{"0000:09:00.0","PCI\\VEN_10DE&DEV_1234&SUBSYS_12345678\\A","SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0007"};PowerWeightRegistrySnapshot before={{L"EnableGpuFirmware",4,{1}}},after=before;after.push_back({L"romOverride00",3,{0,0,0,1,0,0,0,0,0,1,7}});auto current=before;int writes=0,journals=0;bool reject=false,fail_write=false,lie=false;PowerWeightRegistryWriteApi api;
+int main(){
+ const auto elevated_denial = format_power_weight_registry_open_error(ERROR_ACCESS_DENIED, true);
+ CHECK(elevated_denial.find("Windows error 5") != std::string::npos);
+ CHECK(elevated_denial.find("active Administrators token") != std::string::npos);
+ CHECK(elevated_denial.find("endpoint protection logs") != std::string::npos);
+ CHECK(elevated_denial.find("Run Druta as administrator") == std::string::npos);
+ const auto standard_denial = format_power_weight_registry_open_error(ERROR_ACCESS_DENIED, false);
+ CHECK(standard_denial.find("Windows error 5") != std::string::npos);
+ CHECK(standard_denial.find("Run Druta as administrator") != std::string::npos);
+ CHECK(format_power_weight_registry_open_error(ERROR_ACCESS_DENIED, std::nullopt) ==
+       "Cannot open display driver registry key for selected write (Windows error 5).");
+ CHECK(format_power_weight_registry_open_error(ERROR_FILE_NOT_FOUND, true) ==
+       "Cannot open display driver registry key for selected write (Windows error 2).");
+
+ VoltageScaffoldWindowsTarget target{"0000:09:00.0","PCI\\VEN_10DE&DEV_1234&SUBSYS_12345678\\A","SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}\\0007"};PowerWeightRegistrySnapshot before={{L"EnableGpuFirmware",4,{1}}},after=before;after.push_back({L"romOverride00",3,{0,0,0,1,0,0,0,0,0,1,7}});auto current=before;int writes=0,journals=0;bool reject=false,fail_write=false,lie=false;PowerWeightRegistryWriteApi api;
  api.read=[&](const std::wstring&){return current;};api.write=[&](const std::wstring&,const std::wstring& name,const std::optional<PowerWeightRegistryValue>& v,std::string&){++writes;CHECK(journals==writes);if(v){if(!lie)current.push_back(*v);}else{current.erase(std::remove_if(current.begin(),current.end(),[&](const auto& x){return x.name==name;}),current.end());}return !fail_write;};
  const auto journal=[&](const std::wstring&,std::string&){++journals;return !reject;};reject=true;auto result=write_power_weight_registry(target,before,after,journal,api);CHECK(!result.ok&&!result.may_have_changed&&writes==0);reject=false;journals=0;result=write_power_weight_registry(target,before,after,journal,api);CHECK(result.ok&&result.may_have_changed&&writes==1&&current.size()==2);
  journals=writes=0;result=write_power_weight_registry(target,after,before,journal,api);CHECK(result.ok&&result.may_have_changed&&writes==1&&current.size()==1);

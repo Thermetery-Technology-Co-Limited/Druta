@@ -118,6 +118,8 @@ public:
     std::optional<std::uint32_t> step_mhz();                           // clkdom_step_mhz
     std::optional<bool> delta_inert(std::optional<std::int64_t> domain);  // clkdom_delta_inert (tri-state)
     bool offset_slider_offered(std::int64_t control);                  // clkdom_offset_slider_offered
+    Outcome offset_write_capability(std::uint32_t control, std::int32_t observed_mode);
+    Outcome known_offset_pattern(std::uint32_t control, std::int32_t observed_mode, std::uint32_t& groups);
     std::optional<bool> delta_clears_ceiling(std::int64_t domain);     // clkdom_delta_clears_ceiling
     // clkdom_pairing: {control index: private domain}, or {} when unknown. rows == nullptr reads a snapshot.
     std::map<std::uint32_t, std::uint32_t> pairing(const std::vector<PrivDomainRow>* rows);
@@ -150,6 +152,7 @@ private:
     std::pair<int, ClkDomBlock> get_for_layout(std::uint32_t mask, const ClkDomLayout& layout);
     std::pair<int, ClkDomBlock> probe_control(std::uint32_t control);
     bool compact_wire() const { return wire_layout_ == &kClkDomLayoutCompactTuring; }
+    bool offset_mode_supported(std::int32_t mode) const;
     Outcome set_msvdd_offset_mv(double mv, std::int64_t domain, bool reset);
     std::set<std::uint32_t> cached_ui_controls(std::optional<std::uint32_t> architecture);
     bool retry_needed(std::optional<std::uint32_t> architecture);

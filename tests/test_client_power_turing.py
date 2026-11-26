@@ -16,7 +16,7 @@ from tests.test_client_power_runtime import FakeGpu, Lock, put
 
 
 class TuringGpu:
-    """Independent wire model: a 32-row client plus 124-byte native controls.
+    """Independent wire model for the 32-row client and native policies.
 
     `record` is the native policy INFO record size. The role GET carries one
     such record behind a 4-byte selector, so changing it changes both sizes
@@ -27,11 +27,13 @@ class TuringGpu:
                  slot="0000:52:1d.3", device=0xABCD, subsystem=0x87654321,
                  record=228):
         self.record = record
+        self.native_control_stride = 116 if record == 200 else 124
         self.sizes = {
             cp.INFO: 1160, cp.CONTROL: 392, cp.SET: 392,
             cp.ROLE_INFO: 4 + record,
-            cp.NATIVE_INFO: 8620 if record == 228 else 8236,
-            cp.NATIVE_CONTROL: 4432, cp.NATIVE_STATUS: 172080,
+            cp.NATIVE_INFO: {228: 8620, 216: 8236, 200: 7724}[record],
+            cp.NATIVE_CONTROL: 4172 if record == 200 else 4432,
+            cp.NATIVE_STATUS: 149928 if record == 200 else 172080,
         }
         self._lock = Lock()
         self.client_index, self.native_index = client_index, native_index
@@ -65,10 +67,10 @@ class TuringGpu:
             self.native_info[at:at + 7] = bytes([0x30, 0x12, 0x23, 0x34, kind, channel, 0])
             struct.pack_into("<III", self.native_info, at + 8, *bounds)
         self.native_info[-17:] = b"native-info-tail!"
-        self.native_control = bytearray(4432)
+        self.native_control = bytearray(self.sizes[cp.NATIVE_CONTROL])
         struct.pack_into("<5I", self.native_control, 0, 0, 0, 0, 255, self.native_mask)
-        put(self.native_control, 20 + native_index * 124, 0x0A)
-        put(self.native_control, 20 + self.peer * 124, 3)
+        put(self.native_control, 20 + native_index * self.native_control_stride, 0x0A)
+        put(self.native_control, 20 + self.peer * self.native_control_stride, 3)
         self.native_control[-17:] = b"native-ctrl-tail!"
         self.original = 321000
         self._update(self.original)
@@ -83,12 +85,13 @@ class TuringGpu:
 
     def _update(self, value):
         self.requested = value
-        put(self.native_control, 20 + self.native_index * 124 + 4, value)
-        put(self.native_control, 20 + self.peer * 124 + 4, 50000 if value == self.original else 60000)
+        put(self.native_control, 20 + self.native_index * self.native_control_stride + 4, value)
+        put(self.native_control, 20 + self.peer * self.native_control_stride + 4,
+            50000 if value == self.original else 60000)
 
     def _restore_peer(self, index, value):
         assert self._lock.held and index == self.peer
-        put(self.native_control, 20 + index * 124 + 4, value)
+        put(self.native_control, 20 + index * self.native_control_stride + 4, value)
         return True, "restored"
 
     def _current_limit_transport_layouts(self):
@@ -96,7 +99,8 @@ class TuringGpu:
         if self._current_limit_transport is None:
             header = [0] * 17
             header[0], header[1], header[3], header[4] = 0x4E564441, 0x10002, 0x4E562A2A, 0x0500002B
-            header[2], header[14], header[15] = 11748, 0x2080A612, 11680
+            packet_bytes = 3676 if self.record == 200 else 11748
+            header[2], header[14], header[15] = packet_bytes, 0x2080A612, packet_bytes - 68
             self._current_limit_transport = (
                 header, {"hAdapter": 12, "hDevice": 0, "Type": 0, "Flags": 1, "hContext": 0},
             )
@@ -232,6 +236,37 @@ def test_a_216_byte_policy_record_is_reached_through_the_role_size(architecture)
     assert cp._state(controller.read()) == cp._state(before)
 
 
+@pytest.mark.parametrize("architecture,client,native", [(4, 0, 2), (7, 31, 31)])
+def test_a_204_byte_role_binds_the_116_byte_controls_and_restores(architecture, client, native):
+    gpu = TuringGpu(client, native, architecture=architecture, record=200)
+    controller = cp.ClientPowerController(gpu)
+    before = controller.read()
+    assert before["binding"]["native_layout"] == "policy116"
+    assert before["binding"]["native_index"] == native
+    assert [size for command, size in gpu.counts if command == cp.ROLE_INFO] == [232, 220, 204]
+    assert [size for command, size in gpu.counts if command == cp.NATIVE_INFO] == [7724]
+    assert [size for command, size in gpu.counts if command == cp.NATIVE_CONTROL] == [4172]
+
+    after = controller.set_request(551000)["after"]
+    assert after["requested_mw"] == 551000
+    native_control = bytes.fromhex(after["native_control_hex"])
+    assert cp._u32(native_control, 20 + native * 116 + 4) == 551000
+    assert cp._u32(native_control, 20 + gpu.peer * 116 + 4) == 60000
+    assert controller.set_request(gpu.original)["after"] == before
+
+
+def test_a_204_byte_role_refuses_to_bind_on_a_different_discovery_packet():
+    gpu = TuringGpu(record=200)
+    with gpu._lock:
+        header, _ = gpu._rm_power_transport()
+        header[2], header[15] = 11748, 11680
+    with pytest.raises(cp.ClientPowerError) as caught:
+        cp.ClientPowerController(gpu).set_request(551000)
+    assert caught.value.kind == "unsupported" and caught.value.rollback is None
+    assert [size for command, size in gpu.counts if command == cp.ROLE_INFO] == [232, 220]
+    assert not gpu.set_payloads
+
+
 def test_the_228_byte_record_still_binds_without_recording_a_stride():
     """The previously supported ABI keeps a byte-identical binding."""
     before = cp.ClientPowerController(TuringGpu(0, 2)).read()
@@ -270,9 +305,10 @@ def test_turing_modern_geometry_does_not_probe_smaller_client_or_native_layout()
 
 
 @pytest.mark.parametrize("event", [{"rm": 0x55}, {"nt": -1}, {"ignore": True}])
-def test_failed_write_restores_complete_baseline_and_preexisting_peer_request(event):
-    gpu = TuringGpu(native_index=31)
-    put(gpu.native_control, 20 + gpu.peer * 124 + 4, 51000)
+@pytest.mark.parametrize("record,stride", [(228, 124), (200, 116)])
+def test_failed_write_restores_complete_baseline_and_preexisting_peer_request(event, record, stride):
+    gpu = TuringGpu(native_index=31, record=record)
+    put(gpu.native_control, 20 + gpu.peer * stride + 4, 51000)
     controller = cp.ClientPowerController(gpu)
     before = controller.read()
     gpu.faults[cp.SET, 392, 1] = event
@@ -327,6 +363,15 @@ def test_malformed_role_units_and_inventory_prevent_any_set(command, size, chang
     with pytest.raises(cp.ClientPowerError) as caught:
         cp.ClientPowerController(gpu).set_request(551000)
     assert caught.value.kind == kind and caught.value.rollback is None
+    assert not gpu.set_payloads
+
+
+def test_mismatched_204_byte_role_prevents_a_set():
+    gpu = TuringGpu(record=200)
+    gpu.faults[cp.ROLE_INFO, 204, 1] = {"payload": lambda raw: raw.__setitem__(13, raw[13] ^ 1)}
+    with pytest.raises(cp.ClientPowerError) as caught:
+        cp.ClientPowerController(gpu).set_request(551000)
+    assert caught.value.kind == "malformed" and caught.value.rollback is None
     assert not gpu.set_payloads
 
 

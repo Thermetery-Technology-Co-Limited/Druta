@@ -35,6 +35,8 @@ class LegacyRig(ClkDomRig):
         self.v2_status = v2_status
         self.v1_enabled = v1_enabled
         self.bad_echo = bad_echo
+        self.aggregate_memory_stale = False
+        self.memory_read_failure = False
 
         @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
         def get(handle, pointer):
@@ -51,13 +53,16 @@ class LegacyRig(ClkDomRig):
                 return -9
             if not mask or mask & ~sum(1 << d for d in accepted):
                 return -1
+            if self.memory_read_failure and mask == 1 << 2:
+                return -1
             for domain in accepted:
                 if mask & (1 << domain):
                     base = (HEADER + domain * STRIDE) // 4
                     for i in range(STRIDE // 4):
                         words[base + i] = 0xAC000000 | (domain << 8) | i
                     words[base] = 4
-                    words[base + FREQUENCY // 4] = self.frequency[domain] & 0xffffffff
+                    stale = self.aggregate_memory_stale and domain == 2 and mask != 1 << 2
+                    words[base + FREQUENCY // 4] = 0 if stale else self.frequency[domain] & 0xffffffff
                     words[base + NVVDD // 4] = self.nvvdd[domain] & 0xffffffff
             if self.bad_echo:
                 words[2] = 0
@@ -142,6 +147,27 @@ class PascalV1Tests(unittest.TestCase):
             result = gpu.set_clk_domain_offset(2, 1)
             self.assertFalse(result[0])
             self.assertIn("readback differs", result[1])
+        finally:
+            gpu.close()
+
+    def test_v1_readback_uses_writer_mask_for_adjustable_row(self):
+        rig = LegacyRig()
+        rig.aggregate_memory_stale = True
+        gpu = rig.native_gpu()
+        try:
+            self.assertEqual(gpu.clkdom_layout().version, V1)
+            self.assertTrue(gpu.set_clk_domain_offset(2, -45)[0])
+            rows, error = gpu.read_clk_domain_offsets()
+            self.assertFalse(error)
+            self.assertEqual(rows[0]["freq_khz"], 0)
+            self.assertEqual(rows[2]["freq_khz"], -45000)
+            self.assertTrue(gpu.set_clk_domain_offset(2, 0)[0])
+            self.assertEqual(gpu.read_clk_domain_offsets()[0][2]["freq_khz"], 0)
+
+            rig.memory_read_failure = True
+            rows, error = gpu.read_clk_domain_offsets()
+            self.assertIsNone(rows)
+            self.assertIn("single-domain", error)
         finally:
             gpu.close()
 

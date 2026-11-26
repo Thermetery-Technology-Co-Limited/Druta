@@ -44,6 +44,7 @@ void optional_value(const char* key, const std::optional<double>& v) {
 }
 void print_data(const LiveData& d) {
     std::cout << "slot=" << d.identity.slot << "\nname=" << d.identity.name
+              << "\nuuid=" << d.identity.uuid << "\ndriver=" << d.identity.driver
               << "\nconnected=" << d.connected << "\nstatus=" << d.status
               << "\ntelemetry_valid=" << d.telemetry_valid << "\ntelemetry_present=0x"
               << std::hex << d.telemetry.present << std::dec << "\ntelemetry_error=" << d.telemetry_error << '\n';
@@ -83,6 +84,11 @@ void print_data(const LiveData& d) {
     }    std::cout << "rail.mode_known=" << d.rail_mode_known << "\nrail.mode_enabled=" << d.rail_mode_enabled
               << "\nrail.writable_known=" << d.rail_writable_known << "\nrail.writable=" << d.rail_writable
               << "\nrail.count=" << d.rail_controls.size() << '\n';
+    for (size_t i = 0; i < d.rail_writer_evidence.size(); ++i) {
+        const auto evidence = d.rail_writer_evidence[i];
+        std::cout << "rail.writer." << i << '=' << (evidence == DC_RAILS_WRITER_RECOGNIZED ? "recognized" :
+            evidence == DC_RAILS_WRITER_NO_MATCH ? "no match on last attempt" : "unverified") << '\n';
+    }
     for (size_t i = 0; i < d.rail_controls.size(); ++i) {
         const auto& r = d.rail_controls[i]; const std::string key = "rail." + std::to_string(i);
         std::cout << key << ".index=" << r.id.rail << '\n' << key << ".field=" << r.id.field
@@ -456,13 +462,14 @@ bool rail_requests(const LiveData& data, std::map<std::pair<uint32_t, uint32_t>,
 }
 int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
-    std::wstring core, gpu, profile_path, control_name, domain_index; enum class Mode { read, memory, curve, profile, control, domain } mode = Mode::read;
-    const auto usage = [] { std::cerr << "usage: live_check --core ABSOLUTE_DLL --gpu SLOT [--memory-roundtrip | --curve-roundtrip | --profile-roundtrip --profile-path ABSOLUTE_FILE | --control-roundtrip core|power|fan|boost | --domain-roundtrip INDEX]\n"; };
+    std::wstring core, gpu, profile_path, control_name, domain_index; enum class Mode { read, rediscover, memory, curve, profile, control, domain } mode = Mode::read;
+    const auto usage = [] { std::cerr << "usage: live_check --core ABSOLUTE_DLL --gpu SLOT [--retry-detection | --memory-roundtrip | --curve-roundtrip | --profile-roundtrip --profile-path ABSOLUTE_FILE | --control-roundtrip core|power|fan|boost | --domain-roundtrip INDEX]\n"; };
     for (int i = 1; i < argc; ++i) {
         const std::wstring arg(argv[i]);
         if (arg == L"--core" && i + 1 < argc && core.empty()) core = argv[++i];
         else if (arg == L"--gpu" && i + 1 < argc && gpu.empty()) gpu = argv[++i];
         else if (arg == L"--profile-path" && i + 1 < argc && profile_path.empty()) profile_path = argv[++i];
+        else if (arg == L"--retry-detection" && mode == Mode::read) mode = Mode::rediscover;
         else if (arg == L"--memory-roundtrip" && mode == Mode::read) mode = Mode::memory;
         else if (arg == L"--curve-roundtrip" && mode == Mode::read) mode = Mode::curve;
         else if (arg == L"--profile-roundtrip" && mode == Mode::read) mode = Mode::profile;
@@ -493,7 +500,16 @@ int wmain(int argc, wchar_t** argv) {
             std::cout << "device." << i << ".slot=" << devices[i].slot << "\ndevice." << i << ".name=" << devices[i].name << '\n';
         std::string error;
         if (!backend->open(slot, error)) { std::cerr << "open.error=" << error << '\n'; return 1; }
-        LiveData initial = backend->read(true); print_data(initial);
+        LiveData initial = backend->read(true);
+        if (mode == Mode::rediscover) {
+            const auto refreshed = backend->rediscover_capabilities();
+            if (!initial.connected || !refreshed.connected || !same_identity(initial.identity, refreshed.identity)) {
+                std::cerr << "retry.error=Adapter unavailable or changed during detection\n";
+                return 1;
+            }
+            initial = refreshed;
+        }
+        print_data(initial);
         if (!initial.connected || !initial.telemetry_valid) return 1;
         if (mode == Mode::memory) return roundtrip(*backend, initial);
         if (mode == Mode::curve) return curve_roundtrip(*backend, initial);

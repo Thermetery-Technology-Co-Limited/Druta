@@ -21,6 +21,7 @@ struct CurvePlanRequest {
     std::vector<dc_vf_point> points; // current draft: physical MHz, raw delta kHz
     std::uint32_t freq_div = 0;      // raw delta units per physical unit
     std::uint32_t step_khz = 0;      // verified physical clock step
+    bool ramp_use_default_step = false; // Max it compatibility when the driver did not measure the grid
     std::int64_t max_abs_delta_khz = 0; // verified raw delta envelope
     std::optional<double> cap_mv, floor_mv, max_mhz, target_mhz;
     // Core's software prediction-model bound, not a physical measurement.

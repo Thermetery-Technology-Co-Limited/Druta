@@ -7,6 +7,8 @@
 #include "../app_version.h"
 #include "../session.h"
 #include "../i2c_view.h"
+#include "../model_input_inventory.h"
+#include "../vbios_override_inventory.h"
 #include "imgui.h"
 #include "imgui_internal.h" // Pinned ImGui text capture, not widget coordinates.
 #include "implot.h"
@@ -129,6 +131,64 @@ std::shared_ptr<SessionSnapshot> snapshot() {
     live->data.curve_max_abs_delta_khz = 1000000;
     live->log.push_back({1, "Refused request; captured Undo retained", false});
     return live;
+}
+
+void adapter_selection_with_curve_hold(Presentation presentation) {
+    ViewState state;
+    state.preview = false;
+    state.presentation = presentation;
+    auto live = snapshot();
+    const Device other{"0000:05:00.0", "Other adapter", "other-uuid"};
+    live->devices.push_back(other);
+    live->data.tuning.owned = true;
+    live->data.tuning.confirmed = true;
+    live->data.tuning.voltage_uv = 900000;
+    state.live = live;
+    frame(state, 1920, 1280, false);
+    check(state.curve_draft.stage_khz(0, 15000), "adapter selector fixture has a local curve draft");
+
+    const bool classic = presentation == Presentation::classic;
+    const auto choose = [&](const Device& device) {
+        auto* workspace = ImGui::FindWindowByName("Druta workspace");
+        if (!workspace) { check(false, "adapter selector workspace exists"); return; }
+        const auto combo = classic ? ImHashStr("##adapter", 0, workspace->GetID("classic-header"))
+                                   : workspace->GetID("##adapter");
+        ImGui::ActivateItemByID(combo);
+        frame(state, 1920, 1280, false);
+        auto* picker = ImGui::FindWindowByName("##Combo_00");
+        if (!picker || !picker->Active) { check(false, "adapter selector opens its options"); return; }
+        const auto label = device.name + (classic ? "   " : " | ") + device.slot;
+        ImGui::ActivateItemByID(picker->GetID(label.c_str()));
+        frame(state, 1920, 1280, false);
+    };
+
+    choose(live->devices.front());
+    check(!state.select_slot && !state.app_actions.second_window,
+        "selecting the current adapter is a no-op during a curve hold");
+    choose(other);
+    const auto& request = state.app_actions.second_window;
+    std::string why;
+    check(!state.select_slot && request && request->generation == live->generation && request->slot == other.slot &&
+        request->uuid == other.uuid && second_window_launchable(*request, *live, why),
+        "selecting another adapter during a curve hold queues the existing second-window launch");
+    check(state.commands.empty() && live->selected_slot == live->devices.front().slot && live->data.tuning.owned &&
+        state.curve_draft.dirty() && state.curve_draft.draft().front().delta_khz == 15000,
+        "second-window intent leaves the selected adapter, hold and staged curve intact");
+
+    state.app_actions.second_window.reset();
+    live->devices.back().uuid.clear();
+    choose(other);
+    check(!state.select_slot && !state.app_actions.second_window && !state.app_actions.status.empty(),
+        "a held session stays in place if the alternate adapter has no verified UUID");
+
+    live->devices.back().uuid = other.uuid;
+    live->data.tuning = {};
+    choose(live->devices.front());
+    check(!state.select_slot && !state.app_actions.second_window,
+        "selecting the current adapter is a no-op without a curve hold");
+    choose(other);
+    check(state.select_slot == other.slot && !state.app_actions.second_window,
+        "a draft without a live curve hold keeps normal in-place adapter selection");
 }
 
 void curve_workspace(Presentation presentation) {
@@ -322,6 +382,23 @@ void classic_power_request_footer() {
     text = frame(state, 1528, 1261);
     check(contains(text, "Native effective limit unavailable; NVML readback does not verify it."),
         "a failed native read shows the clause as unavailable");
+}
+
+void xoc_power_range_note() {
+    for (auto skin : {Presentation::classic, Presentation::focused}) {
+        ViewState state;
+        state.preview = false;
+        state.presentation = skin;
+        auto live = snapshot();
+        live->data.xoc_known = live->data.xoc_enabled = true;
+        live->data.xoc_power_range_note = "XOC power range on this adapter is limited to 100 to 380 W.";
+        state.live = live;
+        for (int n = 0; n < 2; ++n) frame(state, 1528, 1261, false);
+        const auto text = frame(state, 1528, 1261);
+        check(contains(text, live->data.xoc_power_range_note.c_str()), "daily controls show the adapter's nominal-only XOC range");
+        live->data.xoc_power_range_note.clear();
+        check(!contains(frame(state, 1528, 1261), "XOC power range on this adapter is limited"), "extended ranges clear the earlier notice");
+    }
 }
 
 size_t colour_vertices(ImU32 colour) {
@@ -898,8 +975,9 @@ void classic_curve_editor_parity() {
         window->StateStorage.SetInt(window->GetID("More V/F tools"), 0);
     frame(state, 1600, 1200, false);
     auto text = frame(state, 1600, 1200);
-    check(contains(text, "APPLY TO GPU") && contains(text, "nothing staged") && contains(text, "'Apply V/F curve to GPU' will write"),
-        "Classic shows the idle plan banner before anything is staged");
+    check(contains(text, "Nothing staged") && !contains(text, "APPLY TO GPU") && !contains(text, "Writes ")
+        && !contains(text, "'Reset curve to stock' is one click too"),
+        "Classic shows a single idle preview line");
     check(contains(text, "2 points   top") && contains(text, "idx 1 @ 900.00 mV = 1890 MHz")
         && contains(text, "peak 1890 MHz held by 1 point(s), lowest = idx 1 @ 900.00 mV") && contains(text, "flat runs below cap: 0"),
         "Classic statistics line is computed from the adapter's points and the cap");
@@ -908,12 +986,13 @@ void classic_curve_editor_parity() {
         && !contains(text, "Curve shape tools") && !contains(text, "Undo edit"),
         "Classic rows use the released labels; native-only tools stay behind a collapsed header");
     auto* popup = ImGui::FindWindowByName("V/F curve editor###druta_curve_editor");
-    ImGuiWindow* banner = nullptr;
-    if (popup) for (auto* child : ImGui::GetCurrentContext()->Windows)
-        if (child->ParentWindow == popup && child->ChildId == popup->GetID("vf_plan")) banner = child;
+    const auto active_banner = [&]() -> ImGuiWindow* {
+        if (popup) for (auto* child : ImGui::GetCurrentContext()->Windows)
+            if (child->Active && child->ParentWindow == popup && child->ChildId == popup->GetID("vf_plan")) return child;
+        return nullptr;
+    };
     auto* plot = popup_plot();
-    check(banner && plot && banner->Pos.y + banner->Size.y <= plot->FrameRect.Min.y && near(banner->WindowBorderSize, 2),
-        "the bordered plan banner sits above the editing row and plot");
+    check(!active_banner(), "the idle preview has no bordered banner");
     auto legend_color = [](ImPlotPlot* p, const char* name) -> ImU32 {
         if (p) for (int i = 0; i < p->Items.GetLegendCount(); ++i)
             if (std::string(p->Items.GetLegendLabel(i)) == name) return p->Items.GetLegendItem(i)->Color;
@@ -945,21 +1024,25 @@ void classic_curve_editor_parity() {
     ImGui::ActivateItemByID(workspace_button("Set MHz"));
     frame(state, 1600, 1200, false); frame(state, 1600, 1200, false);
     text = frame(state, 1600, 1200);
-    check(state.curve_draft.dirty() && state.commands.empty() && contains(text, "ONE CLICK WRITES THIS")
-        && contains(text, "Writes 1 edited point(s)") && contains(text, "[staged curve, 1 edit(s) not yet written]")
+    check(state.curve_draft.dirty() && state.commands.empty() && !contains(text, "Nothing staged")
+        && contains(text, "Writes 1 edited point(s)") && !contains(text, "An undo point is recorded")
+        && contains(text, "[staged curve, 1 edit(s) not yet written]")
         && contains(text, "edits pending: 1"),
         "a staged edit turns the banner and statistics into the pre-click plan without writing");
+    auto* banner = active_banner(); plot = popup_plot();
+    check(banner && plot && banner->Pos.y + banner->Size.y <= plot->FrameRect.Min.y && near(banner->WindowBorderSize, 2),
+        "the staged preview is bordered and sits above the editing row and plot");
     state.curve_draft.revert(); state.curve_draft.stage_mhz(1, -30);
     text = frame(state, 1600, 1200);
-    check(contains(text, "ONE CLICK LOWERS THE PEAK") && contains(text, "LOWERS the curve's peak from 1890 to 1860 MHz"),
-        "a plan that lowers the table peak takes the red headline");
+    check(contains(text, "LOWERS the curve's peak from 1890 to 1860 MHz"),
+        "the staged preview calls out a lower table peak");
     ImGui::ActivateItemByID(workspace_button(curve_label(state, "Apply curve"))); frame(state, 1600, 1200, false);
     check(state.commands.size() == 1 && state.commands[0].operation == Command::Operation::apply_curve
         && state.commands[0].curve_deltas.size() == 1 && state.commands[0].curve_deltas[0].delta_khz == -30000,
         "the green Apply on the selected-point row sends the staged changes exactly");
     state.commands.clear(); state.presentation = Presentation::focused;
     text = frame(state, 1600, 1200);
-    check(!contains(text, "APPLY TO GPU") && contains(text, "Apply would request 1 changed point(s)") && contains(text, "Curve shape tools"),
+    check(!contains(text, "Writes 1 edited point(s)") && contains(text, "Apply would request 1 changed point(s)") && contains(text, "Curve shape tools"),
         "Focused keeps its own curve editor");
     plot = popup_plot();
     check(legend_color(plot, "Draft") == ImGui::ColorConvertFloat4ToU32(ImVec4(0.38f, 0.71f, 1.0f, 1.0f)), "Focused plot colours are unchanged");
@@ -1046,7 +1129,7 @@ void classic_curve_log_and_budget() {
     auto* inline_window = inline_curve_window();
     auto banner_height = [&]() {
         if (inline_window) for (auto* child : ImGui::GetCurrentContext()->Windows)
-            if (child->ParentWindow == inline_window && child->ChildId == inline_window->GetID("vf_plan")) return child->Size.y;
+            if (child->Active && child->ParentWindow == inline_window && child->ChildId == inline_window->GetID("vf_plan")) return child->Size.y;
         return 0.0f;
     };
     auto* plot = inline_plot();
@@ -1056,22 +1139,14 @@ void classic_curve_log_and_budget() {
     // the log below them are on screen together at 1528x1261.
     check(inline_window->ParentWindow && inline_window->Pos.y >= inline_window->ParentWindow->InnerClipRect.Min.y,
         "at 1528x1261 the whole V/F editor and the log fit one scrolled view");
-    const float idle = banner_height() + plot->FrameRect.GetHeight();
+    check(banner_height() == 0, "the inline idle preview uses text in place of a banner");
+    const float idle = 16 + plot->FrameRect.GetHeight(); // one line at 1x
     state.curve_draft.stage_mhz(1, -30);
     for (int n = 0; n < 3; ++n) { frame(state, 1528, 1261, false); bottom(); }
     plot = inline_plot();
     const float staged = banner_height() + plot->FrameRect.GetHeight();
     check(banner_height() > 0 && std::abs(staged - idle) <= 2, "a taller staged-plan banner takes its height from the plot");
-    check(plot->FrameRect.GetHeight() < 1261 * 0.34f + 104, "the inline plot uses 1.9.1's budget, not the remaining window");
-    // 1.9.1 takes its shares of the page under the menu bar, tab selector and
-    // unlock strip (curve_share_height), not of the raw 1261 px client height:
-    // that is about 80 px less, 27 px of plot budget and 10 px of log.
-    check(idle <= std::floor(1261 * 0.34f) + 104 - 20, "the plot budget is a share of the page height, not the client height");
-    // 1.9.1's own tree at 1528x1261 (share 1181 under a 24 px menu bar) records a
-    // 386 px plot under a 119 px banner and a 153 px log. The share uses 1.9.1's
-    // rule, text height + s(8) + s(28) + s(28), not the native 22 px menu row,
-    // so both match exactly (the native frame rows gave 1185: 506 and 154).
-    check(std::abs(idle - 505) <= 0.5f, "the banner and plot share 1.9.1's budget of the page under the pinned chrome");
+    check(idle <= std::floor(1261 * 0.34f) + 16 - 20, "the plot budget is a share of the page height beneath the pinned chrome");
     float log_box = 0;
     ImGuiWindow* log_window = nullptr;
     for (auto* window : ImGui::GetCurrentContext()->Windows)
@@ -1133,6 +1208,10 @@ void classic_copy_log_keeps_all_entries() {
     ViewState state; state.preview = false; state.presentation = Presentation::classic;
     auto live = snapshot();
     for (std::uint64_t n = 0; n < 60; ++n) live->log.push_back({500 + n, "copy fixture " + std::to_string(n) + ";", true});
+    AdvancedControl clock;
+    clock.id = {AdvancedKind::clock_domain, 5}; clock.label = "Video";
+    clock.clock_check = ClockCheck::known_pattern; clock.known_clocks = "Video (private 21)";
+    live->data.advanced_controls.push_back(clock);
     state.live = live;
     ImGuiWindow* body = nullptr;
     auto bottom = [&]() {
@@ -1168,7 +1247,32 @@ void classic_copy_log_keeps_all_entries() {
     check(body && newest != std::string::npos && oldest != std::string::npos && newest < oldest
         && classic_copied_log.find("[ok] copy fixture 19;") != std::string::npos,
         "Copy log copies every retained entry, newest first, not only the 40 shown");
+    check(contains(classic_copied_log, "Video [5] | Known pattern / Video (private 21)"),
+        "the Classic log copy includes the clock-domain note");
     check(state.commands.empty(), "copying the log writes nothing");
+}
+
+void classic_clock_pattern_log() {
+    ViewState state; state.preview = false; state.presentation = Presentation::classic; state.page = Page::advanced;
+    auto live = snapshot(); state.live = live;
+    AdvancedControl clock;
+    clock.id = {AdvancedKind::clock_domain, 1}; clock.label = "Crossbar";
+    clock.clock_check = ClockCheck::known_pattern; clock.known_clocks = "Coupled clock fixture";
+    live->data.advanced_controls = {clock};
+    const auto count = [&]() {
+        return std::count_if(state.classic_log_lines.begin(), state.classic_log_lines.end(),
+            [](const auto& line) { return line.text.find("Known pattern / ") != std::string::npos; });
+    };
+    check(!contains(frame(state), "Coupled clock fixture") && count() == 1,
+        "the new clock pattern goes into the log without appearing in the Advanced status line");
+    frame(state);
+    live->data.advanced_controls.clear(); frame(state);
+    live->data.advanced_controls = {clock}; frame(state);
+    check(count() == 1, "repaints and transient missing controls keep a single clock note");
+    live->data.advanced_controls.front().known_clocks = "Updated clock fixture"; frame(state);
+    check(count() == 2, "changed clock evidence produces a fresh note");
+    ++live->generation; frame(state);
+    check(count() == 3 && state.commands.empty(), "a new adapter session logs its own clock evidence without submitting commands");
 }
 
 // 1.9.1 vf_apply logs its plan as the write's receipt before the write; Reset all
@@ -1312,7 +1416,7 @@ void classic_vf_tooltips() {
     check(contains(text, "Voltage ceiling for the deflattener (clamped 600-1300 mV).") && contains(text, "VF points are 6.25 mV apart")
         && contains(text, "snaps it DOWN onto that same 6.25 mV grid"), "the cap input carries 1.9.1's tooltip");
     text = hover(read.Max.x + 60);
-    check(contains(text, "Puts every point back on ONE 12.66 MHz phase - this") && contains(text, "floor((base+delta)/step)*step")
+    check(contains(text, "one 12.66 MHz request grid") && contains(text, "V/F curve for regular spacing") && contains(text, "floor((base+delta)/step)*step")
         && contains(text, "can only drop, by at most 12.66 MHz.") && contains(text, "Rephase is NOT a reset function."),
         "Re-phase carries 1.9.1's tooltip with this card's grid");
     io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); frame(state, 1600, 1200, false);
@@ -2112,7 +2216,7 @@ void classic_plan_buttons() {
     text=press("Re-phase to 15 MHz increments");
     check(classic_calls[1]==1 && classic_calls[0]==0 && state.curve_draft.draft()[1].delta_khz==30000 && state.commands.empty(),
         "Re-phase stages the re-phase planner only");
-    check(contains(text,"ONE CLICK WRITES THIS") && !contains(text,"RAMP -") && state.curve_plan_note.empty(),
+    check(contains(text,"Writes 1 edited point(s)") && !contains(text,"RAMP -") && state.curve_plan_note.empty(),
         "a re-phase adds no plan note, as in 1.9.1");
     revert();
     text=press("De-flatten");
@@ -2121,8 +2225,9 @@ void classic_plan_buttons() {
         "De-flatten stages the ramp planner between the ramp floor and the cap");
     check(contains(text,"RAMP - 2 rungs") && contains(text,"The floor keeps its 1415 MHz at 750.00 mV") && !contains(text,"STILL STAGED UNDERNEATH"),
         "a staged ramp prints the released plan note inside the banner");
-    revert();
-    check(state.curve_plan_note.empty() && !state.curve_draft.dirty(),"Revert edits drops the plan and its note");
+    text=press("Revert edits");
+    check(state.curve_plan_note.empty() && !state.curve_draft.dirty() && contains(text,"Nothing staged") && !contains(text,"Writes "),
+        "Revert edits drops the plan and restores the compact preview");
     text=press("Limited de-flatten \xE2\x89\xA4 cap");
     check(classic_calls[2]==1 && state.curve_draft.draft()[1].delta_khz==45000 && !contains(text,"RAMP -") && state.commands.empty(),
         "Limited de-flatten under More V/F tools stages the narrow de-flatten planner");
@@ -2159,6 +2264,57 @@ void classic_plan_buttons() {
         "the receipt carries the staged plan's note and is [!!] over a hard plan");
     state.commands.clear();
     state.curve_window_open=false; frame(state,1600,1200,false);
+}
+
+void tuning_support_panel_test(Presentation skin) {
+    ViewState view; view.preview=false; view.presentation=skin; view.controls_unlocked=false;
+    auto live=snapshot(); view.live=live;
+    const auto draw_view=[&]{ return frame(view,1800,1800); };
+    draw_view(); draw_view();
+    auto* root=ImGui::FindWindowByName("Druta workspace");
+    const auto child=[](ImGuiWindow* parent,const char* name)->ImGuiWindow* {
+        if (parent) for (auto* candidate:ImGui::GetCurrentContext()->Windows)
+            if (candidate->ParentWindow==parent && candidate->ChildId==parent->GetID(name)) return candidate;
+        return nullptr;
+    };
+    const bool classic=skin==Presentation::classic;
+    auto* navigation=classic ? root : child(root,"navigation");
+    check(navigation!=nullptr,"Advanced navigation exists for the selected skin");
+    if (!navigation) return;
+    const auto advanced=classic ? ImHashStr("  Advanced  ",0,root->GetID("legacy-tabs")) : navigation->GetID("Advanced");
+    ImGui::ActivateItemByID(advanced); draw_view(); draw_view();
+    auto* body=child(root,"workspace");
+    if (classic) body=child(body,"classic-advanced-columns");
+    check(view.page==Page::advanced && body,"the Advanced page opens in the selected skin");
+    if (!body) return;
+    const auto id=[&](const char* name){
+        return classic ? body->GetID(name) : ImHashStr(name,0,body->GetID("advanced-semantic-controls"));
+    };
+    if (classic) body->StateStorage.SetInt(id("Registry / BIOS overrides"),1);
+    body->StateStorage.SetInt(id("Tuning support"),1);
+    check(contains(draw_view(),"Read tuning support") && view.commands.empty(),"opening support performs no inspection");
+    ImGui::ActivateItemByID(id("Read tuning support")); draw_view();
+    check(!view.controls_unlocked && view.commands.size()==1 &&
+          view.commands.front().operation==Command::Operation::read_tuning_support,
+          "the support button queues one read while tuning is locked");
+    view.commands.clear();
+    auto rom=std::make_shared<VbiosOverrideInventory>(); rom->error="Fixture ROM inaccessible";
+    auto model=std::make_shared<ModelInputInventory>();
+    auto& speedo=model->values.rows[DC_MODEL_SPEEDO]; speedo.state=DC_MODEL_READY; speedo.active=1987;
+    auto& iddq=model->values.rows[DC_MODEL_IDDQ_NVVDD]; iddq.state=DC_MODEL_AMBIGUOUS;
+    std::snprintf(iddq.reason,sizeof(iddq.reason),"Two matching fuse inputs");
+    live->data.firmware_inventory=rom; live->data.model_inputs=model;
+    auto shown=draw_view();
+    check(contains(shown,"Fixture ROM inaccessible") && contains(shown,"1987") && contains(shown,"Ambiguous") &&
+          contains(shown,"Two matching fuse inputs"),"ready and ambiguous model inputs remain visible when ROM capture fails");
+    model->error="Fixture model getter unavailable"; rom->error.clear();
+    rom->families.push_back({"Fixture firmware field","Fixture record located",true});
+    shown=draw_view();
+    check(contains(shown,"Fixture record located") && contains(shown,"Fixture model getter unavailable") &&
+          !contains(shown,"Two matching fuse inputs") && view.commands.empty(),
+          "a failed model capture leaves ROM fields visible and never queues a write");
+    body->StateStorage.SetInt(id("Tuning support"),0);
+    if (classic) body->StateStorage.SetInt(id("Registry / BIOS overrides"),0);
 }
 
 void timings_navigation_and_commands(Presentation presentation) {
@@ -2463,11 +2619,10 @@ void rendering_and_uncertainty() {
             check(contains(text, "Alternate adapter"), "live adapter identity remains visible");
             check(contains(text, "Refused request; captured Undo retained"),
                 "failed action remains visible in both presentations and all pages");
-            // Classic keeps them in 1.9.1's Profiles menu (app_actions test opens it).
             if (presentation == Presentation::classic) {
-                check(contains(text, "Profiles") && !contains(text, "Save profile..."), "Classic has no header profile row");
-                auto* workspace = ImGui::FindWindowByName("Druta workspace");
-                if (workspace) ImGui::ActivateItemByID(ImHashStr("Profiles", 0, workspace->GetID("##MenuBar")));
+                check(contains(text, "Select saved profile") && contains(text, "Profile actions"),
+                    "the Classic profile selector bar stays visible across pages");
+                ImGui::ActivateItemByID(header_button("Profile actions"));
                 frame(state, 1920, 1080);
                 const auto menu = frame(state, 1920, 1080);
                 check(contains(menu, "Save profile...") && contains(menu, "Load profile...") && contains(menu, "Profile catalog..."),
@@ -2545,10 +2700,13 @@ int main() {
     int width = 0, height = 0;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     apply_theme(1);
+    adapter_selection_with_curve_hold(Presentation::focused);
+    adapter_selection_with_curve_hold(Presentation::classic);
     compact_layout();
     daily_header_hover_conflict();
     original_classic_layout_and_daily_companions();
     classic_power_request_footer();
+    xoc_power_range_note();
     classic_power_request_feedback();
     offset_page_routing_and_gates();
     shunt_display_and_raw_power_apply();
@@ -2564,6 +2722,7 @@ int main() {
     classic_curve_read_rules();
     classic_curve_read_on_open();
     classic_copy_log_keeps_all_entries();
+    classic_clock_pattern_log();
     classic_write_receipts();
     classic_copy_info_logs();
     classic_vf_tooltips();
@@ -2586,6 +2745,8 @@ int main() {
     explicit_hold_and_global_actions(Presentation::classic);
     timings_navigation_and_commands(Presentation::focused);
     timings_navigation_and_commands(Presentation::classic);
+    tuning_support_panel_test(Presentation::focused);
+    tuning_support_panel_test(Presentation::classic);
     rendering_and_uncertainty();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();

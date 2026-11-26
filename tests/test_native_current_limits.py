@@ -192,6 +192,7 @@ OLDER = dict(arch=GPU.ARCH_PASCAL)
 SHORT = dict(arch=GPU.ARCH_PASCAL, short_status=True)
 AMPERE = dict(ampere_layout=True)
 LEGACY = dict(arch=GPU.ARCH_TURING, legacy=True)
+COMPACT_RM26 = dict(arch=GPU.ARCH_PASCAL, legacy=True, compact_rm26=True)
 TURING = dict(arch=GPU.ARCH_TURING, newer=True)
 
 
@@ -219,6 +220,17 @@ class LayoutChoiceTests(CurrentLimitCase):
         self.assertEqual(cache["choice"], 1)
         self.assertGets(log, Side("python", **AMPERE).header, [(INFO, 20000, 0, RM_SIZE), (INFO, 8632, 0, 0)])
         self.assertEqual(state["rejected"], [20000])
+
+    def test_compact_a618_refusal_selects_complete_policy_table(self):
+        options = {"arch": GPU.ARCH_AMPERE, "compact_a618": True}
+        result, log, state, cache = self.both(lambda gpu: gpu._power_policy_table()[0], **options)
+        self.assertEqual(result, ("ok", GPU._CURRENT_LIMIT_LAYOUT_FALLBACKS[(0x2080A612, 3676, 3608)][0]))
+        self.assertEqual(cache["choice"], 1)
+        self.assertGets(log, Side("python", **options).header, [
+            (INFO, 8236, 0, RM_SIZE), (INFO, 7724, 0, 0),
+            (INFO, 7724, 0, 0), (CONTROL, 4172, 0, 0), (STATUS, 149928, 0, 0),
+        ])
+        self.assertEqual(state["writes"], [])
 
     def test_all_candidates_refused_is_unsupported(self):
         result, log, _, cache = self.both(lambda g: g._current_limit_abi(),
@@ -253,8 +265,7 @@ class LayoutChoiceTests(CurrentLimitCase):
 
     def test_single_candidate_chosen_without_an_escape(self):
         for name, kw, key in (("older", OLDER, (0x2080A612, 11748, 11680)),
-                              ("short_status", SHORT, (0x2080A612, 11740, 11672)),
-                              ("legacy", LEGACY, (0x20802612, 3548, 3480))):
+                              ("short_status", SHORT, (0x2080A612, 11740, 11672))):
             with self.subTest(name):
                 result, log, _, cache = self.both(lambda g: g._current_limit_abi(), **kw)
                 self.assertEqual(result, ("ok", GPU._CURRENT_LIMIT_LAYOUTS[key]))
@@ -288,7 +299,23 @@ class LayoutChoiceTests(CurrentLimitCase):
         result, log, _, _ = self.both(action, **LEGACY)
         self.assertEqual(result, ("ok", GPU._CURRENT_LIMIT_LAYOUTS[(0x20802612, 3548, 3480)]))
         self.assertGets(log, Side("python", **LEGACY).header,
-                        [(0x20802618, 5520, 0, 0), (0x2080261A, 2124, 0, 0), (0x20802619, 69148, 0, 0)])
+                        [(0x20802618, 5520, 0, 0), (0x20802618, 5520, 0, 0),
+                         (0x2080261A, 2124, 0, 0), (0x20802619, 69148, 0, 0)])
+
+    def test_compact_rm26_refusal_selects_full_pascal_policy_table(self):
+        def action(gpu):
+            rows, error = gpu.read_power_policies()
+            return len(rows), next(row for row in rows if row["policy"] == 13), error
+        result, log, state, cache = self.both(action, **COMPACT_RM26)
+        self.assertEqual(result[0], "ok", result)
+        count, core, error = result[1]
+        self.assertEqual((count, core["channel"], core["requested"], error), (13, 11, 204700, None))
+        self.assertTrue(core["named_current"])
+        self.assertEqual((cache["choice"], cache["mask"], state["writes"]), (1, 0xEDBF, []))
+        self.assertEqual([(e[1][14], e[1][15], e[5]) for e in log[:5]],
+                         [(0x20802618, 5520, 0x3A), (0x20802618, 5392, 0),
+                          (0x20802618, 5392, 0), (0x2080261A, 2124, 0),
+                          (0x20802619, 70684, 0)])
 
 
 # ---- the read-only info probe --------------------------------------------------------------------
@@ -297,6 +324,15 @@ NEWER_LAYOUT = GPU._CURRENT_LIMIT_LAYOUTS[(0x2080A612, 54420, 54352)]
 
 
 class ProbeInfoTests(CurrentLimitCase):
+    def test_probe_uses_captured_family_even_with_a_caller_supplied_map(self):
+        layout = dict(GPU._CURRENT_LIMIT_LAYOUTS[(0x20802612, 3548, 3480)])
+        layout["commands"] = dict(LEGACY_WIRE)
+        layout["commands"][INFO] = LEGACY_WIRE[STATUS]
+        result, log, state, _ = self.both(lambda g: g._current_limit_probe_info(layout), **LEGACY)
+        self.assertEqual(result[0], "ok", result)
+        self.assertEqual([entry[1][14] for entry in log], [LEGACY_WIRE[INFO]])
+        self.assertEqual(state["writes"], [])
+
     def test_accepted_info(self):
         result, log, _, cache = self.both(lambda g: g._current_limit_probe_info(NEWER_LAYOUT), **NEWER)
         self.assertEqual(result[0], "ok")
@@ -306,10 +342,12 @@ class ProbeInfoTests(CurrentLimitCase):
         self.assertIsNone(cache["choice"])  # a probe alone chooses nothing
 
     def test_size_rejection_is_fixed(self):
-        result, *_, cache = self.both(lambda g: g._current_limit_probe_info(NEWER_LAYOUT),
-                                      setup=refuse_info(lambda size: RM_SIZE), **NEWER)
-        self.assertEqual(result, ("ValueError", "policy info layout rejected (RM 0x1F)", True))
-        self.assertIsNotNone(cache["transport"])
+        for status in (RM_SIZE, 0x3A):
+            with self.subTest(status=status):
+                result, *_, cache = self.both(lambda g: g._current_limit_probe_info(NEWER_LAYOUT),
+                                              setup=refuse_info(lambda size: status), **NEWER)
+                self.assertEqual(result, ("ValueError", f"policy info layout rejected (RM 0x{status:X})", True))
+                self.assertIsNotNone(cache["transport"])
 
     def test_other_rm_is_not_fixed(self):
         result, *_ = self.both(lambda g: g._current_limit_probe_info(NEWER_LAYOUT),
@@ -647,7 +685,7 @@ class PolicyTableTests(CurrentLimitCase):
                 ("ampere", AMPERE, [INFO, INFO, INFO, CONTROL, STATUS]),
                 ("older", OLDER, [INFO, CONTROL, STATUS]),
                 ("short_status", SHORT, [INFO, CONTROL, STATUS]),
-                ("legacy", LEGACY, [0x20802618, 0x2080261A, 0x20802619])):
+                ("legacy", LEGACY, [0x20802618, 0x20802618, 0x2080261A, 0x20802619])):
             with self.subTest(name):
                 result, log, _, cache = self.both(lambda g: g._power_policy_table(), **kw)
                 self.assertEqual(result[0], "ok")
@@ -694,7 +732,7 @@ class PolicyTableTests(CurrentLimitCase):
                 result, log, _, cache = self.both(lambda g: g._power_policy_table(), setup=setup, **kw)
                 self.assertEqual(result, ("CurrentLimitUnsupported",
                                           "current-policy layout or mask differs from the measured ABI", False))
-                self.assertEqual(len(log), 3 if name.startswith("legacy") else 4)
+                self.assertEqual(len(log), 4)
                 self.assertIsNone(cache["table"])
                 self.assertEqual(cache["mask"], 0)
 

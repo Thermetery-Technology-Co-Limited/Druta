@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "profile_library.h"
+#include "quick_profiles.h"
 #include <windows.h>
 #include <cstdio>
 #include <filesystem>
@@ -45,5 +46,41 @@ void saving_and_history(){Temp temp;ProfileLibraryDirectory native{(temp.path/L"
  const auto blocked=temp.path/L"blocked";raw(blocked,"keep");ProfileLibraryDirectory bad{blocked.wstring(),"Native",true};reject([&]{save_library_profile(bad,"name",document);});reject([&]{save_library_autosave(bad,"action",document);});std::ifstream check(blocked);std::string value;check>>value;CHECK(value=="keep");
  auto missing=list_profile_library({{(temp.path/L"missing").wstring(),"Missing",false}});CHECK(missing.empty()&&!fs::exists(temp.path/L"missing"));auto unavailable=list_profile_library({{blocked.wstring(),"Blocked",false}});CHECK(unavailable.size()==1&&!unavailable[0].error.empty()&&!unavailable[0].document);
 }
+void quick_profile_assignments() {
+    Temp temp;
+    const auto settings=(temp.path/L"Druta"/L"quick-profiles.json").wstring();
+    const ProfileJson doc={{"format","druta-native-daily"},{"version",1},
+        {"target",{{"uuid","GPU-test"},{"slot","0000:01:00.0"}}},
+        {"controls",{{"core",{{"value",30},{"unit","MHz"}}}}}};
+    std::vector<ProfileLibraryEntry> entries;
+    for (const auto* id : {"undo","invalid","A","B","C","D","E","F","G"}) {
+        ProfileLibraryEntry entry;
+        entry.id=id; entry.document=doc; entry.description=inspect_profile(doc);
+        entries.push_back(std::move(entry));
+    }
+    entries[0].autosave=true;
+    entries[1].description=inspect_profile(ProfileJson::object());
+    const auto defaults=load_quick_profiles(settings,entries);
+    CHECK((defaults.ids==std::array<std::string,5>{"A","B","C","D","E"}));
+    const std::vector<ProfileLibraryEntry> reordered(entries.rbegin(),entries.rend());
+    CHECK(load_quick_profiles(settings,reordered).ids==defaults.ids);
+    const auto swapped=assign_quick_profile(settings,entries,1,"E");
+    CHECK((swapped.ids==std::array<std::string,5>{"A","E","C","D","B"}));
+    const auto replaced=assign_quick_profile(settings,entries,2,"F");
+    CHECK((replaced.ids==std::array<std::string,5>{"A","E","F","D","B"}));
+    entries.erase(entries.begin()+6); // E's portable file is offline
+    std::reverse(entries.begin(),entries.end());
+    CHECK(load_quick_profiles(settings,entries).ids==replaced.ids);
+    reject([&]{assign_quick_profile(settings,entries,5,"A");});
+    for (const auto* id : {"invalid","undo","missing","E"})
+        reject([&]{assign_quick_profile(settings,entries,1,id);});
+    CHECK(load_quick_profiles(settings,entries).ids==replaced.ids);
+    const auto reassigned=assign_quick_profile(settings,entries,1,"G");
+    CHECK(reassigned.ids[1]=="G"&&reassigned.ids[2]=="F");
+    write_profile(settings,{{"version",1},{"slots",{"A","A","B","C","D"}}});
+    reject([&]{load_quick_profiles(settings,entries);});
+    reject([&]{assign_quick_profile(settings,entries,0,"F");});
+    CHECK(read_profile(settings)["slots"][1]=="A");
 }
-int main(){discovery_and_listing();saving_and_history();std::printf("Profile library: %u checks, %u failures\n",checks,failures);return failures?1:0;}
+}
+int main(){discovery_and_listing();saving_and_history();quick_profile_assignments();std::printf("Profile library: %u checks, %u failures\n",checks,failures);return failures?1:0;}

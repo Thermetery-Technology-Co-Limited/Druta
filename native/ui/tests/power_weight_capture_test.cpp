@@ -104,6 +104,24 @@ void run_timing_capture() {
         }
     }
 }
+void inspect_image_without_tuning_support() {
+    auto* gpu = reinterpret_cast<dc_gpu*>(1);
+    fresh();
+    generation = 77;
+    auto inspect = api();
+    inspect.evidence.target.bind = nullptr;
+    inspect.evidence.target.architecture_supported = nullptr;
+    mode = 15; // First ROM bind returns a transient status.
+    const auto read = capture_firmware_image(inspect, adapter, gpu);
+    CHECK(read.image_availability == VoltagePolicyAvailability::available && read.target.architecture == 77);
+    CHECK(clock_binds >= 4 && images == 2 && !perf_binds && !abis && !infos && !windows && !registries && !locks);
+    fresh();
+    mode = 6; // The handle changes during the first image read.
+    bool refused = false;
+    try { capture_firmware_image(inspect, adapter, gpu); }
+    catch (const VoltageEquationEvidenceError& error) { refused = error.kind == VoltagePolicyAvailability::invalid; }
+    CHECK(refused && images == 1 && !infos && !registries && !locks);
+}
 void run_legacy_capture() {
     auto* gpu=reinterpret_cast<dc_gpu*>(1);
     for (const uint32_t architecture : {2u,3u}) {
@@ -221,4 +239,4 @@ void run(){fresh();auto capture=make_power_weight_capture(api(),adapter);CHECK(i
  fresh();auto missing_api=api();missing_api.evidence.image=nullptr;missing_api.abi=nullptr;auto missing=make_power_weight_capture(missing_api,adapter);read=missing(gpu,false);CHECK(read.image_availability==VoltagePolicyAvailability::unsupported&&read.info_availability==VoltagePolicyAvailability::unsupported&&images==0&&infos==0&&registries==0);
 }
 }
-int main(){run();run_5520_capture();run_rm26_info_capture();run_legacy_capture();run_timing_capture();std::printf("Power weight capture: %u checks passed\n",checks);return 0;}
+int main(){run();run_5520_capture();run_rm26_info_capture();run_legacy_capture();run_timing_capture();inspect_image_without_tuning_support();std::printf("Power weight capture: %u checks passed\n",checks);return 0;}

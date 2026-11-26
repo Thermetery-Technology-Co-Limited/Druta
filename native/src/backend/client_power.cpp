@@ -43,9 +43,13 @@ constexpr CpSizes kRm26ExtendedSizes = {{900, 388, 388, 136, 5520, 2124, 69148}}
 // way, with a 128-byte native INFO record of its own. Selected by read-only
 // INFO acceptance like every other group.
 constexpr CpSizes kA612CompactSizes = {{900, 388, 388, 132, 5392, 2124, 70684}};
+// 560.94's signed kernel dispatch uses a 204-byte role GET (selector plus
+// one 200-byte INFO record). The same dispatch family uses 116-byte CONTROL rows.
+constexpr CpSizes kInfo200Sizes = {{1160, 392, 392, 204, 7724, 4172, 149928}};
 
 constexpr const CpSizes* kGroups[kCpSizeGroupCount] = {
     &kSizes, &kLegacySizes, &kTuringSizes, &kInfo216Sizes, &kRm26Sizes, &kRm26ExtendedSizes, &kA612CompactSizes,
+    &kInfo200Sizes,
 };
 
 // Generations whose client power-policy semantics have been validated against
@@ -265,11 +269,12 @@ CpU32List cp_rm26_architectures(bool extended) {
 // Native control size/stride selected by the accepted INFO geometry.
 CpSmallGeometry small_native_geometry(const CpBinding& binding) {
     if (binding.native_layout == CpNativeLayout::policy124) return {kTuringSizes[kCpIdxNativeControl], 124};
+    if (binding.native_layout == CpNativeLayout::policy116) return {kInfo200Sizes[kCpIdxNativeControl], 116};
     return {kLegacySizes[kCpIdxNativeControl], 184};
 }
 
 // The native policy INFO record stride this role GET implies: a 4-byte semantic selector followed
-// by exactly one native policy INFO record (264/260, 232/228, 220/216, 136/132 and 120/116 so far).
+// by exactly one native policy INFO record (264/260, 232/228, 220/216, 204/200, 136/132 and 120/116).
 // The derived value is not trusted blindly: the controller still has to bind it to exactly one
 // occupied native policy before anything uses it.
 std::optional<std::int64_t> definition_stride(std::int64_t role_info_size) {
@@ -287,7 +292,8 @@ CpGeometry native_geometry(const CpBinding& binding) {
     }
     if (binding.layout == CpLayout::legacy32) {
         const CpSmallGeometry small = small_native_geometry(binding);
-        return {88, stride_or(binding, 228), 20, small.control_stride, small.control_size};
+        const std::int64_t info_stride = binding.native_layout == CpNativeLayout::policy116 ? 200 : 228;
+        return {88, stride_or(binding, info_stride), 20, small.control_stride, small.control_size};
     }
     return {kCpNativeInfoBase, stride_or(binding, kCpNativeInfoStride), kCpNativeControlBase, kCpNativeControlStride,
             kSizes[kCpIdxNativeControl]};

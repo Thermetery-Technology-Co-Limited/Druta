@@ -37,6 +37,54 @@ std::string released_reason(const std::string& reason){
   {"Source relationship range invalid","The source relationship range is invalid."}};
  for(const auto& w:words)if(reason==w[0])return w[1];
  return reason;}
+
+std::string policy_amount(uint32_t raw, uint32_t unit) {
+ if (raw == UINT32_MAX) return "unavailable (sentinel)";
+ if (unit > 1) return std::to_string(raw)+" raw";
+ char value[48];
+ std::snprintf(value,sizeof(value),"%.10g %s",raw/1000.0,unit == 0 ? "W" : "A");
+ return value;
+}
+
+void draw_firmware_power_policies(const PowerWeightsData& data) {
+ if (!data.image.ok || !ImGui::TreeNode("BIOS power and current definitions")) return;
+ ImGui::TextWrapped("Read-only minimum, rated and maximum values stored in the selected BIOS.");
+ if (data.image_stale) ImGui::TextWrapped("Showing the previous BIOS capture. %s",data.image_message.c_str());
+ if (data.info_stale) ImGui::TextWrapped("The driver readback is stale. %s",data.info_message.c_str());
+ if (ImGui::BeginTable("bios-power-definitions",5,ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
+  for (const auto* label : {"Policy / channel","Minimum","Rated","Maximum","Driver readback"})
+   ImGui::TableSetupColumn(label);
+  ImGui::TableHeadersRow();
+  for (const auto& policy : data.image.policies) {
+   const auto& bios=policy.metadata;
+   const bool driver_row=policy.index < data.report.policies.size() && (data.report.policy_mask & (uint32_t{1} << policy.index));
+   if (!bios && !policy.bios_type && !driver_row) continue;
+   ImGui::TableNextRow();
+   ImGui::TableSetColumnIndex(0);
+   if (bios) ImGui::Text("%u / %u",policy.index,bios->channel);
+   else ImGui::Text("%u",policy.index);
+   unsigned col=1;
+   for (uint32_t raw : {bios ? bios->minimum : UINT32_MAX,bios ? bios->default_value : UINT32_MAX,
+                        bios ? bios->maximum : UINT32_MAX}) {
+    ImGui::TableSetColumnIndex(col++);
+    if (bios) ImGui::TextUnformatted(policy_amount(raw,bios->unit).c_str());
+    else ImGui::TextDisabled("--");
+   }
+   ImGui::TableSetColumnIndex(4);
+   ImGui::TextWrapped("%s",data.image_stale || data.info_stale ? "Awaiting fresh comparison" :
+                       firmware_power_policy_evidence(policy,data.report));
+   if (!data.info_stale && policy.index < data.report.policies.size() && data.report.policies[policy.index] &&
+       ImGui::IsItemHovered()) {
+    const auto& live=*data.report.policies[policy.index];
+    ImGui::SetTooltip("Driver type %u, channel %u\nMinimum %s\nRated %s\nMaximum %s",
+                      live.type,live.channel,policy_amount(live.minimum,live.unit).c_str(),
+                      policy_amount(live.default_value,live.unit).c_str(),policy_amount(live.maximum,live.unit).c_str());
+   }
+  }
+  ImGui::EndTable();
+ }
+ ImGui::TreePop();
+}
 }
 std::string power_relationships_text(const PowerWeightsData* data){
  if(!data)return {};  // registry_panel.py: the box stays empty until the first read
@@ -45,8 +93,6 @@ std::string power_relationships_text(const PowerWeightsData* data){
  const auto first=[](std::initializer_list<const std::string*> texts){for(const auto* t:texts)if(!t->empty())return released_reason(*t);return std::string("No decoded result");};
  if(!report.available){line("Configured relationships read unavailable: "+first({&report.reason,&data->info_message,&data->message}));while(!out.empty()&&out.back()=='\n')out.pop_back();return out;}
  if(data->info_stale){line("Configured relationships read unavailable: "+first({&data->info_message,&data->message}));line("Previous successful read follows; these values are historical.");}
- const auto amount=[](uint32_t value,uint32_t unit){if(value==0xFFFFFFFFu)return std::string("unavailable (sentinel)");
-  if(unit<=1){char b[48];std::snprintf(b,sizeof(b),"%g %s",value/1000.0,unit==0?"W":"A");return std::string(b);}return std::to_string(value)+" raw";};
  const auto join=[](const std::vector<uint32_t>& v){std::string s;for(auto x:v)s+=(s.empty()?"":", ")+std::to_string(x);return s;};
  const std::string slot(data->identity.slot,strnlen(data->identity.slot,sizeof(data->identity.slot)));
  line("Configured relationships for adapter "+(slot.empty()?std::string("unknown"):slot));
@@ -67,8 +113,8 @@ std::string power_relationships_text(const PowerWeightsData* data){
   else line("  Relationship type is uninterpreted.");
   if(!r.target_metadata){line("  Target details unavailable: "+why(r.target_reason));continue;}
   const auto& m=*r.target_metadata;
-  line("  Target policy type "+std::to_string(m.type)+", channel "+std::to_string(m.channel)+": minimum "+amount(m.minimum,m.unit)
-   +"; nominal "+amount(m.default_value,m.unit)+"; maximum "+amount(m.maximum,m.unit));
+  line("  Target policy type "+std::to_string(m.type)+", channel "+std::to_string(m.channel)+": minimum "+policy_amount(m.minimum,m.unit)
+   +"; nominal "+policy_amount(m.default_value,m.unit)+"; maximum "+policy_amount(m.maximum,m.unit));
  }
  if(report.relationships.empty())line("No configured relationships.");
  while(!out.empty()&&out.back()=='\n')out.pop_back();return out;
@@ -103,6 +149,7 @@ std::vector<PowerWeightsIntent> draw_power_weights(PowerWeightsViewState& view,c
     ImGui::TableSetColumnIndex(3);ImGui::Checkbox("Include",&it->include);ImGui::TableSetColumnIndex(4);ImGui::TextWrapped("%s",row.message.c_str());ImGui::PopID();
    }ImGui::EndTable();
   }
+  draw_firmware_power_policies(*data);
  }
  std::vector<PowerWeightRequest> requests;bool valid=true;std::string why;
  for(const auto& draft:view.drafts)if(draft.include){

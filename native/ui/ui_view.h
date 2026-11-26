@@ -9,6 +9,7 @@
 #include "app_actions.h"
 #include "scoped_profile_view.h"
 #include "profile_catalog_view.h"
+#include "quick_profiles.h"
 #include "frequency_lock_view.h"
 #include "power_integral_view.h"
 #include "power_weights_view.h"
@@ -50,6 +51,25 @@ struct ViewState {
     ScopedProfileViewState scoped_profile_view;
     ProfileCatalogViewState profile_catalog_view;
     std::vector<ProfileCatalogIntent> profile_catalog_intents;
+    struct ClassicProfileBar {
+        struct Selection {
+            std::uint64_t generation;
+            std::string id, name;
+            ProfileJson document;
+            bool metadata_only;
+        };
+        enum class ApplyState { idle, running, applied, failed };
+        std::optional<Selection> selected;
+        ApplyState apply = ApplyState::idle;
+        std::string status;
+    } classic_profile_bar;
+    QuickProfileSlots quick_profiles;
+    bool quick_library_requested = false;
+    std::optional<std::pair<std::size_t, std::string>> quick_profile_assignment;
+    std::string quick_profile_status;
+    std::string startup_profile_id, startup_profile_uuid, startup_profile_slot;
+    std::optional<bool> startup_profile_request;
+    std::string startup_profile_status;
     FrequencyLockViewState frequency_view;
     PowerIntegralViewState power_integral_view;
     PowerWeightsViewState power_weights_view;
@@ -97,6 +117,7 @@ struct ViewState {
     std::string classic_reset_slot;
     std::shared_ptr<const SessionSnapshot> live;
     bool refresh_requested = false;
+    bool capability_refresh_requested = false;
     bool reconnect_requested = false;
     bool save_profile_requested = false;
     bool load_profile_requested = false;
@@ -156,8 +177,14 @@ struct ViewState {
     // Classic log lines the released frontend writes besides command results
     // (backend status, curve reads). after_log_id orders them among the
     // session log; ok empty prints untagged.
-    struct ClassicLogLine { uint64_t after_log_id = 0; std::string text; std::optional<bool> ok; };
+    struct ClassicLogLine {
+        uint64_t after_log_id = 0;
+        std::string text;
+        std::optional<bool> ok;
+        bool log_only = false;
+    };
     std::vector<ClassicLogLine> classic_log_lines;
+    std::map<uint32_t, std::string> classic_clock_patterns;
     uint64_t classic_backend_logged_generation = 0;
     uint64_t observed_curve_revision = 0;
     uint64_t acknowledged_curve_action = 0;
@@ -185,6 +212,7 @@ struct ViewState {
     bool i2c_save_profile_requested = false, i2c_load_profile_requested = false;
     bool i2c_cancel_requested = false;
     bool timing_capture_cancel_requested = false;
+    bool clock_checks_cancel_requested = false;
     std::vector<std::pair<std::string, ControlDraft>> i2c_field_drafts;
     std::vector<I2cField> i2c_field_cache;
     uint64_t i2c_draft_generation = 0, i2c_draft_selection_revision = 0;
@@ -200,6 +228,7 @@ struct ViewState {
 // then scales it once; the host owns font loading and DPI changes.
 void apply_theme(float scale);
 void draw(ViewState& state);
+void mark_catalog_profile_apply(ViewState& state, const ProfileJson& document);
 bool front_clock_capture_ready(const ViewState& state);
 // Shared by the frequency-lock window and Classic's inline Clocks menu block.
 FrequencyLockViewContext frequency_lock_context(const ViewState& state);

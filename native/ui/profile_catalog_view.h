@@ -16,7 +16,7 @@ struct ProfileCatalogViewState {
     std::vector<ProfileCatalogItem> items;
     ProfileScope capture_scope=ProfileScope::daily;
     std::vector<ProfileLibraryEntry> library;
-    ProfileLibraryFilter library_filter=ProfileLibraryFilter::all;
+    ProfileLibraryFilter library_filter=ProfileLibraryFilter::named;
     bool library_loading=false,was_open=false;
     std::string library_status;
     std::array<char,256> save_name{};
@@ -30,6 +30,7 @@ struct ProfileCatalogIntent {
     ProfileScope scope=ProfileScope::daily;
     ProfileJson document;
     std::string name;
+    std::optional<std::uint64_t> toolbar_generation;
 };
 struct ProfileCatalogViewOutput {std::vector<ProfileCatalogIntent> intents;};
 // Host supplies explicit file reads and worker results. Load and composition

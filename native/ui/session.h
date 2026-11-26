@@ -44,6 +44,7 @@ struct SessionSnapshot {
     std::string selected_slot, status;
     LiveData data;
     bool busy = false, opening = false, paused = false;
+    bool verifying_clock_offsets = false;
     bool close_refused = false;
     bool i2c_ownership_uncertain = false;
     bool tuning_ownership_uncertain = false;
@@ -61,6 +62,7 @@ struct SessionSnapshot {
     // Immutable effects survive later results and polling until explicitly acknowledged.
     std::vector<PolicyAnnotationCompletion> annotation_completions;
 };
+enum class PollKind { telemetry, details, capabilities };
 class Session {
 public:
     explicit Session(std::unique_ptr<IBackend> backend, std::function<void()> notify, const std::wstring& i2c_cache_path = {});
@@ -73,7 +75,8 @@ public:
     bool select_device(const std::string& slot);
     // Retry the current slot while retaining any startup UUID constraint.
     bool reconnect();
-    void request_poll(bool details = false);
+    void request_poll(PollKind kind = PollKind::telemetry);
+    void request_poll(bool details) { request_poll(details ? PollKind::details : PollKind::telemetry); }
     // Whether the host shows the display-only readouts (the Classic presentation);
     // the next read passes it to the backend, which skips them when hidden.
     void set_live_readouts(bool shown);
@@ -92,6 +95,7 @@ public:
     bool acknowledge_annotation_completion(std::uint64_t expected_generation, std::uint64_t event_id);
     bool cancel_i2c_discovery(std::uint64_t expected_generation);
     bool cancel_timing_capture(std::uint64_t expected_generation);
+    bool cancel_clock_checks(std::uint64_t expected_generation);
     std::shared_ptr<const SessionSnapshot> snapshot() const;
     void begin_shutdown();
     // Process-exit-only handoff, after a recovery helper has been launched.

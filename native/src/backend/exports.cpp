@@ -4,7 +4,8 @@
 #include "backend/exports.h"
 
 #include <cstring>
-#include <vector>
+#include <array>
+#include <optional>
 
 #include "core/mutex.h"
 
@@ -36,7 +37,9 @@ class HookedLoader final : public Loader {
 public:
     HookedLoader(ResolveFn fn, void* context) : resolve_(fn), context_(context) {}
     std::unique_ptr<ExportSource> open_nvapi(std::string& error) override { return open("nvapi", error); }
-    std::unique_ptr<ExportSource> open_nvml(std::string& error) override { return open("nvml", error); }
+    std::unique_ptr<ExportSource> open_nvml(bool standard, std::string& error) override {
+        return open(standard ? "nvml_standard" : "nvml", error);
+    }
     std::unique_ptr<ExportSource> open_gdi32(std::string& error) override { return open("gdi32", error); }
     std::unique_ptr<ExportSource> open_user32(std::string& error) override { return open("user32", error); }
     std::unique_ptr<ExportSource> open_cfgmgr32(std::string& error) override { return open("cfgmgr32", error); }
@@ -142,31 +145,14 @@ public:
     // Only driver installation directories, never PATH or the working folder:
     // DCH drivers put nvml.dll in System32, Standard drivers under
     // Program Files\NVIDIA Corporation\NVSMI (NVIDIA R470 NVML reference).
-    std::unique_ptr<ExportSource> open_nvml(std::string& error) override {
-        std::vector<std::wstring> candidates;
-        std::vector<std::string> errors;
+    std::unique_ptr<ExportSource> open_nvml(bool standard, std::string& error) override {
         std::wstring folder;
-        std::string why;
-        if (system_directory(folder, why) && absolute_drive_path(folder))
-            candidates.push_back(folder + L"\\nvml.dll");
-        else
-            errors.push_back(why.empty() ? "Windows system directory: Windows returned a non-absolute path" : why);
-        if (program_files_directory(folder, why) && absolute_drive_path(folder))
-            candidates.push_back(folder + L"\\NVIDIA Corporation\\NVSMI\\nvml.dll");
-        else
-            errors.push_back(why.empty() ? "Program Files directory: Windows returned a non-absolute path" : why);
-        for (const std::wstring& path : candidates) {
-            DWORD attributes = ::GetFileAttributesW(path.c_str());
-            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
-                errors.push_back(narrow(path) + ": file not found");
-                continue;
-            }
-            win::DynLib lib;
-            if (lib.open_path(path.c_str())) return std::make_unique<DllSource>(std::move(lib));
-            errors.push_back(narrow(path) + ": Windows error " + std::to_string(lib.error()));
-        }
-        error = std::to_string(kProcessBits) + "-bit process";
-        for (const std::string& item : errors) error += "; " + item;
+        if (!(standard ? program_files_directory(folder, error) : system_directory(folder, error))) return nullptr;
+        if (!absolute_drive_path(folder)) { error = "Windows returned a non-absolute driver directory"; return nullptr; }
+        const auto path = folder + (standard ? L"\\NVIDIA Corporation\\NVSMI\\nvml.dll" : L"\\nvml.dll");
+        win::DynLib lib;
+        if (lib.open_path(path.c_str())) return std::make_unique<DllSource>(std::move(lib));
+        error = narrow(path) + ": Windows error " + std::to_string(lib.error());
         return nullptr;
     }
 
@@ -201,7 +187,7 @@ public:
         error = "nvapi64.dll not loadable: NVIDIA driver libraries exist on Windows only";
         return nullptr;
     }
-    std::unique_ptr<ExportSource> open_nvml(std::string& error) override {
+    std::unique_ptr<ExportSource> open_nvml(bool, std::string& error) override {
         error = std::to_string(kProcessBits) + "-bit process; NVIDIA driver libraries exist on Windows only";
         return nullptr;
     }
@@ -236,6 +222,24 @@ unsigned& generation_counter() {
     return generation;
 }
 
+// Keep raw export addresses valid for the resolver generation, including an
+// address requested before initialization picked a different installation.
+struct NvmlSources {
+    std::array<std::shared_ptr<ExportSource>, 2> modules;
+    std::optional<bool> selected;
+
+    std::shared_ptr<ExportSource>& load(bool standard, std::string& error) {
+        auto& module = modules[standard];
+        if (!module) module = loader().open_nvml(standard, error);
+        return module;
+    }
+};
+
+NvmlSources& nvml_sources() {
+    static NvmlSources sources;
+    return sources;
+}
+
 }  // namespace
 
 Loader& loader() {
@@ -253,6 +257,7 @@ unsigned loader_generation() {
 void set_export_resolver(ResolveFn resolve, void* context) {
     LockGuard guard(loader_mutex());
     ++generation_counter();
+    nvml_sources() = {};
     if (resolve)
         hooked_loader() = std::make_unique<HookedLoader>(resolve, context);
     else
@@ -265,24 +270,62 @@ bool test_resolver_installed() {
     return hooked_loader() != nullptr;
 }
 
+std::shared_ptr<ExportSource> initialized_nvml(std::string& error, std::string& path) {
+    LockGuard guard(loader_mutex());
+    auto& sources = nvml_sources();
+    const bool preferred = sources.selected.value_or(false);
+    // Outstanding handles can only be used with exports from their own DLL.
+    const bool active = sources.selected && sources.modules[preferred].use_count() > 1;
+    std::string load_errors;
+    for (bool standard : {preferred, !preferred}) {
+        if (active && standard != preferred) break;
+        std::string why;
+        const auto& module = sources.load(standard, why);
+        if (!module) {
+            if (load_errors.empty()) load_errors = why;
+            else if (load_errors != why) load_errors += "; " + why;
+            continue;
+        }
+        using Init = int(DRUTA_CDECL*)();
+        const char* name = module->has("nvmlInit_v2") ? "nvmlInit_v2" : "nvmlInit";
+        if (auto initialize = module->get<Init>(name)) {
+            const int status = initialize();
+            if (!status) {
+                sources.selected = standard;
+                path = module->path();
+                error.clear();
+                return module;
+            }
+            why = std::string(name) + " status " + std::to_string(status);
+        } else why = "NVML has no initialization export";
+        if (error.empty()) { path = module->path(); error = why; }
+        else error += "; " + module->path() + ": " + why;
+    }
+    if (error.empty()) error = "nvml.dll not loadable: " + load_errors;
+    return nullptr;
+}
+
 void* export_address(const char* library, const char* name) {
     // Serialize the source cache and resolver replacement together. Loader calls take this same
     // recursive mutex; no driver entry is invoked here, only export lookup.
     LockGuard guard(loader_mutex());
     static unsigned generation = 0;
     static std::unique_ptr<ExportSource> nvapi;
-    static std::unique_ptr<ExportSource> nvml;
     if (generation != generation_counter()) {
         nvapi.reset();
-        nvml.reset();
         generation = generation_counter();
     }
-    auto& source = std::strcmp(library, "nvapi") == 0 ? nvapi : nvml;
-    if (!source) {
-        std::string error;
-        source = std::strcmp(library, "nvapi") == 0 ? loader().open_nvapi(error) : loader().open_nvml(error);
+    std::string error;
+    if (std::strcmp(library, "nvml") == 0) {
+        auto& sources = nvml_sources();
+        if (auto& module = sources.load(sources.selected.value_or(false), error)) return module->resolve(name);
+        if (!sources.selected) {
+            if (auto& module = sources.load(true, error)) return module->resolve(name);
+        }
+        return nullptr;
     }
-    return source ? source->resolve(name) : nullptr;
+    if (!nvapi) nvapi = loader().open_nvapi(error);
+    return nvapi ? nvapi->resolve(name) : nullptr;
 }
 
 }  // namespace druta::backend

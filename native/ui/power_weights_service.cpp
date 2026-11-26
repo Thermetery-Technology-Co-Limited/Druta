@@ -41,14 +41,14 @@ struct PowerWeightsService::Impl {
  PowerWeightCapture capture(bool registry){if(!api.capture)fail("Power weight capture interface unavailable",Availability::unsupported);for(unsigned attempt=0;attempt<2;++attempt)try{auto c=api.capture(gpu,registry);binding(c);return c;}catch(const VoltageEquationEvidenceError& e){if(e.kind!=Availability::transient||attempt)throw;}fail("Power weight bounded capture failed",Availability::transient);}
  PowerWeightCapture sample(bool registry){try{return capture(registry);}catch(const VoltageEquationEvidenceError& e){unavailable(e.kind,e.what());throw;}catch(const std::exception& e){unavailable(Availability::invalid,e.what());throw;}}
  bool same_read(const PowerWeightCapture& a,const PowerWeightCapture& b){return same_target(a.target,b.target)&&same_layout(a.layout,b.layout)&&a.image_availability==Availability::available&&b.image_availability==Availability::available&&a.info_availability==Availability::available&&b.info_availability==Availability::available&&a.image==b.image&&a.info==b.info;}
- void unavailable(Availability kind,const std::string& message){data.image_stale=data.image.ok;data.info_stale=data.report.available;data.image_availability=data.info_availability=kind;data.image_message=data.info_message=message;for(auto& r:data.rows){r.stale=r.weight_raw.has_value();r.eligible_for_preview=false;r.availability=kind;r.message=message;}data.message=message;cancel_preview();++data.revision;}
+ void unavailable(Availability kind,const std::string& message){data.image_stale=data.image.ok;data.info_stale=data.report.policies_available;data.image_availability=data.info_availability=kind;data.image_message=data.info_message=message;for(auto& r:data.rows){r.stale=r.weight_raw.has_value();r.eligible_for_preview=false;r.availability=kind;r.message=message;}data.message=message;cancel_preview();++data.revision;}
  void publish(const PowerWeightCapture& c,bool registry){
   if(data.preview&&data.preview->state&&!same_read(data.preview->state->original,c))cancel_preview();
   data.image_availability=c.image_availability;data.info_availability=c.info_availability;data.image_message=c.image_message;data.info_message=c.info_message;
-  if(c.image_availability==Availability::available){auto image=inspect_power_weight_image(c.image);if(image.ok){data.image=std::move(image);data.image_stale=false;}else{data.image_availability=Availability::invalid;data.image_message=image.message;data.image_stale=data.image.ok;}}
+  if(c.image_availability==Availability::available){auto image=inspect_power_weight_image(c.image,c.identity.device_id);if(image.ok){data.image=std::move(image);data.image_stale=false;}else{data.image_availability=Availability::invalid;data.image_message=image.message;data.image_stale=data.image.ok;}}
   else data.image_stale=data.image.ok;
-  if(c.info_availability==Availability::available){auto report=decode_power_relationships(c.layout,c.info);if(report.available){data.report=std::move(report);data.info_stale=false;}else{data.info_availability=Availability::invalid;data.info_message=report.reason;data.info_stale=data.report.available;}}
-  else data.info_stale=data.report.available;
+  if(c.info_availability==Availability::available){auto report=decode_power_relationships(c.layout,c.info);if(report.policies_available){data.report=std::move(report);data.info_stale=false;}else{data.info_availability=Availability::invalid;data.info_message=report.reason;data.info_stale=data.report.policies_available;}}
+  else data.info_stale=data.report.policies_available;
   if(registry){data.registry_availability=c.registry_availability;data.registry_message=c.registry_message;data.registry_stale=c.registry_availability!=Availability::available&&registry_known;if(c.registry_availability==Availability::available&&c.registry)registry_known=true;}
   if(data.info_availability==Availability::available){std::vector<PowerWeightRow> rows;for(const auto& record:data.report.relationships){PowerWeightRow row;row.index=record.index;row.type=record.type;row.target=record.target;row.weight_raw=record.weight_raw;row.target_metadata=record.target_metadata;
     row.availability=record.weight_raw&&record.target_metadata?Availability::available:Availability::unsupported;row.message=record.target_reason;
@@ -56,7 +56,10 @@ struct PowerWeightsService::Impl {
     else if(data.image_availability!=Availability::available)row.message=data.image_message.empty()?"Current image unavailable for weight preview":data.image_message;
     rows.push_back(std::move(row));}data.rows=std::move(rows);
   }else for(auto& row:data.rows){row.stale=row.weight_raw.has_value();row.eligible_for_preview=false;row.availability=data.info_availability;row.message=data.info_message;}
-  data.message=data.info_availability==Availability::available?"Relationship inspection only; Preview does not write registry or activate weights":"Relationship read unavailable: "+data.info_message;++data.revision;
+  if (data.info_availability != Availability::available) data.message="Relationship read unavailable: "+data.info_message;
+  else if (!data.report.available) data.message=data.report.reason;
+  else data.message="Relationship inspection only; Preview does not write registry or activate weights";
+  ++data.revision;
  }
  void complete(const PowerWeightCapture& c){require(!text(opened.uuid).empty(),"Preview requires the current adapter UUID");require(c.image_availability==Availability::available&&c.info_availability==Availability::available&&c.registry_availability==Availability::available&&c.registry.has_value()&&c.windows.has_value(),"Complete image, INFO and registry evidence required for Preview");require(c.windows->slot==text(c.target.slot)&&!c.windows->instance_id.empty()&&!c.windows->driver_key.empty()&&c.windows->instance_id.find('\0')==std::string::npos&&c.windows->driver_key.find('\0')==std::string::npos,"Preview Windows target incomplete");registry_map(*c.registry);}
 };

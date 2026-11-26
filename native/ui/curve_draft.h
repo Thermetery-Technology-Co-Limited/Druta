@@ -150,15 +150,12 @@ std::string curve_info_text(const std::vector<dc_vf_point>& baseline,
 enum class CurvePlanBand { idle, warn, bad };
 struct CurvePlanBannerInput {
     double cap_mv = 0;
-    std::size_t table_rows = 0;     // delta rows Reset zeroes
-    std::string apply_label;        // the Apply button's own wording
-    std::string rephase_label;      // the staged re-phase button's wording
     std::string note;               // planner consequences ("" for none)
     bool note_hard = false;         // a staged hard de-flatten
 };
 struct CurvePlanBanner {
     CurvePlanBand band = CurvePlanBand::idle;
-    std::string head, body, reset;
+    std::string warning, body, point_detail;
 };
 CurvePlanBanner curve_plan_banner(const std::vector<dc_vf_point>& baseline,
     const std::vector<dc_vf_point>& draft, const CurvePlanBannerInput& input);

@@ -1,0 +1,246 @@
+{
+  "schema": 1,
+  "operation": "read-only GP102 headroom investigation",
+  "adapter": {
+    "slot": "0000:03:00.0",
+    "name": "NVIDIA TITAN Xp",
+    "driver": "512.15",
+    "vbios": "86.02.3d.00.01"
+  },
+  "source_base": "eeb6182037464be88c0e53f6a58c77e9fa57b4d3",
+  "inspector_sha256": "298e0891d715d9de1db5354f84379f5d6319974e6429ccd265805cdbd12292bd",
+  "image_sha256": "cbd30f0d6a392123b0c1b1ed2f747303f83ab81ecaa890fe2b2daea0a5743735",
+  "image_bytes": 260096,
+  "matching_final_image": true,
+  "samples": [
+    {
+      "utc": "2026-11-25T03:43:11.573628+00:00",
+      "pstates_version": "0x31cf8",
+      "p0_editable": true,
+      "base_voltage_count": 0,
+      "overvoltage_count": 0,
+      "hold_uv": 1093750,
+      "boost_pct": 100,
+      "nvvdd_mv": {
+        "reliability": 1093.75,
+        "alt_reliability": 1093.75,
+        "overvoltage": 1200.0,
+        "vmin": 650.0,
+        "effective": 1093.75,
+        "live": 1093.75,
+        "_boost_mv": 25.0
+      }
+    },
+    {
+      "utc": "2026-11-25T03:43:11.608370+00:00",
+      "pstates_version": "0x31cf8",
+      "p0_editable": true,
+      "base_voltage_count": 0,
+      "overvoltage_count": 0,
+      "hold_uv": 1093750,
+      "boost_pct": 100,
+      "nvvdd_mv": {
+        "reliability": 1093.75,
+        "alt_reliability": 1093.75,
+        "overvoltage": 1200.0,
+        "vmin": 650.0,
+        "effective": 1093.75,
+        "live": 1093.75,
+        "_boost_mv": 25.0
+      }
+    }
+  ],
+  "voltage_rail": {
+    "header_hex": "10 05 0b 01 00",
+    "domain": "logic",
+    "boot_voltage_uv": 800000,
+    "selectors": {
+      "REL": {
+        "offset": 20076,
+        "namespace": "vfe",
+        "index": 0
+      },
+      "ALT": {
+        "offset": 20077,
+        "namespace": "vfe",
+        "index": 1
+      },
+      "OV": {
+        "offset": 20078,
+        "namespace": "vfe",
+        "index": 3
+      },
+      "power": {
+        "offset": 20079,
+        "namespace": "power_equation",
+        "index": 0
+      },
+      "boot": {
+        "offset": 20080,
+        "namespace": "vfe",
+        "index": 2
+      },
+      "VMIN": {
+        "offset": 20081,
+        "namespace": "vfe",
+        "index": 4
+      },
+      "voltage_margin": {
+        "offset": 20082,
+        "namespace": "vfe",
+        "index": null
+      }
+    }
+  },
+  "vfe": {
+    "header_hex": "30 07 19 0a 18 96 c8",
+    "role_definitions": {
+      "REL": {
+        "index": 0,
+        "offset": 193008,
+        "type": 1,
+        "output_type": 2,
+        "variable_index": 1,
+        "next_equation": null,
+        "variable_type": 3,
+        "output_units": "uV",
+        "output_min": 1025000.0,
+        "output_max": 1068750.0,
+        "coefficients": [
+          1124531.25,
+          -1093.75,
+          0.0
+        ]
+      },
+      "ALT": {
+        "index": 1,
+        "offset": 193032,
+        "type": 1,
+        "output_type": 2,
+        "variable_index": 1,
+        "next_equation": null,
+        "variable_type": 3,
+        "output_units": "uV",
+        "output_min": 1075000.0,
+        "output_max": 1093750.0,
+        "coefficients": [
+          1174531.75,
+          -1093.75,
+          0.0
+        ]
+      },
+      "OV": {
+        "index": 3,
+        "offset": 193080,
+        "type": 1,
+        "output_type": 2,
+        "variable_index": 0,
+        "next_equation": null,
+        "variable_type": 4,
+        "output_units": "uV",
+        "output_min": 1200000.0,
+        "output_max": 1200000.0,
+        "coefficients": [
+          1200000.0,
+          0.0,
+          0.0
+        ]
+      },
+      "boot": {
+        "index": 2,
+        "offset": 193056,
+        "type": 4,
+        "output_type": 2,
+        "variable_index": 0,
+        "next_equation": null,
+        "variable_type": 4
+      },
+      "VMIN": {
+        "index": 4,
+        "offset": 193104,
+        "type": 1,
+        "output_type": 2,
+        "variable_index": 0,
+        "next_equation": null,
+        "variable_type": 4,
+        "output_units": "uV",
+        "output_min": 650000.0,
+        "output_max": 650000.0,
+        "coefficients": [
+          650000.0,
+          0.0,
+          0.0
+        ]
+      }
+    }
+  },
+  "dependency_checks": {
+    "known_vfe_parents": {
+      "REL": [],
+      "ALT": []
+    },
+    "uninterpreted_active_equations": [
+      {
+        "index": 2,
+        "kind": 4
+      }
+    ],
+    "clk_program_header_hex": "10 08 0d 1e 03 04 02 01",
+    "clock_program_vfe_ids": [
+      8,
+      23,
+      27,
+      31,
+      35,
+      39,
+      43,
+      47,
+      51,
+      53,
+      54,
+      71,
+      75
+    ],
+    "fll_header_hex": "10 06 0f 09 00 00",
+    "fll_min_frequency_vfe_ids": [
+      5
+    ],
+    "scope": "Direct references in documented quadratic/minmax/compare, master clock and enabled FLL rows only. Other firmware consumers are unresolved."
+  },
+  "driver_profile": {
+    "named_settings": 98,
+    "search_terms": [
+      "volt",
+      "rail",
+      "reliab",
+      "overclock",
+      "clock",
+      "power",
+      "vdd"
+    ],
+    "matching_names": [
+      "Power management mode",
+      "PowerThrottle",
+      "Maximum GPU Power"
+    ]
+  },
+  "loaded_vfe_read_error": "PERF diagnostics need the validated modern RM transport",
+  "offline_one_step": {
+    "scope": "In-memory upper-bound projection, reparse, and exact undo. No image written to disk or device.",
+    "step_uv": 6250,
+    "stored_upper_uv": {
+      "REL": {
+        "before": 1068750,
+        "projected": 1075000
+      },
+      "ALT": {
+        "before": 1093750,
+        "projected": 1100000
+      }
+    },
+    "changed_byte_count": 6,
+    "other_parsed_role_definitions_equal": true,
+    "projected_image_sha256": "fe1328f8d3cde4e85209d29592dbea7e902937e0c594cef9cb4baed6ea57e1b9",
+    "restored_image_sha256": "cbd30f0d6a392123b0c1b1ed2f747303f83ab81ecaa890fe2b2daea0a5743735"
+  }
+}

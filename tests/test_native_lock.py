@@ -692,6 +692,7 @@ class CallAndFetchTests(LockCase):
         from tests.test_native_transport import install
         driver = PowerDriver()
         power = NvmlPower(lambda: driver, enforced=349200)
+        power.add_constraints(100000, 400000)
         card = Card(with_nvapi=False)
         card.nvml.exports.update(power.exports)
         install(card.nvml, None, None)

@@ -4,6 +4,7 @@
 // port. ROM format research adapted there from Vix Editor (panchovix, GPL-3.0-or-later).
 #include "power_relationships.h"
 #include "vbios_rom_reader.h"
+#include "backend/power_layout_catalog_generated.h"
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -22,7 +23,7 @@ bool layout_equal(const PowerRelationshipLayout& a,const PowerRelationshipLayout
         a.policy_base==b.policy_base&&a.policy_stride==b.policy_stride;
 }
 
-enum class InfoFormat { compact_rm26, rm26, compact_a618, a618 };
+enum class InfoFormat { compact_rm26, rm26, ampere_a618, compact_a618, a618 };
 
 constexpr bool is_rm26(InfoFormat format) {
  return format==InfoFormat::compact_rm26 || format==InfoFormat::rm26;
@@ -41,7 +42,12 @@ struct RelationshipInfoGeometry {
 const RelationshipInfoGeometry* relationship_geometry(const PowerRelationshipLayout& layout) {
  static constexpr RelationshipInfoGeometry packets[] = {
   {InfoFormat::compact_rm26, {0x20802618,  5008, 0x34, 0x74},   0x0eb8, 4},
+  {InfoFormat::rm26,         {0x20802618,  5392, 0x3c, 0x80},   0x1040, 4},
   {InfoFormat::rm26,         {0x20802618,  5520, 0x3c, 0x84},   0x10c0, 4},
+  {InfoFormat::ampere_a618,  {0x2080a618,  7724, 0x58, 0xc8},   0x195c, 6},
+  {InfoFormat::ampere_a618,  {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6},
+  // The 8632-byte INFO keeps the relationship array before the appended masks.
+  {InfoFormat::ampere_a618,  {0x2080a618,  8632, 0x58, 0xe4},   0x1cdc, 6},
   {InfoFormat::compact_a618, {0x2080a618, 20000, 0xcc, 0xfc},  0x3fd0, 6},
   {InfoFormat::a618,         {0x2080a618, 20512, 0xcc, 0x104}, 0x41d0, 6},
  };
@@ -68,17 +74,19 @@ constexpr uint32_t pascal = 4, turing = 6, ampere = 7;
 
 struct RelationFormat {
  uint8_t stride_field, stride;
- std::optional<uint32_t> rm26_architecture;
+ std::optional<uint32_t> legacy_architecture;
  bool supports_a618;
+ bool supports_ampere_a618 = false;
 
  bool supports(InfoFormat packet, uint32_t arch) const {
+  if(packet==InfoFormat::ampere_a618) return supports_ampere_a618 && legacy_architecture==arch;
   if(packet==InfoFormat::compact_rm26 && arch!=turing) return false;
-  return is_rm26(packet) ? rm26_architecture==arch : supports_a618;
+  return is_rm26(packet) ? legacy_architecture==arch : supports_a618;
  }
 };
 // The 0x42 rows keep their existing A618 support. Only Turing has qualified RM26.
 constexpr RelationFormat short_relations{8,14,turing,true};
-constexpr RelationFormat ampere_relations{8,14,ampere,false};
+constexpr RelationFormat ampere_relations{8,14,ampere,false,true};
 constexpr RelationFormat pascal_relations{8,10,pascal,false};
 constexpr RelationFormat v40_relations{4,18,{},true};
 
@@ -166,8 +174,10 @@ public:
   return format && format->relations && format->relations->supports(info,architecture);
  }
 
- PowerWeightImage inspect(){PowerWeightImage out;try{
+ PowerWeightImage inspect(std::optional<uint32_t> expected_device_id){PowerWeightImage out;try{
   read_directory();
+  if (expected_device_id)
+   require(image_regions.front().device == *expected_device_id,"Firmware power table belongs to a different PCI device");
   out.selector_version = selector_version;
   out.selector_oem = selector_oem;
   const auto at = pointer('P',0x2c);
@@ -200,25 +210,53 @@ public:
 bool power_relationship_layout_supported(const PowerRelationshipLayout& layout) {
  return relationship_geometry(layout) != nullptr;
 }
+bool power_policy_info_layout_supported(const PowerRelationshipLayout& layout) {
+ for (const auto& candidate : druta::backend::catalog::kPowerLayouts) {
+  const auto& packet=candidate.layout;
+  const auto command=packet.has_commands ? packet.commands[0] : druta::backend::kPowerGetCommands[0];
+  if (layout.info_command==command && layout.info_size==packet.sizes[0] &&
+      layout.policy_base==packet.info_base && layout.policy_stride==packet.info_stride)
+   return true;
+ }
+ return false;
+}
 PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout& layout,const Bytes& info){
  PowerRelationshipReport out;
+ if(!power_policy_info_layout_supported(layout)){out.reason="Policy INFO geometry/command unrecognized";return out;}
+ if(info.size()!=layout.info_size){out.reason="Policy INFO packet invalid/incomplete";return out;}
+ const bool legacy_info=layout.info_command==0x20802618;
+ out.policy_mask=word32(info,4);
+ std::array<const char*,32> policy_errors{};
+ for (uint32_t i=0; i<out.policies.size(); ++i) {
+  if (!(out.policy_mask & (uint32_t{1} << i))) continue;
+  const size_t row = layout.policy_base + layout.policy_stride*i;
+  if (row>info.size() || 20>info.size()-row) {out.reason="Policy INFO packet invalid/incomplete";return out;}
+  const auto version = info[row], type = info[row+4], channel = info[row+5], unit = info[row+6];
+  if (version != 0x30 && (legacy_info || version != 0x40)) {
+   policy_errors[i] = "Target policy row format unrecognized";
+  } else if (unit > 1) {
+   policy_errors[i] = "Target policy unit unrecognized";
+  } else {
+   out.policies[i] = PowerRelationshipTarget{i,type,channel,unit,word32(info,row+8),word32(info,row+12),word32(info,row+16)};
+  }
+ }
+ out.policies_available=true;
  const auto geometry=relationship_geometry(layout);
- if(!geometry){out.reason="Policy INFO geometry/command unrecognized";return out;}if(info.size()!=layout.info_size){out.reason="Policy INFO packet invalid/incomplete";return out;}
- const bool legacy_info=is_rm26(geometry->format);
+ if (!geometry) {out.reason="Policy definitions decoded. Relationship rows have no known layout in this packet.";return out;}
  const bool compact_info=geometry->format==InfoFormat::compact_a618;
- out.policy_mask=word32(info,4);out.relationship_mask=word32(info,geometry->base-4);
+ out.relationship_mask=word32(info,geometry->base-4);
  for(uint32_t i=0;i<32;++i)if(out.relationship_mask&(1u<<i)){const size_t at=geometry->row(i);PowerRelationshipRecord r;r.index=i;r.type=info[at];r.target=info[at+1];if(!r.type)r.weight_raw=word16(info,geometry->weight(i));
   if(r.target>=32||!(out.policy_mask&(1u<<r.target)))r.target_reason="Target policy absent from INFO mask";
-  else{const size_t row=layout.policy_base+layout.policy_stride*r.target;const auto version=word32(info,row)&255,header=word32(info,row+4),unit=(header>>16)&255;
-   if(version!=0x30&&(legacy_info||version!=0x40))r.target_reason="Target policy row format unrecognized";else if(unit>1)r.target_reason="Target policy unit unrecognized";
-   else r.target_metadata=PowerRelationshipTarget{r.target,header&255,(header>>8)&255,unit,word32(info,row+8),word32(info,row+12),word32(info,row+16)};}
+  else if (policy_errors[r.target]) r.target_reason=policy_errors[r.target];
+  else r.target_metadata=out.policies[r.target];
   out.relationships.push_back(std::move(r));
  }
  const auto relation=[&](uint32_t i)->const PowerRelationshipRecord*{for(const auto& r:out.relationships)if(r.index==i)return &r;return nullptr;};
  const auto fill=[&](PowerRelationshipSource& source){for(uint32_t i=source.first;i<=source.last;++i){const auto* r=relation(i);if(!r||r->type||!r->target_metadata){source.reason="Referenced relationship or target unavailable";source.relationships.clear();return;}source.relationships.push_back(i);}source.available=true;};
  for(uint32_t i=0;i<32;++i)if(out.policy_mask&(1u<<i)){const size_t at=layout.policy_base+layout.policy_stride*i;const auto kind=info[at+4];const bool format=info[at]==0x30||info[at]==0x40;
-  // The shorter RM26 rows do not use the A618 source field offsets.
-  if(legacy_info){out.source_uninterpreted_policies.push_back(i);continue;}
+  // These layouts expose the relationship rows. Policy source-field offsets
+  // still require separate qualification on their shorter records.
+  if(legacy_info||geometry->format==InfoFormat::ampere_a618){out.source_uninterpreted_policies.push_back(i);continue;}
   if(!compact_info&&kind==33){PowerRelationshipSource source;source.policy=i;source.first=word16(info,at+0x34);source.last=word16(info,at+0x36);
    if(!format)source.reason="Source policy row format unrecognized";else if(source.first>source.last)source.available=true;else if(source.last>=32)source.reason="Source relationship range exceeds INFO capacity";else fill(source);out.range_references.push_back(std::move(source));continue;}
   if(!compact_info&&kind==32){PowerRelationshipLink source;source.policy=i;source.relationship=word16(info,at+0x34);const auto* r=relation(source.relationship);if(r)source.target=r->target;
@@ -233,7 +271,20 @@ PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout
  }
  out.available=true;return out;
 }
-PowerWeightImage inspect_power_weight_image(const Bytes& image){return Rom(image).inspect();}
+PowerWeightImage inspect_power_weight_image(const Bytes& image,std::optional<uint32_t> expected_device_id){
+ return Rom(image).inspect(expected_device_id);
+}
+const char* firmware_power_policy_evidence(const PowerWeightImagePolicy& policy,const PowerRelationshipReport& live) {
+ if (!policy.metadata) return "Unknown BIOS policy class";
+ const auto& bios = *policy.metadata;
+ if (bios.minimum > bios.default_value || bios.default_value > bios.maximum) return "Inconsistent BIOS bounds";
+ if (!live.policies_available) return "BIOS only";
+ if (policy.index >= live.policies.size() || !(live.policy_mask & (uint32_t{1} << policy.index))) return "Absent from driver";
+ const auto& row = live.policies[policy.index];
+ if (!row) return "Unknown driver row";
+ if (row->type != bios.type || row->unit != bios.unit || row->channel != bios.channel) return "Driver binding differs";
+ return metadata_equal(*row,bios) ? "Matches driver definition" : "Driver bounds differ";
+}
 uint16_t power_weight_raw(double multiplier){const auto raw=multiplier*4096;require(std::isfinite(multiplier)&&std::isfinite(raw)&&raw>=0&&raw<=65535&&std::trunc(raw)==raw,"Weight must be exact unsigned Q4.12");return static_cast<uint16_t>(raw);}
 struct PowerWeightPlan::State {PowerRelationshipIdentity identity;PowerRelationshipLayout layout;std::vector<PowerWeightSelection> selected;std::shared_ptr<const Bytes> image,after_image,info,after_info;};
 namespace {
@@ -253,7 +304,8 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
   identity_valid(identity);
   require(!requests.empty() && requests.size() <= 32, "Select relationship weights");
   Rom rom(image);
-  const auto inspection = rom.inspect();
+  const auto inspection = rom.inspect(identity.device_id);
+  require(inspection.ok,inspection.message.c_str());
   require(inspection.ok && inspection.relationships_available, "Unique supported image relationship table required");
   const auto geometry = relationship_geometry(layout);
   const auto report = decode_power_relationships(layout,info);
@@ -269,6 +321,10 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
            "Selected image relationship or target unqualified");
    const auto& policy = inspection.policies[r->target];
    require(policy.qualified && policy.metadata, "Selected image target metadata unqualified");
+  if (geometry->format == InfoFormat::ampere_a618) {
+   const auto target = layout.policy_base + layout.policy_stride * r->target;
+   require(info[target] == 0x30, "Selected Ampere INFO target requires a V30 policy row");
+  }
    const auto before = *r->weight_raw;
    if (request.expected_raw) require(*request.expected_raw == before, "Selected expected image weight changed");
 

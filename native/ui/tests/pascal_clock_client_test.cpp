@@ -66,7 +66,7 @@ void test_p0_rail_snapshot() {
 int main() {
     WeightFake fake(true);
     auto& c = fake.current;
-    c.image = druta::ui::test::pascal_clock_fixture();
+    c.image = druta::ui::test::pascal_rail_clamp_fixture();
     c.info.clear();
     c.info_availability = VoltagePolicyAvailability::unsupported;
     // Live capture returns only the managed names from this device key.
@@ -113,6 +113,7 @@ int main() {
     const auto snapshot = client->read(false);
     CHECK(snapshot.pascal_clock_fresh && snapshot.pascal_clocks && snapshot.pascal_clocks->fields.size() == 11);
     CHECK(snapshot.pascal_clock_availability == Availability::available);
+    CHECK(snapshot.firmware_rail_clamps.size() == 2 && snapshot.firmware_rail_clamps[0].rel_uv == 1012375);
     // Even a byte outside the selected tuple invalidates the staged image.
     c.image.back() ^= 1;
     CHECK(!client->execute(prepare).ok && !receipt);
@@ -129,6 +130,7 @@ int main() {
     if (!prepared.ok) std::fprintf(stderr, "Prepare: %s\n", prepared.message.c_str());
     CHECK(prepared.ok && registry_reads == 4 && receipt && receipt->is_pascal_clocks());
     const auto after = client->read(false);
+    CHECK(after.firmware_rail_clamps.size() == 2 && after.firmware_rail_clamps[0].alt_uv == 1125125);
     CHECK(after.power_weights && after.power_weights->receipt && after.power_weights->receipt->id == receipt->id);
     CHECK(after.pascal_clocks && snapshot.pascal_clock_fresh && writes == 0);
     if (receipt) {
@@ -247,6 +249,7 @@ int main() {
     c.image_availability = VoltagePolicyAvailability::transient;
     CHECK(!client->execute(read).ok && !client->read(false).pascal_clock_fresh);
     CHECK(client->read(false).pascal_clock_availability == Availability::transient && client->read(false).pascal_clocks);
+    CHECK(client->read(false).firmware_rail_clamps.empty());
     c.image_availability = VoltagePolicyAvailability::unsupported;
     CHECK(!client->execute(read).ok && client->read(false).pascal_clock_availability == Availability::unsupported);
     c.image_availability = VoltagePolicyAvailability::available;

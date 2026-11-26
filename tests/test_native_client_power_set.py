@@ -78,7 +78,8 @@ from tests.test_client_power_rm26_extended import ExtendedRm26Gpu
 from tests.test_client_power_runtime import FakeGpu, put
 from tests.test_client_power_turing import TuringGpu
 from tests.test_native_client_power_metadata import (
-    A612_KEY, MODERN, TURING_KEY, MetadataCase, MetaPython, MetaRig, commands, legacy_accepted, ordered, store)
+    A612_KEY, INFO200_KEY, MODERN, TURING_KEY, MetadataCase, MetaPython, MetaRig, commands, legacy_accepted,
+    ordered, store)
 from tests.test_native_client_power_read import NO_TRANSPORT, RM26_EXTENDED_KEY, RM26_KEY, faults, payload, word
 from tests.test_native_transport import install
 
@@ -408,6 +409,31 @@ class HappyPathTests(SetCase):
             with self.subTest(expected["sizes"]):
                 self.check(rig_of(factory), 551000, expected)
 
+    def test_legacy_size_refusal_discovers_then_configures_and_restores_1999_w(self):
+        for record, command, size in ((216, cp.ROLE_INFO, 232), (228, cp.NATIVE_INFO, 8632)):
+            with self.subTest(record=record):
+                rig = rig_of(lambda: TuringGpu(record=record),
+                             faults(((command, size, 1), {"rm": 0x3A})))
+                results, books, _, _, _, _, calls = self.run_set(rig, 1999000, 321000)
+                self.assertEqual([result[0] for result in results], ["ok", "ok"], results)
+                first, second = [result[1] for result in results]
+                self.assertEqual(first["after"]["requested_mw"], 1999000)
+                self.assertEqual(second["after"], first["before"])
+                self.assertEqual(books["requested"], 321000)
+                self.assertEqual(len(set_payloads(calls)), 2)
+
+    def test_204_role_configures_and_restores_board_and_coupled_peer(self):
+        rig = rig_of(lambda: TuringGpu(record=200, architecture=4))
+        results, books, _, _, final, _, calls = self.run_set(rig, 551000, 321000)
+        self.assertEqual([result[0] for result in results], ["ok", "ok"], results)
+        self.assertEqual(final, dict(STATE, sizes="INFO200_SIZES", legacy=True, transport_key=INFO200_KEY))
+        initial, raised = results[0][1]["before"], results[0][1]["after"]
+        self.assertEqual(raised["requested_mw"], 551000)
+        self.assertEqual(cp._u32(bytes.fromhex(raised["native_control_hex"]), 20 + 7 * 116 + 4), 60000)
+        self.assertEqual(results[1][1]["after"], initial)
+        self.assertEqual(books["requested"], 321000)
+        self.assertEqual(len(set_payloads(calls)), 2)
+
     def test_rm26_and_rm26_extended(self):
         short = dict(STATE, sizes="RM26_SIZES", rm26=True, rm26_records=True, transport_key=RM26_KEY)
         extended = dict(STATE, sizes="RM26_EXTENDED_SIZES", rm26=True, rm26_records=True,
@@ -418,6 +444,21 @@ class HappyPathTests(SetCase):
                 got, _ = self.check(rig_of(factory, arch=arch), 1999000, expected)
                 self.assertEqual(got["after"]["identity"]["architecture"], arch)
                 self.assertEqual(got["after"]["binding"]["layout"], "rm26")
+
+    def test_compact_rm26_four_digit_request_and_restore(self):
+        for arch, refusal in ((4, 0x3A), (7, 0x1F)):
+            with self.subTest(arch=arch, refusal=refusal):
+                rig = rig_of(lambda: ExtendedRm26Gpu(compact=True, refusal=refusal), arch=arch)
+                results, books, _, _, _, _, calls = self.run_set(rig, 1999000, 321000)
+                self.assertEqual([result[0] for result in results], ["ok", "ok"], results)
+                initial, raised = results[0][1]["before"], results[0][1]["after"]
+                restored = results[1][1]["after"]
+                self.assertEqual(raised["binding"]["native_info_stride"], 128)
+                self.assertEqual(raised["requested_mw"], 1999000)
+                self.assertEqual(restored, initial)
+                self.assertEqual(books["requested"], 321000)
+                self.assertEqual(len(set_payloads(calls, 0x20802633)), 2)
+                self.assertEqual(sum(cmd == 0x2080261C and len(raw) == 136 for cmd, raw in calls), 1)
 
     def test_modern_v30_accepts_derived_peer_votes(self):
         for pinned in (False, True):
@@ -535,6 +576,7 @@ class CompensationTests(SetCase):
         cases = (
             (rig_of(LegacyGpu, set_fault({"rm": 0x55}), accepted=legacy_accepted()), cp.SET),
             (rig_of(TuringGpu, faults(((cp.SET, 392, 1), {"rm": 0x55}))), cp.SET),
+            (rig_of(lambda: TuringGpu(record=200), faults(((cp.SET, 392, 1), {"rm": 0x55}))), cp.SET),
             (rig_of(Rm26Gpu, set_fault({"rm": 0x55}, command=0x20802633)), 0x20802633),
             (rig_of(ExtendedRm26Gpu, set_fault({"rm": 0x55}, command=0x20802633)), 0x20802633),
         )

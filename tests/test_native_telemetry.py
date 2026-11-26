@@ -81,6 +81,67 @@ class TelemetryParityTests(unittest.TestCase):
         self.assertEqual(expected["num_fans"], 1)
         self.assertEqual(expected["fans"], [(41, 1500)])  # NVML values win over the native level/tach
 
+    def test_public_clock_revisions_and_per_domain_nvml_fallback(self):
+        for supported in (3, 2, 1):
+            with self.subTest(supported=supported):
+                rig = Rig()
+                revisions, domains = [], []
+
+                def clocks(cf):
+                    revision = cf.version >> 16
+                    revisions.append(revision)
+                    if revision > supported:
+                        return -9
+                    # V3 exposes video on the GP107; older replies only carry graphics/memory.
+                    cf.domain[0].present, cf.domain[0].frequency = 1, 1234500
+                    cf.domain[4].present, cf.domain[4].frequency = 1, 7021500
+                    if revision == 3:
+                        cf.domain[8].present, cf.domain[8].frequency = 1, 1554500
+                    return 0
+
+                @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))
+                def nvml_clock(handle, domain, out):
+                    domains.append(domain)
+                    out[0] = 1640
+                    return 0
+
+                rig.nvapi.interfaces[0xDCB616C3] = struct_callback(NV._ClkFreqs, clocks)
+                rig.nvml.exports["nvmlDeviceGetClockInfo"] = nvml_clock
+                with rig.native_gpu() as g:
+                    values = g.read()
+                self.assertEqual(revisions, list(range(3, supported - 1, -1)))
+                self.assertEqual(domains, [] if supported == 3 else [3])
+                self.assertEqual((values["core"], values["mem"]), (1234, 7021))
+                self.assertEqual(values["video"], 1554 if supported == 3 else 1640)
+
+    def test_invalid_clock_response_retries_on_next_sample(self):
+        rig = Rig()
+        calls = []
+
+        def clocks(cf):
+            calls.append(cf.version >> 16)
+            cf.domain[0].present, cf.domain[0].frequency = 1, 1935000
+            cf.domain[4].present, cf.domain[4].frequency = 1, 0xffffffff
+            if len(calls) == 1:
+                cf.version = 0
+            return 0
+
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))
+        def nvml_clock(handle, domain, out):
+            out[0] = {0: 1515, 2: 3504, 3: 0xffffffff}[domain]
+            return 0
+
+        rig.nvapi.interfaces[0xDCB616C3] = struct_callback(NV._ClkFreqs, clocks)
+        rig.nvapi.interfaces.pop(0x1BD69F49)
+        rig.nvml.exports["nvmlDeviceGetClockInfo"] = nvml_clock
+        with rig.native_gpu() as g:
+            first, second = g.read(), g.read()
+        self.assertEqual(calls, [3, 3])
+        self.assertEqual((first["core"], first["mem"]), (1515, 3504))
+        self.assertEqual((second["core"], second["mem"]), (1935, 3504))
+        self.assertNotIn("video", first)
+        self.assertNotIn("video", second)
+
     def test_without_nvapi_only_nvml_keys_remain(self):
         expected, actual = self.assert_parity(Rig(with_nvapi=False))
         self.assertNotIn("temp_edge", expected)

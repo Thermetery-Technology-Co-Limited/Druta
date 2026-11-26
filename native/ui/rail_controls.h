@@ -20,6 +20,7 @@ struct RailApi {
     decltype(&dc_rails_set_limits_raw) set_raw = nullptr;
     decltype(&dc_rails_reset_limits) reset = nullptr;
     decltype(&dc_rails_state) state = nullptr; // optional: live/effective readout only
+    decltype(&dc_rails_writer_evidence_get) writer_evidence = nullptr;
 };
 struct RailField {
     bool established = false, stale = false;

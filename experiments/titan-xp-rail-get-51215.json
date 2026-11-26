@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "operation": "NVVDD control GET",
+  "rail": 0,
+  "requested_mask": 1,
+  "getter_version": "0x00010AC8",
+  "boost_pct_before": 100,
+  "adapter": {
+    "slot": "0000:03:00.0",
+    "name": "NVIDIA TITAN Xp",
+    "driver": "512.15",
+    "vbios": "86.02.3d.00.01"
+  },
+  "samples": [
+    {
+      "getter_status": 0,
+      "escapes": [
+        {
+          "packet_bytes": 972,
+          "ntstatus": 0,
+          "input": {
+            "command": "0x20803213",
+            "parameter_bytes": 904,
+            "completion": 0,
+            "rm_status": 0,
+            "recognized": false,
+            "mask": null
+          },
+          "returned": {
+            "command": "0x20803213",
+            "parameter_bytes": 904,
+            "completion": 1,
+            "rm_status": 0,
+            "recognized": false,
+            "mask": null
+          }
+        }
+      ]
+    },
+    {
+      "getter_status": 0,
+      "escapes": [
+        {
+          "packet_bytes": 972,
+          "ntstatus": 0,
+          "input": {
+            "command": "0x20803213",
+            "parameter_bytes": 904,
+            "completion": 0,
+            "rm_status": 0,
+            "recognized": false,
+            "mask": null
+          },
+          "returned": {
+            "command": "0x20803213",
+            "parameter_bytes": 904,
+            "completion": 1,
+            "rm_status": 0,
+            "recognized": false,
+            "mask": null
+          }
+        }
+      ]
+    }
+  ]
+}

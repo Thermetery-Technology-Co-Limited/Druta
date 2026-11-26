@@ -32,6 +32,7 @@ struct Fake : IBackend {
     std::string opened_slot;
     std::atomic<int> maintenance_count{0}, total_reads{0}, detail_reads{0}, board_w{200}, core_ma{100};
     std::atomic<int> fan_mode{0}, readout_hint{-1}, hinted_reads{0}, policy_hint{-1};
+    std::atomic<int> rediscoveries{0};
     bool xoc = false, rails = false;
     void set_live_readouts(bool shown) override { readout_hint = shown ? 1 : 0; ++hinted_reads; }
     void set_policy_readouts(bool open) override { policy_hint = open ? 1 : 0; }
@@ -69,6 +70,7 @@ struct Fake : IBackend {
         if (missing_i2c_state.load()) return {};
         I2cViewData d; d.clock_owned=i2c_owned.load(); return d;
     }
+    LiveData rediscover_capabilities() override { ++rediscoveries; return read(true); }
     LiveData read(bool details) override {
         record(details ? "details" : "read"); ++total_reads; if (details) ++detail_reads;
         if (hold_read.exchange(false)) block();
@@ -188,6 +190,21 @@ static void notes_and_readout_hint() {
     CHECK(until([&]{return session.snapshot()->completed_reads>open;}));CHECK(fake->policy_hint==1);
     session.set_policy_readouts(false);const auto closed=session.snapshot()->completed_reads;session.request_poll();
     CHECK(until([&]{return session.snapshot()->completed_reads>closed;}));CHECK(fake->policy_hint==0);
+    CHECK(fake->rediscoveries == 0);
+    // Coalescing telemetry and details with a pending manual retry must
+    // preserve exactly one discovery on this worker and GPU.
+    fake->stall_read(); session.request_poll();
+    CHECK(WaitForSingleObject(fake->entered, 2000) == WAIT_OBJECT_0);
+    session.request_poll(PollKind::capabilities);
+    session.request_poll(true); session.request_poll(PollKind::capabilities);
+    const int details_before = fake->detail_reads;
+    SetEvent(fake->release);
+    CHECK(until([&]{return fake->detail_reads > details_before;}));
+    CHECK(fake->rediscoveries == 1);
+    session.set_paused(true); session.request_poll(PollKind::capabilities);
+    session.set_paused(false); session.request_poll();
+    CHECK(until([&]{return session.snapshot()->completed_reads >= closed + 4;}));
+    CHECK(fake->rediscoveries == 1);
     session.begin_shutdown();CHECK(until([&]{return session.finished();}));
     const auto entries=session.snapshot()->log.size();session.note(true,"after shutdown");CHECK(session.snapshot()->log.size()==entries);
 }

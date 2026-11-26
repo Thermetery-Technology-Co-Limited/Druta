@@ -26,6 +26,7 @@ struct RmError {
     std::optional<long> ntstatus;       // unset when no escape was issued (Python prints "None")
     std::uint32_t rm_status = 0;        // packet word 16 after the escape
     std::string message;                // str(exc) of the Python path
+    bool legacy_power_pair = false;     // witnessed the legacy public getter's paired commands
 };
 
 }  // namespace druta::backend

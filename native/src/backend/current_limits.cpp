@@ -108,6 +108,12 @@ bool mask_fits(std::uint32_t mask, std::uint32_t capacity) {
     return (static_cast<std::uint64_t>(mask) & ~allowed) == 0;
 }
 
+// Older RM implementations can report 0x3A for a GET with the wrong
+// parameter size. A SET refusal never selects a different layout.
+bool get_size_rejected(std::uint32_t status) {
+    return status == kRmCurrentPolicySizeRejected || status == 0x3A;
+}
+
 }  // namespace
 
 std::uint32_t CurrentLimits::capacity(const PowerLayout& layout) {
@@ -132,7 +138,10 @@ Words CurrentLimits::probe_info(const PowerLayout& layout) {
         return out;
     }
     const std::uint32_t size = layout.sizes[0];
-    Issued r = issue(gpu_, *rm_.power, kInfo, nullptr, size);
+    // Select the read-only INFO command from the captured power GET, even
+    // when the public probe receives a caller-supplied candidate layout.
+    const auto info_command = rm_.power->header[14] == 0x20802612 ? 0x20802618u : kInfo;
+    Issued r = issue(gpu_, *rm_.power, info_command, nullptr, size);
     if (r.result.outcome != EscapeOutcome::issued || r.result.ntstatus != 0) {
         rm_.power.reset();
         rm_.layout_choice.reset();
@@ -143,7 +152,7 @@ Words CurrentLimits::probe_info(const PowerLayout& layout) {
     // mask it cannot hold), not of the moment
     if (r.packet[16] != 0) {
         out.error = transient("policy info layout rejected (RM 0x" + hex_upper(r.packet[16]) + ")",
-                              r.packet[16] == kRmCurrentPolicySizeRejected);
+                              get_size_rejected(r.packet[16]));
         return out;
     }
     std::vector<std::uint32_t> info(r.packet.begin() + 17, r.packet.end());
@@ -334,7 +343,7 @@ Words CurrentLimits::rm(std::uint32_t command, const std::vector<std::uint32_t>*
         if (!issued_ok) {
             rm_.power.reset();
             rm_.layout_choice.reset();
-        } else if (command != kControlSet && r.packet[16] == kRmCurrentPolicySizeRejected) {
+        } else if (command != kControlSet && get_size_rejected(r.packet[16])) {
             // a GET refused for its size: this layout is not the driver's, which a retry will not
             // change (a SET refusal is about the request, and stays an ordinary failure)
             out.error = unsupported("policy GET " + hex08(command) + " size " + std::to_string(size) + " rejected (RM 0x" +
@@ -756,6 +765,7 @@ ReadPoliciesResult CurrentLimits::read_power_policies(ConfirmDerivedClamp confir
         PolicyTableResult read = policy_table();
         if (!read.table) {
             out.error = read.error.message;
+            out.legacy_power_pair = read.error.legacy_power_pair;
             return out;
         }
         table = std::move(read.table);

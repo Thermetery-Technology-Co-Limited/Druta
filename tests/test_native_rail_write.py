@@ -32,12 +32,15 @@ prepare_write's text; Python issues the GET first and refuses inside the hook, s
 _volt_rail_observed_packets holds that GET's summary where the core's is empty."""
 import copy
 import ctypes
+import struct
 import threading
 import unittest
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from druta import native, nvbackend as NV, rail_transport
+from tests.fake_driver import ARCH, XP
 from tests.test_native_clkdom import Block
 from tests.test_native_rail_reference import BASES, CountingCard, RefNativeSide, RefPythonSide, RefRig, config, shape
 from tests.test_native_rail_reference import sync as sync_live
@@ -102,8 +105,9 @@ class WriteCard(CountingCard):
 
     rig = None
 
-    def __init__(self, **options):
+    def __init__(self, *, slot=None, **options):
         super().__init__(**options)
+        self.slot = slot
 
         @KMT
         def escape(pointer):
@@ -126,7 +130,7 @@ class WriteCard(CountingCard):
     def native_gpu(self):
         install(self.nvml if self.with_nvml else None, self.nvapi if self.with_nvapi else None,
                 {ESCAPE: self.escape_callback})
-        return native.Gpu()
+        return native.Gpu(self.slot)
 
 
 class WriteSide:
@@ -730,6 +734,207 @@ class BindingContractTests(unittest.TestCase):
         self.assertEqual(library.dc_rails_write_records(self.gpu._handle, ctypes.byref(records),
                                                         ctypes.byref(outcome)), native.DC_OK)
         self.assertEqual((outcome.ok, outcome.has_status, outcome.attributes), (0, 0, 0))
+
+
+def writer_evidence(rig):
+    class Evidence(ctypes.Structure):
+        _fields_ = [("size", ctypes.c_uint32), ("state", ctypes.c_uint32 * 2)]
+
+    getter = nr.load().dc_rails_writer_evidence_get
+    getter.argtypes = [ctypes.c_void_p, ctypes.POINTER(Evidence)]
+    getter.restype = ctypes.c_int
+    out = Evidence(size=ctypes.sizeof(Evidence))
+    status = getter(rig.native._handle, ctypes.byref(out))
+    if status:
+        raise AssertionError(f"dc_rails_writer_evidence_get returned {status}")
+    return tuple(out.state)
+
+
+class DirectV1WriterTests(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(native.hook_test_fail_protect, False)
+
+    @contextmanager
+    def rig(self, *, ampere=False, reply_word=None, **options):
+        family = "turing" if ampere else "pascal"
+        config_options = config(family, legacy=True, rails=(0, 1), control={
+            0: [0, 0, 0, 0],
+            1: [-6250, 2500, 0, 0],
+        }, **({"architecture": ARCH["ampere"]} if ampere else {}))
+        config_options["card"].update(slot="0000:02:00.0", nvml_device=XP, nvapi_gpu=XP)
+        rig = WriteRig(**config_options, bases=BASES[family], **options)
+        rig.fake.control_type[1] = 3
+        rig.native.volt_limits_write_enabled = True
+        direct_packets = []
+        hidden = {0: [-1125, 775], 1: [700, -820]}
+        after_set = []
+        normal_answer = rig.fake.answer
+        normal_issue = rig.issue
+        normal_escape = rig.escape
+
+        def issue(mask, script):
+            if script != ["v1-972"]:
+                return normal_issue(mask, script)
+            packet = (ctypes.c_uint32 * (972 // 4))()
+            packet[0], packet[2], packet[3] = 0x4E564441, 972, 0x4E562A2A
+            packet[14], packet[15], packet[17] = 0x20803213, 904, mask
+            escape = NV.GPU._Escape(**FIELDS, pPrivateDriverData=ctypes.addressof(packet),
+                                    PrivateDriverDataSize=ctypes.sizeof(packet))
+            rig.packets.append((packet, escape))
+            rig.enter(ctypes.addressof(escape))
+
+        def escape(pointer):
+            request = NV.GPU._Escape.from_address(pointer)
+            if request.PrivateDriverDataSize != 972:
+                return normal_escape(pointer)
+            packet = (ctypes.c_uint32 * (972 // 4)).from_address(request.pPrivateDriverData)
+            packet[11], packet[16] = 1, rig.fake.get_rm
+            packet[19:24] = (rig.fake.control_type[0], *rig.fake.control[0])
+            if reply_word is not None:
+                packet[reply_word] ^= 1
+            return 0
+
+        rig.issue = issue
+        rig.escape = escape
+
+        def answer(kind, handle, pointer):
+            hooked = ampere and kind == "control" and rig.probe()
+            status = normal_answer(kind, handle, pointer)
+            if hooked and status == 0:
+                status = Fake.answer(rig.fake, kind, handle, pointer)
+            words = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint32))
+            if status == 0 and kind == "control" and words[1] in (1, 2):
+                rail = words[1].bit_length() - 1
+                words[2] = rig.fake.vboost
+                row = (ctypes.c_int32 * 7).from_address(pointer + 0x48 + rail * 0x54)
+                row[:] = (rig.fake.control_type[rail], *rig.fake.control[rail], *hidden[rail])
+            return status
+
+        @CDECL(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+        def direct_set(handle, pointer):
+            packet = ctypes.string_at(pointer, 0xAC8)
+            direct_packets.append(packet)
+            version, mask, _ = struct.unpack_from("<III", packet)
+            if (version, mask) != (0x00010AC8, 1):
+                return -9
+            rig.fake.control[0] = list(struct.unpack_from("<4i", packet, 0x4C))
+            sync_live(rig.fake, rig.fake.bases)
+            for callback in after_set:
+                callback(rig.fake, hidden)
+            return 0
+
+        rig.fake.answer = answer
+        rig.card.nvapi.interfaces[0x87C55C8A] = direct_set
+        side = WriteNativeSide(rig.native, rig)
+        side.fake = rig.fake
+        rig.fake.rig = rig
+        try:
+            yield rig, side, direct_packets, hidden, after_set
+        finally:
+            rig.close()
+
+    def test_direct_v1_set_has_exact_nvdd_record_and_preserves_peer_and_boost(self):
+        with self.rig(scripts=[["unrelated"]]) as (rig, side, packets, hidden, _):
+            peer = rig.fake.control[1].copy()
+            ok, message = side._armed(
+                lambda: rig.native.set_volt_rail_limits_raw(0, alt_reliability=-12500)
+            )
+            self.assertTrue(ok, message)
+            self.assertEqual(len(packets), 1)
+            expected = bytearray(0xAC8)
+            struct.pack_into("<III", expected, 0, 0x00010AC8, 1, 25)
+            struct.pack_into("<I6i", expected, 0x48, 1, 0, -12500, 0, 0, *hidden[0])
+            self.assertEqual(packets[0], expected)
+            self.assertEqual(rig.fake.control[0], [0, -12500, 0, 0])
+            self.assertEqual(rig.fake.control[1], peer)
+            self.assertEqual(rig.fake.vboost, 25)
+            self.assertIsNone(rig.native._volt_rail_write_protocol)
+            self.assertEqual(writer_evidence(rig), (1, 0))
+
+    def test_direct_v1_requires_exact_readback(self):
+        failures = (
+            lambda fake, _: fake.control[0].__setitem__(1, 0),
+            lambda _, hidden: hidden[0].__setitem__(1, 100),
+            lambda fake, _: fake.control[1].__setitem__(1, 0),
+            lambda fake, _: setattr(fake, "vboost", 30),
+        )
+        for mutate in failures:
+            with self.subTest(mutate=mutate), self.rig(scripts=[["unrelated"]]) as (rig, side, packets, _, mutate_after):
+                mutate_after.append(mutate)
+                ok, message = side._armed(
+                    lambda: rig.native.set_volt_rail_limits_raw(0, alt_reliability=-12500)
+                )
+                self.assertFalse(ok, message)
+                self.assertEqual(len(packets), 1)
+                self.assertNotEqual(writer_evidence(rig)[0], 1)
+
+    def test_ampere_direct_writer_requires_matching_972_get(self):
+        for reply_word, expected in ((None, True), (11, False), (17, False), (20, False)):
+            with self.subTest(reply_word=reply_word), self.rig(
+                ampere=True, scripts=[["v1-972"]], reply_word=reply_word
+            ) as (rig, side, packets, hidden, _):
+                rig.fake.control[0][0] = -6250
+                peer = rig.fake.control[1].copy()
+                ok, message = side._armed(
+                    lambda: rig.native.set_volt_rail_limits_raw(0, alt_reliability=-12500)
+                )
+                self.assertEqual(ok, expected, message)
+                self.assertEqual(len(packets), int(expected))
+                self.assertEqual(rig.fake.control[1], peer)
+                self.assertEqual(rig.fake.vboost, 25)
+                if expected:
+                    self.assertEqual(struct.unpack_from("<I6i", packets[0], 0x48),
+                                     (1, -6250, -12500, 0, 0, *hidden[0]))
+
+    def test_ampere_direct_writer_refuses_other_unrecognized_traffic(self):
+        with self.rig(ampere=True, scripts=[["unrelated"]]) as (rig, side, packets, _, _):
+            ok, _ = side._armed(lambda: rig.native.set_volt_rail_limits_raw(0, alt_reliability=-12500))
+            self.assertFalse(ok)
+            self.assertEqual(packets, [])
+
+    def test_no_direct_set_after_rm_failure_or_missing_traffic(self):
+        cases = (
+            (dict(get_rm=0x57), 0, (False, None)),
+            (dict(set_rm=0x57), 1, (True, 0x57)),
+            (dict(set_status=-1), 1, (True, 0xFFFFFFFF)),
+            (dict(scripts=[[]]), 0, (False, None)),
+        )
+        for options, rm_sets, outcome in cases:
+            with self.subTest(options=options), self.rig(**options) as (_, side, packets, _, _):
+                self.assertEqual(side.write({0: [0, -12500, 0, 0]}), outcome)
+                self.assertEqual(len(sets(side.trace[-1])), rm_sets)
+                self.assertEqual(packets, [])
+
+
+class RailWriterEvidenceTests(unittest.TestCase):
+    def test_singleton_observations_are_isolated_and_queries_issue_no_driver_calls(self):
+        rig = WriteRig(**blackwell())
+        self.addCleanup(rig.close)
+        side = WriteNativeSide(rig.native, rig)
+        side.fake = rig.fake
+        side.seed()
+        def evidence():
+            before = len(rig.fake.calls)
+            states = writer_evidence(rig)
+            self.assertEqual(len(rig.fake.calls), before)
+            return states
+
+        self.assertEqual(evidence(), (0, 0))
+        rig.fake.scripts = [["unrelated"]]
+        side.write({0: [-12500, 0, 0, 0]})
+        self.assertEqual(evidence(), (2, 0))
+        self.assertFalse(sets(side.trace[-1]))
+        # A failed delivery of an already-identified SET still identifies a transport.
+        rig.fake.set_rm = 0x57
+        side.write({1: [-12500, 0, 0, 0]})
+        self.assertEqual(evidence(), (2, 1))
+        side.write({0: [0, 0, 0, 0], 1: [0, 0, 0, 0]})
+        self.assertEqual(evidence(), (2, 1))
+        side.refresh()
+        self.assertEqual(evidence(), (0, 0))
+        rig.fake.scripts = [[]]
+        side.write({0: [-12500, 0, 0, 0]})
+        self.assertEqual(evidence(), (0, 0))
 
 
 class HookMutexTests(unittest.TestCase):

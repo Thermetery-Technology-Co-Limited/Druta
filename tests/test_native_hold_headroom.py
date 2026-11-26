@@ -749,7 +749,12 @@ class ApplyRestoreTests(HoldParity):
             side.seed()
             side.apply(1093.75, 25.0)
 
-        trace = self.run_both(scenario, scripts=[["unrelated"]], **card())
+        with patch.object(nr, "_hold_finish", wraps=nr._hold_finish) as finish:
+            trace = self.run_both(scenario, scripts=[["unrelated"]], **card())
+        _, _, outcome, writes, _ = finish.call_args.args
+        self.assertEqual((outcome.reserved, writes.calls, writes.result.done, writes.result.has_status),
+                         (1, 1, 0, 0))
+        self.assertEqual(set_count(trace[0]), 0)
         ok, msg = trace[0][1]
         self.assertFalse(ok)
         self.assertTrue(msg.startswith(NOT_SEEN), msg)

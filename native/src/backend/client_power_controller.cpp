@@ -19,6 +19,7 @@ namespace {
 
 constexpr std::uint32_t kA612 = 0x2080A612, kP2612 = 0x20802612;
 constexpr CpTransportKey kRm26Key{kP2612, 2524, 2456}, kRm26ExtendedKey{kP2612, 3548, 3480};
+constexpr CpTransportKey kInfo200Key{kA612, 3676, 3608};
 
 RmError failure(RmErrorKind kind, std::string message, std::uint32_t rm_status = 0) {
     RmError e;
@@ -157,7 +158,10 @@ CpTransportResult ClientPowerController::transport() {
             return out;
         }
         state_.rm26_extended = extended;
-        state_.sizes = state_.rm26_extended ? CpSizeGroup::rm26_extended : CpSizeGroup::rm26;
+        // An identical extended transport carries either native record size.
+        // Keep the candidate selected by the role GET across subsequent exchanges.
+        if (!extended || state_.sizes != CpSizeGroup::a612_compact)
+            state_.sizes = extended ? CpSizeGroup::rm26_extended : CpSizeGroup::rm26;
         state_.rm26 = state_.rm26_records = true;
     } else {
         if (state_.rm26) {
@@ -432,22 +436,37 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
     };
     std::vector<std::uint8_t> request = role_request();
     CpExchangeResult role = get(kCpRoleInfo, request);
-    if (!role.response) {
-        // A role GET refused for its SIZE: try the one other understood small-group record size
-        // (INFO216); a transient error selects nothing.
-        if (!state_.legacy || state_.role_info216 || role.error.rm_status != 0x1F) {
-            out.error = role.error;
-            return out;
+    const bool extended_rm26 = state_.rm26 && state_.rm26_extended;
+    while (!role.response && contains(cp_size_refusals(), role.error.rm_status)) {
+        const bool probe_compact = extended_rm26 && !state_.rm26_role_size_known &&
+                                   state_.sizes != CpSizeGroup::a612_compact;
+        if (probe_compact) {
+            // These compact records use the captured 26xx commands. Only the
+            // first role GET distinguishes them from the 132-byte records.
+            state_.sizes = CpSizeGroup::a612_compact;
+        } else if (state_.legacy && !state_.legacy_metadata_matched && !state_.role_info216 &&
+                   state_.sizes != CpSizeGroup::info200) {
+            state_.sizes = CpSizeGroup::info216;
+            state_.role_info216 = true;
+        } else if (!state_.legacy_metadata_matched && state_.sizes == CpSizeGroup::info216 &&
+                   state_.transport_key == kInfo200Key) {
+            state_.sizes = CpSizeGroup::info200;
+            state_.role_info216 = false;
+        } else {
+            break;
         }
-        state_.sizes = CpSizeGroup::info216;
-        state_.role_info216 = true;
         request = role_request();
         role = get(kCpRoleInfo, request);
-        if (!role.response) {
-            out.error = role.error;
-            return out;
+        if (probe_compact && !role.response) {
+            state_.sizes = CpSizeGroup::rm26_extended;
+            break;
         }
     }
+    if (!role.response) {
+        out.error = role.error;
+        return out;
+    }
+    if (extended_rm26) state_.rm26_role_size_known = true;
     const std::vector<std::uint8_t>& role_info = *role.response;
     if (std::memcmp(role_info.data(), request.data(), 4) != 0) {
         out.error = failure(RmErrorKind::malformed, "Power-role INFO changed its semantic selector");
@@ -463,7 +482,8 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
 
     CpExchangeResult native = get(kCpNativeInfo, std::vector<std::uint8_t>(sizes()[kCpIdxNativeInfo], 0));
     if (!native.response) {
-        if (!state_.legacy || state_.native_policy124 || state_.role_info216 || native.error.rm_status != 0x1F) {
+        if (!state_.legacy || state_.legacy_metadata_matched || state_.native_policy124 || state_.role_info216 ||
+            state_.sizes == CpSizeGroup::info200 || !contains(cp_size_refusals(), native.error.rm_status)) {
             out.error = native.error;
             return out;
         }
@@ -509,6 +529,9 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
         out.error = failure(RmErrorKind::identity, "Client-power target changed during metadata capture");
         return out;
     }
+    // A later refusal for this bound definition invalidates the read. It
+    // must not select a different packet size while verifying a SET or Undo.
+    if (state_.legacy) state_.legacy_metadata_matched = true;
     CpMetadata m;
     m.identity = *identity.target;
     m.client_index = static_cast<std::uint32_t>(index);
@@ -521,6 +544,10 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
     if (state_.rm26_records) m.layout = CpLayout::rm26;
     if (state_.rm26_extended) m.native_layout = CpNativeLayout::rm26_extended;
     if (state_.native_policy124 || state_.role_info216) m.native_layout = CpNativeLayout::policy124;
+    if (state_.sizes == CpSizeGroup::info200) {
+        m.native_layout = CpNativeLayout::policy116;
+        default_stride = 200;
+    }
     if (native_stride != default_stride) m.native_info_stride = static_cast<std::uint32_t>(native_stride);
     m.info = info;
     m.role_info = role_info;

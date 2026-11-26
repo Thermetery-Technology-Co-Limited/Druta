@@ -360,10 +360,58 @@ void tests() {
         "bounded readiness should re-read only, then unstage and verify");
  }
  {
-  Bench b;const auto r=b.make();b.readiness_failures=20;PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
+  Bench b;const auto r=b.make();b.readiness_failures=30;PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);
   const auto result=worker.run(PowerWeightOperation::apply,r);
-  check(!result.ok&&result.recovery_required&&b.staged_reads==8&&b.restarts==1&&b.current.registry->size()==1,
+  check(!result.ok&&result.recovery_required&&b.staged_reads==24&&b.restarts==1&&b.current.registry->size()==1,
         "exhausted fresh-image readiness must still remove staged records");
+ }
+ {
+  Bench b;const auto r=b.make();
+  auto api=b.api();
+  const auto exact=api.fresh_verify;
+  unsigned attempts=0;
+  api.fresh_verify=[&](const PowerWeightReceipt& receipt,bool original) {
+   if(++attempts<=2)return PowerWeightBoundaryResult{false,false,false,false,false,"still initializing",true};
+   return exact(receipt,original);
+  };
+  PowerWeightTransaction worker(api,nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok&&attempts==3&&b.restarts==1,
+        "Fresh clock proof after unstage retries a temporarily unavailable driver");
+  b.current.image=r.image; // The first restart already restored the original image.
+  attempts=0;
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&attempts==3&&b.restarts==1&&!b.active,
+        "Remove waits for the original proof before issuing a redundant restart");
+ }
+ {
+  Bench b;const auto r=b.make();
+  auto api=b.api();
+  const auto exact=api.fresh_verify;
+  unsigned attempts=0;
+  api.fresh_verify=[&](const PowerWeightReceipt& receipt,bool original) {
+   if(original){++attempts;return PowerWeightBoundaryResult{false,false,false,false,false,"runtime unavailable",true};}
+   return exact(receipt,original);
+  };
+  PowerWeightTransaction worker(api,nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot apply for unavailable original proof test");
+  const auto stopped=worker.run(PowerWeightOperation::remove,b.durable);
+  check(!stopped.ok&&stopped.recovery_required&&attempts==24&&b.restarts==1&&b.active&&
+        b.durable.restoring&&b.current.registry->size()==r.before.size(),
+        "Unavailable original proof leaves a clean, recoverable receipt without another restart");
+ }
+ {
+  Bench b;const auto r=b.make();
+  auto api=b.api();
+  const auto exact=api.fresh_verify;
+  unsigned attempts=0;
+  api.fresh_verify=[&](const PowerWeightReceipt& receipt,bool original) {
+   if(original&&b.restarts==2&&++attempts<=2)
+    return PowerWeightBoundaryResult{false,false,false,false,false,"still initializing",true};
+   return exact(receipt,original);
+  };
+  PowerWeightTransaction worker(api,nullptr,b.current.adapter);
+  check(worker.run(PowerWeightOperation::apply,r).ok,"cannot apply for delayed Restore proof test");
+  check(worker.run(PowerWeightOperation::remove,b.durable).ok&&attempts==3&&b.restarts==2&&!b.active,
+        "An actual Restore restart waits for exact original proof without dispatching again");
  }
  {
   Bench b;const auto r=b.make();b.fatal_staged_failure=true;PowerWeightTransaction worker(b.api(),nullptr,b.current.adapter);

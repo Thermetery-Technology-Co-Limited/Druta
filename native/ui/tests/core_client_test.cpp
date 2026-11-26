@@ -4,6 +4,7 @@
 #include "profile_io.h"
 #include "scoped_profile.h"
 #include "clock_monitor_model.h"
+#include "model_input_inventory.h"
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -77,6 +78,14 @@ bool derived_test = false, callback_matches = true, callback_answer = false, mut
 bool power_bounds_failed = false, power_bounds_unsupported = false, power_set_unverified = false;
 int power_post_read_failures = 0, power_reads_remaining_to_fail = 0;
 int mutate_power_at_policy_read = 0;
+dc_status DC_CALL cached_power_error(dc_gpu*, dc_cpc_live_state* out) {
+    CHECK(out->size == sizeof(*out) && out->last.size == sizeof(out->last)
+          && out->last.metadata.size == sizeof(out->last.metadata) && out->last.arbitration.size == sizeof(out->last.arbitration));
+    out->has_error = 1;
+    out->has_last = xoc_live ? 1 : 0;
+    std::strcpy(out->error, "Client power metadata unavailable");
+    return DC_OK;
+}
 dc_status DC_CALL cpc_live(dc_gpu*, dc_cpc_observation* out, dc_error*) { CHECK(out->size == sizeof(*out) && out->metadata.size == sizeof(out->metadata) && out->arbitration.size == sizeof(out->arbitration)); out->metadata.role_info_size = 5; out->metadata.role_info[4] = 0x30; out->metadata.maximum_mw = 500000; out->requested_mw = 600000; out->metadata.native_info_size = 4; out->native_control_size = 4; uint32_t a = callback_matches ? 42u : 43u, b = 56; std::memcpy(out->metadata.native_info, &a, 4); std::memcpy(out->native_control, &b, 4); return DC_OK; }
 dc_status DC_CALL lock_gpu(dc_gpu*) { return DC_OK; }
 dc_status DC_CALL unlock_gpu(dc_gpu*) { return DC_OK; }
@@ -100,9 +109,13 @@ dc_status DC_CALL power_set(dc_gpu*, dc_cl_statics*, int64_t value, int32_t, int
 dc_status DC_CALL message(dc_gpu*, char* out, size_t, size_t* n) { out[0] = 0; *n = 1; return DC_OK; }
 dc_status DC_CALL pins_get(dc_gpu*, uint32_t* ids, int64_t* vals, uint32_t, uint32_t* n) { *n = pin_present ? 1 : 0; if (*n) { ids[0] = 1; vals[0] = pinned_value; } return DC_OK; }
 dc_status DC_CALL pins_set(dc_gpu*, const uint32_t* ids, const int64_t* values, uint32_t n) { ++pin_writes; if (n) { CHECK(n == 1 && ids[0] == 1); pinned_value = values[0]; } pin_present = n != 0; return DC_OK; }
-dc_status DC_CALL policies(dc_gpu*, dc_cl_confirm_fn confirm, void* confirm_context, dc_cl_policy_inputs_fn input, void* context, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error*) {
+dc_status DC_CALL policies(dc_gpu*, dc_cl_confirm_fn confirm, void* confirm_context, dc_cl_policy_inputs_fn input, void* context, dc_policy_row* rows, uint32_t, uint32_t* n, dc_error* error) {
     ++policy_reads; if (mutate_power_at_policy_read==policy_reads) peer=101;
-    CHECK(confirm != nullptr); if (table_fail) return DC_E_FAILED;
+    CHECK(confirm != nullptr);
+    if (table_fail) {
+        std::strcpy(error->message, "Policy INFO rejected (RM 0x3A)");
+        return DC_E_FAILED;
+    }
     if (derived_test) { uint32_t info = 42, control = 56; callback_answer = confirm(confirm_context, 1, 700, 500, &info, 1, &control, 1) != 0; }
     dc_cl_statics st{}; st.size = sizeof(st); int32_t has = 0; int64_t mw = 0; CHECK(input(context, &has, &mw, &st) == 0 && has && mw == board);
     *n = 2; rows[0].policy = 0; rows[0].board = 1; rows[0].unit = 0; rows[0].minimum = 100000; rows[0].maximum = 350000; rows[0].requested = board;
@@ -112,13 +125,52 @@ dc_status DC_CALL policy_set(dc_gpu*, dc_cl_confirm_fn confirm, void*, dc_cl_pol
     CHECK(confirm && id == 1 && whole && (policy_external_test || !pin_present)); ++policy_writes; *ok = !peer_fail; if (!peer_fail) { peer = value; if (pin) { pin_present = true; pinned_value = value; } if (policy_change_board) board += 1000; if (policy_drop_pin) pin_present = false; } *needed = 1; return DC_OK;
 }
 int domain_raw[32]{}, rail_raw[2]{}, advanced_writes = 0, xoc_flag = 0, advanced_fail_reads = 0, layout_version = 4; bool has_msvdd = false, advanced_refuse = false, flags_fail = false;
+int fixture_clock_mode = 0;
+bool effect_at_p0 = true, effect_ambiguous = false, effect_block_restore = false, effect_second_device = false;
+dc_status DC_CALL effect_identity(const dc_gpu* g, dc_gpu_identity* out) {
+    const auto status = identity(g, out);
+    if (effect_second_device) {
+        std::memcpy(out->slot, "0000:04:00.0", sizeof("0000:04:00.0"));
+        std::memcpy(out->uuid, "GPU-B", sizeof("GPU-B"));
+    }
+    out->nvapi_selected = out->nvml_selected = out->nvapi_ok = out->nvml_ok;
+    std::memcpy(out->nvapi_slot, out->slot, sizeof(out->slot));
+    std::memcpy(out->nvml_slot, out->slot, sizeof(out->slot));
+    return status;
+}
+dc_status DC_CALL effect_telemetry(dc_gpu* g, dc_telemetry* out) {
+    const auto status = memory_telemetry(g, out);
+    out->present |= DC_T_PSTATE; out->pstate = effect_at_p0 ? 0u : 8u; return status;
+}
+void with_effect_fixture(CoreApi& api) {
+    api.identity = effect_identity;
+    api.telemetry = effect_telemetry;
+    api.clock_test_wait = [](unsigned) {};
+    api.clkdom_write_capability = [](dc_gpu*, uint32_t, int32_t, dc_outcome* out) -> dc_status {out->ok = 1; return DC_OK;};
+    api.public_clocks = [](dc_gpu*, dc_public_clock_readings* out) -> dc_status {
+        out->present = 13u;
+        out->mhz[0] = static_cast<uint32_t>(1200 + domain_raw[1]/1000 + (effect_ambiguous ? domain_raw[5]/1000 : 0));
+        out->mhz[2] = static_cast<uint32_t>(4500 + domain_raw[2]/1000);
+        out->mhz[3] = static_cast<uint32_t>(1500 + domain_raw[5]/1000);
+        return DC_OK;
+    };
+}
+Command effect_command(uint32_t domain) {
+    Command command; command.operation = Command::Operation::verify_clock_offset;
+    command.advanced = AdvancedId{AdvancedKind::clock_domain, domain}; return command;
+}
+void confirm_offset(IBackend& client, uint32_t domain) {
+    const auto verified = client.execute(effect_command(domain));
+    if (!verified.ok) std::fprintf(stderr, "Offset verification failed for domain %u: %s\n", domain, verified.message.c_str());
+    CHECK(verified.ok);
+}
 int32_t DC_CALL dom_ok(dc_gpu*) { return 1; }
 dc_status DC_CALL dom_layout(dc_gpu*, dc_clkdom_layout* l) { l->version = layout_version; l->block_size = 100; l->header = 4; l->stride = 12; l->freq_khz = 4; l->has_nvvdd_uv = 1; return DC_OK; }
 dc_status DC_CALL dom_list(dc_gpu*, uint32_t* out, size_t, size_t* n) { out[0] = 0; out[1] = 1; out[2] = 2; out[3] = 5; *n = 4; return DC_OK; }
 dc_status DC_CALL dom_controls(dc_gpu*, uint32_t* out, size_t, size_t* n) { out[0] = 1; out[1] = 2; out[2] = 5; *n = 3; return DC_OK; }
 int32_t DC_CALL dom_offered(dc_gpu*, int64_t) { return 1; }
-dc_status DC_CALL dom_read(dc_gpu*, dc_clkdom_requests* out) { if (advanced_fail_reads > 0) { --advanced_fail_reads; return DC_E_UNAVAILABLE; } out->count = 4; for (int i = 0; i < 4; ++i) { out->rows[i].domain = i == 3 ? 5 : i; out->rows[i].freq_khz = domain_raw[out->rows[i].domain]; } return DC_OK; }
-dc_status DC_CALL dom_set(dc_gpu*, int64_t id, double value, dc_outcome* out) { ++advanced_writes; if (!advanced_refuse) domain_raw[id] = static_cast<int>(value * 1000); out->ok = !advanced_refuse; return DC_OK; }
+dc_status DC_CALL dom_read(dc_gpu*, dc_clkdom_requests* out) { if (advanced_fail_reads > 0) { --advanced_fail_reads; return DC_E_UNAVAILABLE; } out->count = 4; for (int i = 0; i < 4; ++i) { out->rows[i].domain = i == 3 ? 5 : i; out->rows[i].freq_khz = domain_raw[out->rows[i].domain]; out->rows[i].mode = fixture_clock_mode; } return DC_OK; }
+dc_status DC_CALL dom_set(dc_gpu*, int64_t id, double value, dc_outcome* out) { ++advanced_writes; const bool refused = advanced_refuse || (effect_block_restore && value == 0); if (!refused) domain_raw[id] = static_cast<int>(value * 1000); out->ok = !refused; return DC_OK; }
 dc_status DC_CALL rail_cap(dc_gpu*, int64_t rail, int32_t selected, int64_t domain, dc_rail_offset_capability* out) { if (rail == 1 && !has_msvdd) return DC_OK; out->available = out->has_domain = out->has_value = 1; out->domain = selected ? domain : (rail ? 5 : 0); out->value_mv = rail_raw[rail] / 1000.0; return DC_OK; }
 dc_status DC_CALL rail_read(dc_gpu*, int64_t, int64_t rail, double* value) { *value = rail_raw[rail] / 1000.0; return DC_OK; }
 dc_status DC_CALL rail_set(dc_gpu*, double value, int64_t, int64_t rail, dc_outcome* out) { ++advanced_writes; if (!advanced_refuse) rail_raw[rail] = static_cast<int>(value * 1000); out->ok = !advanced_refuse; return DC_OK; }
@@ -158,6 +210,51 @@ dc_status DC_CALL tuning_recover(dc_gpu*, dc_outcome* o) { o->ok = 1; return DC_
 dc_status DC_CALL tuning_record(dc_gpu*, dc_rails_hold_record* r) { r->present = 0; return DC_OK; }
 dc_status DC_CALL model_rise(dc_gpu*, uint32_t* out) { *out = 300000; return DC_OK; }
 dc_status DC_CALL test_ramp(const dc_vf_point*, size_t, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, dc_vfp_ramp* out) { out->change_count = 0; return DC_OK; }
+bool max_move_request=false;
+std::vector<double> max_planned_frequencies;
+dc_status DC_CALL max_move_boost(dc_gpu* gpu, int64_t v, dc_outcome* out) {
+    const auto status=boost_set(gpu,v,out);
+    if (v==100) { base_shift=25; if (max_move_request) ++delta; }
+    else base_shift=0;
+    return status;
+}
+dc_status DC_CALL max_move_ramp(const dc_vf_point* points, size_t, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, const dc_vfp_num*, dc_vfp_ramp* out) {
+    max_planned_frequencies.push_back(points[0].freq_mhz);
+    out->change_count=1; out->changes[0].pos=0; out->changes[0].idx=points[0].idx;
+    out->changes[0].delta_khz.kind=DC_VFP_INT; out->changes[0].delta_khz.i=points[0].delta_khz+5000;
+    return DC_OK;
+}
+double max_test_rail_mv = 925, max_test_headroom_mv = 0;
+bool max_test_skip_rail=false;
+std::vector<double> max_test_ramp_caps;
+dc_status DC_CALL max_test_limits(dc_gpu*, dc_rails_limit_set* limits) {
+    if (!max_test_rail_mv) return DC_E_UNAVAILABLE;
+    limits->present=1;
+    auto& rail=limits->rails[0]; rail.absolute_ok=rail.has_base=rail.has_effective=1;
+    rail.effective_mv=boost_value==100 ? max_test_rail_mv : 875;
+    rail.base[0]=875; rail.boost_mv=boost_value==100 ? 100 : 0;
+    return DC_OK;
+}
+dc_status DC_CALL max_test_ceiling(const dc_rl_row* row, dc_rl_value* out) {
+    CHECK(row->size==sizeof(*row) && row->bases_kind==DC_RL_BASES_MAPPING);
+    CHECK(row->base[0].f==875 && row->boost_mv.f==100 && row->effective_mv.kind==DC_RL_FLOAT);
+    *out=row->effective_mv; return DC_OK;
+}
+dc_status DC_CALL max_test_ramp(const dc_vf_point*, size_t, const dc_vfp_num*, const dc_vfp_num* cap,
+                                const dc_vfp_num*, const dc_vfp_num*, dc_vfp_ramp* out) {
+    max_test_ramp_caps.push_back(cap->f); out->change_count=0; return DC_OK;
+}
+dc_status DC_CALL max_test_headroom(dc_gpu*, double hold_mv, double, uint32_t, int32_t, int32_t,
+        dc_rails_before_write_fn, void*, dc_rails_hold_outcome* out, dc_rails_setter_writes* writes) {
+    max_test_headroom_mv=hold_mv;
+    out->ok=DC_RAILS_HOLD_OK;
+    if (max_test_skip_rail) {
+        out->ok=DC_RAILS_HOLD_FAILED; out->reserved=DC_RAILS_HOLD_WRITER_ISSUED_NO_SET;
+        writes->calls=writes->attributes=writes->last_attributes=1; writes->result.size=sizeof(writes->result);
+        std::strcpy(out->message,"Fixture rail writer recognized no packet");
+    }
+    return DC_OK;
+}
 dc_status DC_CALL test_predict(const dc_vf_point*, size_t n, const dc_vfp_num* values, const dc_vfp_num*, int64_t* actual, uint32_t* order, size_t capacity) { if (capacity < n) return DC_E_BUFFER; for (size_t i = 0; i < n; ++i) { order[i] = static_cast<uint32_t>(i); actual[i] = values[i].i; } return DC_OK; }
 dc_status DC_CALL test_reset(dc_gpu*, dc_cl_confirm_fn, void*, dc_cl_policy_inputs_fn, void*, dc_reset_statics_fn, void*, int32_t, dc_reset_step* steps, uint32_t cap, uint32_t* count, dc_rails_setter_writes*, dc_error*) {
     ++reset_calls; CHECK(cap >= DC_RESET_STEPS_MAX); core_value = 0; delta = 0; delta2 = 0;
@@ -356,11 +453,16 @@ TEST_NOINLINE void linked_rail_history_tests(const CoreApi& rail_api, const Comm
 TEST_NOINLINE void rail_readout_tests(const CoreApi& rail_api) {
     std::string error;
     CoreApi with_state = rail_api; with_state.rails.state = rail_state;
+    with_state.voltage_evidence.caches = [](dc_gpu*, dc_rails_caches* cache) -> dc_status {
+        cache->diagnostics[DC_RAILS_CONTROL][0] = {1, DC_RAILS_CONTROL_VERSION, 0, 1, 1};
+        return DC_OK;
+    };
     auto client = create_core_backend_for_test(with_state); CHECK(client->open("0000:02:00.0", error));
     rail_live_mv = 920; rail_effective_mv = 1080; rail_state_fail = false;
     // Focused (the default) never shows them: no rail-state read on any poll.
     const int focused_calls = rail_state_calls; auto view = client->read(true); view = client->read(false);
     CHECK(rail_state_calls == focused_calls && !view.rail_readouts);
+    CHECK(view.rail_getter_cache && view.rail_getter_cache->diagnostics[DC_RAILS_CONTROL][0].version == DC_RAILS_CONTROL_VERSION);
     client->set_live_readouts(true);
     view = client->read(true);
     CHECK(view.rail_readouts && (*view.rail_readouts)[0].listed && (*view.rail_readouts)[1].listed && !(*view.rail_readouts)[0].stale);
@@ -491,10 +593,66 @@ TEST_NOINLINE void scoped_client_tests(const CoreApi& rail_api, const wchar_t* d
     CHECK(rail_set_calls==bounds_writes);
     override_rail_initial=false; rail_initial_override=0; raw_limits[1][2]=700;
 }
+void adaptive_max_tests(CoreApi actions, Command max_cmd, const Command& undo);
+TEST_NOINLINE void model_input_inventory_tests(CoreApi base) {
+    static unsigned reads; static bool mismatch, read_failed;
+    reads = 0; mismatch = read_failed = false;
+    base.identity = [](const dc_gpu* gpu, dc_gpu_identity* id) -> dc_status {
+        identity(gpu,id); id->nvapi_ok=id->nvapi_selected=1; id->nvapi_handle=127;
+        id->nvapi_devid=0x4321; id->nvapi_subsys=9; return DC_OK;
+    };
+    base.model_inputs = [](dc_gpu*,dc_model_inputs* out,dc_error* err) -> dc_status {
+        ++reads;
+        if (read_failed) { std::strcpy(err->message,"Fixture getter unavailable"); return DC_E_UNAVAILABLE; }
+        out->target.size=sizeof(out->target); out->target.handle=mismatch ? 128 : 127;
+        std::strcpy(out->target.slot,"0000:02:00.0"); out->target.device_id=0x4321; out->target.subsystem_id=9;
+        auto& speedo=out->rows[DC_MODEL_SPEEDO]; speedo.state=DC_MODEL_READY; speedo.index=8;
+        speedo.active=1207; speedo.raw_hardware=1210; speedo.default_value=1210;
+        speedo.minimum=0; speedo.maximum=2000; speedo.override_present=1; speedo.override_value=1207;
+        out->rows[DC_MODEL_SPEEDO1].state=DC_MODEL_AMBIGUOUS; out->rows[DC_MODEL_SPEEDO2].state=DC_MODEL_NOT_READY;
+        auto& iddq=out->rows[DC_MODEL_IDDQ_NVVDD]; iddq.state=DC_MODEL_READY; iddq.minimum=1; iddq.maximum=0;
+        return DC_OK;
+    };
+    auto client=create_core_backend_for_test(base); std::string error;
+    CHECK(client->open("0000:02:00.0",error));
+    CHECK(!client->read(true).model_inputs && reads==0);
+    Command read; read.operation=Command::Operation::read_tuning_support;
+    CHECK(!client->execute(read).may_have_changed);
+    auto inventory=client->read(false).model_inputs;
+    CHECK(inventory && inventory->error.empty() && reads==1);
+    CHECK(inventory->values.rows[DC_MODEL_SPEEDO].active==1207 &&
+          inventory->values.rows[DC_MODEL_SPEEDO].raw_hardware==1210 && inventory->values.rows[DC_MODEL_SPEEDO].override_present);
+    CHECK(inventory->values.rows[DC_MODEL_SPEEDO1].state==DC_MODEL_AMBIGUOUS &&
+          inventory->values.rows[DC_MODEL_SPEEDO2].state==DC_MODEL_NOT_READY &&
+          inventory->values.rows[DC_MODEL_IDDQ_NVVDD].state==DC_MODEL_INVALID &&
+          inventory->values.rows[DC_MODEL_IDDQ_MSVDD].state==DC_MODEL_ABSENT);
+    CHECK(client->read(true).model_inputs==inventory && reads==1);
+    mismatch=true; client->execute(read);
+    CHECK(client->read(false).model_inputs->error.find("selected GPU")!=std::string::npos);
+    mismatch=false; read_failed=true; client->execute(read);
+    CHECK(client->read(false).model_inputs->error=="Fixture getter unavailable");
+    CHECK(!client->rediscover_capabilities().model_inputs);
+}
 TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& advanced_api, Command& undo, Command& power, Command& policy_cmd) {
     std::string error;
     CoreApi power_test = advanced_api; power_test.policy_read = alternate_policies; power_test.current_limits = core_current; power_test.pins_get = no_pins;
+    power_test.cpc_live_state = cached_power_error;
     auto xp = create_core_backend_for_test(power_test); CHECK(xp->open("0000:02:00.0", error)); board = 200000; xoc_live = false; auto normal = xp->read(true); CHECK(normal.controls[2].high == 500.0);
+    CHECK(normal.xoc_power_range_note.empty());
+    {
+        xoc_live = true;
+        const int writes = power_writes;
+        Command inspect;
+        inspect.operation = Command::Operation::read_tuning_support;
+        const auto result = xp->execute(inspect);
+        const auto inspected = xp->read(false);
+        CHECK(result.ok && !result.may_have_changed && inspected.inspected_xoc_max_w == 1999.0);
+        CHECK(inspected.xoc_known && !inspected.xoc_enabled && inspected.controls[2].high == 500.0);
+        CHECK(power_writes == writes && inspected.firmware_inventory);
+        CHECK(inspected.model_inputs && !inspected.model_inputs->error.empty());
+        model_input_inventory_tests(power_test);
+        xoc_live = false;
+    }
     CHECK(normal.power_policies.size() == 2 && normal.power_policies[1].id == 7 && normal.power_policies[1].core_current && normal.power_policies[1].label == "Core current (NVVDD)");
     current_read_fails = true; auto retained = xp->read(true); CHECK(retained.power_policies[1].core_current); current_read_fails = false;
     current_generic_label = true; auto generic = xp->read(true); CHECK(!generic.power_policies[1].core_current); current_generic_label = false; current_index = 19; auto alternate = xp->read(true); CHECK(alternate.power_policies[1].id == 19 && alternate.power_policies[1].core_current);
@@ -504,6 +662,8 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
     CHECK(xp->execute(mode_on).ok);
     auto limited = xp->read(false);
     CHECK(limited.controls[2].high == 500.0 && limited.controls[2].detail.find("100 to 500 W") != std::string::npos);
+    CHECK(limited.xoc_power_range_note.find("100 to 500 W") != std::string::npos &&
+          limited.xoc_power_range_note.find("Client power metadata unavailable") != std::string::npos);
 
     Command xoc_power{};
     xoc_power.operation = Command::Operation::apply;
@@ -517,6 +677,9 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
     xoc_live = true;
     auto expanded = xp->read(false);
     CHECK(expanded.controls[2].high == 1999.0);
+    CHECK(expanded.xoc_power_range_note.find("last known controller range") != std::string::npos);
+    CHECK(expanded.xoc_power_range_note.find("1999 W") != std::string::npos &&
+          expanded.xoc_power_range_note.find("written and read back") == std::string::npos);
     power_bounds_failed = true;
     const auto stale = xp->read(false);
     CHECK(stale.controls[2].availability == Availability::transient && stale.controls[2].high == 1999.0);
@@ -528,6 +691,8 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
     CHECK(applied.ok && applied.readback == 1000.0 && power_writes == writes_before + 1 && board == 1000000);
     xoc_power.value = 1999;
     CHECK(xp->execute(xoc_power).ok && power_writes == writes_before + 2 && board == 1999000);
+    CHECK(xp->read(false).xoc_power_range_note.find("written and read back in this session was 1999 W") != std::string::npos);
+    CHECK(xp->read(false).inspected_xoc_note.find("written and read back in this session was 1999 W") != std::string::npos);
     mode_on.enabled = false;
     CHECK(xp->execute(mode_on).ok);
     auto carry = xp->read(false);
@@ -605,6 +770,22 @@ TEST_NOINLINE void power_and_actions_tests(const CoreApi& pa, const CoreApi& adv
         && max_result.steps[3].name == "V/F point hold" && std::all_of(max_result.steps.begin(), max_result.steps.end(), [](const ActionStep& s) { return s.ok; })
         && steps_in_message(max_result));
     CHECK(action_client->execute(undo).ok && !test_vf_held && board == 1000000 && boost_value == 10 && fan_level == 40);
+    // Evaluated frequencies may move after boost while signed requests stay put.
+    {
+        auto moving=actions; moving.boost_set=max_move_boost; moving.planner.ramp=max_move_ramp;
+        auto client=create_core_backend_for_test(moving); CHECK(client->open("0000:02:00.0",error));
+        auto input=client->read(true); Command command=max_cmd; command.expected_curve=input.curve; command.expected_curve_freq_div=input.curve_freq_div;
+        max_planned_frequencies.clear(); const int old_delta=delta; const int old_writes=curve_writes;
+        const auto moved=client->execute(command);
+        CHECK(moved.ok && curve_writes==old_writes+1 && max_planned_frequencies.size()==2 && max_planned_frequencies[1]==max_planned_frequencies[0]+25);
+        CHECK(client->execute(undo).ok && delta==old_delta && base_shift==0);
+        max_move_request=true; const int writes_before_rejection=curve_writes;
+        const auto rejected=client->execute(command);
+        CHECK(!rejected.ok && curve_writes==writes_before_rejection && rejected.message.find("signed requests changed")!=std::string::npos);
+        max_move_request=false; delta=old_delta; CHECK(client->execute(undo).ok && base_shift==0);
+        client->close();
+    }
+    adaptive_max_tests(actions, max_cmd, undo);
     power_throw = true; bool caught_max = false; try { action_client->execute(max_cmd); } catch (const std::exception&) { caught_max = true; } power_throw = false;
     CHECK(caught_max && board == 500000 && action_client->read(false).undo_available); CHECK(action_client->execute(undo).ok && board == 1000000 && fan_level == 40);
     Command reset_command{}; reset_command.operation = Command::Operation::reset_controls; test_foreign_clock = true; int old_reset_calls = reset_calls; CHECK(!action_client->execute(reset_command).ok && reset_calls == old_reset_calls); test_foreign_clock = false;
@@ -654,6 +835,53 @@ int native_reads = 0; int32_t native_has = 1; uint32_t native_mw = 972070; dc_st
 dc_status DC_CALL native_limit(dc_gpu*, dc_cl_statics* st, int32_t* has, uint32_t* value, char*, size_t, size_t* needed) {
     ++native_reads; CHECK(st && st->size == sizeof(*st) && needed);
     *has = native_has; *value = native_has ? native_mw : 0; if (needed) *needed = 1; return native_status;
+}
+int nominal_error_kind = DC_ERR_UNSUPPORTED;
+int nominal_sets = 0;
+bool nominal_mismatch = false;
+dc_status DC_CALL no_private_table(dc_gpu*, dc_cl_confirm_fn, void*, dc_cl_policy_inputs_fn, void*,
+                                   dc_policy_row*, uint32_t, uint32_t* count, dc_error* error) {
+    *count = 0; error->kind = nominal_error_kind; return DC_E_FAILED;
+}
+dc_status DC_CALL nominal_nvml_set(dc_gpu*, dc_cl_statics*, int64_t mw, dc_outcome* out, int32_t* has, uint32_t* got) {
+    ++nominal_sets;
+    board = static_cast<uint32_t>(mw) + (nominal_mismatch ? 1000 : 0);
+    *has = 1; *got = board; out->ok = 1; return DC_OK;
+}
+TEST_NOINLINE void nominal_board_only_tests(const CoreApi& pa) {
+    const auto previous = board;
+    const bool previous_pin = pin_present;
+    pin_present = false; board = 200000; nominal_sets = 0;
+    auto a = pa; a.policy_read = no_private_table; a.power_set_nvml = nominal_nvml_set;
+    auto client = create_core_backend_for_test(a); std::string error; CHECK(client->open("0000:02:00.0", error));
+    Command apply{Command::Operation::apply, ControlId::power, 250}, undo{Command::Operation::undo};
+    const auto ready = client->read(true);
+    CHECK(ready.controls[2].writable && ready.controls[2].high == 500 && ready.power_policies.empty());
+    const auto pins_before = pin_writes, full_before = power_writes;
+    CHECK(client->execute(apply).ok && nominal_sets == 1 && board == 250000);
+    pin_present = true;
+    CHECK(!client->execute(undo).ok && nominal_sets == 1 && pin_present);
+    pin_present = false;
+    nominal_error_kind = DC_ERR_TRANSIENT;
+    CHECK(!client->execute(undo).ok && nominal_sets == 1);
+    nominal_error_kind = DC_ERR_UNSUPPORTED;
+    CHECK(client->execute(undo).ok && board == 200000 && nominal_sets == 2);
+    apply.value = 1999;
+    CHECK(!client->execute(apply).ok && nominal_sets == 2);
+    apply.value = 250;
+    for (const auto kind : {DC_ERR_INVALID, DC_ERR_TRANSIENT, DC_ERR_MALFORMED}) {
+        nominal_error_kind = kind;
+        CHECK(!client->execute(apply).ok && nominal_sets == 2);
+    }
+    nominal_error_kind = DC_ERR_UNSUPPORTED; pin_present = true;
+    CHECK(!client->execute(apply).ok && nominal_sets == 2);
+    CHECK(!client->execute(Command{Command::Operation::stock, ControlId::power}).ok && power_writes == full_before);
+    pin_present = false; nominal_mismatch = true;
+    CHECK(!client->execute(apply).ok && board == 251000 && nominal_sets == 3);
+    nominal_mismatch = false;
+    CHECK(client->execute(undo).ok && board == 200000 && nominal_sets == 4);
+    CHECK(pin_writes == pins_before && power_writes == full_before);
+    board = previous; pin_present = previous_pin;
 }
 TEST_NOINLINE void native_power_limit_tests(const CoreApi& pa) {
     std::string error; CoreApi native_api = pa; native_api.native_power = native_limit; native_api.pins_get = no_pins;
@@ -737,6 +965,385 @@ TEST_NOINLINE void clock_domain_pairing_tests(const CoreApi& clock_api) {
     CHECK(pairing_calls==pairs_before && blackwell_calls==blackwell_before && paired_state.clock_domain_pairs.size()==1 && paired_state.clock_domain_requests_only);
     memory_caps_fail=0; requests_only=0;
 }
+
+TEST_NOINLINE void clock_discovery_poll_tests(CoreApi api) {
+    static bool partial;
+    static int retry_calls, control_reads;
+    partial = true;
+    retry_calls = control_reads = 0;
+    api.clkdom_controls = [](dc_gpu* gpu, uint32_t* out, size_t capacity, size_t* count) -> dc_status {
+        ++control_reads;
+        if (partial) { out[0] = 1; *count = 1; return DC_OK; }
+        return dom_controls(gpu, out, capacity, count);
+    };
+    api.clock_retry = [](dc_gpu*, int32_t has_time, double, int32_t* changed) -> dc_status {
+        CHECK(!has_time); // The core owns its monotonic schedule.
+        ++retry_calls;
+        *changed = retry_calls == 3;
+        if (*changed) partial = false;
+        return retry_calls == 2 ? DC_E_UNAVAILABLE : DC_OK;
+    };
+    auto has_clock = [](const LiveData& data, uint32_t domain) {
+        return std::any_of(data.advanced_controls.begin(), data.advanced_controls.end(),
+            [&](const AdvancedControl& row) {
+                return row.id.kind == AdvancedKind::clock_domain && row.id.domain == domain;
+            });
+    };
+    std::string error;
+    auto client = create_core_backend_for_test(api);
+    CHECK(client->open("0000:02:00.0", error));
+    auto state = client->read(true);
+    CHECK(retry_calls == 0 && has_clock(state, 1) && !has_clock(state, 5));
+    const int initial_reads = control_reads, initial_writes = advanced_writes;
+    state = client->read(false);
+    CHECK(retry_calls == 1 && control_reads == initial_reads && !has_clock(state, 5));
+    state = client->read(false);
+    CHECK(retry_calls == 2 && control_reads == initial_reads && has_clock(state, 1));
+    changed_id = true;
+    state = client->read(false);
+    changed_id = false;
+    CHECK(!state.connected && retry_calls == 2 && control_reads == initial_reads);
+    state = client->read(false);
+    CHECK(state.connected && retry_calls == 3 && control_reads > initial_reads && has_clock(state, 5));
+    CHECK(has_clock(state, 1) && advanced_writes == initial_writes);
+    const int recovered_reads = control_reads;
+    state = client->read(false);
+    CHECK(retry_calls == 4 && control_reads == recovered_reads && has_clock(state, 5));
+
+    static int rescans;
+    rescans = 0;
+    partial = true;
+    api.refresh_capabilities = [](dc_gpu*, dc_clkdom_error*) -> dc_status {
+        ++rescans;
+        partial = false;
+        return DC_OK;
+    };
+    auto manual = create_core_backend_for_test(api);
+    CHECK(manual->open("0000:02:00.0", error));
+    CHECK(!has_clock(manual->read(true), 5) && rescans == 0);
+    changed_id = true;
+    CHECK(!manual->rediscover_capabilities().connected && rescans == 0);
+    changed_id = false;
+    CHECK(has_clock(manual->rediscover_capabilities(), 5) && rescans == 1);
+    CHECK(has_clock(manual->read(true), 5) && rescans == 1 && advanced_writes == initial_writes);
+}
+TEST_NOINLINE void clock_write_capability_tests(CoreApi api) {
+    static bool setter_present;
+    setter_present = true;
+    api.clkdom_write_capability = [](dc_gpu*, uint32_t domain, int32_t, dc_outcome* out) -> dc_status {
+        out->ok = setter_present && domain != 1;
+        if (!out->ok) std::snprintf(out->message, sizeof(out->message), "Fixture read-only clock");
+        return DC_OK;
+    };
+    const auto row = [](const LiveData& data, uint32_t domain) -> ControlState {
+        for (const auto& entry : data.advanced_controls)
+            if (entry.id.domain == domain && entry.id.kind == AdvancedKind::clock_domain) return entry.state;
+        CHECK(false);
+        return {};
+    };
+    auto client = create_core_backend_for_test(api);
+    std::string error;
+    CHECK(client->open("0000:02:00.0", error));
+    auto state = client->read(true);
+    const auto restricted = row(state, 1);
+    CHECK(restricted.current == 0 && restricted.availability == Availability::available);
+    CHECK(!restricted.writable && !restricted.stock_writable && restricted.detail == "Fixture read-only clock");
+    CHECK(!row(state, 5).writable);
+    const int original_writes = advanced_writes;
+    Command change;
+    change.operation = Command::Operation::apply;
+    change.advanced = AdvancedId{AdvancedKind::clock_domain, 1};
+    change.value = 12;
+    CHECK(!client->execute(change).ok && advanced_writes == original_writes);
+    change.advanced->domain = 5;
+    CHECK(!client->execute(change).ok && advanced_writes == original_writes);
+    effect_at_p0 = false;
+    CHECK(!client->execute(effect_command(5)).ok && advanced_writes == original_writes);
+    effect_at_p0 = true; effect_ambiguous = true;
+    CHECK(!client->execute(effect_command(5)).ok && domain_raw[5] == 0 && !row(client->read(true), 5).writable);
+    effect_ambiguous = false;
+    confirm_offset(*client, 5);
+    CHECK(row(client->read(true), 5).writable);
+    ++fixture_clock_mode;
+    CHECK(!client->execute(change).ok && !row(client->read(true), 5).writable);
+    --fixture_clock_mode;
+    CHECK(!row(client->read(true), 5).writable);
+    confirm_offset(*client, 5);
+    ++layout_version;
+    CHECK(!row(client->read(true), 5).writable);
+    --layout_version;
+    confirm_offset(*client, 5);
+    const int initial_writes = advanced_writes;
+    CHECK(client->execute(change).ok && advanced_writes == initial_writes + 1);
+    setter_present = false;
+    state = client->read(true);
+    CHECK(row(state, 5).current == 12 && !row(state, 5).writable && !row(state, 2).stock_writable);
+    change.operation = Command::Operation::stock;
+    CHECK(!client->execute(change).ok && advanced_writes == initial_writes + 1);
+    Command undo;
+    undo.operation = Command::Operation::undo;
+    CHECK(!client->execute(undo).ok && client->read(false).undo_available && advanced_writes == initial_writes + 1);
+    setter_present = true;
+    CHECK(client->execute(undo).ok && domain_raw[5] == 0);
+    effect_block_restore = true;
+    CHECK(!client->execute(effect_command(5)).ok && domain_raw[5] != 0 && client->auxiliary_cleanup_needed());
+    const auto pending = client->read(true);
+    CHECK(std::any_of(pending.advanced_controls.begin(), pending.advanced_controls.end(), [](const AdvancedControl& c) {
+        return c.id.domain == 5 && c.clock_check == ClockCheck::recovery && !c.state.writable;
+    }));
+    CHECK(!client->prepare_close().ok && !client->execute(effect_command(2)).ok);
+    effect_block_restore = false;
+    Command recover = effect_command(5); recover.operation = Command::Operation::restore_clock_test;
+    CHECK(client->execute(recover).ok && domain_raw[5] == 0 && !client->auxiliary_cleanup_needed());
+    confirm_offset(*client, 5);
+    CHECK(row(client->read(true), 5).writable);
+    client->close();
+    effect_second_device = true;
+    CHECK(client->open("0000:04:00.0", error));
+    change.operation = Command::Operation::apply;
+    CHECK(!row(client->read(true), 5).writable && !client->execute(change).ok);
+    client->close(); effect_second_device = false;
+    api.clkdom_set = nullptr;
+    auto reader = create_core_backend_for_test(api);
+    CHECK(reader->open("0000:02:00.0", error));
+    const auto no_export = row(reader->read(true), 5);
+    CHECK(no_export.current == 0 && !no_export.writable && !no_export.stock_writable);
+}
+TEST_NOINLINE void known_clock_pattern_tests(CoreApi api, const wchar_t* directory) {
+    static bool match, setter, zero_mask;
+    static int pattern_reads[DC_CLKDOM_SLOTS];
+    match = setter = true; zero_mask = false;
+    api.clkdom_known_pattern = [](dc_gpu*, uint32_t id, int32_t mode, uint32_t* mask, dc_outcome* out) -> dc_status {
+        ++pattern_reads[id];
+        if (!match || mode != 0 || layout_version != 4 || (id != 2 && id != 5)) return DC_E_UNAVAILABLE;
+        out->ok = 1;
+        *mask = zero_mask ? 0 : 1u << (id == 2 ? 4 : 21);
+        std::strcpy(out->message, id == 2 ? "memory" : "video"); return DC_OK;
+    };
+    api.clkdom_write_capability = [](dc_gpu*, uint32_t, int32_t, dc_outcome* out) -> dc_status {
+        out->ok = setter; return DC_OK;
+    };
+    auto client = create_core_backend_for_test(api);
+    std::string error;
+    CHECK(client->open("0000:02:00.0", error));
+    auto row = [&](uint32_t domain) -> AdvancedControl {
+        const auto state = client->read(true);
+        for (const auto& clock : state.advanced_controls)
+            if (clock.id.kind == AdvancedKind::clock_domain && clock.id.domain == domain) return clock;
+        CHECK(false); return {};
+    };
+    const int original = advanced_writes;
+    effect_at_p0 = false;
+    std::fill_n(pattern_reads, DC_CLKDOM_SLOTS, 0);
+    const auto known = row(5);
+    CHECK(pattern_reads[2] == 1 && pattern_reads[5] == 1);
+    CHECK(known.clock_check == ClockCheck::known_pattern && known.state.writable && known.can_verify &&
+        known.known_clocks == "video" && known.observed_clocks.empty() && !known.observed_private_domain);
+    CHECK(row(1).clock_check == ClockCheck::candidate && !row(2).state.writable);
+    CHECK(!client->execute(effect_command(5)).ok && row(5).clock_check == ClockCheck::known_pattern &&
+        advanced_writes == original);
+    Command change = effect_command(5); change.operation = Command::Operation::apply; change.value = 12;
+    Command undo; undo.operation = Command::Operation::undo;
+    match = false;
+    CHECK(!client->execute(change).ok && advanced_writes == original);
+    match = true; zero_mask = true;
+    CHECK(!row(5).state.writable && !client->execute(change).ok && advanced_writes == original);
+    zero_mask = false; setter = false;
+    CHECK(row(5).clock_check == ClockCheck::unavailable && !client->execute(change).ok);
+    setter = true; ++fixture_clock_mode;
+    CHECK(!row(5).state.writable && !client->execute(change).ok);
+    --fixture_clock_mode;
+    CHECK(client->execute(change).ok && domain_raw[5] == 12000 && advanced_writes == original + 1);
+    match = false;
+    CHECK(client->execute(undo).ok && domain_raw[5] == 0);
+    match = true;
+    wchar_t file[MAX_PATH]{};
+    CHECK(GetTempFileNameW(directory, L"clk", 0, file) != 0);
+    Command load; load.operation = Command::Operation::load_profile; load.profile_path = file;
+    write_profile(file, {{"format", "druta-native-daily"}, {"version", 2},
+        {"target", {{"uuid", "GPU-A"}, {"slot", "0000:02:00.0"}}}, {"controls", ProfileJson::object()},
+        {"advanced", ProfileJson::array({{{"kind", "clock_domain"}, {"domain", 5}, {"value", 12000}, {"unit", "kHz"}}})}});
+    CHECK(client->execute(load).ok && domain_raw[5] == 12000);
+    CHECK(client->execute(undo).ok && domain_raw[5] == 0);
+    match = false;
+    CHECK(!client->execute(load).ok && domain_raw[5] == 0);
+    CHECK(DeleteFileW(file) != 0);
+    match = true; effect_at_p0 = true;
+    Command all; all.operation = Command::Operation::verify_all_clock_offsets;
+    const auto batch = client->execute(all);
+    CHECK(batch.ok && batch.steps.size() == 1 && row(1).clock_check == ClockCheck::verified &&
+        row(5).clock_check == ClockCheck::known_pattern);
+    effect_ambiguous = true;
+    CHECK(!client->execute(effect_command(5)).ok && domain_raw[5] == 0);
+    effect_ambiguous = false;
+    const auto failed = row(5);
+    CHECK(failed.clock_check == ClockCheck::candidate && failed.known_clocks.empty() && !failed.state.writable);
+    const int before_retry = advanced_writes;
+    CHECK(!client->execute(change).ok && advanced_writes == before_retry);
+    setter = false;
+    CHECK(row(5).clock_check == ClockCheck::unavailable);
+    setter = true;
+    CHECK(!row(5).state.writable);
+    confirm_offset(*client, 5);
+    const auto checked = row(5);
+    CHECK(checked.clock_check == ClockCheck::verified && checked.state.writable &&
+        checked.known_clocks.empty() && !checked.observed_clocks.empty() && domain_raw[5] == 0);
+}
+TEST_NOINLINE void clock_batch_tests(CoreApi api) {
+    static std::vector<std::pair<int64_t, double>> dispatched;
+    api.clkdom_set = [](dc_gpu* gpu, int64_t domain, double value, dc_outcome* outcome) -> dc_status {
+        dispatched.emplace_back(domain, value); return dom_set(gpu, domain, value, outcome);
+    };
+    const auto open = [&]() {
+        std::string error; auto client = create_core_backend_for_test(api);
+        CHECK(client->open("0000:02:00.0", error));
+        dispatched.clear(); return client;
+    };
+    Command all; all.operation = Command::Operation::verify_all_clock_offsets;
+    auto client = open();
+    const auto complete = client->execute(all);
+    const std::vector<std::pair<int64_t, double>> expected{{1,-45},{1,0},{5,-45},{5,0}};
+    CHECK(complete.ok && complete.steps.size() == 2 && dispatched == expected);
+    CHECK(complete.message.find("Enable XOC") != std::string::npos);
+    const auto steady = dispatched;
+    CHECK(client->execute(all).steps.empty() && dispatched == steady);
+    client->close();
+    client = open();
+    client->configure_clock_check_cancellation([] { return !dispatched.empty(); });
+    const auto stopped = client->execute(all);
+    CHECK(!stopped.ok && stopped.steps.size() == 1 && dispatched.size() == 2 && domain_raw[1] == 0);
+    client->close();
+    client = open();
+    effect_block_restore = true;
+    const auto pending = client->execute(all);
+    CHECK(!pending.ok && pending.steps.size() == 1 && client->auxiliary_cleanup_needed());
+    CHECK(std::all_of(dispatched.begin(), dispatched.end(), [](const auto& call){return call.first == 1;}));
+    effect_block_restore = false;
+    Command recover = effect_command(1); recover.operation = Command::Operation::restore_clock_test;
+    CHECK(client->execute(recover).ok && domain_raw[1] == 0);
+    client->close();
+}
+
+TEST_NOINLINE void clock_auto_p0_hold_tests(CoreApi api) {
+    static struct {
+        int acquired = 0, released = 0, headroom = 0, offsets = 0;
+        bool reaches_p0 = false;
+        uint32_t last_voltage_uv = 0;
+    } calls;
+    api.i2c.architecture = [](dc_gpu*, uint32_t* out) -> dc_status { *out = 4; return DC_OK; };
+    api.curve = [](dc_gpu* gpu, dc_vf_curve* out) -> dc_status {
+        const auto status = curve_read(gpu, out);
+        if (status == DC_OK) {
+            out->points[0].volt_mv = 937.5;
+            out->points[1].volt_mv = 987.5;
+        }
+        return status;
+    };
+    api.rails.limits = [](dc_gpu*, dc_rails_limit_set* out) -> dc_status {
+        out->present = 1;
+        auto& rail = out->rails[0];
+        rail.absolute_ok = rail.has_base = rail.has_effective = 1;
+        rail.effective_mv = 1056.25;
+        return DC_OK;
+    };
+    api.hold_ceiling = [](const dc_rl_row* row, dc_rl_value* out) -> dc_status {
+        *out = row->effective_mv;
+        return DC_OK;
+    };
+    api.tuning.lock = lock_gpu;
+    api.tuning.unlock = unlock_gpu;
+    api.tuning.identity = effect_identity;
+    api.tuning.vf_status = tuning_vf_status;
+    api.tuning.clock_status = tuning_clock_status;
+    api.tuning.recovery_pending = tuning_recovery;
+    api.tuning.recover = tuning_recover;
+    api.tuning.headroom_record = tuning_record;
+    api.tuning.headroom_apply = [](dc_gpu*, double, double, uint32_t, int32_t, int32_t,
+            dc_rails_before_write_fn, void*, dc_rails_hold_outcome*, dc_rails_setter_writes*) -> dc_status {
+        ++calls.headroom;
+        return DC_E_FAILED;
+    };
+    api.tuning.vf_set = [](dc_gpu* gpu, int64_t uv, int32_t selected, int64_t domain, dc_outcome* out) -> dc_status {
+        ++calls.acquired;
+        calls.last_voltage_uv = static_cast<uint32_t>(uv);
+        CHECK(selected == 1 && domain == 6 && !test_vf_held);
+        effect_at_p0 = calls.reaches_p0;
+        return tuning_vf_set(gpu, uv, selected, domain, out);
+    };
+    api.tuning.vf_clear = [](dc_gpu* gpu, int32_t selected, int64_t domain, int32_t exact, int64_t uv, dc_outcome* out) -> dc_status {
+        ++calls.released;
+        CHECK(selected == 1 && domain == 6 && exact == 1 && uv == test_vf_uv);
+        CHECK(domain_raw[2] == 0);
+        effect_at_p0 = false;
+        return tuning_vf_clear(gpu, selected, domain, exact, uv, out);
+    };
+    api.clkdom_set = [](dc_gpu* gpu, int64_t domain, double value, dc_outcome* out) -> dc_status {
+        ++calls.offsets;
+        CHECK(effect_at_p0 && domain == 2);
+        return dom_set(gpu, domain, value, out);
+    };
+    const auto open = [&](bool p0, bool reaches_p0, bool existing_hold = false) {
+        calls = {};
+        calls.reaches_p0 = reaches_p0;
+        effect_at_p0 = p0;
+        test_vf_held = existing_hold;
+        test_vf_uv = existing_hold ? 975000 : 0;
+        test_vf_domain = 6;
+        std::string error;
+        auto client = create_core_backend_for_test(api);
+        CHECK(client->open("0000:02:00.0", error));
+        Command xoc;
+        xoc.operation = Command::Operation::set_xoc;
+        xoc.enabled = true;
+        CHECK(client->execute(xoc).ok);
+        return client;
+    };
+    const auto row = [](IBackend& client) {
+        const auto live = client.read(true);
+        const auto found = std::find_if(live.advanced_controls.begin(), live.advanced_controls.end(),
+            [](const auto& control) { return control.id.kind == AdvancedKind::clock_domain && control.id.domain == 2; });
+        CHECK(found != live.advanced_controls.end());
+        return found == live.advanced_controls.end() ? AdvancedControl{} : *found;
+    };
+    const int starting_memory_request = domain_raw[2];
+    domain_raw[2] = 0;
+    auto client = open(false, true);
+    const auto candidate = row(*client);
+    CHECK(candidate.can_verify && !candidate.state.writable);
+    auto verify = effect_command(2);
+    verify.expected_binding = candidate.binding;
+    const auto automatic = client->execute(verify);
+    CHECK(automatic.ok && row(*client).state.writable && row(*client).clock_check == ClockCheck::verified);
+    CHECK(calls.acquired == 1 && calls.released == 1 && calls.last_voltage_uv == 937500);
+    CHECK(calls.offsets == 2 && calls.headroom == 0 && domain_raw[2] == 0 && !test_vf_held);
+    CHECK(!client->auxiliary_cleanup_needed() && client->prepare_close().ok);
+    client->close();
+
+    client = open(true, false);
+    verify.expected_binding = row(*client).binding;
+    CHECK(client->execute(verify).ok && calls.offsets == 2 && domain_raw[2] == 0);
+    CHECK(calls.acquired == 0 && calls.released == 0 && calls.headroom == 0 && !test_vf_held);
+    client->close();
+
+    client = open(true, false, true);
+    verify.expected_binding = row(*client).binding;
+    CHECK(client->execute(verify).ok && calls.offsets == 2 && domain_raw[2] == 0);
+    CHECK(calls.acquired == 0 && calls.released == 0 && calls.headroom == 0 && test_vf_held && test_vf_uv == 975000);
+    CHECK(client->prepare_close().ok && test_vf_held);
+    client->close();
+
+    client = open(false, false);
+    verify.expected_binding = row(*client).binding;
+    const auto never_p0 = client->execute(verify);
+    CHECK(!never_p0.ok && never_p0.message.find("P0") != std::string::npos && !row(*client).state.writable);
+    CHECK(calls.acquired == 1 && calls.released == 1 && calls.headroom == 0 && calls.offsets == 0);
+    CHECK(domain_raw[2] == 0 && !test_vf_held && !client->auxiliary_cleanup_needed());
+    client->close();
+    domain_raw[2] = starting_memory_request;
+    effect_at_p0 = true;
+    xoc_flag = 0;
+}
+
 // Fake hold-headroom core: the record is the raise; restore drops it unless told to fail.
 bool hr_record=false, hr_restore_fails=false; int hr_restores=0, hr_arch_reads=0; int32_t hr_arch=1; dc_status hr_arch_status=DC_OK;
 dc_status DC_CALL hr_record_get(dc_gpu*, dc_rails_hold_record* r) { r->present=hr_record?1:0; r->rail=0; return DC_OK; }
@@ -750,6 +1357,124 @@ dc_status DC_CALL hr_restore(dc_gpu*, int32_t force, dc_rails_hold_outcome* out,
 }
 dc_status DC_CALL hr_live(dc_gpu*, int32_t, const dc_rails_hold_record*, int32_t, double, dc_outcome* out) { out->ok=1; return DC_OK; }
 dc_status DC_CALL hr_overwritten(dc_gpu*, int32_t, const dc_rails_limit_set*, int32_t* out) { *out=0; return DC_OK; }
+TEST_NOINLINE void hold_only_max_undo_tests(CoreApi actions, Command max_cmd, const Command& undo) {
+    auto client=create_core_backend_for_test(actions); std::string error;
+    CHECK(client->open("0000:02:00.0",error));
+    const auto saved_board=board; const auto saved_boost=boost_value;
+    board=500000; boost_value=100;
+    Command fan{}; fan.operation=Command::Operation::apply; fan.control=ControlId::fan; fan.value=100;
+    CHECK(client->execute(fan).ok && fan_level==100);
+    const auto only=client->execute(max_cmd);
+    CHECK(only.ok && only.steps.size()==1 && test_vf_held);
+    CHECK(client->read(false).undo_label=="Undo Max it V/F hold");
+    CHECK(client->execute(undo).ok && !test_vf_held && fan_level==100);
+    CHECK(client->read(false).undo_label=="Undo fan");
+
+    Command release{}; release.operation=Command::Operation::release_hold;
+    CHECK(client->execute(max_cmd).ok && client->execute(release).ok);
+    const auto already_released=client->execute(undo);
+    CHECK(already_released.ok && !already_released.may_have_changed && fan_level==100);
+    CHECK(client->execute(max_cmd).ok && test_vf_held);
+    Command manual=max_cmd; manual.operation=Command::Operation::hold_curve_point;
+    manual.hold_headroom=false; manual.hold_point_index=max_cmd.expected_curve.back().idx;
+    CHECK(client->execute(manual).ok && test_vf_held);
+    const auto replaced=client->execute(undo);
+    CHECK(replaced.ok && !replaced.may_have_changed && test_vf_held && fan_level==100);
+    CHECK(client->execute(release).ok && client->execute(undo).ok && fan_level==40);
+    CHECK(!client->read(false).undo_available);
+    board=saved_board; boost_value=saved_boost;
+}
+TEST_NOINLINE void adaptive_max_tests(CoreApi actions, Command max_cmd, const Command& undo) {
+    // An independent board-bound query can qualify Max it when the NVML
+    // capabilities structure omits PL_MAX, including with a wider XOC range.
+    // The two fans have different maxima and currently run automatically.
+    {
+        auto partial = actions;
+        partial.capabilities = [](dc_gpu* gpu, dc_capabilities* caps) -> dc_status {
+            capabilities(gpu,caps); caps->present &= ~DC_C_PL_MAX; caps->pl_max_mw=0; return DC_OK;
+        };
+        partial.fan_state = [](dc_gpu* gpu, dc_fan_state* out) -> dc_status {
+            auto status=fan_get(gpu,out); out->fans[1].max=83; return status;
+        };
+        std::string error;
+        auto limited=create_core_backend_for_test(partial); CHECK(limited->open("0000:02:00.0",error));
+        const auto saved_board=board; const bool saved_auto=fan_auto;
+        fan_auto=true; fan_level=83;
+        const auto discovered=limited->read(true);
+        CHECK(discovered.max_it_available && discovered.max_it.fan_percent==83 && discovered.max_it.board_mw==500000);
+        CHECK(discovered.max_it.fan_range_note.find("unconfirmed")!=std::string::npos);
+        CHECK(discovered.controls[static_cast<size_t>(ControlId::power)].high==1999);
+        auto stale=max_cmd; stale.expected_max_it=discovered.max_it; stale.expected_max_it->fan_percent=100;
+        CHECK(!limited->execute(stale).may_have_changed && fan_auto && board==saved_board);
+        CHECK(limited->execute(max_cmd).ok && fan_level==83 && !fan_auto && board==500000);
+        CHECK(limited->execute(undo).ok && fan_auto && fan_level==83 && board==saved_board);
+        test_foreign_clock=true;
+        CHECK(!limited->read(true).max_it_available && !limited->execute(max_cmd).may_have_changed);
+        test_foreign_clock=false; fan_auto=saved_auto; fan_level=40;
+        CHECK(limited->read(true).max_it_available);
+        partial.fan_caps=[](dc_gpu* gpu,dc_fan_capabilities* caps)->dc_status {
+            fan_caps(gpu,caps); caps->automatic=0; return DC_OK;
+        };
+        auto manual_only=create_core_backend_for_test(partial); CHECK(manual_only->open("0000:02:00.0",error));
+        fan_auto=true;
+        auto blocked=manual_only->read(true);
+        CHECK(!blocked.max_it_available && blocked.max_it.reason.find("restored")!=std::string::npos);
+        const int writes=power_writes;
+        CHECK(!manual_only->execute(max_cmd).may_have_changed && power_writes==writes && fan_auto && board==saved_board);
+        fan_auto=saved_auto;
+        CHECK(manual_only->read(true).max_it_available);
+        partial.capabilities=[](dc_gpu* gpu,dc_capabilities* caps)->dc_status {
+            capabilities(gpu,caps); caps->present |= DC_C_FAN_MIN | DC_C_FAN_MAX;
+            caps->fan_min=0; caps->fan_max=83; return DC_OK;
+        };
+        auto reported=create_core_backend_for_test(partial); CHECK(reported->open("0000:02:00.0",error));
+        CHECK(reported->read(true).max_it.fan_range_note=="The adapter reports the manual duty range.");
+        partial.fan_state=[](dc_gpu* gpu,dc_fan_state* out)->dc_status {
+            fan_get(gpu,out); std::strcpy(out->source,"nvapi_client"); out->fans[1].max=79; return DC_OK;
+        };
+        auto per_fan=create_core_backend_for_test(partial); CHECK(per_fan->open("0000:02:00.0",error));
+        const auto native=per_fan->read(true).max_it;
+        CHECK(native.ready() && native.fan_percent==79 && native.fan_range_note=="The cooler reports per-fan duty limits.");
+    }
+    actions.rails.limits=max_test_limits; actions.hold_ceiling=max_test_ceiling;
+    actions.planner.ramp=max_test_ramp;
+    actions.tuning.headroom_apply=max_test_headroom; actions.tuning.headroom_restore=hr_restore;
+    actions.tuning.headroom_live=hr_live; actions.tuning.headroom_overwritten=hr_overwritten;
+    auto client=create_core_backend_for_test(actions); std::string error;
+    CHECK(client->open("0000:02:00.0",error));
+    max_cmd.hold_headroom=true;
+    const auto saved_board=board;
+    for (const double ceiling:{925.0, 975.0, 0.0, 895.0}) {
+        max_test_rail_mv=ceiling; max_test_headroom_mv=0; max_test_ramp_caps.clear();
+        const auto result=client->execute(max_cmd);
+        if (ceiling==895) {
+            CHECK(!result.ok && !test_vf_held && max_test_headroom_mv==0);
+            CHECK(result.message.find("No V/F point")!=std::string::npos);
+        } else if (ceiling==925) {
+            CHECK(result.ok && test_vf_uv==900000 && max_test_headroom_mv==900);
+            CHECK((max_test_ramp_caps==std::vector<double>{950,900}));
+            CHECK(result.message.find("NVVDD ceiling 925 mV, curve and hold target 900 mV")!=std::string::npos);
+        } else {
+            // An already-reachable point and an absent optional rail keep the original plan.
+            CHECK(result.ok && test_vf_uv==950000 && max_test_headroom_mv==950);
+            CHECK((max_test_ramp_caps==std::vector<double>{950}));
+        }
+        CHECK(client->execute(undo).ok && !test_vf_held && board==saved_board && boost_value==10 && fan_level==40);
+    }
+    max_test_rail_mv=950; max_test_skip_rail=true;
+    const auto skipped=client->execute(max_cmd);
+    CHECK(skipped.ok && skipped.may_have_changed && test_vf_held && client->read(false).undo_available);
+    const auto evidence = client->tuning_state()->last_headroom_apply;
+    CHECK(evidence && evidence->outcome == HeadroomApplyOutcome::no_set_issued);
+    CHECK(!skipped.steps.empty() && skipped.steps.back().ok && skipped.steps.back().message==
+          "V/F hold confirmed. Optional headroom skipped: Fixture rail writer recognized no packet");
+    CHECK(client->execute(undo).ok && !test_vf_held && board==saved_board && boost_value==10 && fan_level==40);
+    CHECK(client->read(true).tuning.last_headroom_apply == evidence);
+    client->close();
+    CHECK(client->open("0000:02:00.0",error) && !client->read(true).tuning.last_headroom_apply);
+    hold_only_max_undo_tests(actions,max_cmd,undo);
+    max_test_skip_rail=false;
+}
 dc_status DC_CALL hr_architecture(dc_gpu*, int32_t* supported) { ++hr_arch_reads; *supported=hr_arch; return hr_arch_status; }
 // Python restore_raised_limits_now and hold_headroom_architecture over the fake core.
 TEST_NOINLINE void hold_restore_tests() {
@@ -912,6 +1637,19 @@ int main() {
     CHECK(!create_core_backend_for_test(missing)->open("0000:02:00.0", error));
     no_device = true; auto absent = create_core_backend_for_test(api()); CHECK(!absent->open("0000:02:00.0", error)); no_device = false;
     perf_frequency_integration_tests();
+    {
+        auto partial = api();
+        partial.enumerate = [](dc_gpu_entry* entries, size_t capacity, size_t* count)->dc_status {
+            if (!entries) { *count=3; return DC_E_BUFFER; }
+            CHECK(capacity==3);
+            *count=2; // one observation has lost its slot, another disappeared between reads
+            std::memcpy(entries[1].slot, "0000:02:00.0", sizeof("0000:02:00.0"));
+            return DC_OK;
+        };
+        auto ui = create_core_backend_for_test(partial);
+        const auto devices = ui->enumerate();
+        CHECK(devices.size()==1 && devices.front().slot=="0000:02:00.0");
+    }
     auto b = create_core_backend_for_test(api()); CHECK(b->open("0000:02:00.0", error));
     auto initial = b->read(false); CHECK(initial.connected); CHECK(initial.controls[1].current == 20.0); CHECK(initial.controls[2].availability == Availability::unsupported);
     range_fail = 1; CHECK(b->read(false).controls[1].current == 20.0);
@@ -938,7 +1676,10 @@ int main() {
     CoreApi pa = api(); pa.lock = lock_gpu; pa.unlock = unlock_gpu; pa.capabilities = capabilities; pa.power = power_read; pa.power_bounds = bounds; pa.power_set = power_set; pa.power_message = message; pa.policy_read = policies; pa.policy_set = policy_set; pa.policy_message = message; pa.pins_get = pins_get; pa.pins_set = pins_set;
     auto pb = create_core_backend_for_test(pa); CHECK(pb->open("0000:02:00.0", error));
     Command power{Command::Operation::apply, ControlId::power, 250};
-    table_fail = true; CHECK(!pb->execute(power).ok && power_writes == 0); table_fail = false;
+    table_fail = true;
+    const auto refused_power = pb->execute(power);
+    CHECK(!refused_power.ok && power_writes == 0 && refused_power.message.find("RM 0x3A") != std::string::npos);
+    table_fail = false;
     CHECK(pb->read(true).controls[2].writable); int reads_before = policy_reads; pb->read(false); CHECK(policy_reads == reads_before);
     CHECK(pb->execute(power).ok && policy_reads > reads_before && board == 250000 && peer == 200 && power_writes == 1);
     geometry_change = true; auto geometry = pb->execute(undo); CHECK(!geometry.ok && board == 250000 && power_writes == 1 && pin_present); geometry_change = false;
@@ -1037,12 +1778,21 @@ int main() {
     bad = py; bad["tuning_action"] = {{"kind", "domain"}, {"index", 1}, {"value", 0}}; reject(bad);
     bad = py; bad["tuning_action"] = {{"kind", "mystery"}, {"index", nullptr}, {"value", 0}}; CHECK(reject(bad).find("unsupported Python tuning action kind: mystery") != std::string::npos);
     CoreApi advanced_api = pa; advanced_api.telemetry = memory_telemetry; advanced_api.clkdom_ok = dom_ok; advanced_api.clkdom_layout = dom_layout; advanced_api.clkdom_domains = dom_list; advanced_api.clkdom_controls = dom_controls; advanced_api.clkdom_offered = dom_offered; advanced_api.clkdom_requests = dom_read; advanced_api.clkdom_set = dom_set; advanced_api.rail_cap = rail_cap; advanced_api.rail_read = rail_read; advanced_api.rail_set = rail_set; advanced_api.msvdd_reset = rail_reset; advanced_api.clkdom_flags = flags_get; advanced_api.clkdom_flags_set = flags_set;
-    xoc_flag = 1; auto ab = create_core_backend_for_test(advanced_api); CHECK(ab->open("0000:02:00.0", error) && xoc_flag == 0); auto adv = ab->read(true); CHECK(adv.advanced_controls.size() == 4 && adv.xoc_known && !adv.xoc_enabled);
+    clock_discovery_poll_tests(advanced_api);
+    auto effect_api = advanced_api; with_effect_fixture(effect_api);
+    clock_write_capability_tests(effect_api);
+    known_clock_pattern_tests(effect_api, directory);
+    clock_batch_tests(effect_api);
+    clock_auto_p0_hold_tests(effect_api);
+    xoc_flag = 1; auto ab = create_core_backend_for_test(effect_api); CHECK(ab->open("0000:02:00.0", error) && xoc_flag == 0); auto adv = ab->read(true); CHECK(adv.advanced_controls.size() == 4 && adv.xoc_known && !adv.xoc_enabled);
     auto memory_label = std::find_if(adv.advanced_controls.begin(), adv.advanced_controls.end(), [](const AdvancedControl& a) { return a.id.kind == AdvancedKind::clock_domain && a.id.domain == 2; }); CHECK(memory_label != adv.advanced_controls.end() && memory_label->label == "Additional memory offset" && memory_label->state.low == -500 && memory_label->state.high == 1000);
     auto find_domain = [](const LiveData& data, uint32_t id) -> ControlState { auto it = std::find_if(data.advanced_controls.begin(), data.advanced_controls.end(), [id](const AdvancedControl& a) { return a.id.kind == AdvancedKind::clock_domain && a.id.domain == id; }); CHECK(it != data.advanced_controls.end()); return it == data.advanced_controls.end() ? ControlState{} : it->state; };
-    auto normal_domain = find_domain(adv, 5); CHECK(normal_domain.low == -300 && normal_domain.high == 300 && normal_domain.detail.find("software editing range") != std::string::npos);
+    auto normal_domain = find_domain(adv, 5); CHECK(normal_domain.low == -300 && normal_domain.high == 300 && !normal_domain.writable);
+    confirm_offset(*ab, 5);
+    confirm_offset(*ab, 1);
     domain_raw[5] = 450000; CHECK(find_domain(ab->read(true), 5).high == 450); domain_raw[5] = 0;
     Command range_gate{}; range_gate.operation = Command::Operation::set_xoc; range_gate.enabled = true; CHECK(ab->execute(range_gate).ok);
+    confirm_offset(*ab, 2);
     core_low = -700; core_high = 900; mem_low = -400; mem_high = 3000; auto varied_ranges = ab->read(true); CHECK(find_domain(varied_ranges, 5).low == -700 && find_domain(varied_ranges, 5).high == 900); CHECK(find_domain(varied_ranges, 2).low == -2000 && find_domain(varied_ranges, 2).high == 2000);
     memory_p0 = 0; memory_clock = 12000; CHECK(find_domain(ab->read(true), 2).high == 3000); memory_p0 = 8000; memory_clock = 0; ab->read(true);
     domain_raw[5] = 1500000; CHECK(find_domain(ab->read(true), 5).high == 1500); domain_raw[5] = 0;
@@ -1116,6 +1866,7 @@ int main() {
     fresh = pb->read(true); curve.operation = Command::Operation::reset_curve; curve.expected_curve = fresh.curve; curve.curve_deltas.clear(); CHECK(pb->execute(curve).ok && delta == 0 && delta2 == 0); CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
     power_and_actions_tests(pa, advanced_api, undo, power, policy_cmd);
     watt_policy_readback_tests(pa);
+    nominal_board_only_tests(pa);
     native_power_limit_tests(pa);
     policy_refresh_tests(pa);
     hold_restore_tests();

@@ -52,6 +52,40 @@ const std::map<std::pair<std::uint32_t, std::int64_t>, bool> kDeltaApplies = {
     {{kArchTuring, 2}, true}, {{kArchBlackwell, 2}, true}};
 const std::map<std::pair<std::uint32_t, std::int64_t>, bool> kDeltaClearsCeiling = {{{kArchPascal, 2}, true},
                                                                                     {{kArchBlackwell, 2}, false}};
+
+struct HistoricalOffset {
+    std::uint32_t groups;     // private-domain IDs of affected clocks, including measured coupling
+    std::uint32_t source_id;  // parent in the private counter's B record (32 = root)
+    bool public_memory;       // independent evidence came exclusively from NVML memory
+};
+
+std::optional<HistoricalOffset> historical_offset(std::uint32_t arch, std::uint32_t control,
+                                                  std::int32_t mode) {
+    // These observations all used the extended +0x10C layout. Pairing and
+    // naming tables also contain programmed-only observations. Add a shortcut
+    // only with an observed mode, counter topology and reversible clock effect.
+    // TU102: TECHNICALDOCUMENTATION.md (per-domain clocks), original
+    // CLKDOM_PAIR_TURING and source topology in nvbackend.py.
+    if (arch == kArchTuring && mode == 9) {
+        const auto pair = kPairTuring.find(control);
+        if (pair != kPairTuring.end()) return HistoricalOffset{1u << pair->second, 0, false};
+    }
+    // experiments/p0-clock-offset-effects-56094-20261125.json, including
+    // both restored XBAR trials. The original table gives the primary group.
+    if (arch == kArchAmpere && mode == 10) {
+        const auto pair = kPairAmpere.find(control);
+        if (pair != kPairAmpere.end()) {
+            std::uint32_t groups = 1u << pair->second;
+            if (control == kClkDomXbar) groups |= (1u << 2) | (1u << 5) | (1u << 21);
+            return HistoricalOffset{groups, 32, false};
+        }
+    }
+    // Same report, TITAN Xp. Its private B mirrored A, while the direct NVML
+    // memory getter moved and returned. Pascal XBAR/SYS were target-only.
+    if (arch == kArchPascal && control == 2 && mode == 4) return HistoricalOffset{1u << 4, 32, true};
+    return std::nullopt;
+}
+
 const char* rail_name(std::int64_t rail) { return rail == 0 ? "core rail (NVVDD)" : "MSVDD"; }
 
 // Python's :g, :+g, :+.0f and :+.2f (the C runtime's rounding of a half is
@@ -123,11 +157,28 @@ std::pair<int, ClkDomBlock> ClkDom::get_for_layout(std::uint32_t mask, const Clk
     return {status, std::move(block)};
 }
 
+namespace {
+const char* block_error(const ClkDomBlock& block, const ClkDomLayout& layout, std::uint32_t mask,
+                        const char* echo_error = "version/mask echo mismatch") {
+    if (block.words.size() * 4 < layout.size) return "clock-control response is smaller than its declared layout";
+    if (block.words[0] != layout.version || block.words[layout.mask_dword] != mask) return echo_error;
+    if (&layout != &kClkDomLayoutCompactTuring) return nullptr;
+    // Some compact GETs merely echo their header. A valid sibling domain
+    // establishes the layout, but each requested row still needs its own mode.
+    for (std::uint32_t d = 0; d < kClkDomSlots; ++d) {
+        if (!(mask & (1u << d))) continue;
+        const auto mode = block.word(layout.header + d * layout.stride + layout.mode);
+        if (mode <= 0 || mode > kCompactClockOffsetMode)
+            return "unrecognized mode in selected compact clock-control row";
+    }
+    if (std::any_of(block.words.begin() + layout.size / 4, block.words.end(), [](auto word) { return word != 0; }))
+        return "compact clock-control response extends beyond its declared layout";
+    return nullptr;
+}
+}  // namespace
+
 bool ClkDom::valid_block(const ClkDomBlock& block, const ClkDomLayout& layout, std::uint32_t mask) {
-    if (block.words.size() * 4 < layout.size) return false;
-    if (block.words[0] != layout.version || block.words[layout.mask_dword] != mask) return false;
-    return &layout != &kClkDomLayoutCompactTuring ||
-           std::all_of(block.words.begin() + layout.size / 4, block.words.end(), [](auto word) { return word == 0; });
+    return block_error(block, layout, mask) == nullptr;
 }
 
 std::pair<int, ClkDomBlock> ClkDom::probe_control(std::uint32_t control) {
@@ -143,8 +194,6 @@ std::pair<int, ClkDomBlock> ClkDom::probe_control(std::uint32_t control) {
     const auto& compact = kClkDomLayoutCompactTuring;
     auto old = get_for_layout(mask, compact);
     if (old.first != 0 || !valid_block(old.second, compact, mask)) return extended;
-    const auto mode = old.second.word(compact.header + control * compact.stride + compact.mode);
-    if (mode <= 0 || mode > kCompactClockOffsetMode) return extended;
     wire_layout_ = &compact;
     return old;
 }
@@ -162,10 +211,11 @@ const std::vector<std::uint32_t>& ClkDom::domains() {
                 if (st != kIncompatibleStructVersion) incompatible = false;
                 const auto& wire = protocol_layout_ ? *protocol_layout_ :
                                    compact_wire() ? kClkDomLayoutCompactTuring : kClkDomLayoutTuring;
-                if (st == 0 && valid_block(block, wire, 1u << d))
+                const char* error = st == 0 ? block_error(block, wire, 1u << d) : nullptr;
+                if (st == 0 && !error)
                     found.push_back(d);
                 else
-                    errors[d] = st ? "status " + std::to_string(st) : "version/mask echo mismatch";
+                    errors[d] = st ? "status " + std::to_string(st) : error;
             }
             // Only an explicit incompatible-version response on every V2
             // domain permits a Pascal V1 probe. Other failures stay retryable.
@@ -237,8 +287,9 @@ const ClkDomLayout* ClkDom::layout() {
     auto [st, block] = get(1u << accepted[0]);
     if (st != 0)
         return fail("read_failure", "clock-control validation read failed with status " + std::to_string(st));
-    if (!valid_block(block, *layout, 1u << accepted[0]))
-        return fail("unsupported_response", "clock-control response did not echo the expected version and mask");
+    if (const char* error = block_error(block, *layout, 1u << accepted[0],
+                                        "clock-control response did not echo the expected version and mask"))
+        return fail("unsupported_response", error);
     layout_cache_ = LayoutCache::valid;
     layout_cached_ = layout;
     capability_error_.reset();
@@ -309,6 +360,77 @@ bool ClkDom::offset_slider_offered(std::int64_t control) {
     auto arch = telemetry_.arch();
     if (arch && *arch == kArchPascal && control != 2) return false;
     return true;
+}
+
+bool ClkDom::offset_mode_supported(std::int32_t mode) const {
+    return !compact_wire() || mode == kCompactClockOffsetMode;
+}
+
+Outcome ClkDom::offset_write_capability(std::uint32_t control, std::int32_t observed_mode) {
+    // Use the discovery and request that supplied the displayed row. The
+    // writer independently rechecks the current record before dispatch.
+    if (!ok() || !gpu_.nvapi.interface(ClkDomCtlSet))
+        return {false, "The driver does not expose the clock offset setter"};
+    if (!cached_ui_controls(telemetry_.arch()).count(control) || !offset_slider_offered(control))
+        return {false, "This clock domain has no qualified offset control"};
+    if (!offset_mode_supported(observed_mode))
+        return {false, "The observed clock control mode does not support offset adjustments"};
+    return {true, ""};
+}
+
+Outcome ClkDom::known_offset_pattern(std::uint32_t control, std::int32_t observed_mode, std::uint32_t& groups) {
+    groups = 0;
+    const auto arch = telemetry_.arch();
+    const auto pattern = historical_offset(arch.value_or(0), control, observed_mode);
+    if (!pattern || layout() != &kClkDomLayoutTuring)
+        return {false, "No measured pattern matches this clock-control layout and mode"};
+    const auto capable = offset_write_capability(control, observed_mode);
+    if (!capable.ok) return capable;
+    const auto& lay = kClkDomLayoutTuring;
+    const auto mask = 1u << control;
+    auto [status, block] = get(mask);
+    const auto mode_field = lay.header + control * lay.stride + lay.mode;
+    if (status != 0 || !valid_block(block, lay, mask) || block.word(mode_field) != observed_mode)
+        return {false, "The selected clock-control record did not match the observed mode"};
+    const auto pc = telemetry_.priv_clocks();
+    if (!pc || pc->version != nvapi_ver<AllClocksPriv>(2))
+        return {false, "The private clock counters are unavailable"};
+    // TU102's measured slaves have a readable root GPC counter at domain 0.
+    if (pattern->source_id == 0 && (!pc->w[kPrivABase] || !pc->w[kPrivBBase] || pc->w[kPrivBBase + 1] != 32))
+        return {false, "The measured clock pattern's GPC source is unavailable"};
+    auto rows = read_clock_domains(*pc, std::nullopt, std::nullopt, false, arch);
+    std::uint32_t readable = 0;
+    std::string names;
+    for (const auto& row : rows) {
+        const auto bit = 1u << row.domain;
+        if (!(pattern->groups & bit)) continue;
+        if (row.kind != kKindFreq || row.srcid != pattern->source_id || row.scale != 1 ||
+            row.prog_khz < 1000 || row.prog_khz > 40000000 || row.meas_khz < 1000 || row.meas_khz > 40000000)
+            return {false, "The affected clock counters do not match the measured source topology"};
+        if (!names.empty()) names += ", ";
+        const auto domain = "private " + std::to_string(row.domain);
+        if (row.grade == kGradeConfirmed || row.grade == kGradeLikely) {
+            names += row.name + (row.grade == kGradeLikely ? "? (" : " (") + domain + ")";
+        } else names += domain;
+        readable |= bit;
+    }
+    if (readable != pattern->groups) return {false, "An affected clock counter is unavailable"};
+    if (pattern->public_memory) {
+        using Read = int(DRUTA_CDECL*)(void*, unsigned, unsigned*);
+        auto& nv = gpu_.nvml;
+        const auto read = nv.ok ? nv.get<Read>("nvmlDeviceGetClockInfo") : nullptr;
+        unsigned mhz = 0;
+        if (!read || read(nv.dev, 2, &mhz) != 0 || !mhz || mhz > 40000)
+            return {false, "The independent NVML memory clock is unavailable"};
+        // The two getters in the Pascal capture agreed to NVML's integer-MHz
+        // resolution. A clock transition (or a different private-domain
+        // scale) can invalidate this sample; a later poll can match again.
+        const auto private_memory_khz = pc->w[kPrivBBase + 4 * kPrivBStride];
+        if (std::abs(static_cast<double>(private_memory_khz) - mhz * 1000.0) > 1000.0)
+            return {false, "Private and NVML memory clocks did not agree on this sample"};
+    }
+    groups = readable;
+    return {true, (groups & (groups - 1)) ? "Coupled: " + names : names};
 }
 
 std::optional<bool> ClkDom::delta_clears_ceiling(std::int64_t domain) {
@@ -382,19 +504,34 @@ std::pair<std::optional<std::map<std::uint32_t, ClkDomRequest>>, std::string> Cl
         offset_read_pending_ = true;
         return {std::nullopt, "clock-domain read failed (status " + std::to_string(st) + ")"};
     }
-    if (!valid_block(block, *lay, mask)) {
+    if (const char* error = block_error(block, *lay, mask, "clock-domain block did not echo its version and requested mask")) {
         offset_read_pending_ = true;
-        return {std::nullopt, "clock-domain block did not echo its version and requested mask"};
+        return {std::nullopt, error};
     }
     std::map<std::uint32_t, ClkDomRequest> out;
+    // An aggregate Pascal V1 GET can return the original value while the
+    // single-domain GET agrees with the SET and the live memory counter moves.
+    // Read adjustable rows with the same mask as the writer and its readback.
+    const auto v1_controls = lay == &kClkDomLayoutPascalV1
+        ? cached_ui_controls(telemetry_.arch()) : std::set<std::uint32_t>{};
     for (std::uint32_t d : doms) {
         std::uint32_t base = lay->header + d * lay->stride;
-        ClkDomRequest r;
-        r.mode = block.word(base + lay->mode);
-        // The logical UI sign; the diagnostic probe writes raw values to discover the polarity.
-        r.freq_khz = block.word(base + lay->freq_khz) * control_polarity(d);
-        if (lay->msvdd_uv) r.msvdd_uv = block.word(base + *lay->msvdd_uv);
-        out[d] = r;
+        const auto row = [&](const auto& source) {
+            ClkDomRequest r;
+            r.mode = source.word(base + lay->mode);
+            r.freq_khz = source.word(base + lay->freq_khz) * control_polarity(d);
+            if (lay->msvdd_uv) r.msvdd_uv = source.word(base + *lay->msvdd_uv);
+            return r;
+        };
+        const uint32_t selected = 1u << d;
+        if (mask != selected && v1_controls.count(d) && offset_slider_offered(d)) {
+            auto [single_status, single] = get(selected);
+            if (single_status != 0 || !valid_block(single, *lay, selected)) {
+                offset_read_pending_ = true;
+                return {std::nullopt, "Pascal V1 single-domain clock request unreadable"};
+            }
+            out.emplace(d, row(single));
+        } else out.emplace(d, row(block));
     }
     return {std::move(out), ""};
 }
@@ -432,10 +569,10 @@ Outcome ClkDom::set_clk_domain_offset(std::int64_t domain, double mhz) {
     std::uint32_t mask = 1u << dom;
     auto [st, buf] = get(mask);
     if (st != 0) return {false, "clock-domain read failed (status " + std::to_string(st) + ")"};
-    if (!valid_block(buf, *lay, mask))
-        return {false, "clock-domain block did not echo its version and requested mask"};
+    if (const char* error = block_error(buf, *lay, mask, "clock-domain block did not echo its version and requested mask"))
+        return {false, error};
     const std::uint32_t base = lay->header + dom * lay->stride;
-    if (compact_wire() && buf.word(base + lay->mode) != kCompactClockOffsetMode)
+    if (!offset_mode_supported(buf.word(base + lay->mode)))
         return {false, "compact clock-control mode is not qualified for offset writes"};
     std::uint32_t dw_byte = base + lay->freq_khz;
     std::uint32_t dw = dw_byte / 4;
@@ -444,8 +581,8 @@ Outcome ClkDom::set_clk_domain_offset(std::int64_t domain, double mhz) {
 
     auto [st2, ref] = get(mask);
     if (st2 != 0) return {false, "verification read failed (status " + std::to_string(st2) + ")"};
-    if (!valid_block(ref, *lay, mask))
-        return {false, "verification block did not echo its version and requested mask"};
+    if (const char* error = block_error(ref, *lay, mask, "verification block did not echo its version and requested mask"))
+        return {false, error};
     if (!same_block(ref, buf, *lay)) return {false, "clock-domain block changed between reads; no write issued"};
     if (was_wire == wire_khz)
         return {true, control_label(domain) + " offset already " + plus_0f(static_cast<double>(khz) / 1000.0) +
@@ -707,12 +844,13 @@ bool ClkDom::retry_clock_capabilities(double now) {
             auto [status, response] = probe_control(control);
             if (status != kIncompatibleStructVersion) incompatible = false;
             if (compact_wire()) lay = &kClkDomLayoutCompactTuring;
-            if (status == 0 && valid_block(response, *lay, mask)) {
+            const char* error = status == 0 ? block_error(response, *lay, mask) : nullptr;
+            if (status == 0 && !error) {
                 accepted.insert(control);
                 errors.erase(control);
                 valid_response = mask;
             } else {
-                errors[control] = status ? "status " + std::to_string(status) : "version/mask echo mismatch";
+                errors[control] = status ? "status " + std::to_string(status) : error;
             }
         }
         // A transient initial discovery can later settle on a driver that
@@ -734,11 +872,12 @@ bool ClkDom::retry_clock_capabilities(double now) {
             if (!valid_response && !accepted.empty()) {
                 std::uint32_t mask = 1u << *accepted.begin();
                 auto [status, response] = get(mask);
-                if (status == 0 && valid_block(response, *lay, mask)) {
+                const char* error = status == 0 ? block_error(response, *lay, mask,
+                    "clock-control response did not echo the expected version and mask") : nullptr;
+                if (status == 0 && !error) {
                     valid_response = mask;
                 } else if (status == 0) {
-                    capability_error_ = CapabilityError{
-                        "unsupported_response", "clock-control response did not echo the expected version and mask"};
+                    capability_error_ = CapabilityError{"unsupported_response", error};
                 } else {
                     capability_error_ = CapabilityError{
                         "read_failure", "clock-control validation read failed with status " + std::to_string(status)};

@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -10,6 +11,7 @@ namespace druta::ui {
 struct PowerRelationshipIdentity {std::string slot;uint32_t architecture=0,device_id=0,subsystem_id=0;};
 struct PowerRelationshipLayout {uint32_t info_command=0x2080a618,info_size=20512,policy_base=0xcc,policy_stride=0x104;};
 bool power_relationship_layout_supported(const PowerRelationshipLayout&);
+bool power_policy_info_layout_supported(const PowerRelationshipLayout&);
 struct PowerRelationshipTarget {uint32_t policy=0,type=0,channel=0,unit=0,minimum=0,default_value=0,maximum=0;}; // unit:0 mW,1 mA
 struct PowerRelationshipRecord {uint32_t index=0,type=0,target=0;std::optional<uint16_t> weight_raw;std::optional<PowerRelationshipTarget> target_metadata;std::string target_reason;};
 struct PowerRelationshipSource {uint32_t policy=0,first=0,last=0;std::optional<bool> enabled;std::vector<uint32_t> relationships;bool available=false;std::string reason;};
@@ -19,6 +21,9 @@ struct PowerRelationshipReport {
  std::vector<PowerRelationshipRecord> relationships;
  std::vector<PowerRelationshipSource> source_references,range_references;
  std::vector<PowerRelationshipLink> linked_references;std::vector<uint32_t> source_uninterpreted_policies;
+ // Configured definitions for every occupied policy, including policies without a relationship.
+ std::array<std::optional<PowerRelationshipTarget>,32> policies{};
+ bool policies_available=false;
 };
 PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout&,const std::vector<uint8_t>& info);
 struct PowerWeightImagePolicy {uint32_t index=0,bios_type=0;std::optional<PowerRelationshipTarget> metadata;bool qualified=false;std::string reason;};
@@ -29,7 +34,10 @@ struct PowerWeightImage {
  uint32_t table_offset=0,table_size=0,table_version=0,header_size=0,stride=0,count=0,relationship_count=0;
  std::vector<PowerWeightImagePolicy> policies;std::vector<PowerWeightImageRelationship> relationships;
 };
-PowerWeightImage inspect_power_weight_image(const std::vector<uint8_t>& image);
+PowerWeightImage inspect_power_weight_image(const std::vector<uint8_t>& image,
+                                           std::optional<uint32_t> expected_device_id = {});
+// Read-only comparison of a firmware policy definition with a fresh configured INFO row.
+const char* firmware_power_policy_evidence(const PowerWeightImagePolicy&,const PowerRelationshipReport&);
 uint16_t power_weight_raw(double multiplier); // Throws unless exact unsigned Q4.12.
 struct PowerWeightRequest {uint32_t index=0;double multiplier=1;std::optional<uint16_t> expected_raw;};
 struct PowerWeightPatch {uint32_t offset=0;std::vector<uint8_t> before,after;};

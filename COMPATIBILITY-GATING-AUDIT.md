@@ -235,3 +235,153 @@ about 3 seconds. Evidence:
 This check does not validate modern voltage/current writes or physical MSVDD
 offset response. The downloadable diagnostic build carries matching source
 and SHA-256 manifest; pending launch-notice work is excluded from the commit.
+
+## Native rewrite follow-up, November 25, 2026
+
+| Control | What the implementation still specifies | What the adapter supplies |
+| --- | --- | --- |
+| Frequency | Five architecture candidates for private clock-domain control. Pascal and Turing have explicit V/F frequency divisors. | Accepted clock domains, V/F point count, and the GPU portion of the curve. |
+| Power policies | Ten known policy layouts under seven transport signatures. Five architecture entries name six current-policy bindings. | Transport signature, accepted layout, occupied policies, units, and request readback. |
+| Rail limits | Three known live rail transport forms. Firmware inspection recognizes distinct rail and equation formats. | Per-rail fields, role selectors and voltage bounds. An effective-ceiling observation also needs a runtime getter. |
+
+Python now reads the ten policy layouts from one catalog. C++ compiles a header
+generated from it, so the standalone program runs without Python. The drift
+test checks every generated entry, and the backend replay checks the resulting
+13- and 19-policy tables against recorded driver responses.
+[Layout catalog](src/druta/power_layout_catalog.py) · [Drift test](tests/test_power_layout_catalog.py)
+
+The first shared firmware replay feeds identical ROM bytes to the native and
+Python inspectors and compares each result to independent expected bounds. It
+covers reordered selectors, two rails, archive ownership, and a valid ALT
+beside an unusable REL. The native GUI can show either stored bound on its own.
+On the TITAN Xp, a separate driver-restart experiment demonstrated an effective
+ceiling change and restoration. That observation applies to the tested device
+and operating point. [Replay cases](tests/test_pascal_voltage_inventory.py) ·
+[Hardware observations](experiments/titan-xp-headroom-aba-51215.json)
+
+Future frontend releases use C++. The native clock replay now exercises compact
+Pascal, compact Turing and extended Turing through the public Druta C ABI.
+On compact Turing each selected row must report a recognized mode. The fixture
+places an empty row both before and after a valid sibling, checks that an
+incomplete combined read yields no fresh offsets, and exercises delayed recovery.
+The GUI invokes the core's bounded retries while polling. An explicit capability
+refresh rearms discovery on the selected adapter. Offset adjustments require
+the driver's setter and a supported mode for the observed row. The replay also
+checks that qualifying a row issues no additional clock GET or SET.
+[Native clock replay](native/tests/clock_discovery_test.cpp)
+
+On the test rig both cards answered with the extended clock packet. The RTX
+3070 Ti returned ten request rows. Crossbar, memory, SYS, video and LTC passed
+the offset capability check. The TITAN Xp returned nine request rows. Only
+memory passed for this interface. Its Pascal BIOS clock controls are a
+separate path. These were read-only checks of request availability. Physical
+clock response was outside this test. Druta and Windows PnP identified driver
+560.94 on both adapters, while the system copy of nvidia-smi reported 512.15.
+
+The architecture still selects candidate packet formats, control names and
+measured mappings between controls and clock counters. A reply can establish
+that a domain exists and reports a request. Associating that domain with a
+physical clock requires independent measurement. Extend the native replay
+with a failing response when changing those rules so the previous layouts
+and getter-only drivers stay covered.
+
+For current limits, candidates under each existing signature have distinct
+INFO sizes today. If a future pair accepts the same INFO, selection also
+needs the CONTROL and STATUS responses before caching a layout. An ambiguous
+read or a failed write must never choose a different writer. Replay the
+competing candidates alongside the existing 13- and 19-policy captures.
+[Policy replay](tests/test_policy_get_replay.py)
+
+### P0 clock offset verification on driver 560.94
+
+Both cards ran one live offset at a time, 45 MHz below its original request.
+The RTX 3070 Ti used a 950 mV V/F point and the TITAN Xp used 775 mV. The
+verifier checked P0 and the entire offset request table during each sampling
+window. Every request and both prior V/F lock entries matched after testing.
+
+| Card | Control index and label | Observed operating-clock changes |
+| --- | --- | --- |
+| RTX 3070 Ti | 1, XBAR | XBAR and SYS each fell 45 MHz. Video and counter 5 (labelled LTC) each fell 30 MHz. All four returned on both trials. |
+| RTX 3070 Ti | 2, memory | NVML memory went 9,501 → 9,455 → 9,501 MHz. Private memory counter 4 also moved. |
+| RTX 3070 Ti | 3, SYS | Private counter 2 fell 45 MHz and returned. |
+| RTX 3070 Ti | 5, video | Private counter 21 and NVML video fell 45 MHz and returned. |
+| RTX 3070 Ti | 9, LTC | Private counter 5 fell 30 MHz and returned. |
+| TITAN Xp | 2, memory | NVML memory went 5,702 → 5,670 → 5,702 MHz. Private counter 4 exactly mirrored the programmed field. |
+
+The GUI and the experiment probe use the same verifier. On an unfamiliar
+adapter with an understood packet layout, a supported getter and setter
+establish a candidate. Independent counter movement and restoration qualify
+the slider in that adapter session. A repeatable coupled response identifies
+all observed groups. These six measurements describe the tested boards and
+operating points. [Raw requests, counters and restore readings](experiments/p0-clock-offset-effects-56094-20261125.json)
+
+### GTX 1050 Ti on driver 375.63
+
+The native GUI found one paired NVAPI/NVML adapter at `0000:03:00.0`.
+On this board, the newer PCI query returned unsupported and the widest V/F
+query returned empty records with a success status. Retrying with a supported
+PCI query and validating the V/F mask exposed 80 graphics points and three
+trailing memory entries. The GPU points indicated a spacing of 12.656 MHz.
+
+With the stock 950 mV point held at P0, a −39 MHz graphics slider input
+produced a −37 MHz request. The operating clock went 1657 → 1620 → 1657 MHz.
+A separate −25 MHz true memory offset moved NVIDIA's GDDR5 clock reading
+3504 → 3453 → 3504 MHz. The other clock stayed steady in each trial.
+Session Undo returned both scalar offsets and all 80 curve deltas to their
+starting values. Each hold released.
+[Hardware readings](experiments/gp107-37563-native-offsets-20261125.json)
+
+Core Apply also warned that the disk Undo snapshot was incomplete because
+the private power policies could not be captured. The saved record contained
+the core offset and curve deltas. Disk replay selects the curve when both
+are present, so this trial establishes complete restoration through session
+Undo only.
+
+Retry detection returned four NVVDD limit fields and no MSVDD fields.
+The board-power getter reported a 90 W request with a 66–113 W range.
+Board-power qualification on this adapter covered reads.
+
+At 100% voltage boost, a later NVVDD test changed reliability by −12.5 mV
+through the native Rails Apply action. At P0, the driver-reported effective
+limit went 1118.75 → 1106.25 → 1118.75 mV and live voltage went
+1112.5 → 1100 → 1112.5 mV. A separate Vmin request moved the reported floor
+675 → 681.25 → 675 mV. Live P0 voltage stayed above the floor during that
+trial. Both signed requests returned to zero, and boost stayed at 100%.
+[NVVDD readings](experiments/gp107-37563-nvvdd-v1-20261125.json)
+
+This driver returned a valid V1 NVVDD control record through an escape
+format the earlier writer could not use. When the first path confirms that
+it issued no SET and found no matching layout, Druta can use the direct
+NVAPI V1 setter on a paired Pascal NVVDD adapter with a matching record.
+It carries over both additional offsets, checks any peer rail and the
+boost percentage, and requires exact readback.
+
+### Speedo and IDDQ model inputs in the native frontend
+
+The C++ voltage scaffold uses a 50,020-byte RM variable INFO packet to check
+which equation variables are present. Comparison with NVAPI on an RTX 5080
+established matching occupancy masks and some control fields. The identities
+and values of sensed fuses use a separate, explicitly requested NVAPI capture.
+[Native capture](native/ui/voltage_variable_capture.cpp) ·
+[Recorded packet comparison](experiments/voltage-variable-native-followup-20261028.json)
+
+The native read-only getter issues two pairs of INFO (`0xB9DA41D6`) and
+CONTROL (`0x5D387298`) reads against the selected PCI identity. It checks
+both version echoes, the 255-row occupancy masks and row types. Type 13
+and a unique fuse/version selector identify Speedo, Speedo 1, Speedo 2,
+NVVDD IDDQ and MSVDD IDDQ individually. The CONTROL row supplies the range.
+The INFO row supplies readiness, raw hardware and evaluated values with
+scalar mirrors, a default and the saved substitution. The two captures must
+agree before the getter publishes numbers. A missing selector, duplicate
+selector, unready cache or malformed row has its own result for that input.
+An empty inventory is a successful read. IDDQ values use raw model units.
+[Native typed interface](native/include/drutacore/model_inputs.h) ·
+[C ABI packet fixtures](native/tests/model_inputs_test.cpp) ·
+[Python reference decoder](src/druta/vfe_inputs.py)
+
+Recognizing an input is separate from qualifying a persistent substitution.
+The legacy transaction also requires a ready unsigned input, a neutral
+runtime control, an in-range request and exact readback of the evaluated
+value, saved override and peer metadata on Apply and Restore.
+[Transaction contract](src/druta/model_registry.py) ·
+[Recorded NVVDD IDDQ substitution and restoration](experiments/iddq-model-response-20261030.json)

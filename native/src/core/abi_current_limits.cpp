@@ -583,7 +583,11 @@ DC_API dc_status DC_CALL dc_cl_power_policies_read(dc_gpu* handle, dc_cl_confirm
             return DC_E_CALLER;
         }
         if (!r.in_bounds) return DC_E_RANGE;
-        if (r.error) return put_message(druta::backend::RmErrorKind::invalid, *r.error, error);
+        if (r.error) {
+            const bool nominal = r.legacy_power_pair && handle->pl.nominal_nvml_available();
+            return put_message(nominal ? druta::backend::RmErrorKind::unsupported : druta::backend::RmErrorKind::invalid,
+                               *r.error, error);
+        }
         if (r.remember) handle->cp.set_board_policy(r.remember);
         put_policy_rows(r.rows, rows, capacity, count);
         if (error) put_error(druta::backend::RmError{}, error);

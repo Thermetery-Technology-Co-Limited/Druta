@@ -20,10 +20,8 @@ NaN), the getter call log, the four caches, the number of architecture reads it 
 profile afterwards (the reference and the first-read record as _volt_rail_profile shows them).
 The fixture values are inputs to the read logic, not claims about any board.
 
-Not reachable natively, and covered only by the Python rail tests: an unhashable rail argument
-(the binding raises TypeError before any read; Python after its reads, and not at all where its
-profile is None) and the writer's diagnostics keys (last_write_error, observed_packets,
-write_protocol), which belong to the rail writer that is not ported yet."""
+The Python rail tests cover unhashable rail arguments. The binding raises TypeError before any
+read. Python does its reads first and returns early where its profile is None."""
 import copy
 import ctypes
 import math
@@ -891,6 +889,35 @@ class DiagnosticsTests(ParityTest):
             self.assertEqual((step[1]["architecture_source"], step[1]["architecture"]), ("NVAPI V1", 6))
         self.assertTrue(trace[0][1]["available"])
         self.assertEqual([step[4] for step in trace], [1, 0])  # recognized, then cached
+
+    def test_writer_diagnostics_follow_the_last_outcome_on_this_gpu_handle(self):
+        rig = RefRig(**config("pascal"))
+        self.addCleanup(rig.close)
+        second = native.Gpu()  # open a fresh session through the same installed fake driver
+        self.addCleanup(second.close)
+
+        keys = ("last_write_error", "observed_packets", "write_protocol")
+
+        def writer_fields(gpu):
+            report = nr.volt_rail_diagnostics(gpu)
+            return tuple(report[key] for key in keys)
+
+        recognized = native._RailWriteResult()
+        recognized.has_protocol = 1
+        recognized.get_command, recognized.set_command = 0x20803213, 0x20803214
+        recognized.packet_size, recognized.getter_version = 716, V1
+        recognized.observed_count, recognized.observed[0].value = 1, b"recognized GET"
+        rig.native._take_rail_write_result(recognized)
+        self.assertEqual(writer_fields(rig.native), (None, ["recognized GET"], {
+            "get_command": "0x20803213", "set_command": "0x20803214",
+            "packet_size": 716, "getter_version": "0x00010AC8"}))
+
+        refused = native._RailWriteResult()
+        refused.error = b"no recognized rail-control packet"
+        refused.observed_count, refused.observed[0].value = 1, b"unrecognized GET"
+        rig.native._take_rail_write_result(refused)
+        self.assertEqual(writer_fields(rig.native), ("no recognized rail-control packet", ["unrecognized GET"], None))
+        self.assertEqual(writer_fields(second), (None, [], None))
 
     def test_an_architecture_recognized_later_captures_the_reference_then(self):
         def scenario(side, fake, clock):

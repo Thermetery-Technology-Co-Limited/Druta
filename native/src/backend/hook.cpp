@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "backend/hook.h"
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -136,6 +138,8 @@ struct HookSession {
     std::atomic<unsigned> found_count{0};
     CapturedTransport found[2];
     Observed observed;
+    std::uint32_t legacy_power_object = 0;
+    unsigned legacy_power_stage = 0;
 
     // The rail splice (2.5). A foreign thread touches only the two atomics.
     std::atomic<bool> aborted{false};
@@ -147,6 +151,8 @@ struct HookSession {
     std::string observed_packets[8];
     unsigned observed_count = 0;
     std::uint32_t rail_mask = 0, boost = 0, control_version = 0;
+    unsigned v1_972_count = 0;
+    std::array<std::uint32_t, 5> v1_972_record = {};
     rail::Record records[2] = {};
     std::size_t record_count = 0;
     std::vector<std::uint8_t> payload, returned, current, prepared;  // owner-thread scratch
@@ -185,6 +191,20 @@ void inspect_power(HookSession& s, const D3DKMT_ESCAPE& e) {
     if (!e.pPrivateDriverData || e.PrivateDriverDataSize < 68) return;
     std::uint32_t w[17];
     std::memcpy(w, e.pPrivateDriverData, sizeof w);
+    // Older dispatch places the command at word 13 of a fixed-size mailbox. Recognize
+    // the driver's own role/INFO sequence without reusing this envelope for escapes.
+    if (w[0] == 0x4e564441 && w[1] == 0x10002 && w[2] == 0x3518 &&
+        w[2] == e.PrivateDriverDataSize && w[3] == 0x4e562a2a && w[4] == 0x07000047 &&
+        w[12] && e.hAdapter && (w[13] == 0x20802612 || w[13] == 0x20802618)) {
+        if (w[13] == 0x20802612 && s.legacy_power_stage == 0) {
+            s.legacy_power_object = w[12];
+            s.legacy_power_stage = 1;
+        } else if (w[13] == 0x20802618 && s.legacy_power_stage == 1 &&
+                   w[12] == s.legacy_power_object) {
+            s.legacy_power_stage = 2;
+        } else s.legacy_power_stage = 3;
+        return;
+    }
     if (w[2] != e.PrivateDriverDataSize || !(w[14] == 0x2080A612u || w[14] == 0x20802612u)) return;
     s.observed = Observed{true, w[14], w[2], w[15]};
     if (static_cast<std::uint64_t>(w[2]) == 68u + static_cast<std::uint64_t>(w[15])) append_found(s, w, e);
@@ -272,6 +292,7 @@ long rail_splice_entry(HookSession& s, void* escape) {
         s.error_code.store(rail_foreign);
     }
     std::optional<Matched> matched;
+    bool v1_972_candidate = false;
     if (escape && owned && !s.done && !s.aborted.load()) {
         const D3DKMT_ESCAPE& e = *static_cast<const D3DKMT_ESCAPE*>(escape);
         if (e.pPrivateDriverData && 68 <= e.PrivateDriverDataSize && e.PrivateDriverDataSize <= 8192) {
@@ -282,6 +303,10 @@ long rail_splice_entry(HookSession& s, void* escape) {
                 if (s.observed_count < 8) s.observed_packets[s.observed_count++] = rail::packet_summary(view);
                 if (auto layout = rail::recognize_packet(view, s.rail_mask))
                     matched = Matched{e.pPrivateDriverData, e.PrivateDriverDataSize, *layout};
+                v1_972_candidate = !matched && s.control_version == 0x00010AC8 && s.rail_mask == 1 &&
+                    e.PrivateDriverDataSize == 972 && view.u32(0) == 0x4E564441u &&
+                    view.u32(2) == 972u && view.u32(3) == 0x4E562A2Au &&
+                    view.u32(14) == 0x20803213u && view.u32(15) == 904u && view.u32(17) == 1u;
             } catch (...) {
                 s.aborted.store(true);
                 s.error_code.store(rail_validation);
@@ -289,8 +314,21 @@ long rail_splice_entry(HookSession& s, void* escape) {
             }
         }
     }
+    const auto* input = v1_972_candidate ? static_cast<const D3DKMT_ESCAPE*>(escape)->pPrivateDriverData : nullptr;
     patcher->write_original();  // real bytes back before calling
     long rc = s.original.load()(escape);
+    if (input && rc == 0) {
+        const auto& e = *static_cast<const D3DKMT_ESCAPE*>(escape);
+        if (e.pPrivateDriverData == input && e.PrivateDriverDataSize == 972) {
+            const ByteView reply(static_cast<const std::uint8_t*>(input), 972);
+            if (reply.u32(0) == 0x4E564441u && reply.u32(2) == 972u &&
+                reply.u32(3) == 0x4E562A2Au && reply.u32(14) == 0x20803213u &&
+                reply.u32(15) == 904u && reply.u32(11) == 1u && reply.u32(16) == 0u && reply.u32(17) == 1u) {
+                ++s.v1_972_count;
+                for (std::size_t i = 0; i < 5; ++i) s.v1_972_record[i] = *reply.u32(19 + i);
+            }
+        }
+    }
     if (matched) {
         std::string why = splice(s, escape, *matched, rc);
         if (!why.empty()) {
@@ -328,6 +366,7 @@ CaptureResult run_capture(HookPolicy policy, Getter&& getter) {
     s.calls.store(0);
     s.found_count.store(0);
     s.observed = Observed{};
+    s.legacy_power_stage = 0;
     s.active.store(true, std::memory_order_release);
     patcher.write_patch();
     const int status = getter();
@@ -337,6 +376,7 @@ CaptureResult run_capture(HookPolicy policy, Getter&& getter) {
     patcher.end();
     r.hooked = true;
     r.observed = s.observed;
+    r.legacy_power_pair = status == 0 && s.legacy_power_stage == 2 && !r.observed.seen;
     if (status == 0 && s.found_count.load() == 1) r.transport = s.found[0];
     return r;
 }
@@ -396,7 +436,12 @@ CaptureResult capture_power_transport(Gpu& gpu, Telemetry& telemetry) {
     if (!fn) return {};
     PwrPolInfo block{};
     block.version = nvapi_ver<PwrPolInfo>(1);
-    return run_capture(HookPolicy::power_capture, [&] { return fn(gpu.nvapi.gpu, &block); });
+    auto result = run_capture(HookPolicy::power_capture, [&] { return fn(gpu.nvapi.gpu, &block); });
+    const auto& row = block.entries[0];
+    result.legacy_power_pair = result.legacy_power_pair && block.version == nvapi_ver<PwrPolInfo>(1) &&
+        block.valid == 1 && block.count == 1 && row.pstate == 0 && row.min_pcm && row.min_pcm <= row.def_pcm &&
+        row.def_pcm == 100000 && row.def_pcm <= row.max_pcm;
+    return result;
 }
 
 CaptureResult capture_legacy_clk_transport(Gpu& gpu) {
@@ -435,6 +480,7 @@ RailWriteResult rail_write_locked(Gpu& gpu, std::uint32_t control_version, std::
     s.rail_mask = rail_mask;
     s.boost = boost;
     s.control_version = control_version;
+    s.v1_972_count = 0;
     s.record_count = record_count < 2 ? record_count : 2;
     for (std::size_t i = 0; i < s.record_count; ++i) s.records[i] = records[i];
     try {
@@ -474,6 +520,10 @@ RailWriteResult rail_write_locked(Gpu& gpu, std::uint32_t control_version, std::
         case rail_preserve: out.error = "Could not preserve the current native rail record: " + s.error_detail; break;
         default: break;
     }
+    out.no_matching_get = !s.done && out.error.empty() && getter_status == 0 && s.observed_count != 0 &&
+        (rail_mask == 1 || rail_mask == 2) && block[0] == control_version && block[1] == rail_mask;
+    out.v1_972_get = out.no_matching_get && s.v1_972_count == 1 && s.v1_972_record[0] == 1 &&
+        std::equal(s.v1_972_record.begin(), s.v1_972_record.end(), block + 18);
     if (!s.done && out.error.empty())
         out.error = "The driver did not emit a recognized rail-control packet. Nothing was written. Getter status: " +
                     std::to_string(getter_status) + ". Copy rail diagnostics for this driver.";

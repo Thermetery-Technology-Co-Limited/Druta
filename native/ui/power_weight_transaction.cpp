@@ -89,6 +89,20 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
   require(status.ok&&!status.reboot_required&&!status.timed_out&&!status.cleanup_pending&&!status.uncertain,
           status.message.empty()?"Clock refresh or verification incomplete":status.message.c_str());
  };
+ const auto verify_when_ready=[&](const auto& verify) {
+  constexpr unsigned max_attempts=24;
+  const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(12);
+  for(unsigned attempt=1;;++attempt) {
+   const auto proof=verify();
+   if(proof.ok||!proof.retryable||proof.timed_out||proof.cleanup_pending||proof.reboot_required||
+      proof.uncertain||proof.image_matches_timing_pending||attempt==max_attempts||
+      std::chrono::steady_clock::now()>=deadline)return proof;
+   if(api.wait_clock_ready)api.wait_clock_ready();
+  }
+ };
+ const auto fresh_verify=[&](bool original) {
+  return verify_when_ready([&](){return api.fresh_verify(receipt,original);});
+ };
  const auto unstage=[&]() {
   unstage_clock_records(api,receipt,derived,registry,result.may_have_changed);
   cleanup_needed=false;
@@ -136,15 +150,7 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    // DN_STARTED only covers Windows PnP. Wait for NVIDIA's first independent
    // open to consume the selected records before removing those records.
    receipt.phase="clock_initializing";receipt.message="Waiting for the driver to load the staged clock image";persist();
-   const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(8);
-   for(unsigned attempt=1;;++attempt) {
-    const auto proof=api.fresh_verify_staged(receipt);
-    if(proof.ok||!proof.retryable||proof.timed_out||proof.cleanup_pending||proof.reboot_required||
-       proof.uncertain||attempt==8||std::chrono::steady_clock::now()>=deadline) {
-     boundary(proof);break;
-    }
-    if(api.wait_clock_ready)api.wait_clock_ready();
-   }
+   boundary(verify_when_ready([&](){return api.fresh_verify_staged(receipt);}));
    unstage();
    receipt.phase="verifying";receipt.message="Clock records removed. Verifying the running image";persist();
   } else if(removing) {
@@ -159,15 +165,16 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    unstage();
    // A normal driver reset may have already restored the complete initial image.
    // Verify first to avoid restarting a recovered card a second time.
-   auto already_original=api.fresh_verify(receipt,true);
+   const auto already_original=fresh_verify(true);
    if(!already_original.ok||already_original.reboot_required||already_original.timed_out||
       already_original.cleanup_pending||already_original.uncertain) {
-    // A timeout may leave a verifier running. Do not reset until it is gone.
-    if(already_original.cleanup_pending||already_original.timed_out||already_original.image_matches_timing_pending)
+    // Unavailable evidence cannot determine whether another refresh is needed.
+    if(already_original.retryable||already_original.reboot_required||already_original.cleanup_pending||
+       already_original.timed_out||already_original.uncertain||already_original.image_matches_timing_pending)
      boundary(already_original);
     receipt.phase="remove_refresh_pending";receipt.refresh_requested=true;persist();
     result.may_have_changed=true;boundary(api.restart(receipt.windows));
-    boundary(api.fresh_verify(receipt,true));
+    boundary(fresh_verify(true));
    }
   } else {
    const auto current=capture();
@@ -176,7 +183,7 @@ PowerWeightTransactionResult clock_session(PowerWeightTransactionApi& api,dc_gpu
    require(current.image_availability==VoltagePolicyAvailability::available,"Current clock image unavailable");
    if(current.image==receipt.image)original=true;
   }
-  if(!removing)boundary(api.fresh_verify(receipt,original));
+  if(!removing)boundary(fresh_verify(original));
   receipt.phase=original?"removed":"active";receipt.uncertain=false;
   receipt.message=original?"Original clock image verified and staged registry records cleared":
                            "Selected clock image verified. Staged records are cleared for the next driver restart";

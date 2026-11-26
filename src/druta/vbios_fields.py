@@ -56,6 +56,16 @@ VOLTAGE_RAIL_VFE_SELECTORS = (13, 15, 17, 19, 33, 35)
 # Treat values that name active VFE rows as possible dependencies.
 VOLTAGE_RAIL_POSSIBLE_VFE_BYTES = (21, 23)
 
+# NVIDIA's GP10x rail and VFE structures. Offsets are relative to a rail entry.
+NVGPU_BIOS_SOURCE = (
+    "https://github.com/OE4T/linux-nvgpu/blob/302165ad4b9becb6b80e0880afb39e8433cde1a0/"
+    "drivers/gpu/nvgpu/include/nvgpu/bios.h"
+)
+VOLTAGE_RAIL_V10_ROLES = (
+    ("REL", "vfe"), ("ALT", "vfe"), ("OV", "vfe"), ("power", "power_equation"),
+    ("boot", "vfe"), ("VMIN", "vfe"), ("voltage_margin", "vfe"), ("voltage_scale_exp_power", "power_equation"),
+)
+
 
 POWER_V30_SHORT_SHAPE = (0x30, 0x2C, 0x42)
 POWER_V30_SHORT_RUNTIME_TYPES = {1: 0, 4: 3, 5: 4, 8: 9, 10: 11}
@@ -1185,8 +1195,92 @@ class _Image:
             terms.append({"type": kind, "value": value})
         return terms[:variables], terms[variables:]
 
+    def voltage_v10(self, rail):
+        """Inspect GP10x ROM selectors and their direct equations. No planner fields."""
+        shapes = {(0x10, 5, stride) for stride in range(7, 13)}
+        table = self.table("voltage_rail", "P", 0x68, shapes)
+        domain_hal = self.b[rail + 4]
+        table.update(capability="read-only", source=NVGPU_BIOS_SOURCE, domain_hal=domain_hal, rows=[])
+        domains = {0: ("logic",), 1: ("logic", "sram")}.get(domain_hal)
+        if domains is None:
+            raise FormatError(f"unknown GP10x rail domain HAL {domain_hal}")
+        if table["count"] > len(domains):
+            self.diagnostics.append({"group": "voltage", "message": "rail entries exceed the domains defined by the HAL"})
+        for i, domain in enumerate(domains[:table["count"]]):
+            at = rail + table["header_size"] + i * table["stride"]
+            selectors = {}
+            for delta, (role, namespace) in enumerate(VOLTAGE_RAIL_V10_ROLES[:table["stride"] - 4], 4):
+                index = self.b[at + delta]
+                selectors[role] = {"offset": at + delta, "namespace": namespace, "index": None if index == 0xFF else index}
+            table["rows"].append({
+                "index": i, "domain": domain, "offset": at, "boot_voltage_uv": self.u("I", at), "selectors": selectors,
+            })
+
+        vfe = self.pointer("P", 0x20)
+        version, hs, var_stride, variables, stride, count, _ = self.span(vfe, 7)
+        if (version, hs, var_stride, stride) != (0x30, 7, 25, 24) or not count:
+            raise FormatError("unrecognized GP10x voltage equation geometry")
+        base = vfe + hs + var_stride * variables
+        size = base + stride * count - vfe
+        owner = self.own(vfe, size, 0x14)
+        if vfe < rail + table["size"] and rail < vfe + size:
+            raise FormatError("voltage rail and equation tables overlap")
+        equations = []
+        self.tables.append({
+            "name": "vfe", "offset": vfe, "size": size, "version": version, "header_size": hs,
+            "stride": stride, "count": count, "object_id": owner, "capability": "read-only",
+            "source": NVGPU_BIOS_SOURCE, "variable_stride": var_stride, "variable_count": variables,
+            "equations": equations,
+        })
+        # Multiple rail roles may refer to one equation. Describe its stored
+        # bytes once. No claim about all other consumers or its runtime output.
+        selected = {
+            ref["index"] for row in table["rows"] for ref in row["selectors"].values()
+            if ref["namespace"] == "vfe" and ref["index"] is not None
+        }
+        direct_absolute_upper_uv = {}
+        for index in sorted(selected):
+            at = base + stride * index
+            if index >= count or not self.b[at]:
+                self.diagnostics.append({"group": "voltage", "message": f"rail selector {index} has no active equation"})
+                continue
+            kind, variable, following = self.span(at, 3)
+            output = self.b[at + 23] & 0xF
+            equation = {
+                "index": index, "offset": at, "type": kind, "output_type": output,
+                "variable_index": variable,
+                "next_equation": None if following == 0xFF else following,
+            }
+            equations.append(equation)
+            if following != 0xFF and (following >= count or not self.b[base + stride * following]):
+                self.diagnostics.append({"group": "voltage", "message": f"equation {index} has an invalid next equation"})
+                continue
+            if variable >= variables or not self.b[vfe + hs + var_stride * variable]:
+                self.diagnostics.append({"group": "voltage", "message": f"equation {index} has an invalid variable"})
+                continue
+            equation["variable_type"] = self.b[vfe + hs + var_stride * variable]
+            if kind == 1 and output in (2, 4):
+                low, high, c0, c1, c2 = struct.unpack("<5f", self.span(at + 3, 20))
+                if all(math.isfinite(x) for x in (low, high, c0, c1, c2)) and low <= high:
+                    equation.update(output_units="uV", output_min=low, output_max=high, coefficients=[c0, c1, c2])
+                    # A voltage difference also uses microvolts. Only an absolute
+                    # terminal equation supplies a standalone stored rail bound.
+                    if output == 2 and following == 0xFF and low >= 0:
+                        direct_absolute_upper_uv[index] = high
+                else:
+                    self.diagnostics.append({"group": "voltage", "message": f"equation {index} has invalid polynomial data"})
+
+        for row in table["rows"]:
+            row["stored_upper_bounds_uv"] = {
+                role: direct_absolute_upper_uv.get(row["selectors"][role]["index"])
+                for role in ("REL", "ALT")
+            }
+
     def voltage(self):
         rail = self.pointer("P", 0x68)
+        if self.b[rail] == 0x10:
+            self.voltage_v10(rail)
+            return
         vfe = self.pointer("P", 0x20)
         if self.span(rail, 3) != bytes((0x30, 5, 65)) or self.b[rail + 3] not in (1, 2):
             raise FormatError("unrecognized rail selector layout")

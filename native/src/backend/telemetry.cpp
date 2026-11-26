@@ -137,24 +137,46 @@ std::optional<AllClocksPriv> Telemetry::priv_clocks() {
     if (!fn) return std::nullopt;
     AllClocksPriv pc{};
     pc.version = nvapi_ver<AllClocksPriv>(2);
-    if (fn(a.gpu, &pc) != 0) return std::nullopt;
+    if (fn(a.gpu, &pc) != 0 || pc.version != nvapi_ver<AllClocksPriv>(2)) return std::nullopt;
     return pc;
 }
 
 void Telemetry::read_clocks(Snapshot& d, const AllClocksPriv* priv) {
     Nvapi& a = gpu_.nvapi;
     if (auto fn = a.ok ? a.get<HandlePtrFn>(id::AllClocks) : nullptr) {
-        ClkFreqs cf{};
-        cf.version = nvapi_ver<ClkFreqs>(2);
-        cf.clockType = 0;  // CURRENT
-        if (fn(a.gpu, &cf) == 0) {
+        // V3 can include domains absent from V2 on the same adapter. All
+        // three documented revisions share this layout for current clocks.
+        for (const auto revision : {3u, 2u, 1u}) {
+            ClkFreqs cf{};
+            const auto version = nvapi_ver<ClkFreqs>(revision);
+            cf.version = version;  // clockType = CURRENT (reserved zero in V1)
+            const int status = fn(a.gpu, &cf);
+            if (status == -9) continue;  // NVAPI_INCOMPATIBLE_STRUCT_VERSION
+            if (status != 0 || cf.version != version || cf.clockType != 0) break;
             for (std::uint32_t i : {0u, 4u, 8u}) {
-                if (!(cf.domain[i].present & 1)) continue;
-                std::uint32_t mhz = cf.domain[i].frequency / 1000;
+                const auto khz = cf.domain[i].frequency;
+                if (!(cf.domain[i].present & 1) || khz < 1000 || khz > 40000000) continue;
+                const auto mhz = khz / 1000;
                 if (i == 0) d.core = mhz;
                 if (i == 4) d.mem = mhz;
                 if (i == 8) d.video = mhz;
             }
+            break;
+        }
+    }
+    // NVML reports MHz for the paired device. Keep each successful public
+    // NVAPI reading and fill only domains missing from that sample.
+    auto& nv = gpu_.nvml;
+    if ((!d.core || !d.mem || !d.video) && nv.ok) {
+        if (auto fn = nv.get<HandleIdxU32Fn>("nvmlDeviceGetClockInfo")) {
+            auto fill = [&](unsigned type, std::optional<std::uint32_t>& field) {
+                if (field) return;
+                std::uint32_t mhz = 0;
+                if (fn(nv.dev, type, &mhz) == 0 && mhz && mhz <= 40000) field = mhz;
+            };
+            fill(0, d.core);  // NVML_CLOCK_GRAPHICS
+            fill(2, d.mem);   // NVML_CLOCK_MEM
+            fill(3, d.video); // NVML_CLOCK_VIDEO
         }
     }
     // XBAR (and a fallback for the domains above) via the private getter:
@@ -167,7 +189,7 @@ void Telemetry::read_clocks(Snapshot& d, const AllClocksPriv* priv) {
     if (priv) {
         auto take = [&](std::uint32_t slot, std::optional<std::uint32_t>& field, bool always) {
             std::uint32_t v = priv->w[slot] / 1000;
-            if (v && (always || !field)) field = v;
+            if (v && priv->w[slot] <= 40000000 && (always || !field)) field = v;
         };
         take(kPrivSlotCore, d.core, false);
         take(kPrivSlotXbar, d.xbar, true);

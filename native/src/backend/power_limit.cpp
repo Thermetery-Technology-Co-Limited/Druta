@@ -74,6 +74,14 @@ std::string watts_g(std::int64_t mw) {
 
 std::optional<std::uint32_t> PowerLimit::read_nvml() { return telemetry_.read_power_limit_nvml(); }
 
+bool PowerLimit::nominal_nvml_available() {
+    if (live_owns_request() || !gpu_.nvml.ok || !gpu_.nvml.has(kSetExport)) return false;
+    bool transient = false;
+    const auto bounds = telemetry_.read_power_bounds_nvml(transient);
+    const auto request = read_nvml();
+    return bounds && request && bounds->contains(*request);
+}
+
 CpRead<CpReading> PowerLimit::live_read(StaticTriState* st) {
     StaticCapabilities& store = statics_();
     CpRead<CpReading> r = cp_.live_read(store);

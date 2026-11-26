@@ -64,6 +64,7 @@ FIXTURES = {
     "modern_v30_coupled_pinned": lambda: ModernCoupledGpu(pinned=True),
     "turing_policy124": lambda: TuringGpu(5, 17),
     "turing_record216": lambda: TuringGpu(0, 2, record=216),
+    "ampere_record200": lambda: TuringGpu(0, 2, architecture=7, record=200),
     "pascal_policy124": lambda: TuringGpu(0, 2, architecture=4),
     "legacy32": lambda: LegacyGpu(),
     "rm26": lambda: Rm26Gpu(),
@@ -72,7 +73,7 @@ FIXTURES = {
     "rm26_extended_pinned": lambda: ExtendedRm26Gpu(pinned=True),
 }
 COUPLED = {"modern_v30", "modern_v30_coupled", "modern_v30_coupled_pinned", "turing_policy124",
-           "turing_record216", "pascal_policy124", "legacy32", "rm26", "rm26_pinned", "rm26_extended",
+           "turing_record216", "ampere_record200", "pascal_policy124", "legacy32", "rm26", "rm26_pinned", "rm26_extended",
            "rm26_extended_pinned"}
 
 _RECORDED = {}
@@ -141,8 +142,8 @@ def test_the_two_generation_lists_stay_separate():
 # ---- _definition_stride --------------------------------------------------------------------------
 
 def test_definition_stride_for_every_role_info_size():
-    sizes = {getattr(cp, group)[cp.ROLE_INFO] for group in ncp.SIZE_GROUP_NAMES}
-    assert sizes == {264, 232, 220, 120, 136, 132}
+    sizes = {getattr(cp, group)[cp.ROLE_INFO] for group in (*ncp.SIZE_GROUP_NAMES, "INFO200_SIZES")}
+    assert sizes == {264, 232, 220, 204, 120, 136, 132}
     for size in sorted(sizes) + [0, 3, 4, 24, -1, 2**63 - 1, -(2**63) + 4]:
         same(cp._definition_stride, ncp.definition_stride, size)
 
@@ -158,7 +159,7 @@ def test_definition_stride_outside_int64_is_refused_not_wrapped():
 
 LAYOUTS = (None, {"layout": None}, {"layout": "rm26"}, {"layout": "legacy32"}, {"layout": "modern?"})
 NATIVE_LAYOUTS = (None, {"native_layout": "policy124"}, {"native_layout": "rm26_extended"},
-                  {"native_layout": "other"}, {"native_layout": None})
+                  {"native_layout": "policy116"}, {"native_layout": "other"}, {"native_layout": None})
 STRIDES = (None, {"native_info_stride": None}, {"native_info_stride": 0}, {"native_info_stride": 216},
            {"native_info_stride": 132}, {"native_info_stride": 116}, {"native_info_stride": -8},
            {"native_info_stride": True}, {"native_info_stride": False}, {"native_info_stride": "x"},
@@ -181,8 +182,8 @@ def test_every_native_geometry_branch():
         result = same(cp._native_geometry, ncp.native_geometry, binding)
         same(cp._small_native_geometry, ncp.small_native_geometry, binding)
         seen.add(result[1][4])
-    # modern, legacy 184 and 124, rm26 short and extended
-    assert seen == {13876, 6356, 4432, 2108, 2124}
+    # modern, legacy 184, 124 and 116, rm26 short and extended
+    assert seen == {13876, 6356, 4432, 4172, 2108, 2124}
 
 
 def test_geometry_of_every_recorded_binding():
@@ -218,8 +219,8 @@ def test_project_on_every_layout():
             layouts.add((before["binding"].get("layout"), before["binding"].get("native_layout")))
             for mw in MWS:
                 same(cp._project, ncp.project, before, mw)
-    assert layouts == {(None, None), ("legacy32", "policy124"), ("legacy32", None), ("rm26", None),
-                       ("rm26", "rm26_extended")}
+    assert layouts == {(None, None), ("legacy32", "policy124"), ("legacy32", "policy116"), ("legacy32", None),
+                       ("rm26", None), ("rm26", "rm26_extended")}
 
 
 def test_project_refusals_in_python_order():

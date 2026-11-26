@@ -54,6 +54,29 @@ void put_rows(const std::vector<PrivDomainRow>& rows, dc_clock_domains* out) {
 
 extern "C" {
 
+DC_API dc_status DC_CALL dc_gpu_public_clock_readings(dc_gpu* handle, dc_public_clock_readings* out) {
+    if (!handle || !out || out->size != sizeof(*out)) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        auto& nv = handle->gpu.nvml;
+        using Read = int(DRUTA_CDECL*)(void*, unsigned, unsigned*);
+        const auto read = nv.ok ? nv.get<Read>("nvmlDeviceGetClockInfo") : nullptr;
+        dc_public_clock_readings result{};
+        result.size = sizeof(result);
+        if (read) {
+            for (unsigned type : {0u, 2u, 3u}) {
+                unsigned mhz = 0;
+                if (read(nv.dev, type, &mhz) == 0 && mhz > 0 && mhz <= 40000) {
+                    result.present |= 1u << type;
+                    result.mhz[type] = mhz;
+                }
+            }
+        }
+        *out = result;
+        return result.present ? DC_OK : DC_E_UNAVAILABLE;
+    } catch (...) { return DC_E_FAILED; }
+}
+
 DC_API dc_status DC_CALL dc_gpu_msvdd_domains_get(dc_gpu* handle, uint32_t which, uint32_t* out,
                                                   size_t capacity, size_t* count) {
     if (!handle || which > 1 || !count || (!out && capacity)) return DC_E_ARGUMENT;

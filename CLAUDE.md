@@ -8,8 +8,9 @@ newer standing instruction, bring the other one up to date.
 
 ## Session-only tuning
 
-The current session is for released Python 1.9.1 UI/behavior parity and the
-user's explicit layout differences. Follow AGENTS.md: no purely theoretical
+The C++ frontend is the release target. Python 1.9.1 provides a behavioral
+reference for ports. The Python frontend is deprecated, and Python remains
+supported for plug-in experiment scripts. Follow AGENTS.md: no purely theoretical
 issues, improvements beyond that scope, or closed GitHub issues. Check issue
 state before issue-linked work; keep broader research/qualification deferred.
 
@@ -19,6 +20,8 @@ scope, as recorded in AGENTS.md. Unresolved control research remains separate.
 Follow AGENTS.md's session-only requirement: GPU driver restart is the user's
 panic/reset action. Do not persist or automatically reapply new tuning requests
 across it, or add restart-persistence validation to the functional backlog.
+The user may opt one named profile into a single application at Windows
+sign-in on its bound adapter, as described in AGENTS.md.
 
 The user authorizes a narrow exception for power relationship-weight overrides
 through registry/VBIOS configuration. These overrides require a GPU driver

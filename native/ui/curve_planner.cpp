@@ -86,7 +86,8 @@ CurvePlan plan_curve(const PlannerApi& api, const CurvePlanRequest& req) {
         if (req.kind == CurvePlanKind::deflatten)
             status = api.deflatten(points.data(), points.size(), &cap, req.max_mhz ? &maximum : nullptr, nullptr, &step, &def);
         else if (req.kind == CurvePlanKind::ramp)
-            status = api.ramp(points.data(), points.size(), &floor, &cap, req.max_mhz ? &maximum : nullptr, &step, &ramp);
+            status = api.ramp(points.data(), points.size(), &floor, &cap, req.max_mhz ? &maximum : nullptr,
+                              req.ramp_use_default_step ? nullptr : &step, &ramp);
         else if (req.kind == CurvePlanKind::hard_deflatten)
             status = api.hard_deflatten(points.data(), points.size(), &floor, &target, &step, &hard);
         else return failure("Unknown planner kind");

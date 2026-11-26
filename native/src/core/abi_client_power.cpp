@@ -15,7 +15,7 @@ namespace be = druta::backend;
 bool get_binding(const dc_cp_binding* in, be::CpBinding& out) {
     if (!in) return false;
     if (in->layout < DC_CP_ABSENT || in->layout > DC_CP_LAYOUT_LEGACY32) return false;
-    if (in->native_layout < DC_CP_ABSENT || in->native_layout > DC_CP_NATIVE_RM26_EXTENDED) return false;
+    if (in->native_layout < DC_CP_ABSENT || in->native_layout > DC_CP_NATIVE_POLICY116) return false;
     out.layout = static_cast<be::CpLayout>(in->layout);
     out.native_layout = static_cast<be::CpNativeLayout>(in->native_layout);
     out.native_info_stride = in->has_native_info_stride ? std::optional<int64_t>(in->native_info_stride) : std::nullopt;

@@ -1,0 +1,65 @@
+{
+  "adapter": {
+    "name": "GeForce GTX 1050 Ti",
+    "driver": "375.63",
+    "vbios": "86.07.39.00.E9",
+    "slot": "0000:03:00.0"
+  },
+  "date_local": "2026-11-25",
+  "build": {
+    "base_commit": "eeb6182037464be88c0e53f6a58c77e9fa57b4d3",
+    "core_sha256": "135ff141a1144984d4cb88f661b36e8ab5eb35677701eff65514ab4c8cef4206"
+  },
+  "method": "Apply one field using the native GUI backend, sample P0 through a separate native handle, and undo each trial before starting another.",
+  "baseline": {
+    "pstate": 0,
+    "live_mv": 1112.5,
+    "reported_effective_mv": 1118.75,
+    "reported_rel_mv": 1118.75,
+    "reported_alt_mv": 1118.75,
+    "reported_min_mv": 675.0,
+    "boost_percent": 100,
+    "raw_reliability_delta_mv": 0.0,
+    "raw_vmin_delta_mv": 0.0
+  },
+  "reliability_trial": {
+    "samples": 11,
+    "example": {
+      "pstate": 0,
+      "live_mv": 1100.0,
+      "reported_effective_mv": 1106.25,
+      "reported_rel_mv": 1106.25,
+      "reported_alt_mv": 1118.75,
+      "reported_min_mv": 675.0,
+      "boost_percent": 100,
+      "raw_reliability_delta_mv": -12.5,
+      "raw_vmin_delta_mv": 0.0
+    }
+  },
+  "vmin_trial": {
+    "samples": 11,
+    "example": {
+      "pstate": 0,
+      "live_mv": 1112.5,
+      "reported_effective_mv": 1118.75,
+      "reported_rel_mv": 1118.75,
+      "reported_alt_mv": 1118.75,
+      "reported_min_mv": 681.25,
+      "boost_percent": 100,
+      "raw_reliability_delta_mv": 0.0,
+      "raw_vmin_delta_mv": 6.25
+    },
+    "scope": "A floor below the active P0 voltage. The trial checks request and reported floor, without measuring behavior at that floor."
+  },
+  "restored": {
+    "pstate": 0,
+    "live_mv": 1112.5,
+    "reported_effective_mv": 1118.75,
+    "reported_rel_mv": 1118.75,
+    "reported_alt_mv": 1118.75,
+    "reported_min_mv": 675.0,
+    "boost_percent": 100,
+    "raw_reliability_delta_mv": 0.0,
+    "raw_vmin_delta_mv": 0.0
+  }
+}

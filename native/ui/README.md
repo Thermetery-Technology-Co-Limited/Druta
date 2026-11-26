@@ -14,8 +14,10 @@ presentation never opens another GPU or applies a draft. The fixture shell remai
 `--preview`.
 
 This is an implemented development milestone in
-[the UI/UX plan](../DESIGN-NATIVE-UI.md), with Windows 10 evidence below. Full
-Python frontend parity and Vista/7 qualification remain open.
+[the UI/UX plan](../DESIGN-NATIVE-UI.md), with Windows 10 evidence below.
+Version 1.9.1 is the reference for ports of existing UI behavior. Future frontend work targets
+C++, and Python remains available for plug-in experiment scripts. Vista/7
+qualification remains open.
 
 ## Live controls and profiles
 
@@ -37,6 +39,15 @@ Python frontend parity and Vista/7 qualification remain open.
   policy groups. Each group reports its own status and retains stale last-good
   results after read failure. Opening the page does not poll these groups.
   Power arbitration diagnostics are available through explicit Refresh.
+- In Classic, **Copy info** beside **Rail limits** includes the selected
+  adapter's cached getter versions and statuses. If a hold requested
+  headroom, the report also records the outcome and any packet summaries
+  from the last writer attempt. Undo preserves that diagnostic for the
+  open session. Copying the report does not run another hardware operation.
+- On Pascal, **Read clock table** also reads the firmware's REL and ALT voltage
+  upper bounds when their equations encode absolute voltages. Both skins show
+  each available bound in **Rails**. The BIOS values are in mV. The driver's
+  effective ceiling and the live rail voltage have separate readouts.
 - Daily provides core/memory and additional clock/voltage offsets, configured
   board-power request, fan target/Auto, voltage boost and the independently
   identified NVVDD core-current request. Qualified rail limits have a separate
@@ -45,9 +56,29 @@ Python frontend parity and Vista/7 qualification remain open.
   does not disable a qualified control. Stock/Auto can have a separate capability
   from Apply; an explicit escape action can report that prior state was
   unavailable for Undo.
+  A readable clock offset stays visible when the driver exposes only a getter
+  or the observed compact clock mode cannot accept an offset. In either case
+  the GUI disables Apply and Stock for that row.
+  A **Known pattern** slider uses a read-only match against an earlier
+  measured clock response. **Verify at P0** checks an unfamiliar candidate
+  and exposes its editor after a reversible counter response. The GUI can
+  acquire and release a temporary hold if the card is below P0. Both skins
+  offer a manual recheck of known offsets in **Clocks**. See the
+  [clock verification procedure](../../MANUAL.md#verify-a-live-clock-offset).
+  For experiment scripts, build `druta-ui-clock-effect-probe`. Pass the PCI
+  slot and GPU UUID to print the read-only field inventory. Add `--verify N`
+  to test a single discovered field using the same verifier as the GUI. Its
+  JSON includes the request readbacks, P-states, clock samples and restoration
+  result. The caller supplies a steady P0 operating point.
   XOC is an explicit session mode. The power slider uses the adapter's
   validated request range. With a supported live route, XOC extends that
   range to the **1,999 W software ceiling** or a higher reported BIOS maximum.
+  **Advanced → Tuning support** (under **Registry / BIOS overrides** in
+  Verbose) inspects the XOC request range even when XOC is off. It also shows
+  the Max it plan, recognized BIOS fields and the driver's Speedo and IDDQ inputs.
+  To get the same read-only report in JSON, run
+  `druta-ui-advanced-live-read ABSOLUTE_DLL PCI_SLOT EXPECTED_UUID --tuning`. A configured power request,
+  an enforced limit and measured board draw are three different readings.
   Turning XOC off keeps the active request visible and restores the adapter's
   nominal edit range. Apply or Stock can return to nominal through the owning
   route. A saved profile can capture or match the outside request without a
@@ -60,8 +91,13 @@ Python frontend parity and Vista/7 qualification remain open.
   that peer control bytes stayed unchanged.
   Max it captures
   Undo before applying the normal board maximum, fan/boost targets, a planned
-  ramp and an owned V/F hold. Reset reports individual outcomes and any state it
-  could not capture. The live Reset/Undo retest restored all 127 curve requests
+  ramp and an owned V/F hold. With hold headroom enabled, Max it checks the
+  NVVDD ceiling after voltage boost. If the requested point exceeds that
+  ceiling, it uses the highest reachable curve point for both the ramp and
+  the hold. The log identifies a confirmed hold whose optional headroom
+  writer reported a single attempt with no SET. Reset reports individual
+  outcomes and any state it could not capture. The live Reset/Undo retest
+  restored all 127 curve requests
   and all 19 power-policy requests on the tested adapter.
 - Controls start unlocked. An explicit lock choice stays in effect while switching
   adapters or layouts in the same application. Draft edits never write; use the
@@ -240,9 +276,9 @@ request is automatically applied at startup or after a driver reset.
 
 Profiles are UTF-8 JSON, limited to 1 MiB, with duplicate-key rejection and
 same-directory flushed temporary-file replacement. Save has no tuning side
-effect. No profile loads at startup or after driver reset. Ordinary tuning stays
-session-only; Reconnect closes/reopens without replay. Saving a file does not
-authorize automatic application.
+effect. The Classic profile bar can separately bind a supported named
+profile to one adapter for Windows sign-in. Driver reset and Reconnect
+continue to clear ordinary tuning for the session.
 
 ## Timings helper
 
@@ -523,11 +559,16 @@ Vista/7 execution retain their scoped validation limits. See the current
 
 ### Device menus and selected-request profiles
 
-Both presentations expose Device and Help menus. Device can refresh capability
-readbacks without changing the page or drafts, capture/copy/save a selected-GPU
+Both presentations expose Device and Help menus. **Device → Refresh capabilities**
+clears cached capability lookups on the selected adapter, repeats discovery and
+preserves drafts. While polling, the GUI also gives a failed or partial clock
+discovery two bounded read-only retries. Device can capture/copy/save a selected-GPU
 report, open a GPU in a second window (Classic: any enumerated card; Focused:
-the selected one), and navigate to timing-helper setup. The child window receives the exact core DLL, PCI slot and expected UUID; it
-does not receive tuning settings. Reconnect preserves that constraint. Help
+the selected one), and navigate to timing-helper setup. In either presentation,
+selecting a different GPU during an owned V/F hold opens it in a second window
+and preserves the original session, hold and drafts. The child window receives
+the exact core DLL, PCI slot and expected UUID. Reconnect preserves that
+constraint. Help
 shows shortcuts, About and the actual licence/guide files bundled beside the EXE.
 
 **File → Rail / power profiles** opens the manual selected-request workspace.
@@ -576,7 +617,20 @@ unavailable or raw; they do not disable ordinary power controls.
 
 ## Profile catalog, discovery and timing diagnostics
 
-**Profile catalog...** (Focused) or **Profiles...** (Classic) opens a shared
+The Classic **Profile** bar shows five numbered buttons. Each applies its
+assigned profile through the same preflight and verification as **Apply**.
+The first five supported named profiles fill the buttons. Open the selector
+to see their names and change assignments. Choosing a profile already on
+another button swaps the two. Assignments survive restarts.
+
+**Apply on startup** saves a copy of the selected profile for the current GPU.
+At Windows sign-in Druta opens in the notification area, checks the adapter
+and profile, applies it once on an eligible boot, then pauses background
+telemetry. Open its tray icon to resume the UI. After changing a profile,
+turn the checkbox off and on to update the sign-in copy. **Profile actions**
+also lets you turn startup off if the file or card is unavailable.
+
+**Profile catalog...** (Focused) or **Profile actions** (Classic) opens a shared
 workspace. Add saved files, select their included controls, and compose a staged
 profile. Preflight checks every component before Apply can issue a write; Apply
 repeats that check. Duplicate targets and incompatible adapters are rejected.

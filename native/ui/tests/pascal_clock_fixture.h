@@ -4,6 +4,7 @@
 #include "../pascal_clock_table.h"
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace druta::ui::test {
@@ -58,6 +59,31 @@ inline std::vector<uint8_t> pascal_clock_fixture() {
             u16(at, 0xc000 | nominal);
             u32(at + 2, 0xb0000000u | (maximum << 14) | 1000u);
         }
+    }
+    return b;
+}
+
+inline std::vector<uint8_t> pascal_rail_clamp_fixture() {
+    auto b = pascal_clock_fixture();
+    const auto put = [&](size_t at, std::initializer_list<uint8_t> bytes) {
+        std::copy(bytes.begin(), bytes.end(), b.begin() + at);
+    };
+    // Move the BIT P directory and preserve its original performance-table pointer.
+    put(148, {0x6c, 0, 0, 7});
+    put(0x700, {0, 3, 0, 0});
+    put(0x720, {0, 9, 0, 0});
+    put(0x768, {0, 8, 0, 0});
+    put(0x800, {0x10, 5, 7, 2, 1});
+    put(0x805, {0, 0, 0, 0, 3, 1, 0xff});
+    put(0x80c, {0, 0, 0, 0, 0xff, 2, 0xff});
+    put(0x900, {0x30, 7, 25, 1, 24, 4, 0});
+    b[0x907] = 3;
+    const float upper[] = {600000, 1125125, 821750, 1012375};
+    for (size_t i = 0; i < 4; ++i) {
+        const size_t row = 0x920 + 24 * i;
+        put(row, {1, 0, 0xff});
+        std::memcpy(&b[row + 7], &upper[i], sizeof(float));
+        b[row + 23] = 0xa2;
     }
     return b;
 }

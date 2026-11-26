@@ -1179,6 +1179,9 @@ class Gpu(FrontendSurface):
         self.nvml = BoundNvml(box, bool(identity.nvml_ok), _text(identity.nvml_error), nvml_selected,
                              _text(identity.nvml_path))
         self.pairing_error = _text(identity.pairing_error)
+        self._volt_rail_write_error = None
+        self._volt_rail_write_protocol = None
+        self._volt_rail_observed_packets = []
         self.static = _Static(self, {"name": _text(identity.name), "driver": _text(identity.driver),
                                      "vbios": _text(identity.vbios), "admin": bool(identity.admin),
                                      "slot": _text(identity.slot), "uuid": _text(identity.uuid)})
@@ -1328,7 +1331,7 @@ class Gpu(FrontendSurface):
 
     # dc_cpc_state.sizes: the DC_CP_*_SIZES group, by its client_power_runtime name.
     _CP_SIZE_GROUPS = ("SIZES", "LEGACY_SIZES", "TURING_SIZES", "INFO216_SIZES", "RM26_SIZES",
-                       "RM26_EXTENDED_SIZES", "A612_COMPACT_SIZES")
+                       "RM26_EXTENDED_SIZES", "A612_COMPACT_SIZES", "INFO200_SIZES")
 
     def _cp_raise(self, error):
         """The ClientPowerError a dc_error stands for; DC_ERR_INVALID is the one bare ValueError."""
@@ -1452,7 +1455,7 @@ class Gpu(FrontendSurface):
 
     # dc_cpc_metadata.layout / native_layout: the DC_CP_LAYOUT_* / DC_CP_NATIVE_* values present.
     _CP_LAYOUTS = {2: "rm26", 3: "legacy32"}
-    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended"}
+    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended", 4: "policy116"}
 
     def _cp_read_metadata(self):
         """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.

@@ -1,0 +1,505 @@
+{
+  "schema": 1,
+  "operation": "GP102 BIOS reliability upper bounds, one-step hardware A/B/A",
+  "source_base": "eeb6182037464be88c0e53f6a58c77e9fa57b4d3",
+  "target": {
+    "slot": "0000:03:00.0",
+    "device_id": 6914,
+    "subsystem_id": 299831518,
+    "name": "NVIDIA TITAN Xp",
+    "driver": "512.15",
+    "vbios": "86.02.3d.00.01"
+  },
+  "prior_read_only_capture": "titan-xp-headroom-bios-51215.json",
+  "measurement": "Independent driver-reported absolute rail status, with separate V/F lock, boost and rail-request getters.",
+  "method": "Targeted Windows display-device restart to load two temporary BIOS configuration records. Records were removed after a fresh process confirmed the projected image. Second device restart loaded the original image. The same saved tuning and hold were explicitly restored before both sets of measurements.",
+  "recorded_phases": [
+    {
+      "phase": "baseline",
+      "image": {
+        "sha256": "cbd30f0d6a392123b0c1b1ed2f747303f83ab81ecaa890fe2b2daea0a5743735",
+        "length": 260096,
+        "bounds": {
+          "REL": {
+            "index": 0,
+            "lower_uv": 1025000.0,
+            "upper_uv": 1068750.0
+          },
+          "ALT": {
+            "index": 1,
+            "lower_uv": 1075000.0,
+            "upper_uv": 1093750.0
+          },
+          "OV": {
+            "index": 3,
+            "lower_uv": 1200000.0,
+            "upper_uv": 1200000.0
+          },
+          "VMIN": {
+            "index": 4,
+            "lower_uv": 650000.0,
+            "upper_uv": 650000.0
+          }
+        }
+      },
+      "samples": [
+        {
+          "utc": "2026-11-25T03:55:23.174384+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:23.678452+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:24.181800+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:24.685277+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:25.188947+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:25.696719+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:26.199885+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:26.703483+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:27.207051+00:00",
+          "pstate": 0,
+          "temperature_c": 42,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        }
+      ]
+    },
+    {
+      "phase": "test",
+      "image": {
+        "sha256": "fe1328f8d3cde4e85209d29592dbea7e902937e0c594cef9cb4baed6ea57e1b9",
+        "length": 260096,
+        "bounds": {
+          "REL": {
+            "index": 0,
+            "lower_uv": 1025000.0,
+            "upper_uv": 1075000.0
+          },
+          "ALT": {
+            "index": 1,
+            "lower_uv": 1075000.0,
+            "upper_uv": 1100000.0
+          },
+          "OV": {
+            "index": 3,
+            "lower_uv": 1200000.0,
+            "upper_uv": 1200000.0
+          },
+          "VMIN": {
+            "index": 4,
+            "lower_uv": 650000.0,
+            "upper_uv": 650000.0
+          }
+        }
+      },
+      "samples": [
+        {
+          "utc": "2026-11-25T03:55:31.675665+00:00",
+          "pstate": 0,
+          "temperature_c": 40,
+          "clock_mhz": 1529,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:32.179534+00:00",
+          "pstate": 0,
+          "temperature_c": 40,
+          "clock_mhz": 1529,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:32.683461+00:00",
+          "pstate": 0,
+          "temperature_c": 40,
+          "clock_mhz": 1968,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:33.187086+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:33.693042+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:34.196624+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:34.700374+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:35.204030+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:35.711574+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1100.0,
+          "alt_mv": 1100.0,
+          "effective_mv": 1100.0,
+          "live_mv": 1093.75
+        }
+      ]
+    },
+    {
+      "phase": "restored",
+      "image": {
+        "sha256": "cbd30f0d6a392123b0c1b1ed2f747303f83ab81ecaa890fe2b2daea0a5743735",
+        "length": 260096,
+        "bounds": {
+          "REL": {
+            "index": 0,
+            "lower_uv": 1025000.0,
+            "upper_uv": 1068750.0
+          },
+          "ALT": {
+            "index": 1,
+            "lower_uv": 1075000.0,
+            "upper_uv": 1093750.0
+          },
+          "OV": {
+            "index": 3,
+            "lower_uv": 1200000.0,
+            "upper_uv": 1200000.0
+          },
+          "VMIN": {
+            "index": 4,
+            "lower_uv": 650000.0,
+            "upper_uv": 650000.0
+          }
+        }
+      },
+      "samples": [
+        {
+          "utc": "2026-11-25T03:55:38.718356+00:00",
+          "pstate": 0,
+          "temperature_c": 40,
+          "clock_mhz": 1720,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:39.221889+00:00",
+          "pstate": 0,
+          "temperature_c": 40,
+          "clock_mhz": 1720,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:39.725236+00:00",
+          "pstate": 0,
+          "temperature_c": 40,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:40.229018+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:40.732920+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:41.236449+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:41.739723+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:42.243021+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        },
+        {
+          "utc": "2026-11-25T03:55:42.746132+00:00",
+          "pstate": 0,
+          "temperature_c": 41,
+          "clock_mhz": 1974,
+          "hold_mv": 1093.75,
+          "boost_pct": 100,
+          "rel_mv": 1093.75,
+          "alt_mv": 1093.75,
+          "effective_mv": 1093.75,
+          "live_mv": 1093.75
+        }
+      ]
+    }
+  ],
+  "peers_all_samples": {
+    "vmin_mv": 650,
+    "overvoltage_mv": 1200,
+    "boost_contribution_mv": 25,
+    "requested_rail_deltas_uv": {
+      "reliability": 0,
+      "alt_reliability": 0,
+      "overvoltage": 0,
+      "vmin": 0
+    }
+  },
+  "device_refreshes": [
+    {
+      "ok": true,
+      "reboot_required": false,
+      "returncode": 0,
+      "method": "pnputil"
+    },
+    {
+      "ok": true,
+      "reboot_required": false,
+      "returncode": 0,
+      "method": "pnputil"
+    }
+  ],
+  "restoration": {
+    "original_image_hash_matches": true,
+    "temporary_records_remaining": 0,
+    "configured_snapshots_match_in_test_and_restored": true,
+    "configured_snapshot_sha256": "45ab8ea13903005cf9c8f48e9c3b76e9a67fc2e18b91581612a680173a89b7bb",
+    "power_policy_count": 13,
+    "vf_row_count": 80,
+    "board_request_mw": 300000,
+    "fan_percent": 100,
+    "boost_percent": 100,
+    "memory_offset_true_mhz": 129.0,
+    "final_fresh_sample": {
+      "utc": "2026-11-25T03:56:21.270070+00:00",
+      "end_utc": "2026-11-25T03:56:21.273449+00:00",
+      "pstate": 0,
+      "temperature_c": 41,
+      "core_mhz": 1974,
+      "boost_pct": 100,
+      "lock": {
+        "domain": 6,
+        "lockMode": 3,
+        "volt_uV": 1093750,
+        "volt_mv": 1093.75,
+        "count": 7
+      },
+      "hold_uv": 1093750,
+      "nvvdd_mv": {
+        "reliability": 1093.75,
+        "alt_reliability": 1093.75,
+        "overvoltage": 1200.0,
+        "vmin": 650.0,
+        "effective": 1093.75,
+        "live": 1093.75,
+        "_boost_mv": 25.0
+      },
+      "delta_uv": {
+        "reliability": 0,
+        "alt_reliability": 0,
+        "overvoltage": 0,
+        "vmin": 0
+      },
+      "stable_context": true
+    },
+    "watchdog_intervened": false
+  }
+}

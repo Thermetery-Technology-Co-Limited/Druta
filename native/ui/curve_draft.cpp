@@ -198,7 +198,6 @@ std::string park_text(const CurvePeak& peak) {
     return peak.park_idx ? std::to_string(*peak.park_idx) : std::string("--");
 }
 constexpr const char* kLessEqual = "\xE2\x89\xA4"; // U+2264
-constexpr const char* kDot = "\xC2\xB7";          // U+00B7
 }
 
 namespace {
@@ -366,14 +365,8 @@ CurvePlanBanner curve_plan_banner(const std::vector<dc_vf_point>& baseline,
     const std::vector<dc_vf_point>& draft, const CurvePlanBannerInput& input) {
     CurvePlanBanner banner;
     const auto pending = curve_pending_edits(baseline, draft);
-    // Reset re-reads the curve, which rebases the editor and drops the staged edits (1.9.1 vf_read).
-    banner.reset = text_of("'Reset curve to stock' is one click too: it zeroes all %zu deltas back to the factory curve"
-        " and discards %zu staged edit(s).", input.table_rows, pending);
     if (!pending) {
-        banner.head = text_of("APPLY TO GPU  %s  nothing staged", kDot);
-        banner.body = "Drag a dot, nudge with W/S, Set MHz, De-flatten or Hard de-flatten, and this box says exactly what one click on '"
-            + input.apply_label + "' will write - before the click, not after it. That click writes the staged table as shown and does not "
-              "re-phase it: '" + input.rephase_label + "' stages that correction for review first.";
+        banner.body = "Nothing staged";
         return banner;
     }
     double top = 0, peak = 0, hardware_peak = 0;
@@ -385,15 +378,20 @@ CurvePlanBanner curve_plan_banner(const std::vector<dc_vf_point>& baseline,
     const auto park = curve_peak(draft, input.cap_mv);
     const bool lowers_peak = peak < hardware_peak;
     banner.band = lowers_peak || input.note_hard ? CurvePlanBand::bad : CurvePlanBand::warn;
-    banner.head = text_of("APPLY TO GPU  %s  ", kDot) + (lowers_peak ? "ONE CLICK LOWERS THE PEAK"
-        : input.note_hard ? "HARD DE-FLATTEN - WITHOUT THE VOLTAGE MOD THIS WILL CRASH" : "ONE CLICK WRITES THIS");
+    if (input.note_hard) banner.warning = "HARD DE-FLATTEN - WITHOUT THE VOLTAGE MOD THIS WILL CRASH";
     banner.body = (lowers_peak ? text_of("WARNING: this LOWERS the curve's peak from %.0f to %.0f MHz. ", hardware_peak, peak) : std::string())
-        + text_of("Writes %zu edited point(s): top %s%.0f mV becomes %.0f MHz, peak %.0f MHz held by %zu point(s), the card parks at idx %s @ %.2f mV.\n",
-            pending, kLessEqual, input.cap_mv, top, peak, park.at_peak, park_text(park).c_str(), park.park_mv)
-        + (input.note.empty() ? std::string() : input.note + "\n")
-        + "An undo point is recorded immediately before the write and 'Undo hardware write' puts this state back; the status line "
-          "reports the readback, and a write that does not read back exactly keeps that undo point. Zeroing the table is always "
-          "available via 'Reset curve to stock' or a reboot.";
+        + text_of("Writes %zu edited point(s): top %s%.0f mV becomes %.0f MHz, peak %.0f MHz held by %zu point(s), the card parks at idx %s @ %.2f mV.",
+            pending, kLessEqual, input.cap_mv, top, peak, park.at_peak, park_text(park).c_str(), park.park_mv);
+    if (pending == 1) {
+        for (const auto& point : draft) {
+            const auto* base = find(baseline, point.idx);
+            if (!base || base->delta_khz == point.delta_khz) continue;
+            banner.point_detail = text_of("Point %u at %.2f mV: %.9g to %.9g MHz (offset %+.9g MHz)",
+                point.idx, point.volt_mv, base->freq_mhz, point.freq_mhz, point.delta_khz / 1000.0);
+            break;
+        }
+    }
+    if (!input.note.empty()) banner.body += "\n" + input.note;
     return banner;
 }
 }

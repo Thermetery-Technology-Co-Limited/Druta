@@ -107,6 +107,7 @@ public:
 
     // _read_power_limit_nvml: Telemetry::read_power_limit_nvml (status 0 and a nonzero value).
     std::optional<std::uint32_t> read_nvml();
+    bool nominal_nvml_available();
     // read_live_power_request on the sticky controller. On success the caller's absent or None
     // pl_* keys (st, when given) take the handle store's values after its back-fill: the keys the
     // binding re-syncs from capabilities() after the call (A6's contract).

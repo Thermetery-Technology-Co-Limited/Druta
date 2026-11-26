@@ -19,6 +19,21 @@ int wmain(int argc,wchar_t** argv){
   const auto live=backend->read(false);if(!matches(live,slot,uuid))throw std::runtime_error("Adapter identity changed after relationship read");const auto data=live.power_weights;if(!data)throw std::runtime_error("Relationship data unavailable");
   report["image"]={{"availability",static_cast<int>(data->image_availability)},{"stale",data->image_stale},{"message",data->image_message}};report["info"]={{"availability",static_cast<int>(data->info_availability)},{"stale",data->info_stale},{"message",data->info_message}};report["rows"]=ProfileJson::array();
   for(const auto& row:data->rows){ProfileJson item={{"index",row.index},{"type",row.type},{"target",row.target},{"eligible_for_preview",row.eligible_for_preview},{"stale",row.stale},{"message",row.message}};if(row.weight_raw)item["weight_raw"]=*row.weight_raw;report["rows"].push_back(std::move(item));}
+  auto& definitions=report["firmware_power_policies"]=ProfileJson::array();
+  for (const auto& policy:data->image.policies) {
+   const bool driver_row=policy.index < data->report.policies.size() && (data->report.policy_mask & (uint32_t{1} << policy.index));
+   if (!policy.metadata && !policy.bios_type && !driver_row) continue;
+   ProfileJson item={{"policy",policy.index},{"bios_class",policy.bios_type},
+     {"evidence",data->image_stale || data->info_stale ? "Awaiting fresh comparison" : firmware_power_policy_evidence(policy,data->report)}};
+   const auto bounds=[](const PowerRelationshipTarget& row) -> ProfileJson {
+    return {{"type",row.type},{"channel",row.channel},{"unit",row.unit ? "mA" : "mW"},
+            {"minimum_raw",row.minimum},{"rated_raw",row.default_value},{"maximum_raw",row.maximum}};
+   };
+   if (policy.metadata) item["bios"]=bounds(*policy.metadata);
+   if (policy.index < data->report.policies.size() && data->report.policies[policy.index])
+    item["driver"]=bounds(*data->report.policies[policy.index]);
+   definitions.push_back(std::move(item));
+  }
   report["source_references"]=ProfileJson::array();for(const auto& r:data->report.source_references){ProfileJson item={{"policy",r.policy},{"first",r.first},{"last",r.last},{"available",r.available},{"relationships",r.relationships},{"reason",r.reason}};if(r.enabled)item["enabled"]=*r.enabled;report["source_references"].push_back(std::move(item));}
   report["linked_references"]=ProfileJson::array();for(const auto& r:data->report.linked_references){ProfileJson item={{"policy",r.policy},{"relationship",r.relationship},{"available",r.available},{"reason",r.reason}};if(r.target)item["target"]=*r.target;report["linked_references"].push_back(std::move(item));}
   report["range_references"]=ProfileJson::array();for(const auto& r:data->report.range_references)report["range_references"].push_back({{"policy",r.policy},{"first",r.first},{"last",r.last},{"available",r.available},{"relationships",r.relationships},{"reason",r.reason}});

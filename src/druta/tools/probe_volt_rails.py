@@ -190,8 +190,13 @@ def rm_call(gpu, replacement=None, control_version=0x20AC8, invoke=None,
 
     def callback(pesc):
         restore()
+        if capture_multiple:
+            # Each observation describes only this escape, even if its payload is absent.
+            result.clear()
+            result["intercepted"] = False
         e = GPU._Escape.from_address(pesc)
         p = ctypes.cast(e.pPrivateDriverData, ctypes.POINTER(u32))
+        input_address = e.pPrivateDriverData
         result["escape_size"] = int(e.PrivateDriverDataSize)
         result["escape_fields"] = {key: getattr(e, key) for key in
                                    ("hAdapter", "hDevice", "Type", "Flags", "hContext")}
@@ -215,11 +220,12 @@ def rm_call(gpu, replacement=None, control_version=0x20AC8, invoke=None,
             result["input_params"] = list(p[17:17 + param_words])
         rc = proto(addr)(pesc)
         result["escape_ntstatus"] = rc
-        if e.pPrivateDriverData and e.PrivateDriverDataSize >= 68:
+        same_buffer = bool(input_address) and e.pPrivateDriverData == input_address
+        if same_buffer and 68 <= e.PrivateDriverDataSize <= result["escape_size"]:
             result["escape_header_after"] = list(p[:17])
             result["escape_output_params"] = list(p[17:e.PrivateDriverDataSize // 4])
             result["escape_rm_status"] = int(p[16])
-        if valid:
+        if valid and same_buffer and e.PrivateDriverDataSize == packet_size:
             result["escape_status"] = rc
             result["rm_status"] = p[16]
             result["output_params"] = list(p[17:17 + param_words])

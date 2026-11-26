@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thermetery Technology Co Limited
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "profile_io.h"
+#include "profile_catalog.h"
 #include <optional>
 #include <vector>
 namespace druta::ui {
@@ -16,6 +16,7 @@ struct ProfileLibraryEntry {
  bool autosave=false,library_owned=false;
  double timestamp=0;
  std::optional<ProfileJson> document;
+ ProfileDescription description;
 };
 // Resolving/discovering never creates directories or reads profiles.
 std::vector<ProfileLibraryDirectory> discover_profile_directories(const ProfileLibraryPaths& paths={});

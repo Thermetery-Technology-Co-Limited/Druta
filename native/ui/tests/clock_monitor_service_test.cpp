@@ -77,7 +77,8 @@ int main(){
     r=light.feed(1950000,1949910,99);CHECK(r.state=="load start");
     r=light.feed(1950000,1949902,89);CHECK(r.state=="settling");
     r=light.feed(1950000,1949910,84);CHECK(r.state=="light");
-    Feeder fallback;fallback.input.step_measured=false;for(unsigned i=0;i<10;++i)r=fallback.feed(2115000,2087000+(i%2)*8);
+    Feeder fallback;fallback.input.step_khz=12656;fallback.input.step_measured=false;
+    for(unsigned i=0;i<10;++i)r=fallback.feed(2115000,2087000+(i%2)*8);
     CHECK(r.state=="judged"&&r.verdict.empty()&&!r.bin_mhz);
     // Python Reading.window_util: the lowest and highest load over the judged window only,
     // the oldest dropping out with its delta past 15 readings; none before a judgment.

@@ -34,4 +34,7 @@ struct PowerWeightCaptureApi {
 // Component failures are independent; identity/target errors abort the call.
 // False excludes ALL Windows-key and registry lookup.
 std::function<PowerWeightCapture(dc_gpu*,bool include_registry)> make_power_weight_capture(PowerWeightCaptureApi,const dc_gpu_identity&,bool clock_only=false);
+// Bind the selected ROM and require two identical image reads. Field recognition
+// uses the captured tables and is independent of the PERF and clock writers.
+PowerWeightCapture capture_firmware_image(PowerWeightCaptureApi,const dc_gpu_identity&,dc_gpu*);
 }

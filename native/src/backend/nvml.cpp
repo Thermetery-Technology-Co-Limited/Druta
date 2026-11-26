@@ -11,7 +11,6 @@
 namespace druta::backend {
 namespace {
 
-using InitFn = int(DRUTA_CDECL*)();
 using CountFn = int(DRUTA_CDECL*)(unsigned*);
 using HandleFn = int(DRUTA_CDECL*)(unsigned, void**);
 using PciFn = int(DRUTA_CDECL*)(void*, NvmlPciInfo*);
@@ -31,24 +30,10 @@ std::tuple<std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t> order_key
 
 }  // namespace
 
-Nvml::Nvml(const std::string& slot) {
-    std::string error;
-    library_ = loader().open_nvml(error);
-    if (!library_) {
-        err_detail = "nvml.dll not loadable: " + error;
-        return;
-    }
-    dll_path = library_->path();
-    const char* init_name = has("nvmlInit_v2") ? "nvmlInit_v2" : has("nvmlInit") ? "nvmlInit" : nullptr;
-    if (!init_name) {
-        err_detail = "NVML has no initialization export";
-        return;
-    }
-    int status = get<InitFn>(init_name)();
-    if (status != 0) {
-        err_detail = std::string(init_name) + " status " + std::to_string(status);
-        return;
-    }
+Nvml::Nvml(const std::string& slot) : generation_(loader_generation()) {
+    library_ = initialized_nvml(err_detail, dll_path);
+    if (!library_) return;
+    shutdown_ = get<decltype(shutdown_)>("nvmlShutdown");
     // The index spaces changed together in R319: never mix a v1 count with a
     // v2 index lookup (or vice versa) on a partially exported DLL.
     const char* count_name = nullptr;
@@ -64,7 +49,7 @@ Nvml::Nvml(const std::string& slot) {
         return;
     }
     unsigned count = 0;
-    status = get<CountFn>(count_name)(&count);
+    const auto status = get<CountFn>(count_name)(&count);
     if (status != 0) {
         err_detail = std::string(count_name) + " status " + std::to_string(status);
         return;
@@ -90,17 +75,26 @@ Nvml::Nvml(const std::string& slot) {
     select(slot);
 }
 
+Nvml::~Nvml() {
+    // Raw export lookups retain the module. Balance the successful init on
+    // this instance, including when later enumeration or slot selection failed.
+    // Tests can replace their resolver before a postponed Python finalizer runs.
+    if (shutdown_ && generation_ == loader_generation()) shutdown_();
+}
+
 std::optional<NvmlPciInfo> Nvml::read_pci(void* device) const {
     // V2 and V3 share the 16-byte bus ID and five leading identity words. The
     // unversioned pre-v2 layout cannot establish subsystem identity and is
     // deliberately not used for pairing or private write profiles.
-    const char* name = has("nvmlDeviceGetPciInfo_v3")   ? "nvmlDeviceGetPciInfo_v3"
-                       : has("nvmlDeviceGetPciInfo_v2") ? "nvmlDeviceGetPciInfo_v2"
-                                                        : nullptr;
-    if (!name) return std::nullopt;
     NvmlPciInfo pci{};
-    if (get<PciFn>(name)(device, &pci) != 0) return std::nullopt;
-    return pci;
+    if (auto v3 = get<PciFn>("nvmlDeviceGetPciInfo_v3")) {
+        const int status = v3(device, &pci);
+        if (status == 0) return pci;
+        if (status != 3 && status != 13) return std::nullopt; // NOT_SUPPORTED / FUNCTION_NOT_FOUND
+        pci = {};
+    }
+    if (auto v2 = get<PciFn>("nvmlDeviceGetPciInfo_v2"); v2 && v2(device, &pci) == 0) return pci;
+    return std::nullopt;
 }
 
 bool Nvml::device_string(void* device, const char* export_name, std::string& out) const {

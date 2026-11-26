@@ -1043,6 +1043,27 @@ DC_API int32_t DC_CALL dc_gpu_clkdom_offset_slider_offered(dc_gpu* handle, int64
     return handle->clkdom.offset_slider_offered(control) ? 1 : 0;
 }
 
+DC_API dc_status DC_CALL dc_gpu_clkdom_offset_write_capability(dc_gpu* handle, uint32_t domain, int32_t observed_mode,
+                                                               dc_outcome* out) {
+    if (!handle || !out || domain >= DC_CLKDOM_SLOTS) return DC_E_ARGUMENT;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        put_outcome(handle->clkdom.offset_write_capability(domain, observed_mode), out);
+        return DC_OK;
+    } catch (...) { return DC_E_FAILED; }
+}
+
+DC_API dc_status DC_CALL dc_gpu_clkdom_known_offset_pattern(dc_gpu* handle, uint32_t control, int32_t observed_mode,
+                                                            uint32_t* expected_private_mask, dc_outcome* out) {
+    if (!handle || !out || !expected_private_mask || control >= DC_CLKDOM_SLOTS) return DC_E_ARGUMENT;
+    *expected_private_mask = 0;
+    try {
+        druta::LockGuard guard(handle->gpu.lock());
+        put_outcome(handle->clkdom.known_offset_pattern(control, observed_mode, *expected_private_mask), out);
+        return DC_OK;
+    } catch (...) { return DC_E_FAILED; }
+}
+
 DC_API dc_status DC_CALL dc_gpu_clkdom_pairing(dc_gpu* handle, int32_t has_rows, const uint32_t* live_domains,
                                                size_t live_count, dc_clkdom_pair* pairs, size_t capacity,
                                                size_t* count) {
@@ -1197,6 +1218,7 @@ DC_API dc_status DC_CALL dc_gpu_refresh_capabilities(dc_gpu* handle, dc_clkdom_e
     if (!handle || (previous && previous->size != sizeof(dc_clkdom_error))) return DC_E_ARGUMENT;
     druta::LockGuard guard(handle->gpu.lock());
     std::optional<druta::backend::CapabilityError> before = handle->clkdom.refresh_capabilities();
+    if (handle->clocks_) handle->clocks_->reset_clock_grid();
     handle->cp.refresh_live();  // _live_power_controller / _last / _error / _error_kind = None (nvbackend 3692)
     handle->rails.refresh();  // _refresh_volt_rail_capabilities: the four rail read caches (nvbackend 3696)
     if (previous) put_clkdom_error(before, previous);

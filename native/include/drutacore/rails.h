@@ -126,7 +126,18 @@ DC_API dc_status DC_CALL dc_rails_state(dc_gpu* handle, dc_rails_state_set* out)
  * *has 0 (None; any rail other than 0 and 1 is None after the read). */
 DC_API dc_status DC_CALL dc_rails_live_mv(dc_gpu* handle, int32_t rail, int32_t* has, double* mv);
 
-/* The four caches as they stand. */
+/* Last conclusive transport observation for a singleton rail on this handle.
+ * RECOGNIZED establishes a layout match; the SET result and effective voltage
+ * are separate. NO_MATCH describes only the observed completed control GET.
+ * Querying this cache makes no driver calls. dc_rails_refresh clears it. */
+enum { DC_RAILS_WRITER_UNTESTED, DC_RAILS_WRITER_RECOGNIZED, DC_RAILS_WRITER_NO_MATCH };
+typedef struct dc_rails_writer_evidence {
+    uint32_t size;
+    uint32_t state[DC_RAILS_COUNT];
+} dc_rails_writer_evidence;
+DC_API dc_status DC_CALL dc_rails_writer_evidence_get(dc_gpu* handle, dc_rails_writer_evidence* out);
+
+/* The four getter caches as they stand. */
 DC_API dc_status DC_CALL dc_rails_caches_get(dc_gpu* handle, dc_rails_caches* out);
 
 /* _refresh_volt_rail_capabilities' reset of the four caches (_volt_rail_write_error is the writer's).
@@ -555,12 +566,17 @@ DC_API dc_status DC_CALL dc_rails_hold_state_set(dc_gpu* handle, uint32_t mask, 
  * re-raises what the hook raised). */
 #define DC_RAILS_HOLD_KEY_ERROR_WRITTEN 5
 #define DC_RAILS_HOLD_KEY_ERROR_PRIOR 6
+/* Output flag in the reserved word of dc_rails_hold_outcome. Only apply can
+ * set this: the sole locked writer attempt issued no SET and kept no headroom
+ * record. Zero (including older DLLs) provides no such evidence. The flag
+ * does not change the requested headroom operation's ok or message. */
+#define DC_RAILS_HOLD_WRITER_ISSUED_NO_SET 1
 typedef struct dc_rails_hold_outcome {
     uint32_t size; /* sizeof(dc_rails_hold_outcome), set by the caller */
     int32_t ok;    /* DC_RAILS_HOLD_OK, _NONE or _FAILED */
     int32_t key_error;
     int32_t aborted;
-    int32_t reserved; /* 0 */
+    int32_t reserved; /* output flags: DC_RAILS_HOLD_WRITER_ISSUED_NO_SET */
     char message[DC_RAILS_HOLD_MESSAGE_MAX];
 } dc_rails_hold_outcome;
 

@@ -87,11 +87,13 @@ private:
     bool vf_curve_applicable();
     std::uint32_t probe_entry_count();
     static std::string curve_error(const VfpCurve& cv, std::uint32_t n);
+    bool valid_boost_reply(const BoostTable& table, std::uint32_t n) const;
 
     Gpu& gpu_;
     Telemetry& telemetry_;
     const StaticCapabilities& caps_;
     std::optional<VfpLayout> layout_cache_;
+    bool marked_width_limit_ = false;
     std::string layout_error_;
 };
 

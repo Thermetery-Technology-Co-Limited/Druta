@@ -114,7 +114,7 @@ struct CpMetadata {
     std::uint32_t client_index = 0, native_index = 0;
     std::uint32_t minimum_mw = 0, rated_mw = 0, maximum_mw = 0;
     CpLayout layout = CpLayout::absent;                     // absent, rm26 or legacy32
-    CpNativeLayout native_layout = CpNativeLayout::absent;  // absent, policy124 or rm26_extended
+    CpNativeLayout native_layout = CpNativeLayout::absent;
     std::optional<std::uint32_t> native_info_stride;        // only when it differs from the layout's
     std::vector<std::uint8_t> info, role_info, native_info;
     // Python's whole-dict `first != second`.
@@ -220,6 +220,8 @@ struct CpControllerState {
     CpSizeGroup sizes = CpSizeGroup::sizes;  // self.sizes: which module table it is
     bool legacy = false, native_policy124 = false, role_info216 = false;
     bool rm26_records = false, rm26 = false, rm26_extended = false;
+    bool rm26_role_size_known = false;
+    bool legacy_metadata_matched = false;
     std::optional<CpTransportKey> transport_key;  // _transport_key
 };
 

@@ -169,6 +169,20 @@ int wmain(int argc, wchar_t** argv) {
         for (auto kind : {CurvePlanKind::deflatten, CurvePlanKind::ramp, CurvePlanKind::rephase}) {
             real.kind = kind; auto result = plan_curve(actual, real); CHECK(result.ok && result.predicted_khz.size() == real.points.size());
         }
+        // Captured 1000–1100 mV band: an inferred fractional grid must not
+        // silently change Max it's released fallback ramp policy.
+        CurvePlanRequest band; band.kind = CurvePlanKind::ramp; band.freq_div = 2;
+        band.step_khz = 12656; band.max_abs_delta_khz = 1000000; band.max_rise_khz = 37968;
+        band.floor_mv = 1000; band.cap_mv = 1100;
+        band.points = {{55,1000,1784.5,0},{56,1012.5,1797,0},{57,1025,1809.5,0},
+            {58,1031.25,1822.5,0},{59,1043.75,1835,0},{60,1050,1847.5,0},
+            {61,1062.5,1847.5,0},{62,1075,1860,0},{63,1081.25,1873,0},
+            {64,1093.75,1873,0},{65,1100,1885.5,0}};
+        const auto measured = plan_curve(actual, band); CHECK(measured.ok && measured.changes.size() == 4);
+        CHECK(measured.changes.back().idx == 65 && measured.changes.back().delta_khz == 25312);
+        band.ramp_use_default_step = true;
+        const auto inferred = plan_curve(actual, band); CHECK(inferred.ok && inferred.changes.size() == 5);
+        CHECK(inferred.changes.back().idx == 65 && inferred.changes.back().delta_khz == 60000);
         real.kind = CurvePlanKind::hard_deflatten; real.floor_mv = 900; real.cap_mv.reset(); real.target_mhz = 1124;
         const auto hard_plan = plan_curve(actual, real); CHECK(hard_plan.ok && hard_plan.predicted_khz.size() == real.points.size());
         for (const auto& change : hard_plan.changes) CHECK(change.idx != 7); // below-floor point retained

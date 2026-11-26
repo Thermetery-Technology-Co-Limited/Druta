@@ -2,6 +2,9 @@
 
 **Native C++ build.** See [HANDOFF.md](HANDOFF.md) for Windows builds and validation.
 
+Future releases use the C++ frontend. The Python frontend is deprecated.
+Python remains supported for plug-in experiment scripts.
+
 **Version 1.10.0** is the latest stable release of the native C++ application.
 It adds BIOS power relationship weight overrides and clock controls for
 qualified older NVIDIA drivers. See the [1.10.0 release notes](releases/RELEASE-NOTES-1.10.0.md).

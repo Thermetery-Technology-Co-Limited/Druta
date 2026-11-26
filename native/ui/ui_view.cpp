@@ -9,6 +9,8 @@
 #include "classic_layout.h"
 #include "classic_section.h"
 #include "monitor_view.h"
+#include "model_input_inventory.h"
+#include "vbios_override_inventory.h"
 
 #include "imgui.h"
 #include "implot.h"
@@ -99,9 +101,23 @@ void navigation(ViewState& state, bool horizontal) {
         ImGui::TextColored(muted, "%s", state.preview ? "Preview only" : "Session only");
         ImGui::PushStyleColor(ImGuiCol_Text, muted);
         ImGui::TextWrapped("%s", state.preview ? "GPU controls are not connected yet."
-            : "Apply is explicit. Saved settings apply only when you load them.");
+            : "Manage saved profiles in the Classic profile bar.");
         ImGui::PopStyleColor();
     }
+}
+
+void select_adapter(ViewState& state, const SessionSnapshot& snapshot, const std::string& slot) {
+    if (slot == snapshot.selected_slot) return;
+    if (!snapshot.data.tuning.owned) {
+        state.select_slot = slot;
+        return;
+    }
+
+    std::string why;
+    if (auto target = second_window_card_target(snapshot, slot, why))
+        state.app_actions.second_window = std::move(target);
+    else
+        state.app_actions.status = std::move(why);
 }
 
 void top_bar(ViewState& state) {
@@ -149,7 +165,7 @@ void top_bar(ViewState& state) {
                 for (const auto& device : snapshot->devices) {
                     const std::string item = device.name + " | " + device.slot;
                     if (ImGui::Selectable(item.c_str(), device.slot == snapshot->selected_slot))
-                        state.select_slot = device.slot;
+                        select_adapter(state, *snapshot, device.slot);
                 }
                 ImGui::EndCombo();
             }
@@ -439,6 +455,7 @@ void sync_live_drafts(ViewState& state) {
     const auto& snapshot = *state.live;
     if (!state.generation_initialized || state.draft_generation != snapshot.generation) {
         state.drafts = {};
+        state.classic_clock_patterns.clear();
         state.draft_generation = snapshot.generation;
         state.generation_initialized = true;
         // Unlock is a presentation preference. Discard adapter-specific drafts,
@@ -480,10 +497,23 @@ void sync_curve_entry(ViewState& state) {
     }
 }
 
-void classic_log_line(ViewState& state, std::string text, std::optional<bool> ok) {
+void classic_log_line(ViewState& state, std::string text, std::optional<bool> ok, bool log_only = false) {
     const auto& log = state.live->log;
-    state.classic_log_lines.push_back({log.empty() ? 0 : log.back().id, std::move(text), ok});
+    state.classic_log_lines.push_back({log.empty() ? 0 : log.back().id, std::move(text), ok, log_only});
     if (state.classic_log_lines.size() > 200) state.classic_log_lines.erase(state.classic_log_lines.begin());
+}
+
+void observe_classic_clock_patterns(ViewState& state) {
+    if (!state.live || state.live->opening || !state.live->data.connected) return;
+    for (const auto& control : state.live->data.advanced_controls) {
+        if (control.id.kind != AdvancedKind::clock_domain || control.clock_check != ClockCheck::known_pattern ||
+            control.known_clocks.empty() || !control.observed_clocks.empty()) continue;
+        auto& previous = state.classic_clock_patterns[control.id.domain];
+        if (previous == control.known_clocks) continue;
+        previous = control.known_clocks;
+        classic_log_line(state, control.label + " [" + std::to_string(control.id.domain) + "] | Known pattern / " + previous,
+                         std::nullopt, true);
+    }
 }
 
 std::string bounded_text(const char* text, size_t size) {
@@ -1180,6 +1210,7 @@ void live_daily(ViewState& state, bool verbose) {
             live_control_row(state, static_cast<ControlId>(i), names[i], false);
         ImGui::EndTable();
     }
+    if (!snapshot.data.xoc_power_range_note.empty()) ImGui::TextWrapped("%s", snapshot.data.xoc_power_range_note.c_str());
     ImGui::SeparatorText("NVVDD current limit");
     draw_core_current_limit(snapshot, state.controls_unlocked, false, state.advanced_view, state.commands);
     front_pascal_clock_panel(state);
@@ -1327,16 +1358,19 @@ void classic_session_lines(std::vector<ClassicLogEntry>& out, const LogEntry& en
     else if (reset) out.push_back({entry.ok ? "reset to stock complete" : "reset incomplete", entry.ok});
     else out.push_back({heading, entry.ok});
 }
-std::vector<ClassicLogEntry> classic_log_entries(const ViewState& state) {
+std::vector<ClassicLogEntry> classic_log_entries(const ViewState& state, bool include_log_only = true) {
     std::vector<ClassicLogEntry> out;
     if (!state.live) return out;
     const auto& own = state.classic_log_lines;
+    const auto append = [&](const ViewState::ClassicLogLine& entry) {
+        if (include_log_only || !entry.log_only) out.push_back({entry.text, entry.ok});
+    };
     size_t next = 0;
     for (const auto& entry : state.live->log) {
-        for (; next < own.size() && own[next].after_log_id < entry.id; ++next) out.push_back({own[next].text, own[next].ok});
+        for (; next < own.size() && own[next].after_log_id < entry.id; ++next) append(own[next]);
         classic_session_lines(out, entry);
     }
-    for (; next < own.size(); ++next) out.push_back({own[next].text, own[next].ok});
+    for (; next < own.size(); ++next) append(own[next]);
     return out;
 }
 std::string classic_log_text(const ClassicLogEntry& entry) {
@@ -1346,10 +1380,9 @@ void classic_log(const ViewState& state);
 
 // 1.9.1 apply_plan: one plan for the banner before the click and the log's
 // receipt at it.
-CurvePlanBanner classic_plan(const ViewState& state, const std::string& rephase_label) {
+CurvePlanBanner classic_plan(const ViewState& state) {
     CurvePlanBannerInput input;
-    input.cap_mv = state.curve_cap_mv; input.table_rows = state.live->data.curve.size();
-    input.apply_label = classic_apply_label; input.rephase_label = rephase_label;
+    input.cap_mv = state.curve_cap_mv;
     // 1.9.1 _plan_note: the ramp or hard de-flatten that was staged last, for as long as edits stay staged.
     input.note_hard = state.hard_plan_staged && state.curve_draft.dirty();
     if (state.curve_draft.dirty()) input.note = state.curve_plan_note;
@@ -1358,8 +1391,8 @@ CurvePlanBanner classic_plan(const ViewState& state, const std::string& rephase_
 // 1.9.1 vf_apply logs plan["warn"] + "writing " + plan["text"] (+ ". " + the
 // planner's note) before the write, [!!] when the plan lowers the peak or is a
 // hard de-flatten: the banner's first body line, reworded. Empty with nothing staged.
-std::optional<ClassicLogEntry> classic_apply_receipt(const ViewState& state, const std::string& rephase_label) {
-    const auto banner = classic_plan(state, rephase_label);
+std::optional<ClassicLogEntry> classic_apply_receipt(const ViewState& state) {
+    const auto banner = classic_plan(state);
     const auto line = banner.body.substr(0, banner.body.find('\n'));
     const auto writes = line.find("Writes ");
     if (banner.band == CurvePlanBand::idle || writes == std::string::npos) return std::nullopt;
@@ -1369,31 +1402,29 @@ std::optional<ClassicLogEntry> classic_apply_receipt(const ViewState& state, con
     return ClassicLogEntry{text, banner.band == CurvePlanBand::bad ? std::optional<bool>(false) : std::nullopt};
 }
 
-// 1.9.1 vf_plan: a bordered box that always says what one click on Apply writes.
-void classic_plan_banner(const ViewState& state, const std::string& rephase_label) {
-    const auto banner = classic_plan(state, rephase_label);
-    const ImVec4 head = banner.band == CurvePlanBand::idle ? py_dim : banner.band == CurvePlanBand::warn ? py_warn : py_bad;
-    const ImVec4 fill = banner.band == CurvePlanBand::idle ? rgb(32, 35, 42) : banner.band == CurvePlanBand::warn ? rgb(58, 44, 10) : rgb(66, 20, 20);
-    const ImVec4 border = banner.band == CurvePlanBand::idle ? rgb(72, 78, 92) : head;
+void classic_plan_banner(const ViewState& state) {
+    const auto banner = classic_plan(state);
+    if (banner.band == CurvePlanBand::idle) {
+        ImGui::TextColored(py_dim, "%s", banner.body.c_str());
+        return;
+    }
+    const bool bad = banner.band == CurvePlanBand::bad;
+    const ImVec4 fill = bad ? rgb(66, 20, 20) : rgb(58, 44, 10);
+    const ImVec4 border = bad ? py_bad : py_warn;
     ImGui::PushStyleColor(ImGuiCol_ChildBg, fill); ImGui::PushStyleColor(ImGuiCol_Border, border);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, classic_px(2));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(classic_px(12), classic_px(8)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(classic_px(8), classic_px(4)));
     if (ImGui::BeginChild("vf_plan", ImVec2(0, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY
         | ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar)) {
-        // Dear PyGui draws each add_text on a frame-height line, the text 3 px
-        // down: the heading's line is its 26 px font plus the frame padding.
-        ImGui::PushFont(classic_fonts.heading, 26.0f);
-        ImGui::AlignTextToFramePadding();
-        ImGui::PushStyleColor(ImGuiCol_Text, head); ImGui::TextWrapped("%s", banner.head.c_str()); ImGui::PopStyleColor();
-        ImGui::PopFont();
-        // 1.9.1 sizes this box from measured text plus 5 px per line (plan_h, 119
-        // px idle at 1x): the body and reset lines also sit 3 px down on their
-        // lines, and a strip of empty colour stays under the reset line.
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + classic_px(3));
-        ImGui::PushStyleColor(ImGuiCol_Text, py_text); ImGui::TextWrapped("%s", banner.body.c_str()); ImGui::PopStyleColor();
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + classic_px(3));
-        ImGui::PushStyleColor(ImGuiCol_Text, py_dim); ImGui::TextWrapped("%s", banner.reset.c_str()); ImGui::PopStyleColor();
-        ImGui::Dummy(ImVec2(0, std::max(0.0f, classic_px(9) - ImGui::GetStyle().ItemSpacing.y)));
+        if (!banner.warning.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, py_bad);
+            ImGui::TextWrapped("%s", banner.warning.c_str());
+            ImGui::PopStyleColor();
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, py_text);
+        if (!banner.point_detail.empty()) ImGui::TextWrapped("%s", banner.point_detail.c_str());
+        ImGui::TextWrapped("%s", banner.body.c_str());
+        ImGui::PopStyleColor();
     }
     ImGui::EndChild();
     ImGui::PopStyleVar(2); ImGui::PopStyleColor(2);
@@ -1463,9 +1494,10 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
     ImGui::BeginDisabled(!can_plan);
     if (ImGui::Button(rephase, ImVec2(classic_px(350), 0))) kind = CurvePlanKind::rephase;
     ImGui::EndDisabled();
-    const auto rephase_tip = "Puts every point back on ONE " + gs + " MHz phase - this\n"
-        "card's own grid, read from the driver's lockable-clock\n"
-        "table, not a fixed 15 MHz.\n\n"
+    const auto rephase_tip = "Puts every point back on one " + gs + " MHz request grid.\n"
+        "Druta uses the supported clock table when available, then\n"
+        "checks the V/F curve for regular spacing. If neither source\n"
+        "qualifies, Druta uses a 15 MHz planning step.\n\n"
         "The clock is floor((base+delta)/step)*step, so two points\n"
         "only move together when their deltas share a remainder\n"
         "mod the step. A stray point crosses bin boundaries at a\n"
@@ -1649,7 +1681,7 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
         if (ImGui::InputDouble("Margin (mV)",&state.headroom_margin_mv,0,0,"%.3f")) state.headroom_margin_mv = clamp_headroom_margin_mv(state.headroom_margin_mv);
         if (!embedded) ImGui::Checkbox("Unlock tuning controls", &state.controls_unlocked);
         ImGui::TextWrapped("Set MHz floors onto the captured point's clock phase. Drag snaps half up; voltage stays fixed. Empty left-drag pans; wheel zooms. Ctrl+Shift+Z also redoes local edits (64 deep). Closing keeps the draft. Apply and hardware Undo are separate explicit commands.");
-        ImGui::TextWrapped("Current card grid: %.9g MHz. Request divisor: %u. Draft frequency predicts a request, not a measurement.",
+        ImGui::TextWrapped("Request grid %.9g MHz. Request divisor %u. Draft frequency predicts the requested clock.",
             data.curve_step_khz / 1000.0, editor.freq_div());
         if (!data.curve_error.empty()) ImGui::TextWrapped("%s", data.curve_error.c_str());
         // The native curve-profile result stays with the tool that made it.
@@ -1674,7 +1706,7 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
     // [!!], DIM untagged. Editor feedback reaches it through the log, so the rows
     // below never move; the hold state is the line under the read-out.
     // A multi-line entry shows its last line only, so the rows below keep their place.
-    const auto log = classic_log_entries(state);
+    const auto log = classic_log_entries(state, false);
     if (!log.empty()) {
         const auto& last = log.back();
         const auto newline = last.text.rfind('\n');
@@ -1683,7 +1715,7 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
         ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(mirror.c_str());
         ImGui::PopTextWrapPos(); ImGui::PopStyleColor();
     }
-    classic_plan_banner(state, rephase);
+    classic_plan_banner(state);
     const float banner_height = ImGui::GetItemRectSize().y;
 
     if (!points.empty()) {
@@ -1700,7 +1732,7 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
             std::snprintf(label,sizeof(label),"%+.9g", static_cast<double>(bins) * data.curve_step_khz / 1000.0);
             ImGui::PushID(bins);
             if (ImGui::Button(label, ImVec2(classic_px(58), 0))) nudge_selected_curve(state,bins);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stage %d clock bin(s), %+.9g MHz. No GPU write.", bins,
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stage %d request step(s), %+.9g MHz.", bins,
                 static_cast<double>(bins) * data.curve_step_khz / 1000.0);
             ImGui::PopID();
         }
@@ -1748,7 +1780,7 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
         if (ImGui::Button(classic_apply_label, ImVec2(classic_px(300), 0))) {
             if (editor.can_apply()) {
                 // 1.9.1 vf_apply: the log is the write's receipt, written at the click.
-                if (auto receipt = classic_apply_receipt(state, rephase)) classic_log_line(state, std::move(receipt->text), receipt->ok);
+                if (auto receipt = classic_apply_receipt(state)) classic_log_line(state, std::move(receipt->text), receipt->ok);
                 Command command;
                 command.operation = Command::Operation::apply_curve;
                 command.expected_curve = editor.baseline(); command.expected_curve_freq_div = editor.freq_div();
@@ -1775,7 +1807,7 @@ void classic_curve_workspace(ViewState& state, bool embedded) {
     ImGui::TextColored(py_dim, "%s", curve_key_help(data.curve_step_khz).c_str());
     // Inline, the plot takes 1.9.1's budget so the rows, banner, plot and log
     // fit one view; the separate window keeps filling its own height.
-    if (embedded) interactive_curve_plot(state, curve_plot_budget(classic_curve_share_height(), classic_px(104),
+    if (embedded) interactive_curve_plot(state, curve_plot_budget(classic_curve_share_height(), ImGui::GetTextLineHeight(),
         banner_height, open_blocks, classic_px(240)));
     else interactive_curve_plot(state);
 }
@@ -1808,7 +1840,7 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
                 std::snprintf(label,sizeof(label),"%+.9g", static_cast<double>(bins) * snapshot.data.curve_step_khz / 1000.0);
                 ImGui::PushID(bins);
                 if (ImGui::Button(label)) nudge_selected_curve(state,bins);
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stage %d clock bin(s), %+.9g MHz. No GPU write.", bins,
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stage %d request step(s), %+.9g MHz.", bins,
                     static_cast<double>(bins) * snapshot.data.curve_step_khz / 1000.0);
                 ImGui::PopID();
             }
@@ -1938,7 +1970,7 @@ void live_curve_workspace(ViewState& state, bool verbose, bool embedded = false)
         snapshot.data.curve_step_khz / 1000.0);
     if (ImGui::CollapsingHeader("Curve details")) {
         ImGui::TextWrapped("Set MHz floors onto the captured point's clock phase. Drag snaps half up; voltage stays fixed. Empty left-drag pans; wheel zooms. Ctrl+Shift+Z also redoes local edits (64 deep). Closing keeps the draft. Apply and hardware Undo are separate explicit commands.");
-        ImGui::TextWrapped("Current card grid: %.9g MHz. Request divisor: %u. Draft frequency predicts a request, not a measurement.",
+        ImGui::TextWrapped("Request grid %.9g MHz. Request divisor %u. Draft frequency predicts the requested clock.",
             snapshot.data.curve_step_khz / 1000.0, editor.freq_div());
         if (verbose) ImGui::TextWrapped("%s", snapshot.data.curve_error.c_str());
     }
@@ -2315,6 +2347,73 @@ const char* advanced_clock_title(const SessionSnapshot& snapshot) {
     return arch && *arch < 4 ? "Firmware clock targets" : "Pascal clock ceilings and ratios";
 }
 
+void tuning_support_panel(ViewState& state) {
+    const auto& live = *state.live;
+    ImGui::BeginDisabled(state.preview || !live.data.connected || live.opening || live.busy || state.select_slot.has_value());
+    if (ImGui::Button("Read tuning support")) {
+        Command read;
+        read.operation = Command::Operation::read_tuning_support;
+        state.commands.push_back(std::move(read));
+    }
+    ImGui::EndDisabled();
+    const auto& inventory = live.data.firmware_inventory;
+    if (!inventory && !live.data.model_inputs) return;
+    if (!live.data.connected || live.opening || state.select_slot.has_value()) {
+        ImGui::TextWrapped("Waiting for the selected GPU's identity before showing its tuning support.");
+        return;
+    }
+    const auto& max = live.data.max_it;
+    if (max.ready()) ImGui::TextWrapped("Max it targets %u%% fan, %.6g W board power, voltage boost and a V/F hold.", max.fan_percent, max.board_mw / 1000.0);
+    else ImGui::TextWrapped("Max it unavailable. %s", max.reason.c_str());
+    if (!max.fan_range_note.empty()) ImGui::TextWrapped("%s", max.fan_range_note.c_str());
+    ImGui::TextWrapped("%s", live.data.inspected_xoc_note.c_str());
+    if (const auto& inputs = live.data.model_inputs) {
+        ImGui::SeparatorText("Speedo and IDDQ");
+        if (!inputs->error.empty()) ImGui::TextWrapped("%s", inputs->error.c_str());
+        else if (ImGui::BeginTable("model-input-inventory", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("Model input");
+            ImGui::TableSetupColumn("Active (raw)");
+            ImGui::TableSetupColumn("Driver readback", ImGuiTableColumnFlags_WidthStretch, 3.f);
+            ImGui::TableHeadersRow();
+            for (uint32_t i = 0; i < DC_MODEL_INPUT_COUNT; ++i) {
+                const auto& row = inputs->values.rows[i];
+                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextUnformatted(model_input_name(i));
+                ImGui::TableNextColumn();
+                if (row.state == DC_MODEL_READY) ImGui::Text("%lld", static_cast<long long>(row.active));
+                else ImGui::TextDisabled("%s", model_input_status(row.state));
+                ImGui::TableNextColumn();
+                if (row.state == DC_MODEL_READY) {
+                    ImGui::TextWrapped("Input %u, hardware %lld, default %lld. Range %.7g to %.7g.",
+                        row.index, static_cast<long long>(row.raw_hardware), static_cast<long long>(row.default_value),
+                        row.minimum, row.maximum);
+                    if (row.override_present) ImGui::Text("Override %u", row.override_value);
+                } else ImGui::TextWrapped("%s", row.reason);
+            }
+            ImGui::EndTable();
+            ImGui::TextWrapped("IDDQ uses raw model units. Its conversion to electrical current is unknown.");
+        }
+    }
+    if (!inventory) return;
+    if (!inventory->error.empty()) {
+        ImGui::TextWrapped("%s", inventory->error.c_str());
+        return;
+    }
+    ImGui::TextWrapped("These values come from the running firmware image. Each editor checks its own write and recovery support.");
+    if (ImGui::BeginTable("firmware-field-inventory", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Field", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Firmware evidence", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableHeadersRow();
+        for (const auto& family : inventory->families) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", family.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", family.observation.c_str());
+        }
+        ImGui::EndTable();
+    }
+}
+
 void power_weights_panel(ViewState& state, bool classic) {
     const auto& snapshot=*state.live;
     const auto* weights=snapshot.data.power_weights.get();PowerWeightsData with_saved_receipt;
@@ -2458,6 +2557,7 @@ void live_semantic_controls(ViewState& state, bool classic) {
     if(policy_navigation)ImGui::SetNextItemOpen(weights_navigation);
     state.open_power_weights_requested=false;
     if(ImGui::CollapsingHeader("Power relationship weights")) power_weights_panel(state, classic);
+    if(ImGui::CollapsingHeader("Tuning support")) tuning_support_panel(state);
     if (show_pascal_clocks(state)) {
         if (policy_navigation) ImGui::SetNextItemOpen(clocks_navigation);
         if (ImGui::CollapsingHeader(advanced_clock_title(*state.live))) {
@@ -2572,6 +2672,7 @@ void classic_advanced_sections(ViewState& state) {
         if (show_pascal_clocks(state))
             sub(advanced_clock_title(*state.live), clocks, true, [&]{ pascal_clock_panel(state); });
         sub("Power relationship weights", weights, true, [&]{ power_weights_panel(state, true); });
+        sub("Tuning support", false, false, [&]{ tuning_support_panel(state); });
         // registry_panel.py build_registry "DIFR configured state". Its reader
         // (lpwr_runtime.read) has no native port yet, so the subsection says so
         // rather than offering a Read that cannot run.
@@ -2833,7 +2934,8 @@ void classic_header(ViewState& state) {
         if (snapshot) for (const auto& device : snapshot->devices) {
             // 1.9.1 card_label: three spaces between name and slot.
             const auto name = device.name + "   " + device.slot;
-            if (ImGui::Selectable(name.c_str(), device.slot == snapshot->selected_slot)) state.select_slot = device.slot;
+            if (ImGui::Selectable(name.c_str(), device.slot == snapshot->selected_slot))
+                select_adapter(state, *snapshot, device.slot);
         }
         ImGui::EndCombo();
     }
@@ -2870,8 +2972,6 @@ void classic_header(ViewState& state) {
     ImGui::TableNextColumn();
     draw_device_restart_button(state);
     ImGui::EndTable();
-    // 1.9.1 has no row here: Save / Load profile and the native catalog live in
-    // the Profiles menu, Always refresh / Pause / presentation in File.
 }
 
 constexpr Page classic_pages[]{Page::daily, Page::advanced, Page::monitor, Page::timings};
@@ -3087,6 +3187,7 @@ void classic_daily(ViewState& state) {
                 state.classic_power_feedback ? state.classic_power_feedback->text : std::string());
             ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + classic_px(classic_column_width - 20));
             ImGui::AlignTextToFramePadding();
+            if (!s.data.xoc_power_range_note.empty()) ImGui::TextWrapped("%s", s.data.xoc_power_range_note.c_str());
             ImGui::TextColored(status.warn ? py_warn : py_dim, "%s", status.text.c_str());
             ImGui::PopTextWrapPos();
         }
@@ -3155,7 +3256,7 @@ void classic_advanced(ViewState& state) {
     ImGui::AlignTextToFramePadding();
     // The same Classic log the Control page shows (1.9.1 log() sets vf_status
     // and adv_status together): untagged lines DIM, timing captures filtered.
-    const auto log = classic_log_entries(state);
+    const auto log = classic_log_entries(state, false);
     if (log.empty()) ImGui::TextUnformatted("");
     else ImGui::TextColored(!log.back().ok ? py_dim : *log.back().ok ? py_good : py_bad, "%s", classic_log_text(log.back()).c_str());
     ImGui::PopTextWrapPos();
@@ -3263,6 +3364,10 @@ void classic_floating_pages(ViewState& state) {
 }
 
 } // namespace
+
+void mark_catalog_profile_apply(ViewState& state, const ProfileJson& document) {
+    state.classic_catalog_rereads = profile_rereads_curve(document);
+}
 
 bool front_clock_capture_ready(const ViewState& state) {
     if (!state.live || state.page != Page::daily) return true;
@@ -3380,11 +3485,12 @@ void draw(ViewState& state) {
         state.curve_window_open = true;
         state.curve_window_focus_requested = true;
     }
+    const bool classic = state.presentation == Presentation::classic;
     if (!state.preview) {
         if (state.live) state.pascal_clock_view.sync(state.live->generation);
         sync_live_drafts(state); observe_curve(state); observe_power_request(state);
+        if (classic) observe_classic_clock_patterns(state);
     }
-    const bool classic = state.presentation == Presentation::classic;
     classic_fonts.classic = classic;
     if (!classic || !state.live) state.classic_reset_deadline = 0;
     if (classic && (state.page == Page::rails || state.page == Page::i2c)) state.page = Page::daily;
@@ -3487,6 +3593,7 @@ void draw(ViewState& state) {
                     "The score describes enabled control modes, not measured hardware safety. Locking edits does not release an active controller request.");
             }
         }
+        if (classic) draw_classic_profile_bar(state);
         draw_mode_bar(*state.live, state.controls_unlocked, state.commands, classic, [&] { draw_i2c_gate(state); }, &state.advanced_view);
         {
             const auto& s=*state.live;
@@ -3544,6 +3651,7 @@ void draw(ViewState& state) {
             ImGui::BeginDisabled(!s.data.connected || s.busy || s.curve_stale || !state.controls_unlocked || !s.data.max_it_available || state.curve_draft.dirty());
             if (ImGui::Button(max_label, max_size)) {
                 Command c; c.operation=Command::Operation::max_it; c.expected_curve=s.data.curve; c.expected_curve_freq_div=s.data.curve_freq_div;
+                if (s.data.max_it.ready()) c.expected_max_it=s.data.max_it;
                 c.curve_cap_mv=state.curve_cap_mv; c.curve_floor_mv=state.curve_floor_mv;
                 c.hold_headroom=state.hold_headroom; c.headroom_margin_mv=state.headroom_margin_mv; state.commands.push_back(c);
             }
@@ -3552,27 +3660,35 @@ void draw(ViewState& state) {
             // 1.9.1's Max it tooltip, with the undo, hold and step-order lines
             // stated as this build does them: Undo releases the hold first and
             // the steps stop at the first refusal.
-            if (classic) classic_tooltip(
+            char targets[160]{};
+            if (s.data.max_it.ready())
+                std::snprintf(targets, sizeof(targets), "Max it requests %u%% manual fan, %.7g W normal board power and 100%% voltage boost.\n",
+                              s.data.max_it.fan_percent, s.data.max_it.board_mw / 1000.0);
+            const std::string plan_note = s.data.max_it.ready() ? std::string(targets) + s.data.max_it.fan_range_note + "\n\n" :
+                s.data.max_it.reason.empty() ? "" : s.data.max_it.reason + "\n\n";
+            if (classic) classic_tooltip((plan_note +
                 "The four things done by hand at the start of every\n"
                 "session, in one click and in a safe order:\n\n"
-                "  1. fan            -> 100%\n"
-                "  2. power limit    -> this card's maximum\n"
+                "  1. fan            -> highest common manual request\n"
+                "  2. power limit    -> normal board maximum\n"
                 "  3. voltage boost  -> 100%\n"
                 "  4. V/F curve      -> de-flatten, apply, then hold\n"
-                "                       the cap point (same as Ctrl+H)\n\n"
+                "                       the selected voltage point\n\n"
+                "With Hold headroom enabled, a lower reported NVVDD\n"
+                "ceiling after boost also caps the curve and hold.\n\n"
                 "Headroom first, clocks last: cooling before the power\n"
                 "budget rises, budget before the extra voltage spends\n"
                 "it, and the curve last because it is the only step\n"
                 "that asks for more clock.\n\n"
-                "ONE undo point covers the four WRITES - Profiles >\n"
+                "ONE undo point covers the four WRITES - Profile actions >\n"
                 "Undo last write puts them back.\n\n"
                 "UNDO RELEASES THE HOLD FIRST. A lock is driver state,\n"
                 "not a profile value, so Undo lets go of it before it\n"
                 "puts the writes back. Ctrl+H, the Release button and\n"
                 "'Reset all to stock' drop the hold too.\n\n"
-                "Steps run in order and stop at the first refusal; the\n"
-                "undo point is kept and the outcome is logged.\n\n"
-                "The fans stay at 100% MANUAL until you press Auto or\n"
+                "The log shows each step, including whether optional\n"
+                "voltage headroom was applied to the held point.\n\n"
+                "The fans stay at the selected manual duty until Auto or\n"
                 "Reset all to stock - they do not ramp back down.\n\n"
                 "De-flatten works BELOW the voltage cap in the V/F\n"
                 "editor's cap box, so that box bounds what 'max'\n"
@@ -3582,8 +3698,8 @@ void draw(ViewState& state) {
                 "the cap point becomes the unique peak so the arbiter\n"
                 "parks THERE instead of at the bottom of a flat run.\n\n"
                 "This raises voltage, power and clocks together. It is\n"
-                "an overclock, and it can destabilise the driver.");
-            else hint("Uses the normal board maximum, 100% fan/boost, the selected ramp floor/cap, and a V/F hold. Apply or revert curve drafts first.");
+                "an overclock, and it can destabilise the driver.").c_str());
+            else hint((plan_note + "The selected ramp floor and cap set the V/F hold. Apply or revert curve drafts first.").c_str());
             }
             // 1.9.1's gate row has no hold button or line: Classic releases from
             // Ctrl+H, the Clocks menu or Reset, and states the hold under the read-out.
@@ -3607,7 +3723,7 @@ void draw(ViewState& state) {
                     ImGui::PopTextWrapPos(); ImGui::EndTooltip();
                 }
                 ImGui::SameLine(); ImGui::BeginDisabled(s.opening || s.busy || bool(state.select_slot));
-                if (ImGui::Button("Retry")) state.refresh_requested = true;
+                if (ImGui::Button("Retry")) state.capability_refresh_requested = true;
                 ImGui::EndDisabled(); hint("Read this adapter's capabilities again, rail limits included. Nothing is written.");
                 ImGui::SameLine();
                 // 1.9.1 copy_rail_limit_diagnostics confirms the copy in the log.
@@ -3639,7 +3755,7 @@ void draw(ViewState& state) {
             ImGui::TextColored(py_warn, "READ-ONLY - every write control below is disabled%s",
                 state.live->data.curve.empty() ? "" : " (curve edits are still staged, not written)");
         if (!classic) ImGui::Separator();
-    }
+    } else if (classic) draw_classic_profile_bar(state);
     if (classic) classic_tabs(state);
     const bool narrow = classic || ImGui::GetContentRegionAvail().x < u(900);
     if (narrow && !classic) {
@@ -3649,7 +3765,7 @@ void draw(ViewState& state) {
     const char* footer = state.preview
         ? (state.hotkey_available ? "Sample data only. Draft edits stay in this window."
             : "Sample data only. Restore shortcut unavailable; use the taskbar.")
-        : (state.hotkey_available ? "Session-only tuning. Saved settings apply only when you load them."
+        : (state.hotkey_available ? "Session-only tuning."
             : "Session-only tuning. Restore shortcut unavailable; use the taskbar.");
     // 1.9.1 has no footer; Classic keeps the hotkey state in Help > Keyboard
     // shortcuts and the Pause tooltip, and session-only tuning in About.
@@ -3676,6 +3792,11 @@ void draw(ViewState& state) {
         else if (state.page == Page::advanced) { if (classic) classic_advanced(state); else live_advanced(state, false); }
         else if (state.page == Page::rails) {
             title("Rails", "Rail limits and voltage offsets.");
+            const auto& snapshot = *state.live;
+            ImGui::TextWrapped("%s", rail_limit_badge(snapshot).detail.c_str());
+            ImGui::BeginDisabled(snapshot.opening || snapshot.busy || state.select_slot.has_value());
+            if (ImGui::Button("Retry rail detection")) state.capability_refresh_requested = true;
+            ImGui::EndDisabled();
             draw_daily_rail_controls(*state.live, state.controls_unlocked, false, state.advanced_view, state.commands);
             if (!state.advanced_view.notice.empty()) ImGui::TextWrapped("%s",state.advanced_view.notice.c_str());
         }
@@ -3719,9 +3840,6 @@ void draw(ViewState& state) {
     {
         auto output=draw_profile_catalog_workspace(state.profile_catalog_view,state.live ? state.live->generation : 0,
             !state.live || state.live->busy || state.live->opening || !state.live->data.connected,state.controls_unlocked);
-        // Whether the profile applied next re-reads the curve as 1.9.1's full load does.
-        for (const auto& intent : output.intents)
-            if (intent.operation == ProfileCatalogIntent::Operation::apply) state.classic_catalog_rereads = profile_rereads_curve(intent.document);
         state.profile_catalog_intents.insert(state.profile_catalog_intents.end(),output.intents.begin(),output.intents.end());
     }
     if (classic) classic_floating_pages(state);

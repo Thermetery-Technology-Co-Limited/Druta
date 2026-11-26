@@ -219,32 +219,28 @@ int main() {
     CHECK(curve_info_text(shape, edited, 1000).find("   [staged curve, 1 edit(s) not yet written]") != std::string::npos);
 
     CurvePlanBannerInput input;
-    input.cap_mv = 1000; input.table_rows = 127; input.apply_label = "Apply now"; input.rephase_label = "Re-phase to 12.66 MHz increments";
+    input.cap_mv = 1000;
     auto banner = curve_plan_banner(shape, shape, input);
-    CHECK(banner.band == CurvePlanBand::idle && banner.head == "APPLY TO GPU  \xC2\xB7  nothing staged");
-    CHECK(banner.body.find("'Apply now' will write") != std::string::npos && banner.body.find("'Re-phase to 12.66 MHz increments'") != std::string::npos);
-    CHECK(banner.reset == "'Reset curve to stock' is one click too: it zeroes all 127 deltas back to the factory curve and discards 0 staged edit(s).");
+    CHECK(banner.band == CurvePlanBand::idle && banner.body == "Nothing staged" && banner.warning.empty() && banner.point_detail.empty());
     banner = curve_plan_banner(shape, edited, input);
-    CHECK(banner.band == CurvePlanBand::warn && banner.head == "APPLY TO GPU  \xC2\xB7  ONE CLICK WRITES THIS");
+    CHECK(banner.band == CurvePlanBand::warn && banner.warning.empty());
     // As 1.9.1 apply_plan: "top" here is the fastest point under the cap, the
     // peak is the whole table's, and the held count is the capped peak's.
-    CHECK(banner.body.rfind("Writes 1 edited point(s): top \xE2\x89\xA4" "1000 mV becomes 1700 MHz, peak 1800 MHz held by 3 point(s), "
-        "the card parks at idx 3 @ 850.00 mV.\n", 0) == 0);
-    // 1.9.1: Reset re-reads the curve, so the staged edits are discarded with it.
-    CHECK(banner.body.find("Undo hardware write") != std::string::npos
-        && banner.reset == "'Reset curve to stock' is one click too: it zeroes all 127 deltas back to the factory curve and discards 1 staged edit(s).");
+    CHECK(banner.body == "Writes 1 edited point(s): top \xE2\x89\xA4" "1000 mV becomes 1700 MHz, peak 1800 MHz held by 3 point(s), "
+        "the card parks at idx 3 @ 850.00 mV.");
+    CHECK(banner.point_detail == "Point 6 at 1000.00 mV: 1650 to 1680 MHz (offset +30 MHz)");
     auto lowered = shape;
     lowered[3].delta_khz = -50000; lowered[3].freq_mhz = 1750; // idx 7, above the cap, holds the table peak
     banner = curve_plan_banner(shape, lowered, input);
-    CHECK(banner.band == CurvePlanBand::bad && banner.head == "APPLY TO GPU  \xC2\xB7  ONE CLICK LOWERS THE PEAK");
+    CHECK(banner.band == CurvePlanBand::bad && banner.warning.empty());
     CHECK(banner.body.rfind("WARNING: this LOWERS the curve's peak from 1800 to 1750 MHz. Writes 1 edited point(s)", 0) == 0);
     input.note = "Hard plan note"; input.note_hard = true;
     banner = curve_plan_banner(shape, edited, input);
-    CHECK(banner.band == CurvePlanBand::bad && banner.head.find("HARD DE-FLATTEN - WITHOUT THE VOLTAGE MOD THIS WILL CRASH") != std::string::npos);
-    CHECK(banner.body.find("mV.\nHard plan note\nAn undo point") != std::string::npos);
+    CHECK(banner.band == CurvePlanBand::bad && banner.warning == "HARD DE-FLATTEN - WITHOUT THE VOLTAGE MOD THIS WILL CRASH");
+    CHECK(banner.body.find("mV.\nHard plan note") != std::string::npos);
     banner = curve_plan_banner(shape, lowered, input);
-    CHECK(banner.band == CurvePlanBand::bad && banner.head.find("LOWERS THE PEAK") != std::string::npos
-        && banner.body.find("Hard plan note") != std::string::npos); // the peak warning keeps the headline, the note still prints
+    CHECK(banner.band == CurvePlanBand::bad && !banner.warning.empty()
+        && banner.body.find("LOWERS the curve's peak") != std::string::npos && banner.body.find("Hard plan note") != std::string::npos);
 
     // Index box: exact point, else the next existing index the way the value moved.
     const std::vector<dc_vf_point> sparse{point(9, 800, 1500, 0), point(2, 750, 1400, 0), point(20, 900, 1600, 0), point(4, 760, 1450, 0)};

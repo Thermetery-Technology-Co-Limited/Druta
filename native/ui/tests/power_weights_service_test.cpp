@@ -44,5 +44,30 @@ void weight_tests(){for(bool alternate:{false,true}){WeightFake fake(alternate);
  auto invalid_request=sampled_service.preview({{0,1.25,4000}});weight_check(!invalid_request.ok&&!sampled_service.state().rows[0].stale&&sampled_service.state().rows[0].eligible_for_preview&&sampled_service.state().image_availability==VoltagePolicyAvailability::available&&sampled_service.state().info_availability==VoltagePolicyAvailability::available,"Stale expected request after successful capture does not downgrade fresh evidence");
  WeightFake unavailable;unavailable.current.info_availability=VoltagePolicyAvailability::unsupported;unavailable.current.info.clear();PowerWeightsService first(unavailable.api(),reinterpret_cast<dc_gpu*>(1),unavailable.current.adapter);weight_check(first.read().rows.empty()&&!first.state().info_stale,"First unsupported INFO does not fabricate stale last-good rows");
 }
+void policy_only_reads() {
+ WeightFake fixture;
+ auto& capture=fixture.current;
+ PowerWeightsService service(fixture.api(),reinterpret_cast<dc_gpu*>(1),capture.adapter);
+ weight_check(!service.read().rows.empty(),"Existing verified relationship rows are initially visible");
+ capture.layout={0x2080a618,5392,60,128};
+ capture.info.assign(5392,0);
+ weight_u32(capture.info,4,1u<<9);
+ const auto offset=capture.layout.policy_base+9*capture.layout.policy_stride;
+ capture.info[offset]=0x30;
+ capture.info[offset+4]=30;
+ capture.info[offset+5]=9;
+ capture.info[offset+6]=1;
+ weight_u32(capture.info,offset+8,1);
+ weight_u32(capture.info,offset+12,45000);
+ weight_u32(capture.info,offset+16,45000);
+ const auto& result=service.read();
+ weight_check(result.rows.empty() && !result.report.available && result.report.policies_available &&
+     result.info_availability==VoltagePolicyAvailability::available &&
+     std::string(firmware_power_policy_evidence(result.image.policies.at(9),result.report))=="Matches driver definition",
+     "Policy-only packet publishes a fresh binding and clears obsolete relationship editors");
+ weight_check(!service.preview({{0,1.25,4096}}).ok,"Readable power definitions alone cannot produce a weight Preview");
+ capture.info_availability=VoltagePolicyAvailability::transient;
+ weight_check(service.read().info_stale && service.state().report.policies[9],"A later read failure marks retained policy-only data stale");
 }
-int main(){weight_tests();std::printf("Power weights service: %u checks\n",weight_checks);return 0;}
+}
+int main(){weight_tests();policy_only_reads();std::printf("Power weights service: %u checks\n",weight_checks);return 0;}

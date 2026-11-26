@@ -42,6 +42,9 @@ static_assert(sizeof(NvmlPciInfo) == 68, "nvmlPciInfo_t v3 layout");
 class Nvml {
 public:
     explicit Nvml(const std::string& slot = "");
+    ~Nvml();
+    Nvml(const Nvml&) = delete;
+    Nvml& operator=(const Nvml&) = delete;
 
     bool ok = false;
     void* dev = nullptr;
@@ -65,7 +68,9 @@ public:
 private:
     std::optional<NvmlPciInfo> read_pci(void* device) const;
     void select(const std::string& slot);
-    std::unique_ptr<ExportSource> library_;
+    std::shared_ptr<ExportSource> library_;
+    unsigned generation_;
+    int(DRUTA_CDECL* shutdown_)() = nullptr;
 };
 
 }  // namespace druta::backend
