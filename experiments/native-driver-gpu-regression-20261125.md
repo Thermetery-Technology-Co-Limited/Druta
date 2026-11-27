@@ -616,6 +616,19 @@ complete-image verification still refuses activation. Removal restored the
 original full image and INFO exactly in every trial. The verifier reports the
 number and first offset of differing bytes to diagnose this refusal.
 
+The power policy table occupies `0x2F9AE..0x2FF02`; its 15 relationship rows
+end at `0x2FFD4`. The unexplained bytes at `0x47F30..0x47F38` are in the
+**same** second type-`0xE0` NPDS image, about 98 KiB beyond those rows, and
+overlap no decoded power or rail field. Offline inspection of the original and
+running images found all 20 policy rows unchanged and, among 58 decoded fields,
+only the selected relationship weight changed in each trial. The paired driver
+INFO also passed the complete expected-byte check before full-image verification
+rejected the extra bytes. Relationship 5 targets policy 3 (channel 3, rated
+63 W); relationship 0 targets policy 0 (channel 11, rated 5001 W). Both trials
+changed the distant bytes. This does not identify their meaning or rule out
+downstream power/current effects, but gives no evidence that the bytes encode a
+subordinate policy limit.
+
 On 512.15, the V1 rail SET was qualified by its matching GET geometry and a
 −6.25 mV NVVDD reliability request readback; Undo restored every captured
 field. On 610.88, a newly recognized 252-byte client-power role definition
