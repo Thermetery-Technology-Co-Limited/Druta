@@ -4270,7 +4270,10 @@ class GPU:
                 live = getattr(self, "_live_power_last", None)
                 if current is None and live is not None:
                     current = live["requested_mw"]
-        return self._power_request_bounds_mw(current, xoc=xoc, live=live is not None)
+        from .client_power_runtime import MODERN252_SIZES
+        controller = getattr(self, "_live_power_controller", None)
+        extended_reader = live is not None and not (controller and controller.sizes is MODERN252_SIZES)
+        return self._power_request_bounds_mw(current, xoc=xoc, live=extended_reader)
 
     def _read_power_limit_nvml(self):
         """Configured NVML request only; never substitute enforced telemetry."""
@@ -4327,6 +4330,10 @@ class GPU:
                 observed, error = self.read_live_power_request()
             if observed is None:
                 return False, f"live power request not available; no write issued: {error}"
+            from .client_power_runtime import MODERN252_SIZES
+            if (outside and self._get_live_power_controller().sizes is MODERN252_SIZES
+                    and observed["requested_mw"] != mw):
+                return False, "extended power requests are unverified for this policy layout; no write issued"
             bounds = self._power_request_bounds_mw(
                 observed["requested_mw"], xoc=bool(getattr(self, "voltage_xoc_enabled", False)), live=True)
             if not bounds[0] <= mw <= bounds[1] or mw >= 0xFFFFFFFF:
@@ -5172,6 +5179,9 @@ class GPU:
         # .fixed marks a rejection that is a property of this layout on this
         # driver (its size, or a mask it cannot hold), not of the moment
         if packet[16] != 0:
+            if packet[16] == 0x23:
+                self._current_limit_transport = None
+                self._current_limit_layout_choice = None
             exc = ValueError(f"policy info layout rejected (RM 0x{packet[16]:X})")
             exc.fixed = packet[16] in RM_CURRENT_POLICY_SIZE_REFUSALS
             raise exc
@@ -5249,6 +5259,11 @@ class GPU:
         status = self._legacy_clk_escape(packet, fields)
         if status != 0 or packet[16] != 0:
             if status != 0:
+                self._current_limit_transport = None
+                self._current_limit_layout_choice = None
+            elif packet[16] == 0x23:
+                # Discard a rejected client for the next read, without replaying
+                # this operation (especially a SET whose outcome is uncertain).
                 self._current_limit_transport = None
                 self._current_limit_layout_choice = None
             elif (command != 0x2080E61B

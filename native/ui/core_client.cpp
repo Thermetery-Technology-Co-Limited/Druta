@@ -2799,8 +2799,21 @@ class Client final : public IBackend {
     }
     bool locks_clear(std::string& why) {
         dc_vf_lock_status vf{}; dc_clk_lock_status clock{};
-        if (!api_.tuning.vf_status || !api_.tuning.clock_status || retry(api_.tuning.vf_status,gpu_,0,0u,&vf)!=DC_OK || vf.error[0] ||
-            retry(api_.tuning.clock_status,gpu_,&clock)!=DC_OK || clock.error[0]) { why="Clock/V/F hold status unavailable"; return false; }
+        if (!api_.tuning.vf_status || !api_.tuning.clock_status) {
+            why="Clock/V/F hold status interfaces unavailable"; return false;
+        }
+        const auto vf_status=retry(api_.tuning.vf_status,gpu_,0,0u,&vf);
+        if (vf_status!=DC_OK || vf.error[0]) {
+            why="V/F hold status unavailable";
+            if (vf.error[0]) why+=": "+std::string(vf.error);
+            return false;
+        }
+        const auto clock_status=retry(api_.tuning.clock_status,gpu_,&clock);
+        if (clock_status!=DC_OK || clock.error[0]) {
+            why="Frequency-lock status unavailable";
+            if (clock.error[0]) why+=": "+std::string(clock.error);
+            return false;
+        }
         if (vf.locked || clock.locked) { why="A clock or V/F hold is already active; release its owner first"; return false; }
         return true;
     }

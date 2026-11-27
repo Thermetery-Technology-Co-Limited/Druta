@@ -7,6 +7,7 @@
 #include "backend/power_layout_catalog_generated.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <set>
 #include <stdexcept>
 #include <regex>
@@ -344,6 +345,6 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
  }catch(const std::exception& error){out.message=error.what();}return out;
 }
 PowerWeightVerification verify_power_relationship_weights(const PowerWeightPlan& plan,const PowerRelationshipIdentity& identity,const PowerRelationshipLayout& layout,const Bytes& info,const Bytes* image,bool original){PowerWeightVerification result;try{
- require(plan.ok&&plan.state,"Qualified relationship plan required");identity_valid(identity);const auto& state=*plan.state;require(identity_equal(identity,state.identity),"Relationship adapter identity changed");require(layout_equal(layout,state.layout),"Relationship INFO layout changed");const auto report=decode_power_relationships(layout,info);require(report.available,"Current relationship INFO geometry invalid");require(info==*(original?state.info:state.after_info),"Selected weights or unselected INFO bytes differ");if(image)require(*image==*(original?state.image:state.after_image),"Complete relationship image differs");for(const auto& selected:state.selected)checked(report,selected,original?selected.before_raw:selected.after_raw);result.ok=true;result.image_verified=image!=nullptr;result.message=image?"Exact selected weights, preserved INFO and complete image verified":"Exact selected weights and preserved INFO verified; image activation not checked";
+ require(plan.ok&&plan.state,"Qualified relationship plan required");identity_valid(identity);const auto& state=*plan.state;require(identity_equal(identity,state.identity),"Relationship adapter identity changed");require(layout_equal(layout,state.layout),"Relationship INFO layout changed");const auto report=decode_power_relationships(layout,info);require(report.available,"Current relationship INFO geometry invalid");require(info==*(original?state.info:state.after_info),"Selected weights or unselected INFO bytes differ");if(image){const Bytes& expected=*(original?state.image:state.after_image);if(image->size()!=expected.size())throw std::runtime_error("Complete relationship image length differs");if(*image!=expected){size_t first=expected.size(),count=0;for(size_t i=0;i<expected.size();++i)if((*image)[i]!=expected[i]){if(first==expected.size())first=i;++count;}char detail[128];std::snprintf(detail,sizeof(detail),"Complete relationship image differs at %zu byte(s); first offset 0x%zX",count,first);throw std::runtime_error(detail);}}for(const auto& selected:state.selected)checked(report,selected,original?selected.before_raw:selected.after_raw);result.ok=true;result.image_verified=image!=nullptr;result.message=image?"Exact selected weights, preserved INFO and complete image verified":"Exact selected weights and preserved INFO verified; image activation not checked";
  }catch(const std::exception& error){result.message=error.what();}return result;}
 }

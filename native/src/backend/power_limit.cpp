@@ -168,6 +168,10 @@ PowerLimit::RequestState PowerLimit::inspect(StaticTriState& st, bool xoc, std::
 PowerBoundsResult PowerLimit::bounds(StaticTriState& st, bool xoc) {
     const RequestState state = inspect(st, xoc);
     if (!state.nominal) return {std::nullopt, state.bounds_error};
+    // This accepted read layout did not admit a 321 W request on a 320 W
+    // board: the SET returned but the client request stayed at 260 W. A valid
+    // reader alone is not evidence that requests outside INFO bounds land.
+    if (cp_.state().sizes == CpSizeGroup::modern252) return {state.nominal};
     if (!xoc || !state.live_range) return {state.nominal};
     PowerBounds extended = xoc_bounds(*state.live_range);
     extended.high = std::max(extended.high, state.nominal->high);
@@ -210,6 +214,9 @@ PowerLimitSet PowerLimit::set_request(std::optional<std::int64_t> requested, boo
     if (!requested && !state.nominal->contains(mw))
         return done(false, "power limit: default outside current request bounds, left unchanged");
     const bool outside = !state.nominal->contains(mw);
+    if (outside && cp_.state().sizes == CpSizeGroup::modern252 &&
+        !(state.live.value && state.live.value->observation.requested_mw == mw))
+        return done(false, "extended power requests are unverified for this policy layout; no write issued");
     const bool use_live = state.use_live || outside;
     const bool allow_extension = xoc && state.live_range && xoc_bounds(*state.live_range).contains(mw);
     if (outside && !allow_extension) {

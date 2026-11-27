@@ -210,12 +210,17 @@ void inspect_power(HookSession& s, const D3DKMT_ESCAPE& e) {
     if (static_cast<std::uint64_t>(w[2]) == 68u + static_cast<std::uint64_t>(w[15])) append_found(s, w, e);
 }
 
-// 2.4, legacy capture: the 716-byte VoltRailsCtlGet escape with one record selected.
+// Borrow the selected GPU's RM client envelope from a known rail GET. Older
+// clients use V1; later clients can expose the same getter through V2.
 void inspect_legacy(HookSession& s, const D3DKMT_ESCAPE& e) {
-    if (!e.pPrivateDriverData || e.PrivateDriverDataSize != 716) return;
-    std::uint32_t w[18];
+    if (!e.pPrivateDriverData || e.PrivateDriverDataSize < 716 || e.PrivateDriverDataSize > 1104) return;
+    std::uint32_t w[19];
     std::memcpy(w, e.pPrivateDriverData, sizeof w);
-    if (w[2] == 716 && w[14] == 0x20803213u && w[15] == 648 && w[17] == 1) append_found(s, w, e);
+    if (w[0] != 0x4E564441u || w[3] != 0x4E562A2Au ||
+        w[2] != e.PrivateDriverDataSize || w[15] != e.PrivateDriverDataSize - 68 || !e.hAdapter) return;
+    const bool older = (w[2] == 716 || w[2] == 972) && w[14] == 0x20803213u && w[17] == 1;
+    const bool newer = (w[2] == 976 || w[2] == 1104) && w[14] == 0x2080B213u && w[18] == 1;
+    if (older || newer) append_found(s, w, e);
 }
 
 // ---- the rail splice (2.5) --------------------------------------------------------------------------
@@ -448,8 +453,16 @@ CaptureResult capture_legacy_clk_transport(Gpu& gpu) {
     if (!gpu.nvapi.ok) return {};
     auto fn = gpu.nvapi.get<HandlePtrFn>(nvapi_id::VoltRailsCtlGet);
     if (!fn) return {};
-    std::uint32_t block[0xAC8 / 4] = {0x10AC8, 1};
-    return run_capture(HookPolicy::legacy_clk_capture, [&] { return fn(gpu.nvapi.gpu, block); });
+    std::uint32_t block[0xAC8 / 4] = {};
+    CaptureResult result;
+    for (std::uint32_t version : {0x00020AC8u, 0x00010AC8u}) {
+        std::memset(block, 0, sizeof block);
+        block[0] = version;
+        block[1] = 1;
+        result = run_capture(HookPolicy::legacy_clk_capture, [&] { return fn(gpu.nvapi.gpu, block); });
+        if (result.transport || result.no_escape_path) break;
+    }
+    return result;
 }
 
 RailWriteResult rail_write_locked(Gpu& gpu, std::uint32_t control_version, std::uint32_t rail_mask,

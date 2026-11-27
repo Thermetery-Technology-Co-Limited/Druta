@@ -99,6 +99,7 @@ std::optional<std::vector<std::vector<std::uint32_t>>> VfLock::legacy_clk_limit_
     // this NvAPI GPU/client and is captured once from its read-only voltage getter. Later
     // polls escape directly, with fresh count/pointer/record buffers. A rejected cached
     // transport is discarded.
+    legacy_command_unsupported_ = false;
     if (!rm_) return std::nullopt;
     if (!rm_->legacy_clk) {
         auto captured = rm_->capture_legacy_clk();
@@ -121,6 +122,17 @@ std::optional<std::vector<std::vector<std::uint32_t>>> VfLock::legacy_clk_limit_
     packet[15] = 16;
     packet[16] = 0;
     EscapeResult r = escape_raw(gpu_, packet, sizeof packet, transport.fields);
+    // The current client understands this envelope but no longer implements
+    // the separate legacy performance-limit GET. Its active NVML lock is
+    // represented by the validated mode-2 entries in BoostLock instead.
+    // Keep all other failures unknown; a failed read cannot prove an unlock.
+    if (r.outcome == EscapeOutcome::issued && r.ntstatus == 0 && packet[16] == 0x56 &&
+        packet[17] == 2 && transport.header[14] == 0x2080B213u &&
+        (transport.header[2] == 976 || transport.header[2] == 1104)) {
+        legacy_command_unsupported_ = true;
+        rm_->legacy_clk.reset();
+        return std::nullopt;
+    }
     if (r.outcome != EscapeOutcome::issued || r.ntstatus != 0 || packet[16] != 0 || packet[17] != 2) {
         rm_->legacy_clk.reset();
         return std::nullopt;
@@ -191,6 +203,7 @@ Status<ClkLockRange> VfLock::read_clk_lock_status() {
         // even while the modern records report mode 0. Never mistake that
         // independent channel for free ownership.
         if (auto legacy = legacy_clk_lock()) return {legacy, std::nullopt};
+        if (legacy_command_unsupported_) return {std::nullopt, std::nullopt};
         auto arch = telemetry_.arch();
         if (arch && *arch == kArchTuring) {
             auto records = legacy_clk_limit_records();

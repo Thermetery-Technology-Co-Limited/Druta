@@ -438,9 +438,12 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
     CpExchangeResult role = get(kCpRoleInfo, request);
     const bool extended_rm26 = state_.rm26 && state_.rm26_extended;
     while (!role.response && contains(cp_size_refusals(), role.error.rm_status)) {
+        const bool probe_modern252 = !state_.legacy && !state_.rm26_records && state_.sizes == CpSizeGroup::sizes;
         const bool probe_compact = extended_rm26 && !state_.rm26_role_size_known &&
                                    state_.sizes != CpSizeGroup::a612_compact;
-        if (probe_compact) {
+        if (probe_modern252) {
+            state_.sizes = CpSizeGroup::modern252;
+        } else if (probe_compact) {
             // These compact records use the captured 26xx commands. Only the
             // first role GET distinguishes them from the 132-byte records.
             state_.sizes = CpSizeGroup::a612_compact;
@@ -457,6 +460,10 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
         }
         request = role_request();
         role = get(kCpRoleInfo, request);
+        if (probe_modern252 && !role.response) {
+            state_.sizes = CpSizeGroup::sizes;
+            break;
+        }
         if (probe_compact && !role.response) {
             state_.sizes = CpSizeGroup::rm26_extended;
             break;
@@ -736,6 +743,10 @@ CpArbitration ClientPowerController::arbitration(const CpObservation& observatio
     // The early return that also makes SIZES' fixed STATUS allocation below the current table's.
     if (state_.legacy || state_.rm26_records) {
         out.error = kCpArbitrationUnavailable;
+        return out;
+    }
+    if (state_.sizes == CpSizeGroup::modern252) {
+        out.error = "This policy packet geometry has not been traced for arbitration diagnostics.";
         return out;
     }
     const std::vector<std::uint8_t>& info = observation.metadata.native_info;

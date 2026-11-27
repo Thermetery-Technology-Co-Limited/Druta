@@ -524,20 +524,21 @@ November 27, 2026, Windows 10 x64 build 19044. The TITAN RTX at
 `0000:01:00.0` ran VBIOS `90.02.1E.00.02`. The published 1.10.1a core
 (`186159cd`, DLL SHA-256
 `bf99380c4ada2e711eaaac3076f784325f4b7ee6f411cc27522629f52c80d477`)
-and diagnostics built from its source supply the new rows. The original
-Pascal and Ampere rerun uses different builds and keeps its existing results.
+and diagnostics built from its source supplied the initial rows. Candidate
+retests below identify changes from that baseline. The original Pascal and
+Ampere rerun uses different builds and keeps its existing results.
 
 | NVIDIA driver | Core / memory clock offsets | XBAR / SYS / VIDEO / LTC | Nominal power limit | XOC power limit | NVVDD rail limits | BIOS power relationship override | V/F edit and hold | Max It | Other GPUs with verified rows |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **417.35** | Both passed at P0 | All four counter responses verified and restored at P0 | 100–320 W shown. Apply preflight blocked in release and candidate | 1999 W shown. Write unverified | REL round trip passed | Preview passed. Apply image verification failed. Original restored | Edit passed. Candidate Hold and Release passed | Candidate still stops on board power preflight | — |
-| **431.36** | Core and memory passed in loaded retest of release core | XBAR, VIDEO, LTC counter responses verified and restored. SYS was inconclusive | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti |
+| **417.35** | Both passed at P0 | All four counter responses verified and restored at P0 | Release blocked; candidate 260 → 259 → 260 W | 1999 W shown. Candidate 321 W round trip passed | REL round trip passed | Selected weight landed, but full image differed; original restored | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
+| **431.36** | Core and memory passed in loaded retest of release core | All four counter responses verified and restored at P0 on console retest | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti |
 | **472.12** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
-| **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Matching V1 GET. Turing SET unqualified. Original verified | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
-| **560.94** | NVML reported stale zero. Candidate core and memory Apply and Undo passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
-| **581.80** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
-| **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | RTX 3070 Ti |
-| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 100–320 W. Extended ClientPower command rejected by driver | REL round trip passed | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | — |
-| **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | — |
+| **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Candidate V1 REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **560.94** | NVML reported stale zero. Candidate core and memory Apply and Undo passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **581.80** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | RTX 3070 Ti |
+| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | Candidate 100–320 W: 321 W SET acknowledged but did not land | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
+| **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
 
 - **Clocks** Used a 320×180 workload on the selected GPU and checked P0 and
   utilization with NVIDIA's runtime. Passed rows verified configured request
@@ -569,11 +570,13 @@ Pascal and Ampere rerun uses different builds and keeps its existing results.
   the 950 mV point under P0. Max It used a 1000–1050 mV ramp and the
   nominal power range. Both actions refused before changing state on the
   release build because the legacy frequency-lock ownership check could
-  not establish that the channel was free. The candidate recognizes the
-  verified inactive record pair. On 417.35, 431.36 and 472.12, the 950 mV
-  Hold and Release passed with the original curve intact. On 431.36 and
-  472.12, Max It also applied manual fan, 320 W board power, boost, eight
-  curve edits and the 1050 mV hold. Undo restored the starting settings.
+  not establish that the channel was free. The candidate distinguishes an
+  explicitly unsupported old lock channel from an unknown read, while still
+  refusing a foreign lock. Loaded candidate Hold and Release passed on all
+  nine listed driver versions. Loaded candidate Max It applied manual fan,
+  320 W board power, boost, curve edits and the 1050 mV hold on every
+  version except 417.35 before its stale-client repair; the repaired candidate
+  passed on 417.35 too. Undo restored the starting settings.
   The editor requires releasing any active point hold before an edit.
   Where legacy ownership remains unknown, the candidate retains the
   refusal.
@@ -583,3 +586,31 @@ Windows returned `CM_PROB_NEED_RESTART` during a second 560.94 bind while
 drivers were tested sequentially. The rebuilt relationship editor was tested
 against the 7724-, 8620-, and 8632-byte layouts and retained the existing
 complete-image and INFO verification requirements.
+
+### Candidate follow-up and remaining refusal
+
+The 417.35 power-policy GET initially succeeded, then returned RM `0x23`
+(invalid client) on subsequent reads. Druta retained that rejected transport,
+which blocked power Apply and Max It preflight. The candidate now discards the
+client after that response and lets a later bounded read capture a fresh one;
+it never replays a failed SET. Three repeated detailed reads stayed available.
+At loaded P0, 259 W Apply/Undo, 321 W XOC Apply/Undo, V/F Hold/Release, and
+Max It Apply/Undo all passed. Max It reached 320 W and restored 260 W. The
+readback establishes a stored request, not an independent power measurement.
+
+On 417.35 the BIOS override's selected relationship weight did reach its
+requested value. The running image also changed four bytes outside Druta's
+single selected patch. Two trials, to 4097 and 4098, produced the same four
+additional changes. Their meaning is unknown, so complete-image verification
+still refuses activation. Removal restored the original full image and INFO
+exactly in both trials. The verifier now reports the number and first offset
+of differing bytes so this refusal can be diagnosed without weakening it.
+
+On 512.15, the V1 rail SET was qualified by its matching GET geometry and a
+−6.25 mV NVVDD reliability request readback; Undo restored every captured
+field. On 610.88, a newly recognized 252-byte client-power role definition
+made the native reader available, but a 321 W request returned success without
+moving the 260 W request. This geometry therefore offers only the confirmed
+nominal 100–320 W range. On 431.36, the console P0 retest confirmed the SYS
+counter response alongside XBAR, VIDEO and LTC. These conclusions are scoped
+to the tested TITAN RTX, its current firmware, and the stated operating state.

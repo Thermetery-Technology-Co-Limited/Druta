@@ -39,9 +39,9 @@ struct CpSizes {
 };
 
 enum class CpSizeGroup : std::uint32_t {
-    sizes, legacy, turing, info216, rm26, rm26_extended, a612_compact, info200,
+    sizes, legacy, turing, info216, rm26, rm26_extended, a612_compact, info200, modern252,
 };
-inline constexpr std::size_t kCpSizeGroupCount = 8;
+inline constexpr std::size_t kCpSizeGroupCount = 9;
 
 // SIZES, LEGACY_SIZES, ... INFO200_SIZES by group; nullptr for an unknown group.
 const CpSizes* cp_size_group(std::uint32_t group);

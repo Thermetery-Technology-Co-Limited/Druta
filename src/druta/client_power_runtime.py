@@ -30,6 +30,15 @@ SIZES = {
     NATIVE_CONTROL: 13876,
     NATIVE_STATUS: 397048,
 }
+# A modern client group whose role definition is 252 rather than 260 bytes.
+# Selected only after the original role GET receives a definite size refusal.
+MODERN252_SIZES = {
+    **SIZES,
+    ROLE_INFO: 256,
+    NATIVE_INFO: 20000,
+    NATIVE_CONTROL: 13840,
+    NATIVE_STATUS: 396024,
+}
 LEGACY_SIZES = {
     INFO: 1160, CONTROL: 392, SET: 392, ROLE_INFO: 232,
     NATIVE_INFO: 8632, NATIVE_CONTROL: 6356, NATIVE_STATUS: 190272,
@@ -431,6 +440,14 @@ class ClientPowerController:
             except ClientPowerError as exc:
                 if exc.rm_status not in SIZE_REFUSALS:
                     raise
+                if self.sizes is SIZES:
+                    self.sizes = MODERN252_SIZES
+                    try:
+                        role = self._exchange(ROLE_INFO, selector.ljust(self.sizes[ROLE_INFO], b"\x00"))
+                    except ClientPowerError:
+                        self.sizes = SIZES
+                        raise
+                    break
                 if self._legacy and not self._legacy_metadata_matched:
                     if not self._role_info216 and self.sizes is not INFO200_SIZES:
                         self.sizes, self._role_info216 = INFO216_SIZES, True
@@ -596,6 +613,8 @@ class ClientPowerController:
     def _arbitration(self, observation):
         if self._legacy or self._rm26_records:
             return None, "Power arbitration diagnostics are unavailable for this policy layout"
+        if self.sizes is MODERN252_SIZES:
+            return None, "This policy packet geometry has not been traced for arbitration diagnostics."
         info, control = bytes.fromhex(observation["native_info_hex"]), bytes.fromhex(observation["native_control_hex"])
         request = bytearray(SIZES[NATIVE_STATUS])
         request[4:8] = info[4:8]

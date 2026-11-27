@@ -545,7 +545,10 @@ void power_tests(){PowerRelationshipLayout layout;
   check(verify_power_relationship_weights(plan,c.identity,layout,*plan.expected_info,plan.expected_image.get()).ok,"Exact expected image and full INFO verify");
   check(verify_power_relationship_weights(plan,c.identity,layout,c.info,&c.image,true).ok,"Original full INFO and image verify for explicit removal proof");
   auto changed=*plan.expected_info;changed[0x5000]^=1;check(!verify_power_relationship_weights(plan,c.identity,layout,changed).ok,"Unselected unknown INFO change invalidates activation proof");
-  auto changed_image=*plan.expected_image;changed_image[0x700]^=1;check(!verify_power_relationship_weights(plan,c.identity,layout,*plan.expected_info,&changed_image).ok,"Complete image verification includes unselected bytes");
+   auto changed_image=*plan.expected_image;changed_image[0x700]^=1;
+   const auto mismatch=verify_power_relationship_weights(plan,c.identity,layout,*plan.expected_info,&changed_image);
+   check(!mismatch.ok&&mismatch.message.find("1 byte(s); first offset 0x700")!=std::string::npos,
+         "Complete image verification reports the first unselected difference");
   auto other=c.identity;other.subsystem_id^=1;check(!verify_power_relationship_weights(plan,other,layout,*plan.expected_info).ok,"Changed adapter identity refused");
   auto forged=plan;forged.patches.clear();forged.selected[0].after_raw=0;check(verify_power_relationship_weights(forged,c.identity,layout,*plan.expected_info,plan.expected_image.get()).ok,"Public review projection cannot forge authoritative plan");
  }
