@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 // Explicit, manual qualification only. The default path never issues a command.
 #include "backend.h"
+#include "live_curve_readback.h"
 #include "profile_io.h"
 #include <windows.h>
 #include <algorithm>
@@ -17,6 +18,7 @@
 
 namespace {
 using namespace druta::ui;
+using namespace druta::ui::live_check;
 std::string utf8(const wchar_t* value) {
     if (!value) return {};
     const int n = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, nullptr, 0, nullptr, nullptr);
@@ -186,30 +188,6 @@ int roundtrip(IBackend& backend, const LiveData& initial) {
     std::cout << "apply.verified=" << applied_verified << '\n';
     return !apply_threw && applied.ok && applied_verified && undo_needed && undo_ok && verified ? 0 : 1;
 }
-struct CurveRow { double voltage; std::int64_t base; std::int32_t delta; };
-bool curve_signature(const LiveData& d, std::map<uint32_t, CurveRow>& out) {
-    if (!d.curve_freq_div || !d.curve_error.empty() || d.curve.empty() || d.curve.size() > DC_VFP_POINTS) return false;
-    for (const auto& p : d.curve) {
-        const double khz = p.freq_mhz * 1000.0 * d.curve_freq_div;
-        if (!std::isfinite(p.volt_mv) || !std::isfinite(khz) || khz < 0 || khz > UINT32_MAX ||
-            std::abs(khz - std::round(khz)) > 0.000001) return false;
-        const auto base = static_cast<std::int64_t>(std::llround(khz)) - p.delta_khz;
-        if (!out.emplace(p.idx, CurveRow{p.volt_mv, base, p.delta_khz}).second) return false;
-    }
-    return true;
-}
-bool same_curve(const LiveData& before, const LiveData& after, std::optional<std::pair<uint32_t, int32_t>> edit = {}) {
-    std::map<uint32_t, CurveRow> a, b;
-    if (before.curve_freq_div != after.curve_freq_div || !curve_signature(before, a) ||
-        !curve_signature(after, b) || a.size() != b.size()) return false;
-    for (const auto& entry : a) {
-        const auto it = b.find(entry.first);
-        const auto expected = edit && edit->first == entry.first ? edit->second : entry.second.delta;
-        if (it == b.end() || it->second.voltage != entry.second.voltage ||
-            it->second.base != entry.second.base || it->second.delta != expected) return false;
-    }
-    return true;
-}
 // Execute the explicitly selected operation once; perform no additional SET after
 // the single Undo even if either result is uncertain or readback fails.
 int checked_action(IBackend& backend, const LiveData& before, const Command& command,
@@ -322,8 +300,8 @@ int control_roundtrip(IBackend& backend, const LiveData& initial, ControlId cont
     LiveData after; bool got_after = false;
     try { after = backend.read(true); got_after = true; } catch (...) { std::cout << "apply_read.error=Read threw\n"; }
     if (got_after) optional_value("control.readback", after.controls[index].current);
-    // A core offset legitimately changes point deltas, so only its configured
-    // offset is checked here; the complete original curve is checked after Undo.
+    // A core offset legitimately changes point deltas. Undo checks the complete
+    // original set of clock requests.
     const bool applied_verified = got_after && after.connected && same_identity(before.identity, after.identity) &&
         after.controls[index].availability == Availability::available && after.controls[index].current &&
         *after.controls[index].current == target && (control == ControlId::core || same_curve(before, after));
@@ -338,9 +316,19 @@ int control_roundtrip(IBackend& backend, const LiveData& initial, ControlId cont
     LiveData restored; bool got_restored = false;
     try { restored = backend.read(true); got_restored = true; } catch (...) { std::cout << "restore_read.error=Read threw\n"; }
     if (got_restored) optional_value("control.restored", restored.controls[index].current);
-    const bool verified = got_restored && restored.connected && same_identity(before.identity, restored.identity) &&
+    const bool same_adapter = got_restored && restored.connected && same_identity(before.identity, restored.identity);
+    const bool evaluated_match = same_adapter && same_curve(before, restored);
+    bool curve_restored = evaluated_match;
+    if (control == ControlId::core) {
+        // Evaluated frequencies can reflect clock propagation and operating state.
+        // Core Undo restores the configured offset and every mapped raw delta.
+        curve_restored = same_adapter && same_curve(before, restored, {}, CurveMatch::requests);
+        std::cout << "restore.curve_requests_match=" << curve_restored
+                  << "\nrestore.evaluated_curve_matches=" << evaluated_match << '\n';
+    }
+    const bool verified = same_adapter &&
         restored.controls[index].availability == Availability::available && restored.controls[index].current &&
-        *restored.controls[index].current == *c.current && same_curve(before, restored);
+        *restored.controls[index].current == *c.current && curve_restored;
     std::cout << "restore.verified=" << verified << '\n';
     return !threw && applied.ok && applied_verified && undo_needed && undo_ok && verified ? 0 : 1;
 }using AdvancedKey = std::pair<int, uint32_t>;

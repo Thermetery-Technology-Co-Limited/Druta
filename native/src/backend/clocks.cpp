@@ -319,12 +319,14 @@ Outcome Clocks::set_clock_offset(std::uint32_t ctype, double mhz, bool preserve_
             result = set_pstate20_offset(ctype, units, mhz, unit);
         } else if (st != 0) {
             result = {false, dom + " offset failed: " + nv.errstr(st)};
-        } else if (ctype == 2) {
+        } else if (ctype == 2 || shape) {
+            // A successful dispatch does not establish that the offset stuck.
+            // In particular, only a verified core shift may be added to the saved V/F deltas.
             std::optional<OffsetRange> readback = telemetry_.offset_range(ctype);
             if (!readback)
-                result = {false, "memory offset was sent, but readback failed"};
+                result = {false, (ctype == 2 ? std::string("memory") : dom) + " offset was sent, but readback failed"};
             else if (readback->current != units)
-                result = {false, "mem offset requested " + g_format(mhz, true) + " " + unit + ", but the driver reported " +
+                result = {false, dom + " offset requested " + g_format(mhz, true) + " " + unit + ", but the driver reported " +
                                      g_format(static_cast<double>(readback->current) / scale, true) + " " + unit};
             else
                 result = {true, dom + " offset set to " + g_format(mhz, true) + " " + unit};
