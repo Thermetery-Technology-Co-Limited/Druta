@@ -517,3 +517,50 @@ The November 26 results are in the `*cleanboot-47212*`,
 `*common-matrix-r1*`, `*clean560-board-r1*` and `*pascal-isolated*`
 artifacts. The final device and runtime receipts are
 `pnp-58180-both-after-restore.json` and `runtime-58180-both-after-restore.txt`.
+
+## TITAN RTX on Druta 1.10.1a
+
+November 27, 2026, Windows 10 x64 build 19044. The TITAN RTX at
+`0000:01:00.0` ran VBIOS `90.02.1E.00.02`. The published 1.10.1a core
+(`186159cd`, DLL SHA-256
+`bf99380c4ada2e711eaaac3076f784325f4b7ee6f411cc27522629f52c80d477`)
+and diagnostics built from its source supply the new rows. The original
+Pascal and Ampere rerun uses different builds and keeps its existing results.
+
+| NVIDIA driver | Core / memory clock offsets | XBAR / SYS / VIDEO / LTC | Nominal power limit | XOC power limit | NVVDD rail limits | BIOS power relationship override | V/F edit and hold | Max It | Other GPUs with verified rows |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **417.35** | Both passed at P0 | Four rows found. Qualification gated | 100–320 W shown. Apply preflight blocked | 1999 W shown. Write unverified | Four fields read | Preview passed, Apply image verification failed, original restored | 128 points read. Edit and hold pending | Pending | — |
+| **431.36** | Core +15 → 0 MHz. Original full-curve comparison inconclusive. Memory pending | Compact rows found. 1.10.1a retest pending | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti |
+| **472.12** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
+| **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
+| **560.94** | Both writes read back zero. Original state verified on repeat | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL request and Restore passed | 11 rows read. Write geometry unqualified | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
+| **581.80** | Staged. Hardware run pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
+| **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | 11 rows read. Write geometry unqualified | 128 points read. Edit and hold pending | Pending | RTX 3070 Ti |
+| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | Remained 100–320 W with XOC enabled | REL request and Restore passed | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | — |
+| **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | — |
+
+- **Clocks** Used a 320×180 workload on the selected GPU and checked P0 and
+  utilization with NVIDIA's runtime. Passed rows verified configured request
+  readback and restoration. Driver-measured domain counter qualification is
+  a separate check. The earliest OpenGL attempts in a disconnected RDP
+  session were discarded. Console retesting confirmed P0.
+- **Power** The nominal test lowered the configured request by 1 W. The
+  extended test used 321 W for one readback and restored 260 W. The
+  1999 W entry describes the UI request ceiling. The test did not send a
+  1999 W request or infer the effective limit from the slider.
+- **Rails** For a verified write, the tester lowered the NVVDD REL request
+  by 6.25 mV and re-read all four original fields after Undo. A confirmed
+  stored request does not establish a physical voltage change.
+- **BIOS override** Applied one relationship coefficient change from
+  4096 to 4097 in Q4.12 using the production helper and verified the
+  complete projected ROM and INFO. Restore verified the complete original
+  ROM and INFO. There was no VBIOS flash. Memory timing and firmware clock
+  override writes were outside this comparison.
+
+The original GTX 1050 Ti and RTX 3070 Ti results include full Max It and
+V/F round trips. The TITAN RTX extension separates their live results from
+Turing's clock request tests and curve reads. The extra live coverage and
+raw relationship layout capture paused when Windows reported
+`CM_PROB_NEED_RESTART` after the last 560.94 bind. A device-only restart
+was refused. The completed BIOS cycles verified Restore and cleared
+their active recovery journals before this happened.
