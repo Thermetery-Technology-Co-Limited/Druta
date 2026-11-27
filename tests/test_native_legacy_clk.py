@@ -16,8 +16,10 @@ result, the cached transport, and the complete call log (BoostLock, the
 getter, every gdi call with the packet header words, and the record buffer
 the driver was handed)."""
 import ctypes
+import json
 import threading
 from collections import namedtuple
+from pathlib import Path
 import unittest
 
 from druta import native, nvbackend
@@ -334,6 +336,27 @@ class ClkLockStatusTests(HookCase):
             with self.subTest(index=index):
                 (_, (status, _)), _, _ = self.both(LegacyRig(default=ok(rows)), clk_status)
                 self.assertEqual(status, (None, AMBIGUOUS))
+
+    def test_captured_inactive_pair_proves_legacy_ownership_on_native(self):
+        archive = Path(__file__).resolve().parents[1] / "experiments" / "legacy-frequency-production-47212.json"
+        capture = json.loads(archive.read_text(encoding="utf-8"))
+        for baseline in ("original_records", "after_records"):
+            with self.subTest(baseline=baseline):
+                rig = LegacyRig(default=ok(capture[baseline]))
+                python, native_result = self.sides(rig, clk_status)
+                self.assertEqual(python, ((None, AMBIGUOUS), TRANSPORT))
+                self.assertEqual(native_result, ((None, None), TRANSPORT))
+
+        baseline = capture["original_records"]
+        # No writeback, partial writeback, or an altered request/mode/domain is inconclusive.
+        _, native_result = self.sides(LegacyRig(default=Reply(0, 0, 2, None)), clk_status)
+        self.assertEqual(native_result, ((None, AMBIGUOUS), TRANSPORT))
+        for index, value in ((0, 0x4C), (1, 3), (3, 1500000), (4, 1), (81, 0)):
+            rows = [list(row) for row in baseline]
+            rows[1][index] = value
+            with self.subTest(index=index):
+                _, native_result = self.sides(LegacyRig(default=ok(rows)), clk_status)
+                self.assertEqual(native_result, ((None, AMBIGUOUS), TRANSPORT))
 
     def test_other_generations_are_unlocked_without_a_read(self):
         (_, (status, _)), calls, _ = self.both(LegacyRig(arch=NV.GPU.ARCH_AMPERE), clk_status)

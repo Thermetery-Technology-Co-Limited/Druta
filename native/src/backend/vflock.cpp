@@ -195,12 +195,24 @@ Status<ClkLockRange> VfLock::read_clk_lock_status() {
         if (arch && *arch == kArchTuring) {
             auto records = legacy_clk_limit_records();
             bool ambiguous = !records || records->size() != 2;
+            bool has_explicit_khz_unit = true;
+            bool matches_inactive_capture = true;
             const std::uint32_t idents[2] = {0x4C, 0x4B};
             for (std::size_t i = 0; !ambiguous && i < 2; ++i) {
                 const std::vector<std::uint32_t>& row = (*records)[i];
-                if (row.size() != 82 || row[0] != idents[i] || row[1] != 0 || row[4] != 1) ambiguous = true;
+                if (row.size() != 82 || row[0] != idents[i] || row[1] != 0) {
+                    ambiguous = true;
+                    break;
+                }
+                // The recorded RM GET before locking and after reset has no unit or
+                // request payload and ends in all ones (legacy-frequency-production-47212.json).
+                // Require that exact inactive form: the initialized GET buffer has no sentinel.
+                has_explicit_khz_unit = has_explicit_khz_unit && row[4] == 1;
+                matches_inactive_capture = matches_inactive_capture && row.back() == UINT32_MAX &&
+                    std::all_of(row.begin() + 1, row.end() - 1, [](std::uint32_t word) { return word == 0; });
             }
-            if (ambiguous) return {std::nullopt, "legacy frequency-lock state is unreadable or ambiguous"};
+            if (ambiguous || !(has_explicit_khz_unit || matches_inactive_capture))
+                return {std::nullopt, "legacy frequency-lock state is unreadable or ambiguous"};
         }
         return {std::nullopt, std::nullopt};
     }
