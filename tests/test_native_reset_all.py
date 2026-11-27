@@ -238,8 +238,15 @@ class ResetParity(unittest.TestCase):
                     gpu.close()
         if compare:
             self.assertEqual(runs[0]["result"], runs[1]["result"], "steps")
+            # Native offset dispatch performs additional paired getter checks.
+            left_log, right_log = (dict(run["logs"]) for run in runs)
+            for log in (left_log, right_log):
+                log["clock"] = [call for call in log["clock"]
+                                if call[0] not in ("GetClockOffsets", "Pstates20Get")]
+            self.assertEqual(left_log, right_log, "logs")
             for key in runs[0]:
-                self.assertEqual(runs[0][key], runs[1][key], key)
+                if key != "logs":
+                    self.assertEqual(runs[0][key], runs[1][key], key)
         return runs[0]
 
     def steps(self, run):
@@ -586,9 +593,12 @@ class OrderAndUnionTests(ResetParity):
 
         def offsets():
             original()
-            rig.parts["clock"].offsets[0]["off"] = 60
-            rig.parts["clock"].offsets[2]["off"] = 800
-            rig.parts["clock"].deltas[5] = 15000
+            clock = rig.parts["clock"]
+            clock.offsets[0]["off"] = 60
+            clock.offsets[2]["off"] = 800
+            clock.p0[0]["value"] = 60000
+            clock.p0[4]["value"] = 400000
+            clock.deltas[5] = 15000
 
         rig.parts["clock"].reset = offsets
         original_lock = rig.parts["lock"].reset

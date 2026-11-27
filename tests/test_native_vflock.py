@@ -25,7 +25,7 @@ class ParityCase(unittest.TestCase):
     def tearDown(self):
         native.set_export_resolver(None)
 
-    def both(self, rig, action):
+    def both(self, rig, action, *, extra_reads=()):
         """action(gpu) on the Python twin, then on the core, from the same fake state."""
         runs = []
         for kind in ("python", "native"):
@@ -45,6 +45,9 @@ class ParityCase(unittest.TestCase):
                 finally:
                     gpu.close()
             runs.append((result, list(rig.calls), rig.state()))
+        if extra_reads:
+            runs = [(result, [call for call in calls if call[0] not in extra_reads], state)
+                    for result, calls, state in runs]
         self.assertEqual(runs[0], runs[1], "Python and native runs differ")
         return runs[0]
 
