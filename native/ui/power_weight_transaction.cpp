@@ -283,8 +283,11 @@ PowerWeightTransactionResult PowerWeightTransaction::run(PowerWeightOperation op
    result.may_have_changed=true;boundary(api_.restart(receipt.windows));
    receipt.phase=removing?"remove_verifying":"verifying";receipt.message="Selected refresh completed; fresh-process proof pending";persist(false);
   }else{if(verify_original){const auto wanted=restore_power_weight_registry(receipt.before,issued_after(receipt,derived.after),*current.registry);require(equal(wanted,*current.registry),"Owned registry names are not restored to their original values");}else require(equal(*current.registry,derived.after),"Active selected registry state differs from the receipt");}
-  require(bool(api_.fresh_verify),"Independent fresh-process weight verification unavailable");boundary(api_.fresh_verify(receipt,verify_original));
-  receipt.phase=verify_original?"removed":"active";receipt.uncertain=false;receipt.message=verify_original?"Original complete image and INFO verified after removal":"Expected complete image and INFO verified after activation";persist(false);
+  require(bool(api_.fresh_verify),"Independent fresh-process weight verification unavailable");const auto proof=api_.fresh_verify(receipt,verify_original);boundary(proof);
+  receipt.phase=verify_original?"removed":"active";receipt.uncertain=false;
+  receipt.message=verify_original?"Original complete image and INFO verified after removal":
+    (!receipt.is_pascal_clocks()&&!proof.message.empty()?proof.message:
+     "Expected complete image and INFO verified after activation");persist(false);
   if(verify_original){require(bool(api_.clear_active)&&api_.clear_active(receipt),"Original state verified but matching active pointer could not be cleared");}
   result.ok=true;result.message=receipt.message;result.recovery_required=false;
  }catch(const std::exception& error){receipt.message=error.what();if(result.may_have_changed||receipt.uncertain)receipt.uncertain=true;result.message=receipt.message;result.recovery_required=published||journal_attempted||!receipt.issued_names.empty()||receipt.refresh_requested;

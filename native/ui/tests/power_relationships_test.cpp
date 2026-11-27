@@ -129,6 +129,37 @@ void short_v30_tests() {
    check(!verify_power_relationship_weights(plan,identity,layout,changed_info,&expected_rom).ok&&
          !verify_power_relationship_weights(plan,identity,layout,changed_original,&rom,true).ok,
          "Unselected INFO bytes remain part of both full-buffer proofs");
+   if(layout.info_size==7724) {
+    auto with_frts=rom;
+    constexpr size_t dmap=0x700,cmd=dmap+0x50;
+    std::fill_n(with_frts.begin()+dmap,0x7c,uint8_t{0});
+    with_frts[dmap]='D';with_frts[dmap+1]='M';with_frts[dmap+2]='A';with_frts[dmap+3]='P';
+    word(with_frts,dmap+4,3);word(with_frts,dmap+6,0x40);
+    dword(with_frts,dmap+0x0c,0x40);dword(with_frts,dmap+0x2c,0x15);
+    dword(with_frts,cmd,1);dword(with_frts,cmd+4,24);dword(with_frts,cmd+20,2);
+    dword(with_frts,cmd+24,1);dword(with_frts,cmd+28,20);
+    dword(with_frts,cmd+32,0x12345);dword(with_frts,cmd+36,0x100);dword(with_frts,cmd+40,2);
+    auto frts_plan=plan_power_relationship_weights(with_frts,identity,layout,info,requests);
+    check(frts_plan.ok,"FWSEC command outside selected power table preserves the plan");
+    if(frts_plan.ok) {
+     auto observed=*frts_plan.expected_image;
+     dword(observed,cmd+32,0x23456);dword(observed,cmd+40,1);
+     const auto accepted=verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&observed);
+     check(accepted.ok&&accepted.image_verified&&accepted.message.find("FRTS")!=std::string::npos,
+           "Only a qualified framebuffer-to-system FRTS relocation is accepted on Apply");
+     auto changed_size=observed;changed_size[cmd+36]^=1;
+     auto changed_unknown=observed;changed_unknown[0x800]^=1;
+     auto changed_type=observed;dword(changed_type,cmd+40,3);
+     check(!verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&changed_size).ok&&
+           !verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&changed_unknown).ok&&
+           !verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&changed_type).ok,
+           "Changed FRTS size, unrelated image byte or unknown memory type still refuses Apply");
+     auto relocated_original=with_frts;
+     dword(relocated_original,cmd+32,0x23456);dword(relocated_original,cmd+40,1);
+     check(!verify_power_relationship_weights(frts_plan,identity,layout,info,&relocated_original,true).ok,
+           "Restore still requires the exact original FWSEC descriptor");
+    }
+   }
   }
   check(!plan_power_relationship_weights(rom,identity,layout,info,{{1,1,{}}}).ok,
         "Opaque relation kind is inspectable but cannot produce a patch");

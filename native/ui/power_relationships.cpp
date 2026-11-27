@@ -19,6 +19,35 @@ using Bytes=std::vector<uint8_t>;
 void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 uint32_t word32(const Bytes& b,size_t at){require(at<=b.size()&&4<=b.size()-at,"INFO extent missing");return uint32_t(b[at])|uint32_t(b[at+1])<<8|uint32_t(b[at+2])<<16|uint32_t(b[at+3])<<24;}
 uint16_t word16(const Bytes& b,size_t at){require(at<=b.size()&&2<=b.size()-at,"INFO word extent missing");return uint16_t(b[at]|uint16_t(b[at+1])<<8);}
+// The driver can relocate the FWSEC FRTS working region when a ROM override
+// record is present, even if that record writes the original weight. Accept
+// only the observed framebuffer-to-system-memory descriptor transition in a
+// recognized Turing FWSEC command. Every other image byte must still match.
+bool frts_relocation_only(const Bytes& expected,const Bytes& actual,uint32_t architecture){
+ if(architecture!=6 || expected.size()!=actual.size())return false;
+ std::optional<size_t> address;
+ for(size_t d=0;d+0x7c<=expected.size();++d){
+  if(expected[d]!='D'||expected[d+1]!='M'||expected[d+2]!='A'||expected[d+3]!='P'||
+     word16(expected,d+4)!=3||word16(expected,d+6)!=0x40||
+     word32(expected,d+0x0c)<44||word32(expected,d+0x2c)!=0x15)continue;
+  // This DMEM mapper layout places its 44-byte command at +0x50.
+  const size_t cmd=d+0x50, region=cmd+24;
+  if(word32(expected,cmd)!=1||word32(expected,cmd+4)!=24||
+     word32(expected,cmd+8)||word32(expected,cmd+12)||
+     word32(expected,cmd+16)||word32(expected,cmd+20)!=2||
+     word32(expected,region)!=1||word32(expected,region+4)!=20||
+     word32(expected,region+12)!=0x100||word32(expected,region+16)!=2)continue;
+  if(address)return false; // Ambiguous firmware command; retain strict proof.
+  address=region+8;
+ }
+ if(!address)return false;
+ const size_t a=*address,t=a+8;
+ if(!word32(expected,a)||!word32(actual,a)||word32(expected,a)==word32(actual,a)||
+    word32(actual,t)!=1)return false;
+ return std::equal(expected.begin(),expected.begin()+a,actual.begin())&&
+        std::equal(expected.begin()+a+4,expected.begin()+t,actual.begin()+a+4)&&
+        std::equal(expected.begin()+t+4,expected.end(),actual.begin()+t+4);
+}
 bool layout_equal(const PowerRelationshipLayout& a,const PowerRelationshipLayout& b) {
  return a.info_command==b.info_command&&a.info_size==b.info_size&&
         a.policy_base==b.policy_base&&a.policy_stride==b.policy_stride;
@@ -345,6 +374,6 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
  }catch(const std::exception& error){out.message=error.what();}return out;
 }
 PowerWeightVerification verify_power_relationship_weights(const PowerWeightPlan& plan,const PowerRelationshipIdentity& identity,const PowerRelationshipLayout& layout,const Bytes& info,const Bytes* image,bool original){PowerWeightVerification result;try{
- require(plan.ok&&plan.state,"Qualified relationship plan required");identity_valid(identity);const auto& state=*plan.state;require(identity_equal(identity,state.identity),"Relationship adapter identity changed");require(layout_equal(layout,state.layout),"Relationship INFO layout changed");const auto report=decode_power_relationships(layout,info);require(report.available,"Current relationship INFO geometry invalid");require(info==*(original?state.info:state.after_info),"Selected weights or unselected INFO bytes differ");if(image){const Bytes& expected=*(original?state.image:state.after_image);if(image->size()!=expected.size())throw std::runtime_error("Complete relationship image length differs");if(*image!=expected){size_t first=expected.size(),count=0;for(size_t i=0;i<expected.size();++i)if((*image)[i]!=expected[i]){if(first==expected.size())first=i;++count;}char detail[128];std::snprintf(detail,sizeof(detail),"Complete relationship image differs at %zu byte(s); first offset 0x%zX",count,first);throw std::runtime_error(detail);}}for(const auto& selected:state.selected)checked(report,selected,original?selected.before_raw:selected.after_raw);result.ok=true;result.image_verified=image!=nullptr;result.message=image?"Exact selected weights, preserved INFO and complete image verified":"Exact selected weights and preserved INFO verified; image activation not checked";
+ require(plan.ok&&plan.state,"Qualified relationship plan required");identity_valid(identity);const auto& state=*plan.state;require(identity_equal(identity,state.identity),"Relationship adapter identity changed");require(layout_equal(layout,state.layout),"Relationship INFO layout changed");const auto report=decode_power_relationships(layout,info);require(report.available,"Current relationship INFO geometry invalid");require(info==*(original?state.info:state.after_info),"Selected weights or unselected INFO bytes differ");bool relocated=false;if(image){const Bytes& expected=*(original?state.image:state.after_image);if(image->size()!=expected.size())throw std::runtime_error("Complete relationship image length differs");if(*image!=expected){relocated=!original&&frts_relocation_only(expected,*image,identity.architecture);if(!relocated){size_t first=expected.size(),count=0;for(size_t i=0;i<expected.size();++i)if((*image)[i]!=expected[i]){if(first==expected.size())first=i;++count;}char detail[128];std::snprintf(detail,sizeof(detail),"Complete relationship image differs at %zu byte(s); first offset 0x%zX",count,first);throw std::runtime_error(detail);}}}for(const auto& selected:state.selected)checked(report,selected,original?selected.before_raw:selected.after_raw);result.ok=true;result.image_verified=image!=nullptr;result.message=relocated?"Selected weights and preserved INFO verified; only the validated FWSEC FRTS relocation differs":image?"Exact selected weights, preserved INFO and complete image verified":"Exact selected weights and preserved INFO verified; image activation not checked";
  }catch(const std::exception& error){result.message=error.what();}return result;}
 }
