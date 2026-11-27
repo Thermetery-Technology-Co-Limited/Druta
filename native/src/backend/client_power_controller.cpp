@@ -555,6 +555,10 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
         m.native_layout = CpNativeLayout::policy116;
         default_stride = 200;
     }
+    if (state_.sizes == CpSizeGroup::modern252) {
+        m.native_layout = CpNativeLayout::modern252;
+        default_stride = 252;
+    }
     if (native_stride != default_stride) m.native_info_stride = static_cast<std::uint32_t>(native_stride);
     m.info = info;
     m.role_info = role_info;

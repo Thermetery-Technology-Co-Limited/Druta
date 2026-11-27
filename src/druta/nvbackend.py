@@ -4270,10 +4270,7 @@ class GPU:
                 live = getattr(self, "_live_power_last", None)
                 if current is None and live is not None:
                     current = live["requested_mw"]
-        from .client_power_runtime import MODERN252_SIZES
-        controller = getattr(self, "_live_power_controller", None)
-        extended_reader = live is not None and not (controller and controller.sizes is MODERN252_SIZES)
-        return self._power_request_bounds_mw(current, xoc=xoc, live=extended_reader)
+        return self._power_request_bounds_mw(current, xoc=xoc, live=live is not None)
 
     def _read_power_limit_nvml(self):
         """Configured NVML request only; never substitute enforced telemetry."""
@@ -4330,10 +4327,6 @@ class GPU:
                 observed, error = self.read_live_power_request()
             if observed is None:
                 return False, f"live power request not available; no write issued: {error}"
-            from .client_power_runtime import MODERN252_SIZES
-            if (outside and self._get_live_power_controller().sizes is MODERN252_SIZES
-                    and observed["requested_mw"] != mw):
-                return False, "extended power requests are unverified for this policy layout; no write issued"
             bounds = self._power_request_bounds_mw(
                 observed["requested_mw"], xoc=bool(getattr(self, "voltage_xoc_enabled", False)), live=True)
             if not bounds[0] <= mw <= bounds[1] or mw >= 0xFFFFFFFF:

@@ -537,7 +537,7 @@ Ampere rerun uses different builds and keeps its existing results.
 | **560.94** | NVML reported stale zero. Candidate core and memory Apply and Undo passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
 | **581.80** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
 | **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | RTX 3070 Ti |
-| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | Candidate 100–320 W: 321 W SET acknowledged but did not land | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
+| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. After fixing the 252-byte geometry verifier, unloaded 321 W and 1999 W request/restore passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
 | **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
 
 - **Clocks** Used a 320×180 workload on the selected GPU and checked P0 and
@@ -601,16 +601,32 @@ readback establishes a stored request, not an independent power measurement.
 On 417.35 the BIOS override's selected relationship weight did reach its
 requested value. The running image also changed four bytes outside Druta's
 single selected patch. Two trials, to 4097 and 4098, produced the same four
-additional changes. Their meaning is unknown, so complete-image verification
-still refuses activation. Removal restored the original full image and INFO
-exactly in both trials. The verifier now reports the number and first offset
-of differing bytes so this refusal can be diagnosed without weakening it.
+additional changes at `0x47F30..0x47F32` and `0x47F38`. Those offsets belong
+to the second type-`0xE0` NPDS image, away from the patched relationship at
+`0x2FF4A`; the three-byte word changed from `00 66 5F` to `1A 02 85` and the
+other byte from `02` to `01` in both trials. A third trial changed relationship
+index 0 instead of 5, again by one raw unit. Its sole staged registry record,
+`romOverride00`, contained exactly the two-byte patch at `0x2FF04` (`01 10`).
+The running image had that patch plus changes at `0x47F31..0x47F32` and
+`0x47F38`; repeating the same trial produced the same bytes. This shows that
+the extra edits arise during driver activation, not from Druta's registry
+writer. They correlate with the selected relationship location, but not with the
+index-5 raw value in the tested +1/+2 pair. Their purpose remains unknown, so
+complete-image verification still refuses activation. Removal restored the
+original full image and INFO exactly in every trial. The verifier reports the
+number and first offset of differing bytes to diagnose this refusal.
 
 On 512.15, the V1 rail SET was qualified by its matching GET geometry and a
 −6.25 mV NVVDD reliability request readback; Undo restored every captured
 field. On 610.88, a newly recognized 252-byte client-power role definition
-made the native reader available, but a 321 W request returned success without
-moving the 260 W request. This geometry therefore offers only the confirmed
-nominal 100–320 W range. On 431.36, the console P0 retest confirmed the SYS
+made the native reader available. The earlier 321 W refusal was a verifier bug:
+the 13,840-byte native CONTROL readback was compared with the other layout's
+13,876-byte size before its contents were checked. With the geometry corrected,
+259, 321 and 1999 W requests each read back exactly, with driver-recomputed
+peer request words accepted only under the existing occupied-peer check.
+Each unloaded trial immediately restored 260 W and verified it on a fresh read;
+the native C++ action path also accepted 321 and 1999 W and its Undo restored
+260 W. These are stored request results, not proof of an enforced 1999 W limit.
+On 431.36, the console P0 retest confirmed the SYS
 counter response alongside XBAR, VIDEO and LTC. These conclusions are scoped
 to the tested TITAN RTX, its current firmware, and the stated operating state.

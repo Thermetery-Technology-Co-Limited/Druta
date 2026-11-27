@@ -206,6 +206,9 @@ def _native_geometry(binding):
         size, control_stride = _small_native_geometry(binding)
         info_stride = 200 if binding.get("native_layout") == "policy116" else 228
         return 88, stride or info_stride, 20, control_stride, size
+    if binding.get("native_layout") == "modern252":
+        return (NATIVE_INFO_BASE, stride or 252,
+                NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE, MODERN252_SIZES[NATIVE_CONTROL])
     return (NATIVE_INFO_BASE, stride or NATIVE_INFO_STRIDE,
             NATIVE_CONTROL_BASE, NATIVE_CONTROL_STRIDE, SIZES[NATIVE_CONTROL])
 
@@ -530,6 +533,8 @@ class ClientPowerController:
             self._legacy_metadata_matched = True
         if self.sizes is INFO200_SIZES:
             default_stride = 200
+        if self.sizes is MODERN252_SIZES:
+            default_stride = 252
         return {
             "schema": 1,
             "stable_reads": 2,
@@ -549,6 +554,7 @@ class ClientPowerController:
                 **({"native_layout": "policy124"}
                    if self._native_policy124 or self._role_info216 else {}),
                 **({"native_layout": "policy116"} if self.sizes is INFO200_SIZES else {}),
+                **({"native_layout": "modern252"} if self.sizes is MODERN252_SIZES else {}),
                 # Recorded only when the derived record stride differs from
                 # this layout's usual one, so bindings captured on every
                 # previously supported ABI stay byte-identical.

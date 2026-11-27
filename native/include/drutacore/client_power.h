@@ -66,7 +66,8 @@ DC_API dc_status DC_CALL dc_cp_constants_get(dc_cp_constants* out);
  * present value that matches no understood name. */
 enum { DC_CP_ABSENT = 0, DC_CP_OTHER = 1 };
 enum { DC_CP_LAYOUT_RM26 = 2, DC_CP_LAYOUT_LEGACY32 = 3 };
-enum { DC_CP_NATIVE_POLICY124 = 2, DC_CP_NATIVE_RM26_EXTENDED = 3, DC_CP_NATIVE_POLICY116 = 4 };
+enum { DC_CP_NATIVE_POLICY124 = 2, DC_CP_NATIVE_RM26_EXTENDED = 3, DC_CP_NATIVE_POLICY116 = 4,
+       DC_CP_NATIVE_MODERN252 = 5 };
 
 typedef struct dc_cp_binding {
     int32_t layout;        /* DC_CP_ABSENT, DC_CP_OTHER or DC_CP_LAYOUT_* */

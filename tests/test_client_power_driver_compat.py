@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Modern RM packet capacity is independent of a V3 firmware policy table."""
 
+import ctypes
 import struct
 from unittest.mock import Mock, call
 
@@ -57,6 +58,63 @@ class ModernCoupledGpu(FakeGpu):
         assert self._lock.held and index in self.peer_requests
         put(self.native_control, 20 + index * 196 + 4, value)
         return True, "peer request restored"
+
+
+class Modern252Gpu(ModernCoupledGpu):
+    """The accepted 256/20000/13840 packet group with v30 peer coupling."""
+
+    def __init__(self):
+        super().__init__()
+        old = self.native_info
+        compact = bytearray(cp.MODERN252_SIZES[cp.NATIVE_INFO])
+        compact[:cp.NATIVE_INFO_BASE] = old[:cp.NATIVE_INFO_BASE]
+        for index in range(32):
+            source = cp.NATIVE_INFO_BASE + index * cp.NATIVE_INFO_STRIDE
+            target = cp.NATIVE_INFO_BASE + index * 252
+            compact[target:target + 252] = old[source:source + 252]
+        self.native_info = compact
+        self.native_control = self.native_control[:cp.MODERN252_SIZES[cp.NATIVE_CONTROL]]
+
+    def _legacy_clk_escape(self, packet, fields):
+        command, size = int(packet[14]), int(packet[15])
+        if command not in (cp.ROLE_INFO, cp.NATIVE_INFO, cp.NATIVE_CONTROL):
+            return super()._legacy_clk_escape(packet, fields)
+        assert self._lock.held and packet[2] == size + 68
+        request = bytes(packet)[68:68 + size]
+        self.calls.append((command, request))
+        self.counts[command] += 1
+        if command == cp.ROLE_INFO and size == cp.SIZES[cp.ROLE_INFO]:
+            packet[5], packet[11], packet[16] = 1, 1, 0x1F
+            return 0
+        assert size == cp.MODERN252_SIZES[command]
+        if command == cp.ROLE_INFO:
+            result = bytearray(size)
+            struct.pack_into("<I", result, 0, cp.ROLE)
+            row = cp.NATIVE_INFO_BASE + self.native_index * 252
+            result[4:] = self.native_info[row:row + 252]
+        elif command == cp.NATIVE_INFO:
+            assert request == bytes(size)
+            result = self.native_info
+        else:
+            assert cp._u32(request, 16) == self.native_mask
+            result = self.native_control
+        ctypes.memmove(ctypes.addressof(packet) + 68, bytes(result), size)
+        packet[5], packet[11], packet[16] = 1, 1, 0
+        return 0
+
+
+def test_modern252_stores_request_and_restores_driver_recomputed_peers():
+    gpu = Modern252Gpu()
+    controller = cp.ClientPowerController(gpu)
+    before = controller.read()
+    assert before["binding"]["native_layout"] == "modern252"
+    assert "native_info_stride" not in before["binding"]
+    assert cp._native_geometry(before["binding"])[1::3] == (252, 13840)
+    for request in (259000, 321000, 1999000):
+        after = controller.set_request(request)["after"]
+        assert after["requested_mw"] == request
+        assert controller.set_request(gpu.original)["after"]["requested_mw"] == gpu.original
+        assert cp._state(controller.read()) == cp._state(before)
 
 
 @pytest.mark.parametrize("client,native,slot,device,subsystem", [

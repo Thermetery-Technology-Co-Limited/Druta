@@ -80,9 +80,9 @@ inline constexpr std::size_t kCpPayloadCount = 5;
 
 // ---- a captured binding ---------------------------------------------- //
 // binding.get("layout") compared with "rm26" / "legacy32", and binding.get("native_layout") with
-// "policy124" / "rm26_extended" / "policy116". Python treats other names like absent.
+// "policy124" / "rm26_extended" / "policy116" / "modern252". Python treats other names like absent.
 enum class CpLayout : std::int32_t { absent = 0, other = 1, rm26 = 2, legacy32 = 3 };
-enum class CpNativeLayout : std::int32_t { absent = 0, other = 1, policy124 = 2, rm26_extended = 3, policy116 = 4 };
+enum class CpNativeLayout : std::int32_t { absent = 0, other = 1, policy124 = 2, rm26_extended = 3, policy116 = 4, modern252 = 5 };
 
 struct CpBinding {
     CpLayout layout = CpLayout::absent;

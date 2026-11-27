@@ -299,6 +299,9 @@ CpGeometry native_geometry(const CpBinding& binding) {
         const std::int64_t info_stride = binding.native_layout == CpNativeLayout::policy116 ? 200 : 228;
         return {88, stride_or(binding, info_stride), 20, small.control_stride, small.control_size};
     }
+    if (binding.native_layout == CpNativeLayout::modern252)
+        return {kCpNativeInfoBase, stride_or(binding, 252), kCpNativeControlBase, kCpNativeControlStride,
+                kModern252Sizes[kCpIdxNativeControl]};
     return {kCpNativeInfoBase, stride_or(binding, kCpNativeInfoStride), kCpNativeControlBase, kCpNativeControlStride,
             kSizes[kCpIdxNativeControl]};
 }
