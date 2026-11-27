@@ -29,8 +29,8 @@ void short_v30_tests() {
   {{0x20802618, 5520,0x3c,0x84},0x10c0},
   {{0x2080a618,20512,0xcc,0x104},0x41d0},
   {{0x2080a618, 7724,0x58,0xc8},0x195c},
-  {{0x2080a618, 8632,0x58,0xe4},0x1cdc},
   {{0x2080a618, 8620,0x58,0xe4},0x1cdc},
+  {{0x2080a618, 8632,0x58,0xe4},0x1cdc},
  };
  const PowerRelationshipIdentity identity{"0000:7b:00.0",6,0x5678,0xbeef0001};
  // Put the table near the end of its owner so a bogus relationship count
@@ -87,13 +87,12 @@ void short_v30_tests() {
         report.source_references.front().relationships==std::vector<uint32_t>{0},"A618 INFO also decodes the source range");
   const std::vector<PowerWeightRequest> requests={{0,4095.0/4096,4096}};
   const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
-  if (layout.info_size==8620) {
-   check(!plan.ok&&plan.patches.empty()&&plan.message.find("write layout is unqualified")!=std::string::npos,
-         "A matching 8620-byte INFO packet has no qualified Turing V30 write pairing");
-   continue;
-  }
   check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==relation+2,
         "Matching V30 weight and target qualify for override Preview");
+  auto incomplete=info;
+  incomplete.pop_back();
+  check(!plan_power_relationship_weights(rom,identity,layout,incomplete,requests).ok,
+        "Planning with a short V30 ROM requires the complete declared INFO packet");
   for (uint32_t architecture : {4u,5u,7u,8u,9u,10u}) {
    auto alternate=identity;
    alternate.architecture=architecture;
@@ -142,7 +141,7 @@ void short_v30_tests() {
   if (!legacy && !has_source_range) {
    info[target_info]=0x40;
    check(!plan_power_relationship_weights(rom,identity,layout,info,requests).ok,
-         "The 7724- and 8632-byte Turing pairings require a V30 selected policy row");
+         "The short Turing A618 pairings require a V30 selected policy row");
   }
  }
  rom[table+9]=255;

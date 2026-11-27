@@ -45,9 +45,9 @@ const RelationshipInfoGeometry* relationship_geometry(const PowerRelationshipLay
   {InfoFormat::compact_rm26, {0x20802618,  5008, 0x34, 0x74},   0x0eb8, 4},
   {InfoFormat::rm26,         {0x20802618,  5392, 0x3c, 0x80},   0x1040, 4},
   {InfoFormat::rm26,         {0x20802618,  5520, 0x3c, 0x84},   0x10c0, 4},
-  // Turing V30 pairing evidence covers 7724 and 8632 bytes.
+  // Turing short V30 pairing evidence covers 7724, 8620 and 8632 bytes.
   {InfoFormat::v30_a618,     {0x2080a618,  7724, 0x58, 0xc8},   0x195c, 6, true},
-  {InfoFormat::v30_a618,     {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6},
+  {InfoFormat::v30_a618,     {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6, true},
   // The 8632-byte INFO keeps the relationship array before the appended masks.
   {InfoFormat::v30_a618,     {0x2080a618,  8632, 0x58, 0xe4},   0x1cdc, 6, true},
   {InfoFormat::compact_a618, {0x2080a618, 20000, 0xcc, 0xfc},  0x3fd0, 6},
