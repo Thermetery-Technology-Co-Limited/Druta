@@ -883,6 +883,84 @@ TEST_NOINLINE void nominal_board_only_tests(const CoreApi& pa) {
     CHECK(pin_writes == pins_before && power_writes == full_before);
     board = previous; pin_present = previous_pin;
 }
+int transient_policy_failures = 0, transient_policy_attempts = 0;
+uint32_t external_board_on_transient = 0;
+dc_status DC_CALL transient_policies(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
+                                     dc_cl_policy_inputs_fn inputs, void* input_context, dc_policy_row* rows,
+                                     uint32_t capacity, uint32_t* count, dc_error* error) {
+    ++transient_policy_attempts;
+    CHECK(*count == 0 && rows[0].size == sizeof(rows[0]) && error->size == sizeof(*error));
+    if (transient_policy_failures == 0)
+        return policies(gpu, confirm, context, inputs, input_context, rows, capacity, count, error);
+    --transient_policy_failures;
+    if (external_board_on_transient) {
+        board = external_board_on_transient;
+        external_board_on_transient = 0;
+    }
+    error->kind = DC_ERR_TRANSIENT;
+    std::strcpy(error->message, "policy request failed (NTSTATUS 0, RM 0x23)");
+    return DC_E_UNAVAILABLE;
+}
+TEST_NOINLINE void transient_board_power_tests(const CoreApi& pa) {
+    const auto prior_board = board;
+    const auto prior_peer = peer;
+    const auto prior_pin = pin_present;
+    board = 260000; peer = 100; pin_present = false;
+    auto power_api = pa;
+    power_api.policy_read = transient_policies;
+    power_api.power_set_nvml = nominal_nvml_set;
+    auto client = create_core_backend_for_test(power_api);
+    std::string error;
+    CHECK(client->open("0000:02:00.0", error));
+    constexpr auto board_index = static_cast<size_t>(ControlId::power);
+    const auto ready = client->read(true).controls[board_index];
+    CHECK(ready.availability == Availability::available && ready.writable && ready.current == 260.0);
+
+    const int initial_full = power_writes, initial_nominal = nominal_sets, initial_policy = policy_writes;
+    const int initial_pins = pin_writes;
+    const Command apply{Command::Operation::apply, ControlId::power, 259};
+    const Command undo{Command::Operation::undo};
+    const int reads_before = transient_policy_attempts;
+    transient_policy_failures = 2;
+    const auto refused = client->execute(apply);
+    CHECK(!refused.ok && !refused.may_have_changed && refused.message.find("RM 0x23") != std::string::npos);
+    CHECK(transient_policy_attempts == reads_before + 2 && power_writes == initial_full);
+    CHECK(nominal_sets == initial_nominal && pin_writes == initial_pins && board == 260000);
+    const auto transient = client->read(false).controls[board_index];
+    CHECK(transient.availability == Availability::transient && transient.writable && transient.current == 260.0);
+    CHECK(transient.detail.find("RM 0x23") != std::string::npos && transient.high == ready.high);
+    CHECK(transient_policy_attempts == reads_before + 2);
+
+    transient_policy_failures = 2;
+    Sleep(1050);
+    CHECK(client->read(false).controls[board_index].availability == Availability::transient);
+    CHECK(transient_policy_attempts == reads_before + 4 && transient_policy_failures == 0);
+    Sleep(1050);
+    CHECK(client->read(false).controls[board_index].availability == Availability::transient);
+    CHECK(transient_policy_attempts == reads_before + 4 && power_writes == initial_full);
+
+    transient_policy_failures = 1;
+    const auto applied = client->execute(apply);
+    CHECK(applied.ok && applied.readback == 259.0 && board == 259000 && power_writes == initial_full + 1);
+    CHECK(client->read(false).controls[board_index].availability == Availability::available);
+    CHECK(peer == 200 && policy_writes == initial_policy && nominal_sets == initial_nominal);
+
+    transient_policy_failures = 2;
+    const auto refused_undo = client->execute(undo);
+    CHECK(!refused_undo.ok && !refused_undo.may_have_changed && client->read(false).undo_available);
+    CHECK(board == 259000 && power_writes == initial_full + 1 && pin_writes == initial_pins);
+    transient_policy_failures = 1;
+    CHECK(client->execute(undo).ok && board == 260000 && !client->read(false).undo_available);
+    CHECK(power_writes == initial_full + 2 && nominal_sets == initial_nominal);
+    CHECK(peer == 200 && policy_writes == initial_policy); // The driver's unpinned peer remains derived.
+
+    // A different writer can change the configured request between attempts.
+    transient_policy_failures = 1;
+    external_board_on_transient = 260250;
+    CHECK(client->execute(apply).ok && board == 259000);
+    CHECK(client->execute(undo).ok && board == 260250);
+    board = prior_board; peer = prior_peer; pin_present = prior_pin;
+}
 TEST_NOINLINE void native_power_limit_tests(const CoreApi& pa) {
     std::string error; CoreApi native_api = pa; native_api.native_power = native_limit; native_api.pins_get = no_pins;
     auto client = create_core_backend_for_test(native_api); CHECK(client->open("0000:02:00.0", error)); board = 200000;
@@ -1875,6 +1953,7 @@ int main() {
     power_and_actions_tests(pa, advanced_api, undo, power, policy_cmd);
     watt_policy_readback_tests(pa);
     nominal_board_only_tests(pa);
+    transient_board_power_tests(pa);
     native_power_limit_tests(pa);
     policy_refresh_tests(pa);
     hold_restore_tests();

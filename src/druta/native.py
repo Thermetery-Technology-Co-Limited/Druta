@@ -3015,7 +3015,7 @@ class Gpu(FrontendSurface):
             raise failure[0]
         if status == DC_E_FAILED and error.kind == DC_ERR_TRANSIENT:  # the core's guard: allocation
             raise MemoryError(_text(error.message))
-        if status == DC_E_FAILED:
+        if status == DC_E_FAILED or (status == DC_E_UNAVAILABLE and error.kind == DC_ERR_TRANSIENT):
             return [], _text(error.message)
         if status == DC_E_RANGE:
             raise IndexError("list index out of range")

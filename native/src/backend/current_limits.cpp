@@ -766,6 +766,7 @@ ReadPoliciesResult CurrentLimits::read_power_policies(ConfirmDerivedClamp confir
         if (!read.table) {
             out.error = read.error.message;
             out.legacy_power_pair = read.error.legacy_power_pair;
+            out.table_error_kind = read.error.kind;
             return out;
         }
         table = std::move(read.table);

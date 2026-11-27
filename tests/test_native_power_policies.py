@@ -39,6 +39,7 @@ Recorded divergences (asserted below as the binding's behaviour unless noted, no
 - an allocation failure inside the core (the ABI guard) is a MemoryError with the core's fixed
   text from read_power_policies and _power_policy_rows; not exercised here.
 """
+import ctypes
 import unittest
 from types import SimpleNamespace
 
@@ -470,6 +471,29 @@ class FailureTests(PolicyCase):
         rows, error = run[0][1]
         self.assertEqual(rows, [])
         self.assertTrue(error)
+
+    def test_rm_policy_read_failure_is_retryable_at_the_abi(self):
+        side = self.side("native")
+        gpu = side.gpu
+        gpu._power_policy_table()
+        side.driver.log.clear()
+        side.driver.refuse = lambda packet: 0x23 if packet[14] == base.INFO else None
+        rows, count, error = gpu._policy_rows_buffer(), ctypes.c_uint32(), native._Error()
+        error.size = ctypes.sizeof(error)
+        failures = []
+        status = native.load().dc_cl_power_policies_read(
+            gpu._handle, gpu._confirm_derived_clamp(), None, gpu._policy_inputs(failures), None,
+            rows, len(rows), ctypes.byref(count), ctypes.byref(error),
+        )
+        self.assertEqual((status, error.kind, count.value), (native.DC_E_UNAVAILABLE, native.DC_ERR_TRANSIENT, 0))
+        self.assertEqual(error.message, b"policy request failed (NTSTATUS 0, RM 0x23)")
+        self.assertEqual(failures, [])
+        self.assertEqual([entry[1][14] for entry in side.driver.log], [base.INFO, base.INFO])
+        side.driver.refuse = None
+        recovered_rows, recovery_error = gpu.read_power_policies()
+        self.assertTrue(recovered_rows)
+        self.assertIsNone(recovery_error)
+        self.assertEqual(side.rig.errors, [])
 
     def test_named_from_established_only_after_a_failed_current_read(self):
         def setup(side):
