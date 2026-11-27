@@ -533,7 +533,7 @@ Pascal and Ampere rerun uses different builds and keeps its existing results.
 | **431.36** | Core and memory passed in loaded retest of release core | XBAR, VIDEO, LTC counter responses verified and restored. SYS was inconclusive | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti |
 | **472.12** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
 | **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Matching V1 GET. Turing SET unqualified. Original verified | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
-| **560.94** | Both requests landed and restored. NVML reported stale zero. NVAPI and P0 counters confirmed the change | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
+| **560.94** | NVML reported stale zero. Candidate core and memory Apply and Undo passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
 | **581.80** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
 | **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | RTX 3070 Ti |
 | **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 100–320 W. Extended ClientPower command rejected by driver | REL round trip passed | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | — |
@@ -548,18 +548,22 @@ Pascal and Ampere rerun uses different builds and keeps its existing results.
   1965 MHz and memory from 7000 to 7004 MHz in separate trials. NVML
   offset reads stayed at zero. Pstates20 exposed the exact signed
   requests. Restoration verified both peer requests and the full curve.
+  The rebuilt app passed Apply and Undo through both ordinary clock
+  controls using paired readback.
 - **Power** The nominal test lowered the configured request by 1 W. The
   extended test used 321 W for one readback and restored 260 W. The
-  1999 W entry describes the UI request ceiling. The test did not send a
-  1999 W request or infer the effective limit from the slider.
+  1999 W entry describes the UI request ceiling. The largest tested
+  request was 321 W. Effective enforcement was recorded separately where
+  the driver reported it.
 - **Rails** For a verified write, the tester lowered the NVVDD REL request
-  by 6.25 mV and re-read all four original fields after Undo. A confirmed
-  stored request does not establish a physical voltage change.
+  by 6.25 mV and re-read all four original fields after Undo. Stored
+  request verification covers the configuration. Physical voltage needs
+  an independent measurement.
 - **BIOS override** Applied one relationship coefficient change from
   4096 to 4097 in Q4.12 using the production helper and verified the
   complete projected ROM and INFO. Restore verified the complete original
-  ROM and INFO. There was no VBIOS flash. Memory timing and firmware clock
-  override writes were outside this comparison.
+  ROM and INFO. This comparison covers the runtime power relationship
+  override.
 - **V/F and Max It** A standalone one-bin curve change applied and
   restored on every listed driver. The separate point-hold test requested
   the 950 mV point under P0. Max It used a 1000–1050 mV ramp and the
