@@ -529,21 +529,25 @@ Pascal and Ampere rerun uses different builds and keeps its existing results.
 
 | NVIDIA driver | Core / memory clock offsets | XBAR / SYS / VIDEO / LTC | Nominal power limit | XOC power limit | NVVDD rail limits | BIOS power relationship override | V/F edit and hold | Max It | Other GPUs with verified rows |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **417.35** | Both passed at P0 | Four rows found. Qualification gated | 100–320 W shown. Apply preflight blocked | 1999 W shown. Write unverified | Four fields read | Preview passed, Apply image verification failed, original restored | 128 points read. Edit and hold pending | Pending | — |
-| **431.36** | Core +15 → 0 MHz. Original full-curve comparison inconclusive. Memory pending | Compact rows found. 1.10.1a retest pending | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti |
-| **472.12** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
-| **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
-| **560.94** | Both writes read back zero. Original state verified on repeat | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL request and Restore passed | 11 rows read. Write geometry unqualified | 128 points read. Edit and hold pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
-| **581.80** | Staged. Hardware run pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | GTX 1050 Ti, RTX 3070 Ti |
-| **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | 11 rows read. Write geometry unqualified | 128 points read. Edit and hold pending | Pending | RTX 3070 Ti |
-| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | Remained 100–320 W with XOC enabled | REL request and Restore passed | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | — |
-| **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Four fields read | Apply and full Restore passed | 128 points read. Edit and hold pending | Pending | — |
+| **417.35** | Both passed at P0 | All four counter responses verified and restored at P0 | 100–320 W shown. Apply preflight blocked in release and candidate | 1999 W shown. Write unverified | REL round trip passed | Preview passed. Apply image verification failed. Original restored | Edit passed. Candidate Hold and Release passed | Candidate still stops on board power preflight | — |
+| **431.36** | Core and memory passed in loaded retest of release core | XBAR, VIDEO, LTC counter responses verified and restored. SYS was inconclusive | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti |
+| **472.12** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Matching V1 GET. Turing SET unqualified. Original verified | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
+| **560.94** | Both requests landed and restored. NVML reported stale zero. NVAPI and P0 counters confirmed the change | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
+| **581.80** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | GTX 1050 Ti, RTX 3070 Ti |
+| **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit passed. Hold refused | Preflight refused | RTX 3070 Ti |
+| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 100–320 W. Extended ClientPower command rejected by driver | REL round trip passed | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | — |
+| **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Hold refused | Preflight refused | — |
 
 - **Clocks** Used a 320×180 workload on the selected GPU and checked P0 and
   utilization with NVIDIA's runtime. Passed rows verified configured request
   readback and restoration. Driver-measured domain counter qualification is
   a separate check. The earliest OpenGL attempts in a disconnected RDP
-  session were discarded. Console retesting confirmed P0.
+  session were discarded. Console retesting confirmed P0. On 560.94,
+  both NVML and Pstates20 setters moved loaded graphics from 1950 to
+  1965 MHz and memory from 7000 to 7004 MHz in separate trials. NVML
+  offset reads stayed at zero. Pstates20 exposed the exact signed
+  requests. Restoration verified both peer requests and the full curve.
 - **Power** The nominal test lowered the configured request by 1 W. The
   extended test used 321 W for one readback and restored 260 W. The
   1999 W entry describes the UI request ceiling. The test did not send a
@@ -556,11 +560,22 @@ Pascal and Ampere rerun uses different builds and keeps its existing results.
   complete projected ROM and INFO. Restore verified the complete original
   ROM and INFO. There was no VBIOS flash. Memory timing and firmware clock
   override writes were outside this comparison.
+- **V/F and Max It** A standalone one-bin curve change applied and
+  restored on every listed driver. The separate point-hold test requested
+  the 950 mV point under P0. Max It used a 1000–1050 mV ramp and the
+  nominal power range. Both actions refused before changing state on the
+  release build because the legacy frequency-lock ownership check could
+  not establish that the channel was free. The candidate recognizes the
+  verified inactive record pair. On 417.35, 431.36 and 472.12, the 950 mV
+  Hold and Release passed with the original curve intact. On 431.36 and
+  472.12, Max It also applied manual fan, 320 W board power, boost, eight
+  curve edits and the 1050 mV hold. Undo restored the starting settings.
+  The editor requires releasing any active point hold before an edit.
+  Where legacy ownership remains unknown, the candidate retains the
+  refusal.
 
-The original GTX 1050 Ti and RTX 3070 Ti results include full Max It and
-V/F round trips. The TITAN RTX extension separates their live results from
-Turing's clock request tests and curve reads. The extra live coverage and
-raw relationship layout capture paused when Windows reported
-`CM_PROB_NEED_RESTART` after the last 560.94 bind. A device-only restart
-was refused. The completed BIOS cycles verified Restore and cleared
-their active recovery journals before this happened.
+Windows returned `CM_PROB_NEED_RESTART` during a second 560.94 bind while
+581.80 was being staged. The reboot recovered the device, and the remaining
+drivers were tested sequentially. The rebuilt relationship editor was tested
+against the 7724-, 8620-, and 8632-byte layouts and retained the existing
+complete-image and INFO verification requirements.
