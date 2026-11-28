@@ -201,7 +201,7 @@ int checked_action(IBackend& backend, const LiveData& before, const Command& com
     try { after = backend.read(true); got_after = true; } catch (...) { std::cout << "apply_read.error=Read threw\n"; }
     const auto mem = static_cast<size_t>(ControlId::memory);
     const bool apply_verified = got_after && after.connected && same_identity(before.identity, after.identity) &&
-        same_curve(before, after, edit) && (!memory_target ||
+        same_curve(before, after, edit, edit ? CurveMatch::requests : CurveMatch::evaluated) && (!memory_target ||
         (after.controls[mem].availability == Availability::available && after.controls[mem].current &&
          *after.controls[mem].current == *memory_target));
     std::cout << "apply.verified=" << apply_verified << '\n';
@@ -222,8 +222,10 @@ int checked_action(IBackend& backend, const LiveData& before, const Command& com
     const bool memory_restored = !memory_target || (restored.controls[mem].availability == Availability::available &&
         restored.controls[mem].current && before.controls[mem].current &&
         *restored.controls[mem].current == *before.controls[mem].current);
+    const bool evaluated_match = got_restored && same_curve(before, restored);
+    if (edit) std::cout << "restore.evaluated_match=" << evaluated_match << '\n';
     const bool verified = got_restored && restored.connected && same_identity(before.identity, restored.identity) &&
-        memory_restored && same_curve(before, restored);
+        memory_restored && same_curve(before, restored, {}, edit ? CurveMatch::requests : CurveMatch::evaluated);
     std::cout << "restore.verified=" << verified << '\n';
     return !threw && applied.ok && apply_verified && undo_needed && undo_ok && verified ? 0 : 1;
 }

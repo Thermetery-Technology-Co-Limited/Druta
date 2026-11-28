@@ -1703,10 +1703,12 @@ class Client final : public IBackend {
             desired = undo_.back().curve;
             if (!same_curve_geometry(before, desired) || !same_curve_layout(undo_.back().curve_layout, before_layout) || !same_curve_mapping(undo_.back().curve_points, points, desired.freq_div)) { result.message = "V/F geometry changed; Undo retained"; return result; }
         } else {
-            if (cmd.expected_curve_freq_div != before.freq_div || cmd.expected_curve.size() != points.size() || (cmd.expected_curve_layout && !same_curve_layout(*cmd.expected_curve_layout,before_layout))) { result.message = "V/F baseline changed; refresh the curve"; return result; }
+            if (cmd.expected_curve_freq_div != before.freq_div || !same_curve_mapping(cmd.expected_curve, points, before.freq_div) || (cmd.expected_curve_layout && !same_curve_layout(*cmd.expected_curve_layout,before_layout))) { result.message = "V/F baseline changed; refresh the curve"; return result; }
             for (const auto& point : points) {
                 const auto it = std::find_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; });
-                if (it == cmd.expected_curve.end() || !std::isfinite(it->volt_mv) || !std::isfinite(it->freq_mhz) || it->volt_mv != point.volt_mv || it->delta_khz != point.delta_khz || it->freq_mhz != point.freq_mhz || std::count_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; }) != 1) { result.message = "V/F baseline changed; refresh the curve"; return result; }
+                // Evaluated MHz can move between reads without a change to the
+                // point geometry or the requested boost-table delta.
+                if (it == cmd.expected_curve.end() || it->delta_khz != point.delta_khz || std::count_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; }) != 1) { result.message = "V/F baseline changed; refresh the curve"; return result; }
             }
             if (reset) { if (!cmd.curve_deltas.empty()) { result.message = "Reset cannot include point edits"; return result; } for (uint32_t i = 0; i < desired.count; ++i) desired.deltas[i].delta_khz = 0; }
             else {
