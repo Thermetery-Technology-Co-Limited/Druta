@@ -1932,11 +1932,11 @@ int main() {
     fan_post_fail = true; CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_post_fail = false;
     curve_div = 2; delta = 123; delta2 = 456; auto fresh = pb->read(true); CHECK(fresh.curve_writable && fresh.curve.size() == 2 && fresh.curve_step_khz == 1000 && fresh.curve_freq_div == 2);
     Command curve{}; curve.operation = Command::Operation::apply_curve; curve.expected_curve = fresh.curve; curve.expected_curve_freq_div = fresh.curve_freq_div; curve.curve_deltas = {{3, 200}};
-    int before_curve = curve_writes; curve.expected_curve_freq_div = 1; CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.expected_curve_freq_div = 2; curve.expected_curve[0].volt_mv += 1; CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.expected_curve = fresh.curve;
+    int before_curve = curve_writes; curve.expected_curve_freq_div = 1; auto rejected_curve = pb->execute(curve); CHECK(!rejected_curve.ok && rejected_curve.message.find("frequency divisor") != std::string::npos && curve_writes == before_curve); curve.expected_curve_freq_div = 2; curve.expected_curve[0].volt_mv += 1; rejected_curve = pb->execute(curve); CHECK(!rejected_curve.ok && rejected_curve.message.find("point mapping") != std::string::npos && curve_writes == before_curve); curve.expected_curve = fresh.curve;
     curve.curve_deltas.push_back({3, 300}); CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.curve_deltas.pop_back();
     // A driver may reevaluate MHz between the UI snapshot and prewrite read.
     // Preserve exact geometry and request-delta checks while allowing that drift.
-    delta = 124; CHECK(!pb->execute(curve).ok && curve_writes == before_curve); delta = 123;
+    delta = 124; rejected_curve = pb->execute(curve); CHECK(!rejected_curve.ok && rejected_curve.message.find("requested delta") != std::string::npos && curve_writes == before_curve); delta = 123;
     base_shift = 15;
     CHECK(pb->execute(curve).ok && delta == 200 && delta2 == 456 && curve_writes == before_curve + 1);
     int changed_writes = curve_writes; voltage_shift = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); voltage_shift = 0;

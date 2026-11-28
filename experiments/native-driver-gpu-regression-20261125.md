@@ -773,7 +773,22 @@ loaded P0, hold/release/edit/Undo and the standalone curve edit/Undo passed on
 both 560.94 and 621.24, with the full request table restored each time. The
 standalone probe now reports evaluated-frequency agreement separately from
 request-table restoration. Receipts are in the local matrix workspace under
-`rerun-20261127/diagnose-560.94/` and `diagnose-621.24/`.
+`rerun-20261127/diagnose-560/` and `diagnose-621.24/`.
+
+Additional loaded 560.94 investigation on 2026-11-27 recreated the older
+hold-then-edit order. Editing while Druta owned the hold correctly refused
+without writing; release restored the original hold state. Three subsequent
+Max It/Undo cycles restored their captured requests, and the first standalone
+curve edit after Max It applied and undid successfully. Two initial V/F samples
+and 15 consecutive post-Max sample pairs showed no change in layout, point
+mapping, signed requests or evaluated MHz. A separate boost 0 → 100 → 0
+trial also left the sampled curve and signed requests unchanged and restored
+boost. These bounded negatives do not explain the historical first refusal:
+its trace recorded only the generic guard message, with no field-level
+comparison. The prewrite guard now names the field that disagreed (divisor,
+count, layout, mapping, indices or requested delta) while retaining its
+no-write refusal. Source and receipts: local matrix workspace
+`rerun-20261127/vf-first-560-investigation/`.
 
 For 431.36 and 417.35, the individual domain slider probe started in a fresh
 process before the required loaded counter verification, so it refused before
