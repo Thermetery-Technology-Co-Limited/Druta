@@ -23,7 +23,7 @@ from druta import native_client_power as ncp
 if not native.available() or not ncp.available():
     raise unittest.SkipTest("native core not built (native/build.sh linux)")
 
-from tests.test_client_power_driver_compat import ModernCoupledGpu, modern_v30_gpu  # noqa: E402
+from tests.test_client_power_driver_compat import Modern252Gpu, ModernCoupledGpu, modern_v30_gpu  # noqa: E402
 from tests.test_client_power_legacy import LegacyGpu  # noqa: E402
 from tests.test_client_power_rm26 import Rm26Gpu  # noqa: E402
 from tests.test_client_power_rm26_extended import ExtendedRm26Gpu  # noqa: E402
@@ -62,6 +62,7 @@ FIXTURES = {
     "modern_v30": lambda: modern_v30_gpu(),
     "modern_v30_coupled": lambda: ModernCoupledGpu(),
     "modern_v30_coupled_pinned": lambda: ModernCoupledGpu(pinned=True),
+    "modern252": lambda: Modern252Gpu(),
     "turing_policy124": lambda: TuringGpu(5, 17),
     "turing_record216": lambda: TuringGpu(0, 2, record=216),
     "ampere_record200": lambda: TuringGpu(0, 2, architecture=7, record=200),
@@ -72,7 +73,7 @@ FIXTURES = {
     "rm26_extended": lambda: ExtendedRm26Gpu(),
     "rm26_extended_pinned": lambda: ExtendedRm26Gpu(pinned=True),
 }
-COUPLED = {"modern_v30", "modern_v30_coupled", "modern_v30_coupled_pinned", "turing_policy124",
+COUPLED = {"modern_v30", "modern_v30_coupled", "modern_v30_coupled_pinned", "modern252", "turing_policy124",
            "turing_record216", "ampere_record200", "pascal_policy124", "legacy32", "rm26", "rm26_pinned", "rm26_extended",
            "rm26_extended_pinned"}
 
@@ -126,7 +127,7 @@ def test_constants_row_by_row():
     for name in ("SIZE_REFUSALS", "_RM26_COMMANDS", "INFO_BASE", "INFO_STRIDE", "CONTROL_BASE",
                  "CONTROL_STRIDE", "CAPACITY", "NATIVE_INFO_BASE", "NATIVE_INFO_STRIDE", "NATIVE_CONTROL_BASE",
                  "NATIVE_CONTROL_STRIDE", "NATIVE_CAPACITY", "ROLE", "CLIENT", "MISSING",
-                 "LEGACY_GROUP_ARCHITECTURES", "RM26_ARCHITECTURES", "_STATE_KEYS", "_LAYOUT"):
+                 "RM26_ARCHITECTURES", "_STATE_KEYS", "_LAYOUT"):
         assert got[name] == getattr(cp, name), name
         assert _types(got[name]) == _types(getattr(cp, name)), name
     assert list(got["_RM26_COMMANDS"]) == list(cp._RM26_COMMANDS)
@@ -135,7 +136,9 @@ def test_constants_row_by_row():
 
 def test_the_two_generation_lists_stay_separate():
     got = ncp.constants()
-    assert got["LEGACY_GROUP_ARCHITECTURES"] == (4, 6, 7)
+    # Native compatibility includes the independently qualified legacy32/V40
+    # Blackwell group. The deprecated Python frontend retains its old list.
+    assert got["LEGACY_GROUP_ARCHITECTURES"] == (4, 6, 7, 10)
     assert got["RM26_ARCHITECTURES"] == (4, 6)
 
 
@@ -159,7 +162,8 @@ def test_definition_stride_outside_int64_is_refused_not_wrapped():
 
 LAYOUTS = (None, {"layout": None}, {"layout": "rm26"}, {"layout": "legacy32"}, {"layout": "modern?"})
 NATIVE_LAYOUTS = (None, {"native_layout": "policy124"}, {"native_layout": "rm26_extended"},
-                  {"native_layout": "policy116"}, {"native_layout": "other"}, {"native_layout": None})
+                  {"native_layout": "policy116"}, {"native_layout": "modern252"},
+                  {"native_layout": "other"}, {"native_layout": None})
 STRIDES = (None, {"native_info_stride": None}, {"native_info_stride": 0}, {"native_info_stride": 216},
            {"native_info_stride": 132}, {"native_info_stride": 116}, {"native_info_stride": -8},
            {"native_info_stride": True}, {"native_info_stride": False}, {"native_info_stride": "x"},
@@ -182,8 +186,33 @@ def test_every_native_geometry_branch():
         result = same(cp._native_geometry, ncp.native_geometry, binding)
         same(cp._small_native_geometry, ncp.small_native_geometry, binding)
         seen.add(result[1][4])
-    # modern, legacy 184, 124 and 116, rm26 short and extended
-    assert seen == {13876, 6356, 4432, 4172, 2108, 2124}
+    # modern 260/252, legacy 184/124/116, rm26 short and extended
+    assert seen == {13876, 13840, 6356, 4432, 4172, 2108, 2124}
+
+
+def test_modern252_readback_accepts_exact_state_and_qualified_peer_change():
+    # The 256-byte role/252-byte native INFO/13840-byte CONTROL geometry
+    # stores a 1999 W request and lets the driver recompute occupied peers.
+    expected, observed, _, _ = coupled_pair("modern_v30_coupled")
+    expected, observed = copy.deepcopy(expected), copy.deepcopy(observed)
+    for state in (expected, observed):
+        state["binding"]["native_layout"] = "modern252"
+        state["binding"].pop("native_info_stride", None)
+        state["role_info_hex"] = state["role_info_hex"][:2 * 256]
+        raw_info = bytes.fromhex(state["native_info_hex"])
+        reduced = bytearray(cp.MODERN252_SIZES[cp.NATIVE_INFO])
+        reduced[:cp.NATIVE_INFO_BASE] = raw_info[:cp.NATIVE_INFO_BASE]
+        for index in range(32):
+            source = cp.NATIVE_INFO_BASE + index * cp.NATIVE_INFO_STRIDE
+            target = cp.NATIVE_INFO_BASE + index * 252
+            reduced[target:target + 252] = raw_info[source:source + 252]
+        state["native_info_hex"] = reduced.hex()
+        state["native_control_hex"] = state["native_control_hex"][:2 * cp.MODERN252_SIZES[cp.NATIVE_CONTROL]]
+    assert cp._native_geometry(expected["binding"])[1::3] == (252, 13840)
+    assert same(cp._matches, ncp.matches, expected, observed) == ("ok", True, bool)
+    changed = copy.deepcopy(observed)
+    changed["native_control_hex"] = flip(changed["native_control_hex"], 13839)
+    assert same(cp._matches, ncp.matches, expected, changed) == ("ok", False, bool)
 
 
 def test_geometry_of_every_recorded_binding():
@@ -219,7 +248,8 @@ def test_project_on_every_layout():
             layouts.add((before["binding"].get("layout"), before["binding"].get("native_layout")))
             for mw in MWS:
                 same(cp._project, ncp.project, before, mw)
-    assert layouts == {(None, None), ("legacy32", "policy124"), ("legacy32", "policy116"), ("legacy32", None),
+    assert layouts == {(None, None), (None, "modern252"), ("legacy32", "policy124"),
+                       ("legacy32", "policy116"), ("legacy32", None),
                        ("rm26", None), ("rm26", "rm26_extended")}
 
 
@@ -305,7 +335,7 @@ def _moved_peers(expected, observed, geometry):
             != new[control_base + i * stride + 4:control_base + i * stride + 8]]
 
 
-PEER_COUPLED = ("modern_v30_coupled", "modern_v30_coupled_pinned", "turing_policy124", "turing_record216",
+PEER_COUPLED = ("modern_v30_coupled", "modern_v30_coupled_pinned", "modern252", "turing_policy124", "turing_record216",
                 "legacy32", "rm26", "rm26_pinned", "rm26_extended", "rm26_extended_pinned")
 
 

@@ -280,7 +280,9 @@ Outcome Clocks::set_clock_offset(std::uint32_t ctype, double mhz, bool preserve_
     if (static_cast<double>(units) != scaled || units % step != 0)
         return {false, dom + " offset " + g_format(mhz, true) + " " + unit + " is not representable; use multiples of " +
                            g_format(static_cast<double>(step) / scale, false) + " " + unit};
-    std::optional<OffsetRange> rng = telemetry_.offset_range(ctype);
+    const auto before = telemetry_.read_offset(ctype);
+    const auto& rng = before.range;
+    if (before.ambiguous) return {false, dom + " offset readbacks disagree or are unavailable. No write issued"};
     if (modern && ctype == 2 && !rng) return {false, "memory offset range/readback is unavailable; no write issued"};
     std::int64_t lo, hi;
     if (rng) {
@@ -303,7 +305,13 @@ Outcome Clocks::set_clock_offset(std::uint32_t ctype, double mhz, bool preserve_
     if (shape && ctype == 0 && !old_core) shape.reset();
     // Re-sending the offset already stored is what flattened this card.
     if (shape && rng && rng->current == units) return {true, dom + " offset set to " + g_format(mhz, true) + " " + unit};
+    if (shape && before.pair) {
+        const auto check = telemetry_.read_offset(ctype);
+        if (!check.range || !check.pair || !before.pair->same_reading(*check.pair))
+            return {false, dom + " offset baseline changed during V/F capture. No write issued"};
+    }
     Outcome result;
+    bool verify_nvml = false;
     if (!modern) {
         result = set_pstate20_offset(ctype, units, mhz, unit);
     } else {
@@ -319,17 +327,28 @@ Outcome Clocks::set_clock_offset(std::uint32_t ctype, double mhz, bool preserve_
             result = set_pstate20_offset(ctype, units, mhz, unit);
         } else if (st != 0) {
             result = {false, dom + " offset failed: " + nv.errstr(st)};
-        } else if (ctype == 2) {
-            std::optional<OffsetRange> readback = telemetry_.offset_range(ctype);
-            if (!readback)
-                result = {false, "memory offset was sent, but readback failed"};
-            else if (readback->current != units)
-                result = {false, "mem offset requested " + g_format(mhz, true) + " " + unit + ", but the driver reported " +
-                                     g_format(static_cast<double>(readback->current) / scale, true) + " " + unit};
-            else
-                result = {true, dom + " offset set to " + g_format(mhz, true) + " " + unit};
         } else {
             result = {true, dom + " offset set to " + g_format(mhz, true) + " " + unit};
+            verify_nvml = ctype == 2 || shape.has_value() || before.pair.has_value();
+        }
+    }
+    if (result.ok && (before.pair || verify_nvml)) {
+        // Read the verified request through the same interface used by subsequent Apply and Undo.
+        // An exact P0 change from a known baseline can explain a stale NVML reply without a SET.
+        auto after = telemetry_.read_offset(ctype);
+        if (before.pair && !after.pair) after = telemetry_.read_offset(ctype);
+        const bool verified = before.pair
+            ? telemetry_.confirm_paired_offset(ctype, before, after, static_cast<std::int32_t>(units))
+            : after.range && after.range->current == units;
+        if (!verified) {
+            if (!after.range || after.range->current == units ||
+                (before.pair && (!after.pair || !before.pair->same_layout(*after.pair))))
+                result = {false, (ctype == 2 ? std::string("memory") : dom) + " offset was sent, but readback failed"};
+            else
+                result = {false, dom + " offset requested " + g_format(mhz, true) + " " + unit + ", but the driver reported " +
+                                     g_format(static_cast<double>(after.range->current) / scale, true) + " " + unit};
+        } else if (verify_nvml && before.pair && after.pair->nvml.current != units) {
+            result.message += " (verified by NVAPI Pstates20)";
         }
     }
     if (!shape) return result;

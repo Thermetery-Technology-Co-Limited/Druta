@@ -2,4 +2,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#define DRUTA_APP_VERSION "1.10.0"
+#define DRUTA_APP_VERSION "1.10.1a"

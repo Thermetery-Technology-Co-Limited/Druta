@@ -46,10 +46,14 @@ constexpr CpSizes kA612CompactSizes = {{900, 388, 388, 132, 5392, 2124, 70684}};
 // 560.94's signed kernel dispatch uses a 204-byte role GET (selector plus
 // one 200-byte INFO record). The same dispatch family uses 116-byte CONTROL rows.
 constexpr CpSizes kInfo200Sizes = {{1160, 392, 392, 204, 7724, 4172, 149928}};
+// Same modern client INFO/CONTROL group, with a 252-byte native policy
+// definition. The role GET and all three native GET sizes were accepted on a
+// live Turing adapter; the role definition matched one occupied native row.
+constexpr CpSizes kModern252Sizes = {{0x924, 0x328, 0x328, 256, 20000, 13840, 396024}};
 
 constexpr const CpSizes* kGroups[kCpSizeGroupCount] = {
     &kSizes, &kLegacySizes, &kTuringSizes, &kInfo216Sizes, &kRm26Sizes, &kRm26ExtendedSizes, &kA612CompactSizes,
-    &kInfo200Sizes,
+    &kInfo200Sizes, &kModern252Sizes,
 };
 
 // Generations whose client power-policy semantics have been validated against
@@ -57,8 +61,11 @@ constexpr const CpSizes* kGroups[kCpSizeGroupCount] = {
 // smaller one. Generation decides whether the semantics are understood at all;
 // WHICH group a card speaks is still decided by read-only INFO acceptance
 // below, never by a device, board or driver version.
-//   4 Pascal, 6 Turing, 7 Ampere
-constexpr std::uint32_t kLegacyGroupArchitectures[] = {4, 6, 7};
+//   4 Pascal, 6 Turing, 7 Ampere, 10 Blackwell. Blackwell's A612
+// legacy32 group carries a V40 definition; capacity and firmware-table
+// version are independent. Its role/INFO/CONTROL binding is validated by
+// the controller before a request is exposed.
+constexpr std::uint32_t kLegacyGroupArchitectures[] = {4, 6, 7, 10};
 // Pascal and Turing are qualified on both RM26 layouts. Ampere is qualified
 // on the extended layout, with a matching v30 role and CONTROL readback.
 constexpr std::uint32_t kRm26Architectures[] = {4, 6};
@@ -295,6 +302,9 @@ CpGeometry native_geometry(const CpBinding& binding) {
         const std::int64_t info_stride = binding.native_layout == CpNativeLayout::policy116 ? 200 : 228;
         return {88, stride_or(binding, info_stride), 20, small.control_stride, small.control_size};
     }
+    if (binding.native_layout == CpNativeLayout::modern252)
+        return {kCpNativeInfoBase, stride_or(binding, 252), kCpNativeControlBase, kCpNativeControlStride,
+                kModern252Sizes[kCpIdxNativeControl]};
     return {kCpNativeInfoBase, stride_or(binding, kCpNativeInfoStride), kCpNativeControlBase, kCpNativeControlStride,
             kSizes[kCpIdxNativeControl]};
 }

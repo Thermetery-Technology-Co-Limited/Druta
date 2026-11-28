@@ -124,6 +124,7 @@ inline constexpr double kVoltLimitMinMv = 650.0;   // VOLT_LIMIT_MIN_MV (a reque
 inline constexpr double kVoltLimitMaxMv = 1200.0;  // VOLT_LIMIT_MAX_MV (the same)
 inline constexpr double kVoltLimitXocMaxMv = 1500.0;  // VOLT_LIMIT_XOC_MAX_MV (the same, with XOC on)
 inline constexpr std::uint32_t kArchAmpere = 7;
+inline constexpr std::uint32_t kArchTuring = 6;
 inline constexpr std::uint32_t kArchPascal = 4;    // GPU.ARCH_PASCAL (NVML's enum)
 
 // _RAIL_NAME[rail] for rails 0 and 1 ("core rail (NVVDD)", "MSVDD"); nullptr for any other rail.

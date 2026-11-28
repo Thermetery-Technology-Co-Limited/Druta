@@ -1,0 +1,78 @@
+{
+  "scope": "RTX 5080 GB203; five cached driver packages; bounded request/readback/Undo and GUI regression",
+  "source_head": "2298568a04cfc2500ec88548688fba7231de5e62",
+  "source_branch": "fix/pr100-blackwell-59597",
+  "source_patch_sha256": "2661fb40cec4a06126a40a04129652a1992722dc68119961ae047d875182393b",
+  "core_sha256": "0d886b90d6ed4e71ce7e40d20c25e71734a3f8522f3b01a6388afd0ae093e461",
+  "rows": [
+    {
+      "driver": "595.97",
+      "basic": 7,
+      "curve": 1,
+      "gui_phases": 23,
+      "rel": "pass",
+      "xoc_requests": [
+        451,
+        1999
+      ],
+      "weights": "restored"
+    },
+    {
+      "driver": "617.14",
+      "basic": 7,
+      "curve": 1,
+      "gui_phases": 23,
+      "rel": "pass",
+      "xoc_requests": [
+        451,
+        1999
+      ],
+      "weights": "restored"
+    },
+    {
+      "driver": "617.42",
+      "basic": 7,
+      "curve": 1,
+      "gui_phases": 23,
+      "rel": "pass",
+      "xoc_requests": [
+        451,
+        1999
+      ],
+      "weights": "restored"
+    },
+    {
+      "driver": "621.40",
+      "basic": 7,
+      "curve": 1,
+      "gui_phases": 23,
+      "rel": "refused, restored",
+      "xoc_requests": [
+        451,
+        1999
+      ],
+      "weights": "restored"
+    },
+    {
+      "driver": "621.01",
+      "basic": 7,
+      "curve": 1,
+      "gui_phases": 23,
+      "rel": "refused, restored",
+      "xoc_requests": [
+        451,
+        1999
+      ],
+      "weights": "restored"
+    }
+  ],
+  "basic_cases_passed": 35,
+  "gui_phases_passed": 115,
+  "curve_roundtrips_passed": 5,
+  "hold_release_passed": 5,
+  "idle_xoc_roundtrips_passed": 10,
+  "weight_apply_remove_passed": 5,
+  "driver_restored": "621.01",
+  "power_request_restored_w": 360,
+  "windows_reboot": false
+}

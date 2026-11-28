@@ -138,6 +138,24 @@ public:
 
     std::optional<AllClocksPriv> priv_clocks();
     std::optional<NativeFanState> native_fan_data();
+    struct PairedOffset {
+        void* nvml_device;
+        void* nvapi_gpu;
+        std::uint32_t version, kind, flags;
+        OffsetRange nvml;
+        std::int32_t delta_khz;
+
+        bool same_layout(const PairedOffset& other) const;
+        bool same_reading(const PairedOffset& other) const;
+    };
+    struct OffsetReading {
+        std::optional<OffsetRange> range;
+        std::optional<PairedOffset> pair;
+        bool ambiguous = false;
+    };
+    OffsetReading read_offset(std::uint32_t ctype);
+    bool confirm_paired_offset(std::uint32_t ctype, const OffsetReading& before, const OffsetReading& after,
+                               std::int32_t requested);
     std::optional<OffsetRange> offset_range(std::uint32_t ctype);
     std::optional<std::int32_t> read_voltage_boost();
     // nvbackend.GPU.read_vcore_mv: the NVVDD rail as ONE VoltRailsStatus call (version 1), in mV.
@@ -170,6 +188,10 @@ public:
     const Pstate20Clock* pstate20_clock(const Pstates20& info, std::uint32_t ctype) const;
 
 private:
+    bool offset_handles_paired() const;
+    // A successful local dispatch with split or inconclusive readback requires
+    // fresh compatible reads. Only a previously verified split can explain disagreement.
+    std::optional<PairedOffset> guarded_offsets_[2];  // core, memory; scoped to this GPU handle
     Gpu& gpu_;
 };
 

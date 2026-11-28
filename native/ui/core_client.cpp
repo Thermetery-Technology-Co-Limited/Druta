@@ -334,6 +334,17 @@ class Client final : public IBackend {
     std::string clock_driver_, clock_vbios_;
     std::optional<uint32_t> verified_xoc_request_mw_;
     bool nominal_board_only_ = false;
+    std::string power_capture_error_;
+    std::optional<std::chrono::steady_clock::time_point> power_capture_retry_at_;
+    void clear_power_capture_error() {
+        power_capture_error_.clear();
+        power_capture_retry_at_.reset();
+    }
+    void set_power_capture_error(const std::string& reason, bool retry_later) {
+        power_capture_error_ = reason;
+        power_capture_retry_at_.reset();
+        if (retry_later) power_capture_retry_at_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    }
     void clear_tuning_inspection() {
         last_.firmware_inventory.reset();
         last_.model_inputs.reset();
@@ -342,6 +353,7 @@ class Client final : public IBackend {
     }
     void invalidate_discovery() {
         nominal_board_only_ = false;
+        clear_power_capture_error();
         clear_tuning_inspection();
         verified_xoc_request_mw_.reset();
         offset_checks_.clear();
@@ -718,21 +730,47 @@ class Client final : public IBackend {
         *st = in->statics; if (in->client->api_.power(in->client->gpu_, st, has, &value, &err) != DC_OK) return 1;
         *mw = value; in->statics = *st; return 0;
     }
-    bool power_capture(PowerSnapshot& out, std::string& why, bool allow_nominal = false, bool* refused_nominal = nullptr) {
+    enum class PowerCaptureFailure { other, legacy_nominal, transient_table };
+    bool power_capture(PowerSnapshot& out, std::string& why, bool allow_nominal = false,
+                       PowerCaptureFailure* failure = nullptr) {
         if (!power_api()) { why = "Power policy interfaces unavailable"; return false; }
-        dc_gpu_identity id{}; if (!identity(id)) { why = "GPU identity changed or is unreadable"; return false; }
-        dc_cl_statics st = power_statics();
-        const auto board = read_board_request(st);
-        if (!board) { why = "Configured board request unavailable"; return false; }
-        dc_error error{};
+        dc_cl_statics st{};
+        std::optional<uint32_t> board;
         uint32_t ids[32]{}; int64_t values[32]{}; uint32_t pins = 0;
-        if (api_.pins_get(gpu_, ids, values, 32, &pins) != DC_OK || pins > 32) { why = "Power policy pins unavailable"; return false; }
-        dc_policy_row rows[32]{}; for (auto& row : rows) row.size = sizeof(row);
-        uint32_t count = 0; PolicyInputs inputs{this, st}; error = {}; error.size = sizeof(error);
-        const auto status = retry(api_.policy_read, gpu_, confirm_clamp, static_cast<void*>(this), policy_inputs, static_cast<void*>(&inputs), rows, 32u, &count, &error);
+        const auto read_inputs = [&] {
+            dc_gpu_identity id{}; if (!identity(id)) { why = "GPU identity changed or is unreadable"; return false; }
+            st = power_statics();
+            board = read_board_request(st);
+            if (!board) { why = "Configured board request unavailable"; return false; }
+            if (api_.pins_get(gpu_, ids, values, 32, &pins) != DC_OK || pins > 32) { why = "Power policy pins unavailable"; return false; }
+            return true;
+        };
+        if (!read_inputs()) return false;
+        dc_error error{};
+        dc_policy_row rows[32]{};
+        uint32_t count = 0;
+        const auto read_table = [&] {
+            for (auto& row : rows) { row = {}; row.size = sizeof(row); }
+            count = 0;
+            error = {};
+            error.size = sizeof(error);
+            PolicyInputs inputs{this, st};
+            return api_.policy_read(gpu_, confirm_clamp, this, policy_inputs, &inputs, rows, 32u, &count, &error);
+        };
+        auto status = read_table();
+        const auto transient = [&] { return status == DC_E_UNAVAILABLE && error.kind == DC_ERR_TRANSIENT; };
+        if (status != DC_OK) {
+            if (transient()) {
+                // Refresh the board request and pins together with the retried table.
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                if (!read_inputs()) return false;
+            }
+            status = read_table();
+        }
         if (status != DC_OK) {
             const bool legacy = status == DC_E_FAILED && error.kind == DC_ERR_UNSUPPORTED;
-            if (refused_nominal) *refused_nominal = legacy;
+            if (failure && legacy) *failure = PowerCaptureFailure::legacy_nominal;
+            if (failure && transient()) *failure = PowerCaptureFailure::transient_table;
             if (allow_nominal && legacy &&
                 count == 0 && pins == 0 && api_.power_set_nvml) {
                 const auto nominal = read_board_power_bounds(st, nullptr, PowerRange::nominal);
@@ -918,8 +956,10 @@ class Client final : public IBackend {
             bounds = read_board_power_bounds(st);
         }
         PowerSnapshot current; std::string why;
-        bool refused_nominal = false;
-        const bool captured = power_capture(current, why, !undoing || undo_.back().power.nominal_only.has_value(), &refused_nominal);
+        auto failure = PowerCaptureFailure::other;
+        const bool captured = power_capture(current, why, !undoing || undo_.back().power.nominal_only.has_value(), &failure);
+        if (captured) clear_power_capture_error();
+        else if (failure == PowerCaptureFailure::transient_table) set_power_capture_error(why, true);
         if (undoing) {
             const PowerSnapshot saved = undo_.back().power;
             if (!captured || !power_geometry(saved, current)) { result.message = "Power Undo refused: " + (captured ? std::string("policy geometry changed") : why); return result; }
@@ -978,7 +1018,7 @@ class Client final : public IBackend {
         }
         const bool stock = cmd.operation == Command::Operation::stock;
         if (captured && current.nominal_only) bounds = current.nominal_only;
-        if (!captured && (!stock || refused_nominal)) { result.message = "Power capture failed; no write issued: " + why; return result; }
+        if (!captured && (!stock || failure == PowerCaptureFailure::legacy_nominal)) { result.message = "Power capture failed; no write issued: " + why; return result; }
         if (cmd.expected_power_state && (!captured || *cmd.expected_power_state != power_state_token(current))) { result.message = "Power requests or pins changed during profile application; no write issued"; return result; }
         if (cmd.expected_binding && (!captured || !binding_matches(cmd, board_binding(current)))) { result.message = "Board policy geometry changed; no write issued"; return result; }
         if (!bounds) { result.message = "Power bounds or XOC state unavailable. No write issued."; return result; }
@@ -1663,10 +1703,23 @@ class Client final : public IBackend {
             desired = undo_.back().curve;
             if (!same_curve_geometry(before, desired) || !same_curve_layout(undo_.back().curve_layout, before_layout) || !same_curve_mapping(undo_.back().curve_points, points, desired.freq_div)) { result.message = "V/F geometry changed; Undo retained"; return result; }
         } else {
-            if (cmd.expected_curve_freq_div != before.freq_div || cmd.expected_curve.size() != points.size() || (cmd.expected_curve_layout && !same_curve_layout(*cmd.expected_curve_layout,before_layout))) { result.message = "V/F baseline changed; refresh the curve"; return result; }
+            const auto baseline_changed = [&](const char* field) {
+                result.message = std::string("V/F baseline changed (") + field + "); refresh the curve";
+                return result;
+            };
+            if (cmd.expected_curve_freq_div != before.freq_div) return baseline_changed("frequency divisor");
+            if (cmd.expected_curve.size() != points.size()) return baseline_changed("point count");
+            if (cmd.expected_curve_layout && !same_curve_layout(*cmd.expected_curve_layout,before_layout))
+                return baseline_changed("layout");
+            if (!same_curve_mapping(cmd.expected_curve, points, before.freq_div))
+                return baseline_changed("point mapping");
             for (const auto& point : points) {
                 const auto it = std::find_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; });
-                if (it == cmd.expected_curve.end() || !std::isfinite(it->volt_mv) || !std::isfinite(it->freq_mhz) || it->volt_mv != point.volt_mv || it->delta_khz != point.delta_khz || it->freq_mhz != point.freq_mhz || std::count_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; }) != 1) { result.message = "V/F baseline changed; refresh the curve"; return result; }
+                // Evaluated MHz can move between reads without a change to the
+                // point geometry or the requested boost-table delta.
+                if (it == cmd.expected_curve.end() || std::count_if(cmd.expected_curve.begin(), cmd.expected_curve.end(), [&](const dc_vf_point& p) { return p.idx == point.idx; }) != 1)
+                    return baseline_changed("point indices");
+                if (it->delta_khz != point.delta_khz) return baseline_changed("requested delta");
             }
             if (reset) { if (!cmd.curve_deltas.empty()) { result.message = "Reset cannot include point edits"; return result; } for (uint32_t i = 0; i < desired.count; ++i) desired.deltas[i].delta_khz = 0; }
             else {
@@ -2759,8 +2812,21 @@ class Client final : public IBackend {
     }
     bool locks_clear(std::string& why) {
         dc_vf_lock_status vf{}; dc_clk_lock_status clock{};
-        if (!api_.tuning.vf_status || !api_.tuning.clock_status || retry(api_.tuning.vf_status,gpu_,0,0u,&vf)!=DC_OK || vf.error[0] ||
-            retry(api_.tuning.clock_status,gpu_,&clock)!=DC_OK || clock.error[0]) { why="Clock/V/F hold status unavailable"; return false; }
+        if (!api_.tuning.vf_status || !api_.tuning.clock_status) {
+            why="Clock/V/F hold status interfaces unavailable"; return false;
+        }
+        const auto vf_status=retry(api_.tuning.vf_status,gpu_,0,0u,&vf);
+        if (vf_status!=DC_OK || vf.error[0]) {
+            why="V/F hold status unavailable";
+            if (vf.error[0]) why+=": "+std::string(vf.error);
+            return false;
+        }
+        const auto clock_status=retry(api_.tuning.clock_status,gpu_,&clock);
+        if (clock_status!=DC_OK || clock.error[0]) {
+            why="Frequency-lock status unavailable";
+            if (clock.error[0]) why+=": "+std::string(clock.error);
+            return false;
+        }
         if (vf.locked || clock.locked) { why="A clock or V/F hold is already active; release its owner first"; return false; }
         return true;
     }
@@ -3367,6 +3433,7 @@ public:
         if (!prepare_close().ok) return;
         clock_monitor_.reset(); clock_architecture_.reset(); clock_architecture_attempted_ = false; hold_architecture_attempted_ = false;
         offset_checks_.clear(); clock_driver_.clear(); clock_vbios_.clear(); verified_xoc_request_mw_.reset(); nominal_board_only_ = false;
+        clear_power_capture_error();
         clock_step_measured_ = false; clock_step_khz_ = 0; clock_sample_ = 0;
         timing_backup_token_.clear();timing_backup_path_.clear();timings_.reset(); timing_transport_.reset(); timing_undo_.reset(); timing_batch_undo_.reset(); timing_data_={};
         timing_owner_=TimingOwner::none;
@@ -3484,13 +3551,16 @@ public:
         const auto policy_now = std::chrono::steady_clock::now();
         const bool policy_refresh = !details && policy_readouts_ && live_readouts_ && !last_.power_policies.empty()
             && (!last_policy_capture_ || policy_now - *last_policy_capture_ >= std::chrono::seconds(1));
+        // One deferred recapture after a transient read also lets Focused recover.
+        const bool power_retry_due = power_capture_retry_at_ && policy_now >= *power_capture_retry_at_;
         if (const auto board_request = read_board_request(st)) {
             power.availability = Availability::available; power.current = *board_request / 1000.0; power.unit = "W";
-            if (details || policy_refresh) { PowerSnapshot captured; std::string reason; bool captured_ok = false;
+            if (details || policy_refresh || power_retry_due) { PowerSnapshot captured; std::string reason; bool captured_ok = false;
+                auto capture_failure = PowerCaptureFailure::other;
                 last_policy_capture_ = policy_now;
                 dc_current_row currents[32]{}; uint32_t current_count = 0; bool current_answered = false;
                 if (power_api() && api_.lock(gpu_) == DC_OK) {
-                    captured_ok = power_capture(captured, reason, true);
+                    captured_ok = power_capture(captured, reason, true, &capture_failure);
                     if (captured_ok && !captured.nominal_only && api_.current_limits) {
                         for (int attempt = 0; attempt < 2; ++attempt) { for (auto& row : currents) { row = {}; row.size = sizeof(row); } current_count = 0;
                             if (api_.current_limits(gpu_, confirm_clamp, this, currents, 32, &current_count) == DC_OK && current_count > 0 && current_count <= 32) { current_answered = true; break; }
@@ -3500,6 +3570,7 @@ public:
                 }
                 else reason = "Power policy interfaces or lock unavailable";
                 if (captured_ok) { power.writable = true;
+                    clear_power_capture_error();
                     nominal_board_only_ = captured.nominal_only.has_value();
                     if (captured.nominal_only) {
                         bounds = captured.nominal_only;
@@ -3526,21 +3597,23 @@ public:
                         else if (row.named_current && row.unit == 1 && row.consistent) { auto old = std::find_if(previous_policies.begin(), previous_policies.end(), [&](const PowerPolicy& p) { return p.id == row.policy && p.binding == policy.binding && p.core_current; }); policy.core_current = old != previous_policies.end(); }
                         if (policy.core_current) policy.label = "Core current (NVVDD)"; policy.state.availability = Availability::available; policy.state.current = row.requested / 1000.0; policy.state.low = row.minimum / 1000.0; policy.state.high = row.maximum / 1000.0; policy.state.stock = row.default_value / 1000.0; policy.state.unit = row.unit == 0 ? "W" : row.unit == 1 ? "A" : "unknown"; policy.state.step = 0.001; policy.state.writable = !row.board && row.consistent && (row.writable || row.named_current) && (row.unit == 0 || row.unit == 1); policy.state.stock_writable = policy.state.writable && row.default_value >= row.minimum && row.default_value <= row.maximum; policy.state.detail = row.board ? "Board request is controlled separately" : row.consistent ? "Configured policy request" : "Policy record is inconsistent"; last_.power_policies.push_back(std::move(policy)); }
                 } else {
-                    // A failed refresh keeps the last rows, marked unavailable; only
-                    // the detail read speaks for the board request's own state.
-                    if (details) { power.availability = Availability::transient; power.detail = reason; }
+                    const bool transient = capture_failure == PowerCaptureFailure::transient_table;
+                    if (details || power_retry_due || transient)
+                        set_power_capture_error(reason, transient && (details || policy_refresh));
                     for (auto& policy : last_.power_policies) { policy.state.availability = Availability::transient; policy.state.detail = reason; }
                 }
             }
-            if (power.availability == Availability::available) {
-                if (bounds) {
-                    power.detail = "Current power request range: " + bounds->description();
-                    if (nominal_board_only_) power.detail += ". NVML controls the board request. Individual power policies are unavailable.";
-                    if (!bounds->contains(*board_request)) power.detail += ". The configured request is outside the writable range.";
-                } else {
-                    failure(power, bounds_unsupported, bounds_unsupported ? "Hardware power request bounds unavailable"
-                                                                         : "Hardware power request bounds temporarily unreadable");
-                }
+            // A configured board reading alone cannot refresh the policy snapshot needed for Undo.
+            if (!power_capture_error_.empty()) {
+                power.availability = Availability::transient;
+                power.detail = power_capture_error_;
+            } else if (bounds) {
+                power.detail = "Current power request range: " + bounds->description();
+                if (nominal_board_only_) power.detail += ". NVML controls the board request. Individual power policies are unavailable.";
+                if (!bounds->contains(*board_request)) power.detail += ". The configured request is outside the writable range.";
+            } else {
+                failure(power, bounds_unsupported, bounds_unsupported ? "Hardware power request bounds unavailable"
+                                                                     : "Hardware power request bounds temporarily unreadable");
             }
             if (st.pl_def_state == DC_CL_STATIC_VALUE) power.stock = st.pl_def_mw / 1000.0;
         } else {

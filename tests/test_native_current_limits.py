@@ -354,6 +354,16 @@ class ProbeInfoTests(CurrentLimitCase):
                                setup=refuse_info(lambda size: 0x57), **NEWER)
         self.assertEqual(result, ("ValueError", "policy info layout rejected (RM 0x57)", False))
 
+    def test_invalid_client_probe_drops_the_stale_transport(self):
+        def setup(side):
+            side.set_choice(0)
+            side.driver.refuse = lambda packet: 0x23
+        result, log, state, cache = self.both(
+            lambda g: g._current_limit_probe_info(NEWER_LAYOUT), setup=setup, **NEWER)
+        self.assertEqual(result, ("ValueError", "policy info layout rejected (RM 0x23)", False))
+        self.assertEqual(len(log), 1)
+        self.assertEqual((cache["transport"], cache["choice"], state["writes"]), (None, None, []))
+
     def test_mask_outside_the_capacity_is_fixed(self):
         # Every measured layout has capacity 32, so a synthesized one with a 4-record info block
         # (same info size, so the fixture still answers) is the only way to exercise this check.
@@ -588,6 +598,22 @@ class RmPacketTests(CurrentLimitCase):
         self.assertEqual(result, ("ValueError", "policy request failed (NTSTATUS 0, RM 0x1F)", False))
         self.assertEqual(len(state["writes"]), 1)
         self.assertEqual((cache["transport"] is not None, cache["choice"]), (True, 0))
+
+    def test_invalid_client_discards_cache_without_replaying_a_set(self):
+        for command in (INFO, SET):
+            with self.subTest(command=hex(command)):
+                def setup(side):
+                    setup_table(side)
+                    side.driver.refuse = lambda packet: 0x23
+
+                def action(gpu):
+                    return gpu._current_limit_rm(
+                        command, control_set(gpu, 13, 299000) if command == SET else None)
+
+                result, log, state, cache = self.both(action, setup=setup, **NEWER)
+                self.assertEqual(result, ("ValueError", "policy request failed (NTSTATUS 0, RM 0x23)", False))
+                self.assertEqual(len(log), 1)
+                self.assertEqual((cache["transport"], cache["choice"], state["writes"]), (None, None, []))
 
     def test_get_refused_for_its_size_is_unsupported(self):
         for command, mask, size in ((INFO, None, 20000), (STATUS, 0x3FFFF, 396024), (CONTROL, 0x3FFFF, 13840)):
