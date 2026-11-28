@@ -16,6 +16,7 @@
 #include "implot.h"
 
 #include <array>
+#include <cfloat>
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -30,6 +31,48 @@ const ImVec4 secondary{0.56f, 0.63f, 0.72f, 1.0f};
 const ImVec4 muted{0.43f, 0.50f, 0.60f, 1.0f};
 const ImVec4 teal{0.29f, 0.81f, 0.70f, 1.0f};
 const ImVec4 amber{0.96f, 0.72f, 0.37f, 1.0f};
+
+constexpr const char* timing_support_notice =
+    "PASCAL AND BELOW ONLY\n"
+    "NO SUPPORT FOR TURING AND NEWER\n"
+    "THIS IS NOT A BUG";
+
+// Draw after the page, including early-return and child-window paths. This is
+// decoration only: it neither consumes input nor changes timing capabilities.
+class TimingSupportWatermark {
+    ImVec2 low_, high_;
+    ImFont* font_;
+    float base_size_;
+public:
+    TimingSupportWatermark()
+        : low_(ImGui::GetWindowDrawList()->GetClipRectMin()),
+          high_(ImGui::GetWindowDrawList()->GetClipRectMax()),
+          font_(classic_fonts.heading ? classic_fonts.heading : ImGui::GetFont()),
+          base_size_(ImGui::GetFontSize()) {
+        low_.y = std::max(low_.y, ImGui::GetCursorScreenPos().y);
+    }
+    ~TimingSupportWatermark() {
+        const float width = high_.x-low_.x, height = high_.y-low_.y;
+        if (width <= 0 || height <= 0) return;
+        const char* lines[]{"PASCAL AND BELOW ONLY", "NO SUPPORT FOR TURING AND NEWER", "THIS IS NOT A BUG"};
+        float longest = 1;
+        for (const auto* line : lines)
+            longest = std::max(longest, font_->CalcTextSizeA(base_size_, FLT_MAX, 0, line).x);
+        const float size = std::min({base_size_*4.5f, width*0.92f*base_size_/longest, height/4.0f});
+        if (size < 1) return;
+        auto* draw = ImGui::GetForegroundDrawList();
+        draw->PushClipRect(low_, high_, true);
+        draw->AddRectFilled(low_, high_, IM_COL32(255, 35, 35, 10));
+        float y = low_.y+(height-size*3.6f)*0.5f;
+        for (const auto* line : lines) {
+            const float x = low_.x+(width-font_->CalcTextSizeA(size, FLT_MAX, 0, line).x)*0.5f;
+            draw->AddText(font_, size, ImVec2(x+1, y+1), IM_COL32(20, 0, 0, 175), line);
+            draw->AddText(font_, size, ImVec2(x, y), IM_COL32(255, 55, 55, 185), line);
+            y += size*1.2f;
+        }
+        draw->PopClipRect();
+    }
+};
 
 float u(float value) { return value * ImGui::GetFontSize() / 18.0f; }
 bool short_view() { return ImGui::GetIO().DisplaySize.y < u(840); }
@@ -2137,6 +2180,9 @@ std::optional<PascalClockReference> clock_preview_reference(const ViewState& sta
 void firmware_timing_panel(ViewState& state) {
     const auto& s=*state.live;
     ImGui::SeparatorText("BIOS memory timing");
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.22f, 0.22f, 1.0f));
+    ImGui::TextWrapped("%s", timing_support_notice);
+    ImGui::PopStyleColor();
     if(s.data.clock_architecture!=4u) {
         ImGui::TextWrapped("P0 BIOS timing control requires a Pascal GPU with a supported memory table.");
         return;
@@ -3314,6 +3360,7 @@ void classic_page_content(ViewState& state, Page page) {
     else if (page == Page::advanced) classic_advanced(state);
     else if (page == Page::monitor) classic_monitor(*state.live, state.shunt);
     else if (page == Page::timings) {
+        TimingSupportWatermark watermark;
         const auto& s = *state.live;
         // Released 1.9.1 tim_busy reads the live memory clock and p-state.
         TimingLiveClock clock;
@@ -3802,6 +3849,7 @@ void draw(ViewState& state) {
         }
         else if (state.page == Page::i2c) { title("I2C", "Inspect and control the selected I2C regulator."); draw_i2c_panel(state); }
         else if (state.page == Page::timings) {
+            TimingSupportWatermark watermark;
             const auto& s=*state.live;
             firmware_timing_panel(state);
             auto output=draw_timings(state.timings_view,s.data.timings.get(),s.generation,s.busy,state.controls_unlocked,s.data.connected);
