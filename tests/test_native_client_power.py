@@ -127,7 +127,7 @@ def test_constants_row_by_row():
     for name in ("SIZE_REFUSALS", "_RM26_COMMANDS", "INFO_BASE", "INFO_STRIDE", "CONTROL_BASE",
                  "CONTROL_STRIDE", "CAPACITY", "NATIVE_INFO_BASE", "NATIVE_INFO_STRIDE", "NATIVE_CONTROL_BASE",
                  "NATIVE_CONTROL_STRIDE", "NATIVE_CAPACITY", "ROLE", "CLIENT", "MISSING",
-                 "LEGACY_GROUP_ARCHITECTURES", "RM26_ARCHITECTURES", "_STATE_KEYS", "_LAYOUT"):
+                 "RM26_ARCHITECTURES", "_STATE_KEYS", "_LAYOUT"):
         assert got[name] == getattr(cp, name), name
         assert _types(got[name]) == _types(getattr(cp, name)), name
     assert list(got["_RM26_COMMANDS"]) == list(cp._RM26_COMMANDS)
@@ -136,7 +136,9 @@ def test_constants_row_by_row():
 
 def test_the_two_generation_lists_stay_separate():
     got = ncp.constants()
-    assert got["LEGACY_GROUP_ARCHITECTURES"] == (4, 6, 7)
+    # Native compatibility includes the independently qualified legacy32/V40
+    # Blackwell group. The deprecated Python frontend retains its old list.
+    assert got["LEGACY_GROUP_ARCHITECTURES"] == (4, 6, 7, 10)
     assert got["RM26_ARCHITECTURES"] == (4, 6)
 
 

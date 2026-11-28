@@ -53,7 +53,7 @@ bool layout_equal(const PowerRelationshipLayout& a,const PowerRelationshipLayout
         a.policy_base==b.policy_base&&a.policy_stride==b.policy_stride;
 }
 
-enum class InfoFormat { compact_rm26, rm26, v30_a618, compact_a618, a618 };
+enum class InfoFormat { compact_rm26, rm26, short_a618, compact_a618, a618 };
 
 constexpr bool is_rm26(InfoFormat format) {
  return format==InfoFormat::compact_rm26 || format==InfoFormat::rm26;
@@ -65,6 +65,7 @@ struct RelationshipInfoGeometry {
  size_t base;
  size_t weight_offset;
  bool turing_v30_write = false;
+ bool v40_write = false;
 
  size_t row(uint32_t index) const { return base + 0x24 * index; }
  size_t weight(uint32_t index) const { return row(index) + weight_offset; }
@@ -76,10 +77,11 @@ const RelationshipInfoGeometry* relationship_geometry(const PowerRelationshipLay
   {InfoFormat::rm26,         {0x20802618,  5392, 0x3c, 0x80},   0x1040, 4},
   {InfoFormat::rm26,         {0x20802618,  5520, 0x3c, 0x84},   0x10c0, 4},
   // Turing short V30 pairing evidence covers 7724, 8620 and 8632 bytes.
-  {InfoFormat::v30_a618,     {0x2080a618,  7724, 0x58, 0xc8},   0x195c, 6, true},
-  {InfoFormat::v30_a618,     {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6, true},
-  // The 8632-byte INFO keeps the relationship array before the appended masks.
-  {InfoFormat::v30_a618,     {0x2080a618,  8632, 0x58, 0xe4},   0x1cdc, 6, true},
+  {InfoFormat::short_a618,     {0x2080a618,  7724, 0x58, 0xc8},   0x195c, 6, true},
+  {InfoFormat::short_a618,     {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6, true},
+  // The 8632-byte INFO carries V30 or V40 policy rows. Both use the same
+  // relationship array before the appended masks; source fields stay opaque.
+  {InfoFormat::short_a618,     {0x2080a618,  8632, 0x58, 0xe4},   0x1cdc, 6, true, true},
   {InfoFormat::compact_a618, {0x2080a618, 20000, 0xcc, 0xfc},  0x3fd0, 6},
   {InfoFormat::a618,         {0x2080a618, 20512, 0xcc, 0x104}, 0x41d0, 6},
  };
@@ -108,12 +110,14 @@ struct RelationFormat {
  uint8_t stride_field, stride;
  std::optional<uint32_t> legacy_architecture;
  bool supports_a618;
- bool supports_v30_a618 = false;
+ bool supports_short_a618 = false;
+ bool supports_short_v40 = false;
 
  bool supports(const RelationshipInfoGeometry& packet, uint32_t arch) const {
-  if (packet.format==InfoFormat::v30_a618)
-   return supports_v30_a618 && legacy_architecture==arch &&
-          (arch==ampere || (arch==turing && packet.turing_v30_write));
+  if (packet.format==InfoFormat::short_a618)
+   return (supports_short_a618 && legacy_architecture==arch &&
+           (arch==ampere || (arch==turing && packet.turing_v30_write))) ||
+          (supports_short_v40 && packet.v40_write);
   if (packet.format==InfoFormat::compact_rm26 && arch!=turing) return false;
   return is_rm26(packet.format) ? legacy_architecture==arch : supports_a618;
  }
@@ -122,7 +126,7 @@ struct RelationFormat {
 constexpr RelationFormat short_relations{8,14,turing,true,true};
 constexpr RelationFormat ampere_relations{8,14,ampere,false,true};
 constexpr RelationFormat pascal_relations{8,10,pascal,false};
-constexpr RelationFormat v40_relations{4,18,{},true};
+constexpr RelationFormat v40_relations{4,18,{},true,false,true};
 
 struct PolicyFields {
  uint8_t class_mask;
@@ -290,7 +294,7 @@ PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout
  for(uint32_t i=0;i<32;++i)if(out.policy_mask&(1u<<i)){const size_t at=layout.policy_base+layout.policy_stride*i;const auto kind=info[at+4];const bool format=info[at]==0x30||info[at]==0x40;
   // These layouts expose the relationship rows. Policy source-field offsets
   // still require separate qualification on their shorter records.
-  if(legacy_info||geometry->format==InfoFormat::v30_a618){out.source_uninterpreted_policies.push_back(i);continue;}
+  if(legacy_info||geometry->format==InfoFormat::short_a618){out.source_uninterpreted_policies.push_back(i);continue;}
   if(!compact_info&&kind==33){PowerRelationshipSource source;source.policy=i;source.first=word16(info,at+0x34);source.last=word16(info,at+0x36);
    if(!format)source.reason="Source policy row format unrecognized";else if(source.first>source.last)source.available=true;else if(source.last>=32)source.reason="Source relationship range exceeds INFO capacity";else fill(source);out.range_references.push_back(std::move(source));continue;}
   if(!compact_info&&kind==32){PowerRelationshipLink source;source.policy=i;source.relationship=word16(info,at+0x34);const auto* r=relation(source.relationship);if(r)source.target=r->target;
@@ -355,9 +359,10 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
            "Selected image relationship or target unqualified");
    const auto& policy = inspection.policies[r->target];
    require(policy.qualified && policy.metadata, "Selected image target metadata unqualified");
-   if (geometry->format == InfoFormat::v30_a618) {
+   if (geometry->format == InfoFormat::short_a618) {
     const auto target = layout.policy_base + layout.policy_stride * r->target;
-    require(info[target] == 0x30, "Selected INFO target requires a V30 policy row");
+    require(info[target] == inspection.table_version,
+            "Selected INFO target requires the matching firmware policy row version");
    }
    const auto before = *r->weight_raw;
    if (request.expected_raw) require(*request.expected_raw == before, "Selected expected image weight changed");

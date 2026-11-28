@@ -542,25 +542,65 @@ void older_relationship_rows() {
  }
 }
 void extended_relationship_info() {
- const auto test=power_case();
  const PowerRelationshipLayout layout{0x2080a618,8632,0x58,0xe4};
- std::vector<uint8_t> info(layout.info_size);
- dword(info,4,1u<<2);
- const auto policy=layout.policy_base+2*layout.policy_stride;
- info[policy]=0x30;info[policy+5]=3;
- dword(info,policy+8,5);dword(info,policy+12,100);dword(info,policy+16,300);
- dword(info,0x1cd8,1u<<31);
- const auto row=0x1cdc+31*0x24;
- info[row+1]=2;word(info,row+4,4096);word(info,row+6,6144);
- dword(info,0x21ac,1u<<2);dword(info,0x21b0,1u<<6);dword(info,0x21b4,1u<<11);
- const auto report=decode_power_relationships(layout,info);
- check(report.available && report.relationships.size()==1 && report.relationships[0].index==31 &&
-       report.relationships[0].target==2 && report.relationships[0].target_metadata &&
-       report.relationships[0].weight_raw==6144 && report.source_uninterpreted_policies==std::vector<uint32_t>{2},
-       "8632-byte INFO decodes the final relationship row independently of the appended masks");
- const auto plan=plan_power_relationship_weights(test.image,test.identity,layout,info,{{31,1.25,6144}});
- check(!plan.ok && plan.message.find("write layout is unqualified")!=std::string::npos,
-       "8632-byte INFO remains inspection-only for the matching V40 firmware rows");
+ constexpr size_t base=0x1cdc, first_weight=base+6, last_weight=base+31*0x24+6;
+ // The captured short A618 transport has V40 targets and the same +6 Q4.12
+ // words as the longer A618 transport. Source fields are separately unknown.
+ for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}) {
+  auto test=power_case(header);
+  for(const uint32_t architecture:{7u,9u,10u}) {
+   auto identity=test.identity;identity.architecture=architecture;
+   std::vector<uint8_t> info(layout.info_size,0);
+   dword(info,4,(1u<<2)|(1u<<9));dword(info,base-4,(1u<<0)|(1u<<31));
+   for(const auto target:{2u,9u}) {
+    const auto policy=layout.policy_base+target*layout.policy_stride;
+    std::copy_n(test.info.begin()+0xcc+target*0x104,20,info.begin()+policy);
+    info[policy]=0x40;
+    info[policy+0x80]=0xb7; // Uninterpreted source-policy bytes.
+   }
+   info[base+1]=9;word(info,base+4,0x1234);word(info,first_weight,4096);
+   const auto row=base+31*0x24;
+   info[row+1]=2;word(info,row+4,0xa55a);word(info,last_weight,6144);
+   dword(info,0x21ac,1u<<2);dword(info,0x21b0,1u<<6);dword(info,0x21b4,1u<<11);
+   const auto report=decode_power_relationships(layout,info);
+   check(report.available&&report.relationships.size()==2&&report.relationships.back().index==31&&
+         report.relationships[0].weight_raw==4096&&report.relationships[1].weight_raw==6144&&
+         report.relationships[1].target_metadata&&report.source_references.empty()&&
+         report.range_references.empty()&&report.linked_references.empty()&&
+         report.source_uninterpreted_policies==std::vector<uint32_t>({2,9}),
+         "Short A618 V40 targets decode weights and leave source fields uninterpreted");
+   const std::vector<PowerWeightRequest> requests={{0,4097.0/4096,4096},{31,1.25,6144}};
+   const auto plan=plan_power_relationship_weights(test.image,identity,layout,info,requests);
+   check(plan.ok&&plan.patches.size()==2,"V40 short A618 qualifies by firmware/packet binding across identities");
+   if(!plan.ok)continue;
+   auto expected_info=info,expected_image=test.image;
+   word(expected_info,first_weight,4097);word(expected_info,last_weight,5120);
+   const auto image=inspect_power_weight_image(test.image);
+   word(expected_image,image.relationships[0].offset+2,4097);
+   word(expected_image,image.relationships[31].offset+2,5120);
+   check(*plan.expected_info==expected_info&&*plan.expected_image==expected_image,
+         "Only selected +6 INFO words and +2 firmware words change on short A618 V40");
+   check(verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_image).ok&&
+         verify_power_relationship_weights(plan,identity,layout,info,&test.image,true).ok,
+         "Short A618 V40 apply and removal require complete exact INFO and ROM bytes");
+   for(const auto offset:{base+4,size_t{layout.policy_base+9*layout.policy_stride+0x80},size_t{0x21ac},size_t{0x21b0},size_t{0x21b4}}) {
+    auto changed=expected_info;changed[offset]^=1;
+    check(!verify_power_relationship_weights(plan,identity,layout,changed,&expected_image).ok,
+          "Unselected INFO words, source fields and appended masks must remain exact");
+   }
+   for(const auto field:{0,4,5,6,8,12,16}) {
+    auto changed=info;changed[layout.policy_base+9*layout.policy_stride+field]^=field==0?0x70:1;
+    check(!plan_power_relationship_weights(test.image,identity,layout,changed,requests).ok,
+          "V40 short A618 rejects wrong row version, type, channel, unit or policy limits");
+   }
+   auto mixed=info;mixed[layout.policy_base+9*layout.policy_stride]=0x30;
+   check(!plan_power_relationship_weights(test.image,identity,layout,mixed,requests).ok,
+         "A selected V30 INFO target cannot qualify the short V40 firmware pairing");
+   auto wrong=layout;wrong.policy_stride-=4;
+   check(!plan_power_relationship_weights(test.image,identity,wrong,info,requests).ok,
+         "The V40 table does not qualify an unknown short INFO geometry");
+  }
+ }
 }
 void power_tests(){PowerRelationshipLayout layout;
  for(const auto header:{uint8_t{0x38},uint8_t{0x3d}}){auto c=power_case(header);const auto original=c.image,info=c.info;const auto image=inspect_power_weight_image(c.image);const auto report=decode_power_relationships(layout,c.info);

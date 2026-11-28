@@ -61,8 +61,11 @@ constexpr const CpSizes* kGroups[kCpSizeGroupCount] = {
 // smaller one. Generation decides whether the semantics are understood at all;
 // WHICH group a card speaks is still decided by read-only INFO acceptance
 // below, never by a device, board or driver version.
-//   4 Pascal, 6 Turing, 7 Ampere
-constexpr std::uint32_t kLegacyGroupArchitectures[] = {4, 6, 7};
+//   4 Pascal, 6 Turing, 7 Ampere, 10 Blackwell. Blackwell's A612
+// legacy32 group carries a V40 definition; capacity and firmware-table
+// version are independent. Its role/INFO/CONTROL binding is validated by
+// the controller before a request is exposed.
+constexpr std::uint32_t kLegacyGroupArchitectures[] = {4, 6, 7, 10};
 // Pascal and Turing are qualified on both RM26 layouts. Ampere is qualified
 // on the extended layout, with a matching v30 role and CONTROL readback.
 constexpr std::uint32_t kRm26Architectures[] = {4, 6};

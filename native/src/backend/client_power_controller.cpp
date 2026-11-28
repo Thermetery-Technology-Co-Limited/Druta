@@ -342,6 +342,10 @@ CpExchangeResult ClientPowerController::client_group(const Target& identity) {
             if (info.error.kind == RmErrorKind::invalid) return info;
             state_.sizes = previous;
             if (!contains(cp_size_refusals(), info.error.rm_status) || position == kA612FallbackCount - 1) return info;
+            // Compact records have their own architectural qualification.
+            // Accepting legacy32 on a newer generation does not qualify a
+            // different record family when that legacy32 probe is refused.
+            if (!contains(cp_rm26_architectures(true), identity.architecture)) return info;
             continue;
         }
         state_.*fallback.mark = true;
@@ -520,7 +524,13 @@ CpRead<CpMetadata> ClientPowerController::metadata_once() {
     // This byte describes the firmware policy table, not the RM packet capacity.
     const bool v30_only = state_.legacy || state_.rm26_records;
     const std::uint8_t version = definition[0];
-    const bool version_ok = version == 0x30 || (!v30_only && version == 0x40);
+    // The measured A612 legacy32 group on Blackwell uses V40 definitions
+    // with the same units, limit fields and 228-byte occupied-policy match.
+    // Keep the other small/compact groups' V30 requirement. V40 request
+    // verification compares every peer and opaque byte exactly.
+    const bool legacy_v40 = state_.legacy && state_.sizes == CpSizeGroup::legacy &&
+                            identity.target->architecture == 10;
+    const bool version_ok = version == 0x30 || ((!v30_only || legacy_v40) && version == 0x40);
     const std::vector<std::uint8_t> source(definition, definition + native_stride);
     if (!version_ok || source[6] != row[3] || u32_at(source, 8) != limits[0] || u32_at(source, 12) != limits[1] ||
         u32_at(source, 16) != limits[2]) {

@@ -557,8 +557,10 @@ class ClientGroupTests(MetadataCase):
         self.assertEqual(commands(fake_calls), [(cp.INFO, 0x924)])
 
     def test_only_pascal_turing_and_ampere_fall_back(self):
-        # every generation the binding accepts (4 through 10): Volta (5) is the gap inside the list
-        for arch in range(4, 11):
+        # Older generations in the parity oracle: Volta (5) is the gap in its list.
+        # Blackwell's native-only legacy32/V40 qualification has separate
+        # protocol tests; the deprecated Python controller predates it.
+        for arch in range(4, 10):
             with self.subTest(arch=arch):
                 rig = MetaRig(lambda arch=arch: LegacyGpu(architecture=arch), accepted=legacy_accepted())
                 result, _, final, _, fake_calls = self.both(rig)
