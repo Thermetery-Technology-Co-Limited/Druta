@@ -759,6 +759,22 @@ edit refused before writing because its fresh V/F baseline had changed;
 an immediate loaded retest passed Apply and Undo. The refusal is retained in
 `curve-edit-first-attempt.txt` alongside the successful retest.
 
+Follow-up on 2026-11-27: the V/F prewrite guard compared evaluated MHz exactly,
+although the write readback and Undo guards already compare point geometry and
+boost-table requests independently. The guard now accepts a changed evaluated
+MHz only when the voltage/index mapping, divisor, layout and all requested
+deltas are unchanged. The client test proves that a changed request still
+refuses without writing. The first 560.94 refusal did not identify which field
+changed, so its exact trigger remains unproven; 30 consecutive loaded curve
+reads during the follow-up showed no drift.
+
+The local combined probe now releases its owned hold before editing. Under
+loaded P0, hold/release/edit/Undo and the standalone curve edit/Undo passed on
+both 560.94 and 621.24, with the full request table restored each time. The
+standalone probe now reports evaluated-frequency agreement separately from
+request-table restoration. Receipts are in the local matrix workspace under
+`rerun-20261127/diagnose-560.94/` and `diagnose-621.24/`.
+
 For 431.36 and 417.35, the individual domain slider probe started in a fresh
 process before the required loaded counter verification, so it refused before
 writing. The subsequent verifier exercised and restored all four domain
