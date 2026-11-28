@@ -20,8 +20,18 @@ PowerCase power_case(uint8_t header=0x38){PowerCase c;c.image=fixture(true,0x99a
  c.info[0x41d0+1]=9;word(c.info,0x41d0+6,4096);c.info[0x41d0+31*0x24+1]=2;word(c.info,0x41d0+31*0x24+6,6144);
  c.info[0xcc+0xb9]=1;word(c.info,0xcc+0xbc,0);word(c.info,0xcc+0xbe,0);word(c.info,0xcc+0x104+0x34,31);word(c.info,0xcc+3*0x104+0x34,31);word(c.info,0xcc+3*0x104+0x36,31);c.info[0x5000]=0xab;return c;}
 void short_v30_tests() {
- const PowerRelationshipLayout layouts[]={{0x2080a618,20000,0xcc,0xfc},
-      {0x20802618,5008,0x34,0x74},{0x20802618,5520,0x3c,0x84},{0x2080a618,20512,0xcc,0x104}};
+ const struct {
+  PowerRelationshipLayout layout;
+  size_t relationship_base;
+ } packets[] = {
+  {{0x2080a618,20000,0xcc,0xfc},0x3fd0},
+  {{0x20802618, 5008,0x34,0x74},0x0eb8},
+  {{0x20802618, 5520,0x3c,0x84},0x10c0},
+  {{0x2080a618,20512,0xcc,0x104},0x41d0},
+  {{0x2080a618, 7724,0x58,0xc8},0x195c},
+  {{0x2080a618, 8620,0x58,0xe4},0x1cdc},
+  {{0x2080a618, 8632,0x58,0xe4},0x1cdc},
+ };
  const PowerRelationshipIdentity identity{"0000:7b:00.0",6,0x5678,0xbeef0001};
  // Put the table near the end of its owner so a bogus relationship count
  // cannot be mistaken for another table or data beyond the image.
@@ -45,39 +55,52 @@ void short_v30_tests() {
        "The next record's class bits do not alter the current policy");
  check(parsed.relationships[1].kind==2 && !parsed.relationships[1].weight_raw && !parsed.relationships[1].qualified,
        "Opaque firmware relationship payloads have no decoded weight");
- for(const auto& layout:layouts) {
+ for (const auto& packet : packets) {
+  const auto& layout=packet.layout;
   const bool legacy=layout.info_command==0x20802618;
-  const size_t target_info=layout.policy_base+layout.policy_stride;
   const bool compact=layout.info_size==20000;
-  const size_t relation_info=legacy?layout.policy_base+32*layout.policy_stride+4:
-                                    (compact?0x3fd0:0x41d0);
+  const bool has_source_range=compact || layout.info_size==20512;
+  const size_t target_info=layout.policy_base+layout.policy_stride;
+  const size_t relation_info=packet.relationship_base;
   const size_t weight_offset=legacy?4:6;
   std::vector<uint8_t> info(layout.info_size);
   dword(info,4,3);
   dword(info,relation_info-4,3);
   info[layout.policy_base]=0x30;
-  if(!legacy)info[layout.policy_base+(compact?0xb1:0xb9)]=1;
+  if(has_source_range)info[layout.policy_base+(compact?0xb1:0xb9)]=1;
   info[target_info]=0x30;info[target_info+4]=4;info[target_info+5]=7;info[target_info+6]=1;
   dword(info,target_info+8,20000);dword(info,target_info+12,350780);dword(info,target_info+16,390000);
   info[relation_info+1]=1;word(info,relation_info+weight_offset,4096);
+  word(info,relation_info+(legacy?6:4),0xa55a);
   info[relation_info+0x24]=1;info[relation_info+0x24+1]=1;
+  info.back()=0x5a;
+  if (layout.info_size==8632) {
+   dword(info,0x21ac,3);
+   dword(info,0x21b0,1u<<1);
+   dword(info,0x21b4,1u<<2);
+  }
 
   const auto report=decode_power_relationships(layout,info);
-  check(report.available&&report.relationships.size()==2,"Each qualified INFO layout decodes the short V30 weight and target");
-  if(!legacy)check(report.source_references.size()==1&&
+  check(report.available&&report.relationships.size()==2&&report.relationships[0].weight_raw==4096&&
+        report.relationships[0].target==1,"Decoded INFO layouts expose the short V30 weight and target");
+  if(has_source_range)check(report.source_references.size()==1&&
         report.source_references.front().relationships==std::vector<uint32_t>{0},"A618 INFO also decodes the source range");
-  const std::vector<PowerWeightRequest> requests={{0,4097.0/4096,4096}};
+  const std::vector<PowerWeightRequest> requests={{0,4095.0/4096,4096}};
   const auto plan=plan_power_relationship_weights(rom,identity,layout,info,requests);
   check(plan.ok&&plan.patches.size()==1&&plan.patches.front().offset==relation+2,
         "Matching V30 weight and target qualify for override Preview");
+  auto incomplete=info;
+  incomplete.pop_back();
+  check(!plan_power_relationship_weights(rom,identity,layout,incomplete,requests).ok,
+        "Planning with a short V30 ROM requires the complete declared INFO packet");
   for (uint32_t architecture : {4u,5u,7u,8u,9u,10u}) {
    auto alternate=identity;
    alternate.architecture=architecture;
    const auto alternate_plan=plan_power_relationship_weights(rom,alternate,layout,info,requests);
-   if(legacy) {
+   if(!has_source_range) {
     check(!alternate_plan.ok&&alternate_plan.patches.empty()&&
           alternate_plan.message.find("unqualified for this architecture")!=std::string::npos,
-          "An exact 0x42 ROM and RM26 INFO match qualifies only on Turing");
+          "The selected INFO and short V30 ROM pairing qualifies only on Turing");
    } else {
     check(alternate_plan.ok&&alternate_plan.patches.size()==1,
           "Both A618 pairings retain 0x42 write support on other architectures");
@@ -85,20 +108,72 @@ void short_v30_tests() {
   }
   if(plan.ok) {
    auto expected_rom=rom,expected_info=info;
-   word(expected_rom,relation+2,4097);word(expected_info,relation_info+weight_offset,4097);
+   word(expected_rom,relation+2,4095);word(expected_info,relation_info+weight_offset,4095);
+   const auto applied=verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom);
+   const auto restored=verify_power_relationship_weights(plan,identity,layout,info,&rom,true);
    check(*plan.expected_image==expected_rom&&*plan.expected_info==expected_info&&
-         verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom).ok&&
-         verify_power_relationship_weights(plan,identity,layout,info,&rom,true).ok,
+         applied.ok&&applied.image_verified&&restored.ok&&restored.image_verified,
          "Apply and Restore project only the selected V30 image and INFO weight word");
-   expected_info.back()^=1;
-   check(!verify_power_relationship_weights(plan,identity,layout,expected_info,&expected_rom).ok,
-         "Unselected bytes remain part of the independent activation proof");
+   check(!verify_power_relationship_weights(plan,identity,layout,expected_info,&rom).ok&&
+         !verify_power_relationship_weights(plan,identity,layout,info,&expected_rom,true).ok,
+         "Exact INFO with the wrong complete ROM fails Apply and Restore proof");
+   auto changed_rom=expected_rom, changed_original_rom=rom;
+   changed_rom[relation+4]^=1;
+   changed_original_rom[relation+4]^=1;
+   check(!verify_power_relationship_weights(plan,identity,layout,expected_info,&changed_rom).ok&&
+         !verify_power_relationship_weights(plan,identity,layout,info,&changed_original_rom,true).ok,
+         "Unselected ROM bytes remain part of both full-buffer proofs");
+   auto changed_info=expected_info, changed_original=info;
+   changed_info.back()^=1;
+   changed_original.back()^=1;
+   check(!verify_power_relationship_weights(plan,identity,layout,changed_info,&expected_rom).ok&&
+         !verify_power_relationship_weights(plan,identity,layout,changed_original,&rom,true).ok,
+         "Unselected INFO bytes remain part of both full-buffer proofs");
+   if(layout.info_size==7724) {
+    auto with_frts=rom;
+    constexpr size_t dmap=0x700,cmd=dmap+0x50;
+    std::fill_n(with_frts.begin()+dmap,0x7c,uint8_t{0});
+    with_frts[dmap]='D';with_frts[dmap+1]='M';with_frts[dmap+2]='A';with_frts[dmap+3]='P';
+    word(with_frts,dmap+4,3);word(with_frts,dmap+6,0x40);
+    dword(with_frts,dmap+0x0c,0x40);dword(with_frts,dmap+0x2c,0x15);
+    dword(with_frts,cmd,1);dword(with_frts,cmd+4,24);dword(with_frts,cmd+20,2);
+    dword(with_frts,cmd+24,1);dword(with_frts,cmd+28,20);
+    dword(with_frts,cmd+32,0x12345);dword(with_frts,cmd+36,0x100);dword(with_frts,cmd+40,2);
+    auto frts_plan=plan_power_relationship_weights(with_frts,identity,layout,info,requests);
+    check(frts_plan.ok,"FWSEC command outside selected power table preserves the plan");
+    if(frts_plan.ok) {
+     auto observed=*frts_plan.expected_image;
+     dword(observed,cmd+32,0x23456);dword(observed,cmd+40,1);
+     const auto accepted=verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&observed);
+     check(accepted.ok&&accepted.image_verified&&accepted.message.find("FRTS")!=std::string::npos,
+           "Only a qualified framebuffer-to-system FRTS relocation is accepted on Apply");
+     auto changed_size=observed;changed_size[cmd+36]^=1;
+     auto changed_unknown=observed;changed_unknown[0x800]^=1;
+     auto changed_type=observed;dword(changed_type,cmd+40,3);
+     check(!verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&changed_size).ok&&
+           !verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&changed_unknown).ok&&
+           !verify_power_relationship_weights(frts_plan,identity,layout,*frts_plan.expected_info,&changed_type).ok,
+           "Changed FRTS size, unrelated image byte or unknown memory type still refuses Apply");
+     auto relocated_original=with_frts;
+     dword(relocated_original,cmd+32,0x23456);dword(relocated_original,cmd+40,1);
+     check(!verify_power_relationship_weights(frts_plan,identity,layout,info,&relocated_original,true).ok,
+           "Restore still requires the exact original FWSEC descriptor");
+    }
+   }
   }
   check(!plan_power_relationship_weights(rom,identity,layout,info,{{1,1,{}}}).ok,
         "Opaque relation kind is inspectable but cannot produce a patch");
-  info[target_info+5]^=1;
-  check(!plan_power_relationship_weights(rom,identity,layout,info,requests).ok,
-        "A mismatched target channel disqualifies the weight");
+  for (const auto field : {4,5,6,8,12,16}) {
+   auto mismatched=info;
+   mismatched[target_info+field]^=1;
+   check(!plan_power_relationship_weights(rom,identity,layout,mismatched,requests).ok,
+         "Every selected INFO policy field must match its V30 ROM target");
+  }
+  if (!legacy && !has_source_range) {
+   info[target_info]=0x40;
+   check(!plan_power_relationship_weights(rom,identity,layout,info,requests).ok,
+         "The short Turing A618 pairings require a V30 selected policy row");
+  }
  }
  rom[table+9]=255;
  const auto oversized=inspect_power_weight_image(rom);
@@ -501,7 +576,10 @@ void power_tests(){PowerRelationshipLayout layout;
   check(verify_power_relationship_weights(plan,c.identity,layout,*plan.expected_info,plan.expected_image.get()).ok,"Exact expected image and full INFO verify");
   check(verify_power_relationship_weights(plan,c.identity,layout,c.info,&c.image,true).ok,"Original full INFO and image verify for explicit removal proof");
   auto changed=*plan.expected_info;changed[0x5000]^=1;check(!verify_power_relationship_weights(plan,c.identity,layout,changed).ok,"Unselected unknown INFO change invalidates activation proof");
-  auto changed_image=*plan.expected_image;changed_image[0x700]^=1;check(!verify_power_relationship_weights(plan,c.identity,layout,*plan.expected_info,&changed_image).ok,"Complete image verification includes unselected bytes");
+   auto changed_image=*plan.expected_image;changed_image[0x700]^=1;
+   const auto mismatch=verify_power_relationship_weights(plan,c.identity,layout,*plan.expected_info,&changed_image);
+   check(!mismatch.ok&&mismatch.message.find("1 byte(s); first offset 0x700")!=std::string::npos,
+         "Complete image verification reports the first unselected difference");
   auto other=c.identity;other.subsystem_id^=1;check(!verify_power_relationship_weights(plan,other,layout,*plan.expected_info).ok,"Changed adapter identity refused");
   auto forged=plan;forged.patches.clear();forged.selected[0].after_raw=0;check(verify_power_relationship_weights(forged,c.identity,layout,*plan.expected_info,plan.expected_image.get()).ok,"Public review projection cannot forge authoritative plan");
  }

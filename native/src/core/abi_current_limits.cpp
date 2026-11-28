@@ -584,6 +584,14 @@ DC_API dc_status DC_CALL dc_cl_power_policies_read(dc_gpu* handle, dc_cl_confirm
         }
         if (!r.in_bounds) return DC_E_RANGE;
         if (r.error) {
+            using druta::backend::RmErrorKind;
+            if (r.table_error_kind == RmErrorKind::transient) {
+                druta::backend::RmError transient;
+                transient.kind = RmErrorKind::transient;
+                transient.message = *r.error;
+                put_error(transient, error);
+                return DC_E_UNAVAILABLE;
+            }
             const bool nominal = r.legacy_power_pair && handle->pl.nominal_nvml_available();
             return put_message(nominal ? druta::backend::RmErrorKind::unsupported : druta::backend::RmErrorKind::invalid,
                                *r.error, error);

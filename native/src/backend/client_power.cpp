@@ -46,10 +46,14 @@ constexpr CpSizes kA612CompactSizes = {{900, 388, 388, 132, 5392, 2124, 70684}};
 // 560.94's signed kernel dispatch uses a 204-byte role GET (selector plus
 // one 200-byte INFO record). The same dispatch family uses 116-byte CONTROL rows.
 constexpr CpSizes kInfo200Sizes = {{1160, 392, 392, 204, 7724, 4172, 149928}};
+// Same modern client INFO/CONTROL group, with a 252-byte native policy
+// definition. The role GET and all three native GET sizes were accepted on a
+// live Turing adapter; the role definition matched one occupied native row.
+constexpr CpSizes kModern252Sizes = {{0x924, 0x328, 0x328, 256, 20000, 13840, 396024}};
 
 constexpr const CpSizes* kGroups[kCpSizeGroupCount] = {
     &kSizes, &kLegacySizes, &kTuringSizes, &kInfo216Sizes, &kRm26Sizes, &kRm26ExtendedSizes, &kA612CompactSizes,
-    &kInfo200Sizes,
+    &kInfo200Sizes, &kModern252Sizes,
 };
 
 // Generations whose client power-policy semantics have been validated against
@@ -295,6 +299,9 @@ CpGeometry native_geometry(const CpBinding& binding) {
         const std::int64_t info_stride = binding.native_layout == CpNativeLayout::policy116 ? 200 : 228;
         return {88, stride_or(binding, info_stride), 20, small.control_stride, small.control_size};
     }
+    if (binding.native_layout == CpNativeLayout::modern252)
+        return {kCpNativeInfoBase, stride_or(binding, 252), kCpNativeControlBase, kCpNativeControlStride,
+                kModern252Sizes[kCpIdxNativeControl]};
     return {kCpNativeInfoBase, stride_or(binding, kCpNativeInfoStride), kCpNativeControlBase, kCpNativeControlStride,
             kSizes[kCpIdxNativeControl]};
 }

@@ -883,6 +883,84 @@ TEST_NOINLINE void nominal_board_only_tests(const CoreApi& pa) {
     CHECK(pin_writes == pins_before && power_writes == full_before);
     board = previous; pin_present = previous_pin;
 }
+int transient_policy_failures = 0, transient_policy_attempts = 0;
+uint32_t external_board_on_transient = 0;
+dc_status DC_CALL transient_policies(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
+                                     dc_cl_policy_inputs_fn inputs, void* input_context, dc_policy_row* rows,
+                                     uint32_t capacity, uint32_t* count, dc_error* error) {
+    ++transient_policy_attempts;
+    CHECK(*count == 0 && rows[0].size == sizeof(rows[0]) && error->size == sizeof(*error));
+    if (transient_policy_failures == 0)
+        return policies(gpu, confirm, context, inputs, input_context, rows, capacity, count, error);
+    --transient_policy_failures;
+    if (external_board_on_transient) {
+        board = external_board_on_transient;
+        external_board_on_transient = 0;
+    }
+    error->kind = DC_ERR_TRANSIENT;
+    std::strcpy(error->message, "policy request failed (NTSTATUS 0, RM 0x23)");
+    return DC_E_UNAVAILABLE;
+}
+TEST_NOINLINE void transient_board_power_tests(const CoreApi& pa) {
+    const auto prior_board = board;
+    const auto prior_peer = peer;
+    const auto prior_pin = pin_present;
+    board = 260000; peer = 100; pin_present = false;
+    auto power_api = pa;
+    power_api.policy_read = transient_policies;
+    power_api.power_set_nvml = nominal_nvml_set;
+    auto client = create_core_backend_for_test(power_api);
+    std::string error;
+    CHECK(client->open("0000:02:00.0", error));
+    constexpr auto board_index = static_cast<size_t>(ControlId::power);
+    const auto ready = client->read(true).controls[board_index];
+    CHECK(ready.availability == Availability::available && ready.writable && ready.current == 260.0);
+
+    const int initial_full = power_writes, initial_nominal = nominal_sets, initial_policy = policy_writes;
+    const int initial_pins = pin_writes;
+    const Command apply{Command::Operation::apply, ControlId::power, 259};
+    const Command undo{Command::Operation::undo};
+    const int reads_before = transient_policy_attempts;
+    transient_policy_failures = 2;
+    const auto refused = client->execute(apply);
+    CHECK(!refused.ok && !refused.may_have_changed && refused.message.find("RM 0x23") != std::string::npos);
+    CHECK(transient_policy_attempts == reads_before + 2 && power_writes == initial_full);
+    CHECK(nominal_sets == initial_nominal && pin_writes == initial_pins && board == 260000);
+    const auto transient = client->read(false).controls[board_index];
+    CHECK(transient.availability == Availability::transient && transient.writable && transient.current == 260.0);
+    CHECK(transient.detail.find("RM 0x23") != std::string::npos && transient.high == ready.high);
+    CHECK(transient_policy_attempts == reads_before + 2);
+
+    transient_policy_failures = 2;
+    Sleep(1050);
+    CHECK(client->read(false).controls[board_index].availability == Availability::transient);
+    CHECK(transient_policy_attempts == reads_before + 4 && transient_policy_failures == 0);
+    Sleep(1050);
+    CHECK(client->read(false).controls[board_index].availability == Availability::transient);
+    CHECK(transient_policy_attempts == reads_before + 4 && power_writes == initial_full);
+
+    transient_policy_failures = 1;
+    const auto applied = client->execute(apply);
+    CHECK(applied.ok && applied.readback == 259.0 && board == 259000 && power_writes == initial_full + 1);
+    CHECK(client->read(false).controls[board_index].availability == Availability::available);
+    CHECK(peer == 200 && policy_writes == initial_policy && nominal_sets == initial_nominal);
+
+    transient_policy_failures = 2;
+    const auto refused_undo = client->execute(undo);
+    CHECK(!refused_undo.ok && !refused_undo.may_have_changed && client->read(false).undo_available);
+    CHECK(board == 259000 && power_writes == initial_full + 1 && pin_writes == initial_pins);
+    transient_policy_failures = 1;
+    CHECK(client->execute(undo).ok && board == 260000 && !client->read(false).undo_available);
+    CHECK(power_writes == initial_full + 2 && nominal_sets == initial_nominal);
+    CHECK(peer == 200 && policy_writes == initial_policy); // The driver's unpinned peer remains derived.
+
+    // A different writer can change the configured request between attempts.
+    transient_policy_failures = 1;
+    external_board_on_transient = 260250;
+    CHECK(client->execute(apply).ok && board == 259000);
+    CHECK(client->execute(undo).ok && board == 260250);
+    board = prior_board; peer = prior_peer; pin_present = prior_pin;
+}
 TEST_NOINLINE void native_power_limit_tests(const CoreApi& pa) {
     std::string error; CoreApi native_api = pa; native_api.native_power = native_limit; native_api.pins_get = no_pins;
     auto client = create_core_backend_for_test(native_api); CHECK(client->open("0000:02:00.0", error)); board = 200000;
@@ -1854,13 +1932,17 @@ int main() {
     fan_post_fail = true; CHECK(!b->execute(fan).ok && b->read(false).undo_available); fan_post_fail = false;
     curve_div = 2; delta = 123; delta2 = 456; auto fresh = pb->read(true); CHECK(fresh.curve_writable && fresh.curve.size() == 2 && fresh.curve_step_khz == 1000 && fresh.curve_freq_div == 2);
     Command curve{}; curve.operation = Command::Operation::apply_curve; curve.expected_curve = fresh.curve; curve.expected_curve_freq_div = fresh.curve_freq_div; curve.curve_deltas = {{3, 200}};
-    int before_curve = curve_writes; curve.expected_curve_freq_div = 1; CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.expected_curve_freq_div = 2; curve.expected_curve[0].volt_mv += 1; CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.expected_curve = fresh.curve;
+    int before_curve = curve_writes; curve.expected_curve_freq_div = 1; auto rejected_curve = pb->execute(curve); CHECK(!rejected_curve.ok && rejected_curve.message.find("frequency divisor") != std::string::npos && curve_writes == before_curve); curve.expected_curve_freq_div = 2; curve.expected_curve[0].volt_mv += 1; rejected_curve = pb->execute(curve); CHECK(!rejected_curve.ok && rejected_curve.message.find("point mapping") != std::string::npos && curve_writes == before_curve); curve.expected_curve = fresh.curve;
     curve.curve_deltas.push_back({3, 300}); CHECK(!pb->execute(curve).ok && curve_writes == before_curve); curve.curve_deltas.pop_back();
+    // A driver may reevaluate MHz between the UI snapshot and prewrite read.
+    // Preserve exact geometry and request-delta checks while allowing that drift.
+    delta = 124; rejected_curve = pb->execute(curve); CHECK(!rejected_curve.ok && rejected_curve.message.find("requested delta") != std::string::npos && curve_writes == before_curve); delta = 123;
+    base_shift = 15;
     CHECK(pb->execute(curve).ok && delta == 200 && delta2 == 456 && curve_writes == before_curve + 1);
     int changed_writes = curve_writes; voltage_shift = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); voltage_shift = 0;
     layout_shift = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); layout_shift = 0;
     curve_div = 1; CHECK(!pb->execute(undo).ok && curve_writes == changed_writes); curve_div = 2;
-    CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
+    CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456); base_shift = 0;
     fresh = pb->read(true); curve.expected_curve = fresh.curve; curve_corrupt = true; CHECK(!pb->execute(curve).ok && pb->read(false).undo_label == "Undo V/F curve"); curve_corrupt = false; CHECK(pb->execute(undo).ok && delta == 123 && delta2 == 456);
     Command core_again{Command::Operation::apply, ControlId::core, 60}; CHECK(pb->execute(core_again).ok); changed_writes = writes; voltage_shift = 1; CHECK(!pb->execute(undo).ok && writes == changed_writes); voltage_shift = 0; CHECK(pb->execute(undo).ok);
     fresh = pb->read(true); curve.expected_curve = fresh.curve; curve_geometry_corrupt = true;
@@ -1875,6 +1957,7 @@ int main() {
     power_and_actions_tests(pa, advanced_api, undo, power, policy_cmd);
     watt_policy_readback_tests(pa);
     nominal_board_only_tests(pa);
+    transient_board_power_tests(pa);
     native_power_limit_tests(pa);
     policy_refresh_tests(pa);
     hold_restore_tests();

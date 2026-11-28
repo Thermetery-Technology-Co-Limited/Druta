@@ -7,6 +7,7 @@
 #include "backend/power_layout_catalog_generated.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <set>
 #include <stdexcept>
 #include <regex>
@@ -18,12 +19,41 @@ using Bytes=std::vector<uint8_t>;
 void require(bool condition,const char* message){if(!condition)throw std::runtime_error(message);}
 uint32_t word32(const Bytes& b,size_t at){require(at<=b.size()&&4<=b.size()-at,"INFO extent missing");return uint32_t(b[at])|uint32_t(b[at+1])<<8|uint32_t(b[at+2])<<16|uint32_t(b[at+3])<<24;}
 uint16_t word16(const Bytes& b,size_t at){require(at<=b.size()&&2<=b.size()-at,"INFO word extent missing");return uint16_t(b[at]|uint16_t(b[at+1])<<8);}
+// The driver can relocate the FWSEC FRTS working region when a ROM override
+// record is present, even if that record writes the original weight. Accept
+// only the observed framebuffer-to-system-memory descriptor transition in a
+// recognized Turing FWSEC command. Every other image byte must still match.
+bool frts_relocation_only(const Bytes& expected,const Bytes& actual,uint32_t architecture){
+ if(architecture!=6 || expected.size()!=actual.size())return false;
+ std::optional<size_t> address;
+ for(size_t d=0;d+0x7c<=expected.size();++d){
+  if(expected[d]!='D'||expected[d+1]!='M'||expected[d+2]!='A'||expected[d+3]!='P'||
+     word16(expected,d+4)!=3||word16(expected,d+6)!=0x40||
+     word32(expected,d+0x0c)<44||word32(expected,d+0x2c)!=0x15)continue;
+  // This DMEM mapper layout places its 44-byte command at +0x50.
+  const size_t cmd=d+0x50, region=cmd+24;
+  if(word32(expected,cmd)!=1||word32(expected,cmd+4)!=24||
+     word32(expected,cmd+8)||word32(expected,cmd+12)||
+     word32(expected,cmd+16)||word32(expected,cmd+20)!=2||
+     word32(expected,region)!=1||word32(expected,region+4)!=20||
+     word32(expected,region+12)!=0x100||word32(expected,region+16)!=2)continue;
+  if(address)return false; // Ambiguous firmware command; retain strict proof.
+  address=region+8;
+ }
+ if(!address)return false;
+ const size_t a=*address,t=a+8;
+ if(!word32(expected,a)||!word32(actual,a)||word32(expected,a)==word32(actual,a)||
+    word32(actual,t)!=1)return false;
+ return std::equal(expected.begin(),expected.begin()+a,actual.begin())&&
+        std::equal(expected.begin()+a+4,expected.begin()+t,actual.begin()+a+4)&&
+        std::equal(expected.begin()+t+4,expected.end(),actual.begin()+t+4);
+}
 bool layout_equal(const PowerRelationshipLayout& a,const PowerRelationshipLayout& b) {
  return a.info_command==b.info_command&&a.info_size==b.info_size&&
         a.policy_base==b.policy_base&&a.policy_stride==b.policy_stride;
 }
 
-enum class InfoFormat { compact_rm26, rm26, ampere_a618, compact_a618, a618 };
+enum class InfoFormat { compact_rm26, rm26, v30_a618, compact_a618, a618 };
 
 constexpr bool is_rm26(InfoFormat format) {
  return format==InfoFormat::compact_rm26 || format==InfoFormat::rm26;
@@ -34,6 +64,7 @@ struct RelationshipInfoGeometry {
  PowerRelationshipLayout layout;
  size_t base;
  size_t weight_offset;
+ bool turing_v30_write = false;
 
  size_t row(uint32_t index) const { return base + 0x24 * index; }
  size_t weight(uint32_t index) const { return row(index) + weight_offset; }
@@ -44,10 +75,11 @@ const RelationshipInfoGeometry* relationship_geometry(const PowerRelationshipLay
   {InfoFormat::compact_rm26, {0x20802618,  5008, 0x34, 0x74},   0x0eb8, 4},
   {InfoFormat::rm26,         {0x20802618,  5392, 0x3c, 0x80},   0x1040, 4},
   {InfoFormat::rm26,         {0x20802618,  5520, 0x3c, 0x84},   0x10c0, 4},
-  {InfoFormat::ampere_a618,  {0x2080a618,  7724, 0x58, 0xc8},   0x195c, 6},
-  {InfoFormat::ampere_a618,  {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6},
+  // Turing short V30 pairing evidence covers 7724, 8620 and 8632 bytes.
+  {InfoFormat::v30_a618,     {0x2080a618,  7724, 0x58, 0xc8},   0x195c, 6, true},
+  {InfoFormat::v30_a618,     {0x2080a618,  8620, 0x58, 0xe4},   0x1cdc, 6, true},
   // The 8632-byte INFO keeps the relationship array before the appended masks.
-  {InfoFormat::ampere_a618,  {0x2080a618,  8632, 0x58, 0xe4},   0x1cdc, 6},
+  {InfoFormat::v30_a618,     {0x2080a618,  8632, 0x58, 0xe4},   0x1cdc, 6, true},
   {InfoFormat::compact_a618, {0x2080a618, 20000, 0xcc, 0xfc},  0x3fd0, 6},
   {InfoFormat::a618,         {0x2080a618, 20512, 0xcc, 0x104}, 0x41d0, 6},
  };
@@ -76,16 +108,18 @@ struct RelationFormat {
  uint8_t stride_field, stride;
  std::optional<uint32_t> legacy_architecture;
  bool supports_a618;
- bool supports_ampere_a618 = false;
+ bool supports_v30_a618 = false;
 
- bool supports(InfoFormat packet, uint32_t arch) const {
-  if(packet==InfoFormat::ampere_a618) return supports_ampere_a618 && legacy_architecture==arch;
-  if(packet==InfoFormat::compact_rm26 && arch!=turing) return false;
-  return is_rm26(packet) ? legacy_architecture==arch : supports_a618;
+ bool supports(const RelationshipInfoGeometry& packet, uint32_t arch) const {
+  if (packet.format==InfoFormat::v30_a618)
+   return supports_v30_a618 && legacy_architecture==arch &&
+          (arch==ampere || (arch==turing && packet.turing_v30_write));
+  if (packet.format==InfoFormat::compact_rm26 && arch!=turing) return false;
+  return is_rm26(packet.format) ? legacy_architecture==arch : supports_a618;
  }
 };
 // The 0x42 rows keep their existing A618 support. Only Turing has qualified RM26.
-constexpr RelationFormat short_relations{8,14,turing,true};
+constexpr RelationFormat short_relations{8,14,turing,true,true};
 constexpr RelationFormat ampere_relations{8,14,ampere,false,true};
 constexpr RelationFormat pascal_relations{8,10,pascal,false};
 constexpr RelationFormat v40_relations{4,18,{},true};
@@ -170,7 +204,7 @@ class Rom : private VbiosRomReader {
 public:
  explicit Rom(const Bytes& image):VbiosRomReader(image){}
 
- bool supports_write(InfoFormat info, uint32_t architecture) const {
+ bool supports_write(const RelationshipInfoGeometry& info, uint32_t architecture) const {
   return format && format->relations && format->relations->supports(info,architecture);
  }
 
@@ -256,7 +290,7 @@ PowerRelationshipReport decode_power_relationships(const PowerRelationshipLayout
  for(uint32_t i=0;i<32;++i)if(out.policy_mask&(1u<<i)){const size_t at=layout.policy_base+layout.policy_stride*i;const auto kind=info[at+4];const bool format=info[at]==0x30||info[at]==0x40;
   // These layouts expose the relationship rows. Policy source-field offsets
   // still require separate qualification on their shorter records.
-  if(legacy_info||geometry->format==InfoFormat::ampere_a618){out.source_uninterpreted_policies.push_back(i);continue;}
+  if(legacy_info||geometry->format==InfoFormat::v30_a618){out.source_uninterpreted_policies.push_back(i);continue;}
   if(!compact_info&&kind==33){PowerRelationshipSource source;source.policy=i;source.first=word16(info,at+0x34);source.last=word16(info,at+0x36);
    if(!format)source.reason="Source policy row format unrecognized";else if(source.first>source.last)source.available=true;else if(source.last>=32)source.reason="Source relationship range exceeds INFO capacity";else fill(source);out.range_references.push_back(std::move(source));continue;}
   if(!compact_info&&kind==32){PowerRelationshipLink source;source.policy=i;source.relationship=word16(info,at+0x34);const auto* r=relation(source.relationship);if(r)source.target=r->target;
@@ -310,7 +344,7 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
   const auto geometry = relationship_geometry(layout);
   const auto report = decode_power_relationships(layout,info);
   require(geometry && report.available, "Validated relationship INFO required");
-  require(rom.supports_write(geometry->format,identity.architecture),"Relationship write layout is unqualified for this architecture and INFO geometry");
+  require(rom.supports_write(*geometry,identity.architecture),"Relationship write layout is unqualified for this architecture and INFO geometry");
   auto state=std::make_shared<PowerWeightPlan::State>();state->identity=identity;state->layout=layout;auto next_image=std::make_shared<Bytes>(image),next_info=std::make_shared<Bytes>(info);std::set<uint32_t> seen;
   for (const auto& request : requests) {
    require(request.index < 32 && seen.insert(request.index).second, "Duplicate or out-of-capacity relationship selection");
@@ -321,10 +355,10 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
            "Selected image relationship or target unqualified");
    const auto& policy = inspection.policies[r->target];
    require(policy.qualified && policy.metadata, "Selected image target metadata unqualified");
-  if (geometry->format == InfoFormat::ampere_a618) {
-   const auto target = layout.policy_base + layout.policy_stride * r->target;
-   require(info[target] == 0x30, "Selected Ampere INFO target requires a V30 policy row");
-  }
+   if (geometry->format == InfoFormat::v30_a618) {
+    const auto target = layout.policy_base + layout.policy_stride * r->target;
+    require(info[target] == 0x30, "Selected INFO target requires a V30 policy row");
+   }
    const auto before = *r->weight_raw;
    if (request.expected_raw) require(*request.expected_raw == before, "Selected expected image weight changed");
 
@@ -340,6 +374,6 @@ PowerWeightPlan plan_power_relationship_weights(const Bytes& image,const PowerRe
  }catch(const std::exception& error){out.message=error.what();}return out;
 }
 PowerWeightVerification verify_power_relationship_weights(const PowerWeightPlan& plan,const PowerRelationshipIdentity& identity,const PowerRelationshipLayout& layout,const Bytes& info,const Bytes* image,bool original){PowerWeightVerification result;try{
- require(plan.ok&&plan.state,"Qualified relationship plan required");identity_valid(identity);const auto& state=*plan.state;require(identity_equal(identity,state.identity),"Relationship adapter identity changed");require(layout_equal(layout,state.layout),"Relationship INFO layout changed");const auto report=decode_power_relationships(layout,info);require(report.available,"Current relationship INFO geometry invalid");require(info==*(original?state.info:state.after_info),"Selected weights or unselected INFO bytes differ");if(image)require(*image==*(original?state.image:state.after_image),"Complete relationship image differs");for(const auto& selected:state.selected)checked(report,selected,original?selected.before_raw:selected.after_raw);result.ok=true;result.image_verified=image!=nullptr;result.message=image?"Exact selected weights, preserved INFO and complete image verified":"Exact selected weights and preserved INFO verified; image activation not checked";
+ require(plan.ok&&plan.state,"Qualified relationship plan required");identity_valid(identity);const auto& state=*plan.state;require(identity_equal(identity,state.identity),"Relationship adapter identity changed");require(layout_equal(layout,state.layout),"Relationship INFO layout changed");const auto report=decode_power_relationships(layout,info);require(report.available,"Current relationship INFO geometry invalid");require(info==*(original?state.info:state.after_info),"Selected weights or unselected INFO bytes differ");bool relocated=false;if(image){const Bytes& expected=*(original?state.image:state.after_image);if(image->size()!=expected.size())throw std::runtime_error("Complete relationship image length differs");if(*image!=expected){relocated=!original&&frts_relocation_only(expected,*image,identity.architecture);if(!relocated){size_t first=expected.size(),count=0;for(size_t i=0;i<expected.size();++i)if((*image)[i]!=expected[i]){if(first==expected.size())first=i;++count;}char detail[128];std::snprintf(detail,sizeof(detail),"Complete relationship image differs at %zu byte(s); first offset 0x%zX",count,first);throw std::runtime_error(detail);}}}for(const auto& selected:state.selected)checked(report,selected,original?selected.before_raw:selected.after_raw);result.ok=true;result.image_verified=image!=nullptr;result.message=relocated?"Selected weights and preserved INFO verified; only the validated FWSEC FRTS relocation differs":image?"Exact selected weights, preserved INFO and complete image verified":"Exact selected weights and preserved INFO verified; image activation not checked";
  }catch(const std::exception& error){result.message=error.what();}return result;}
 }

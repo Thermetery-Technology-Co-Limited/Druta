@@ -39,9 +39,9 @@ struct CpSizes {
 };
 
 enum class CpSizeGroup : std::uint32_t {
-    sizes, legacy, turing, info216, rm26, rm26_extended, a612_compact, info200,
+    sizes, legacy, turing, info216, rm26, rm26_extended, a612_compact, info200, modern252,
 };
-inline constexpr std::size_t kCpSizeGroupCount = 8;
+inline constexpr std::size_t kCpSizeGroupCount = 9;
 
 // SIZES, LEGACY_SIZES, ... INFO200_SIZES by group; nullptr for an unknown group.
 const CpSizes* cp_size_group(std::uint32_t group);
@@ -80,9 +80,9 @@ inline constexpr std::size_t kCpPayloadCount = 5;
 
 // ---- a captured binding ---------------------------------------------- //
 // binding.get("layout") compared with "rm26" / "legacy32", and binding.get("native_layout") with
-// "policy124" / "rm26_extended" / "policy116". Python treats other names like absent.
+// "policy124" / "rm26_extended" / "policy116" / "modern252". Python treats other names like absent.
 enum class CpLayout : std::int32_t { absent = 0, other = 1, rm26 = 2, legacy32 = 3 };
-enum class CpNativeLayout : std::int32_t { absent = 0, other = 1, policy124 = 2, rm26_extended = 3, policy116 = 4 };
+enum class CpNativeLayout : std::int32_t { absent = 0, other = 1, policy124 = 2, rm26_extended = 3, policy116 = 4, modern252 = 5 };
 
 struct CpBinding {
     CpLayout layout = CpLayout::absent;

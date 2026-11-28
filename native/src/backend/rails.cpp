@@ -640,7 +640,8 @@ bool Rails::write_records_locked(const RailRecords& records, const std::optional
                                    static_cast<std::uint32_t>(*boost));
     if (out.result.no_matching_get && control_version == kRailControlV1 && rail_mask == 1 &&
         (telemetry_.arch() == kArchPascal ||
-         (telemetry_.arch() == kArchAmpere && out.result.v1_972_get)) && previous && (*previous)[0])
+         ((telemetry_.arch() == kArchAmpere || telemetry_.arch() == kArchTuring) &&
+          out.result.v1_972_get)) && previous && (*previous)[0])
         write_direct_v1(records.records[0], (*previous)[0]->deltas, *boost, out.result);
     if (records.count == 1) {
         auto& evidence = caches_.writer_evidence[raw[0].rail];

@@ -37,6 +37,7 @@ DC_CP_ABSENT, DC_CP_OTHER = 0, 1
 DC_CP_LAYOUT_RM26, DC_CP_LAYOUT_LEGACY32 = 2, 3
 DC_CP_NATIVE_POLICY124, DC_CP_NATIVE_RM26_EXTENDED = 2, 3
 DC_CP_NATIVE_POLICY116 = 4
+DC_CP_NATIVE_MODERN252 = 5
 
 (DC_CP_ERROR_NONE, DC_CP_ERROR_STRUCT, DC_CP_ERROR_INDEX, DC_CP_ERROR_OVERFLOW, DC_CP_ERROR_KEY,
  DC_CP_ERROR_PAYLOAD, DC_CP_ERROR_BINDING, DC_CP_ERROR_RANGE) = range(8)
@@ -220,7 +221,8 @@ def _binding(binding, *, stride_used=True, selected=False):
     out.native_layout = (DC_CP_ABSENT if native_layout is None and "native_layout" not in binding
                          else DC_CP_NATIVE_POLICY124 if native_layout == "policy124"
                          else DC_CP_NATIVE_RM26_EXTENDED if native_layout == "rm26_extended"
-                         else DC_CP_NATIVE_POLICY116 if native_layout == "policy116" else DC_CP_OTHER)
+                         else DC_CP_NATIVE_POLICY116 if native_layout == "policy116"
+                         else DC_CP_NATIVE_MODERN252 if native_layout == "modern252" else DC_CP_OTHER)
     stride = binding.get("native_info_stride", _ABSENT)
     if stride is not _ABSENT:
         out.has_native_info_stride = 1

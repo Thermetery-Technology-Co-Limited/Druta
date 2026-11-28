@@ -151,6 +151,10 @@ Words CurrentLimits::probe_info(const PowerLayout& layout) {
     // .fixed marks a rejection that is a property of this layout on this driver (its size, or a
     // mask it cannot hold), not of the moment
     if (r.packet[16] != 0) {
+        if (r.packet[16] == 0x23) {
+            rm_.power.reset();
+            rm_.layout_choice.reset();
+        }
         out.error = transient("policy info layout rejected (RM 0x" + hex_upper(r.packet[16]) + ")",
                               get_size_rejected(r.packet[16]));
         return out;
@@ -341,6 +345,11 @@ Words CurrentLimits::rm(std::uint32_t command, const std::vector<std::uint32_t>*
     const bool issued_ok = r.result.outcome == EscapeOutcome::issued && r.result.ntstatus == 0;
     if (!issued_ok || r.packet[16] != 0) {
         if (!issued_ok) {
+            rm_.power.reset();
+            rm_.layout_choice.reset();
+        } else if (r.packet[16] == 0x23) {
+            // Discard the rejected client so a later read can capture a fresh
+            // envelope. The failed operation, especially a SET, is never replayed.
             rm_.power.reset();
             rm_.layout_choice.reset();
         } else if (command != kControlSet && get_size_rejected(r.packet[16])) {
@@ -766,6 +775,7 @@ ReadPoliciesResult CurrentLimits::read_power_policies(ConfirmDerivedClamp confir
         if (!read.table) {
             out.error = read.error.message;
             out.legacy_power_pair = read.error.legacy_power_pair;
+            out.table_error_kind = read.error.kind;
             return out;
         }
         table = std::move(read.table);

@@ -14,8 +14,8 @@ exercise the original release's GUI frontend.
 | Working-tree candidate | `135ff141a1144984d4cb88f661b36e8ab5eb35677701eff65514ab4c8cef4206` |
 | Shipped 1.10.0 comparator | `47eb34691d81e2db168705c26cd642aa23094e446b2442d70fc30c19c6a92a31` |
 
-The MSI GTX 1050 Ti Gaming X (Pascal GP107) is at `0000:03:00.0`.
-The ASUS Strix RTX 3070 Ti (Ampere GA104) is at `0000:01:00.0`.
+The GTX 1050 Ti (Pascal GP107) is at `0000:03:00.0`.
+The RTX 3070 Ti (Ampere GA104) is at `0000:01:00.0`.
 The TITAN Xp was disconnected. The RTX 3070 Ti is excluded from 375.63
 and 431.36. Those drivers are tested on the GTX 1050 Ti only.
 
@@ -517,3 +517,297 @@ The November 26 results are in the `*cleanboot-47212*`,
 `*common-matrix-r1*`, `*clean560-board-r1*` and `*pascal-isolated*`
 artifacts. The final device and runtime receipts are
 `pnp-58180-both-after-restore.json` and `runtime-58180-both-after-restore.txt`.
+
+## TITAN RTX on Druta 1.10.1a
+
+November 27, 2026, Windows 10 x64 build 19044. The TITAN RTX at
+`0000:01:00.0` ran VBIOS `90.02.1E.00.02`. The published 1.10.1a core
+(`186159cd`, DLL SHA-256
+`bf99380c4ada2e711eaaac3076f784325f4b7ee6f411cc27522629f52c80d477`)
+and diagnostics built from its source supplied the initial rows. Candidate
+retests below identify changes from that baseline. The original Pascal and
+Ampere rerun uses different builds and keeps its existing results.
+
+| NVIDIA driver | Core / memory clock offsets | XBAR / SYS / VIDEO / LTC | Nominal power limit | XOC power limit | NVVDD rail limits | BIOS power relationship override | V/F edit and hold | Max It | Other GPUs with verified rows |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **417.35** | Both passed at P0 | All four counter responses verified and restored at P0 | Release blocked; candidate 260 → 259 → 260 W | 1999 W shown. Candidate 321 W round trip passed | REL round trip passed | Index-0 +1 passed with qualified FRTS relocation; removal exact | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
+| **431.36** | Core and memory passed in loaded retest of release core | All four counter responses verified and restored at P0 on console retest | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti |
+| **472.12** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit passed. Candidate Hold and Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **512.15** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | Candidate V1 REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **560.94** | NVML reported stale zero. Candidate core and memory Apply and Undo passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **581.80** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | GTX 1050 Ti, RTX 3070 Ti |
+| **595.97** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | 11 rows read. Release Preview refused. Candidate Apply and Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | RTX 3070 Ti |
+| **610.88** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. After fixing the 252-byte geometry verifier, unloaded 321 W and 1999 W request/restore passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
+| **621.24** | Both passed at P0 | All four passed at P0 | 260 → 259 → 260 W | 1999 W shown. 321 W round trip passed | REL round trip passed | Apply and full Restore passed | Edit and candidate Hold/Release passed | Candidate Apply and Undo passed | — |
+
+- **Clocks** Used a 320×180 workload on the selected GPU and checked P0 and
+  utilization with NVIDIA's runtime. Passed rows verified configured request
+  readback and restoration. Driver-measured domain counter qualification is
+  a separate check. The earliest OpenGL attempts in a disconnected RDP
+  session were discarded. Console retesting confirmed P0. On 560.94,
+  both NVML and Pstates20 setters moved loaded graphics from 1950 to
+  1965 MHz and memory from 7000 to 7004 MHz in separate trials. NVML
+  offset reads stayed at zero. Pstates20 exposed the exact signed
+  requests. Restoration verified both peer requests and the full curve.
+  The rebuilt app passed Apply and Undo through both ordinary clock
+  controls using paired readback.
+- **Power** The nominal test lowered the configured request by 1 W. The
+  extended test used 321 W for one readback and restored 260 W. The
+  1999 W entry describes the UI request ceiling. Most rows tested up to
+  321 W; the 610.88 follow-up also verified 1999 W stored-request readback
+  and restoration. Neither result establishes an enforced 1999 W limit.
+  Effective enforcement was recorded separately where the driver reported it.
+- **Rails** For a verified write, the tester lowered the NVVDD REL request
+  by 6.25 mV and re-read all four original fields after Undo. Stored
+  request verification covers the configuration. Physical voltage needs
+  an independent measurement.
+- **BIOS override** Applied one relationship coefficient change from
+  4096 to 4097 in Q4.12 using the production helper and verified the
+  projected ROM and complete INFO. On 417.35, the full-image check permits
+  only the qualified FWSEC FRTS descriptor relocation described below;
+  every other image byte must match. Restore verified the complete original
+  ROM and INFO exactly. This comparison covers the runtime power relationship
+  override.
+- **V/F and Max It** A standalone one-bin curve change applied and
+  restored on every listed driver. The separate point-hold test requested
+  the 950 mV point under P0. Max It used a 1000–1050 mV ramp and the
+  nominal power range. Both actions refused before changing state on the
+  release build because the legacy frequency-lock ownership check could
+  not establish that the channel was free. The candidate distinguishes an
+  explicitly unsupported old lock channel from an unknown read, while still
+  refusing a foreign lock. Loaded candidate Hold and Release passed on all
+  nine listed driver versions. Loaded candidate Max It applied manual fan,
+  320 W board power, boost, curve edits and the 1050 mV hold on every
+  version except 417.35 before its stale-client repair; the repaired candidate
+  passed on 417.35 too. Undo restored the starting settings.
+  The editor requires releasing any active point hold before an edit.
+  Where legacy ownership remains unknown, the candidate retains the
+  refusal.
+
+Windows returned `CM_PROB_NEED_RESTART` during a second 560.94 bind while
+581.80 was being staged. The reboot recovered the device, and the remaining
+drivers were tested sequentially. The rebuilt relationship editor was tested
+against the 7724-, 8620-, and 8632-byte layouts and retained the existing
+complete-image and INFO verification requirements.
+
+### Candidate follow-up and remaining refusal
+
+The 417.35 power-policy GET initially succeeded, then returned RM `0x23`
+(invalid client) on subsequent reads. Druta retained that rejected transport,
+which blocked power Apply and Max It preflight. The candidate now discards the
+client after that response and lets a later bounded read capture a fresh one;
+it never replays a failed SET. Three repeated detailed reads stayed available.
+At loaded P0, 259 W Apply/Undo, 321 W XOC Apply/Undo, V/F Hold/Release, and
+Max It Apply/Undo all passed. Max It reached 320 W and restored 260 W. The
+readback establishes a stored request, not an independent power measurement.
+
+On 417.35 the BIOS override's selected relationship weight did reach its
+requested value. The running image also changed four bytes outside Druta's
+single selected patch. Two trials, to 4097 and 4098, produced the same four
+additional changes at `0x47F30..0x47F32` and `0x47F38`. Those offsets belong
+to the second type-`0xE0` NPDS image, away from the patched relationship at
+`0x2FF4A`; the three-byte word changed from `00 66 5F` to `1A 02 85` and the
+other byte from `02` to `01` in both trials. A third trial changed relationship
+index 0 instead of 5, again by one raw unit. Its sole staged registry record,
+`romOverride00`, contained exactly the two-byte patch at `0x2FF04` (`01 10`).
+The running image had that patch plus changes at `0x47F31..0x47F32` and
+`0x47F38`; repeating the same trial produced the same bytes. This shows that
+the extra edits arise during driver activation, not from Druta's registry
+writer. Removal restored the original full image and INFO exactly in every
+trial. The controlled no-op experiment below identifies the registry record's
+presence as a sufficient trigger for the descriptor changes.
+
+The power policy table occupies `0x2F9AE..0x2FF02`; its 15 relationship rows
+end at `0x2FFD4`. The unexplained bytes at `0x47F30..0x47F38` are in the
+**same** second type-`0xE0` NPDS image, about 98 KiB beyond those rows, and
+overlap no decoded power or rail field. Offline inspection of the original and
+running images found all 20 policy rows unchanged and, among 58 decoded fields,
+only the selected relationship weight changed in each trial. The paired driver
+INFO also passed the complete expected-byte check before full-image verification
+rejected the extra bytes. Relationship 5 targets policy 3 (channel 3, rated
+63 W); relationship 0 targets policy 0 (channel 11, rated 5001 W). Both trials
+changed the distant bytes. This does not identify their meaning or rule out
+downstream power/current effects, but gives no evidence that the bytes encode a
+subordinate policy limit.
+
+On 512.15, the V1 rail SET was qualified by its matching GET geometry and a
+−6.25 mV NVVDD reliability request readback; Undo restored every captured
+field. On 610.88, a newly recognized 252-byte client-power role definition
+made the native reader available. The earlier 321 W refusal was a verifier bug:
+the 13,840-byte native CONTROL readback was compared with the other layout's
+13,876-byte size before its contents were checked. With the geometry corrected,
+259, 321 and 1999 W requests each read back exactly, with driver-recomputed
+peer request words accepted only under the existing occupied-peer check.
+Each unloaded trial immediately restored 260 W and verified it on a fresh read;
+the native C++ action path also accepted 321 and 1999 W and its Undo restored
+260 W. These are stored request results, not proof of an enforced 1999 W limit.
+On 431.36, the console P0 retest confirmed the SYS
+counter response alongside XBAR, VIDEO and LTC. These conclusions are scoped
+to the tested TITAN RTX, its current firmware, and the stated operating state.
+
+### 417.35 FWSEC region follow-up
+
+The extra 417.35 image bytes have a narrower identity than the power-table
+comparison established. The second NPDS image contains an FWSEC FRTS command:
+`0x47F30` is its region address in 4 KiB units, `0x47F34` is its region size,
+and `0x47F38` is its memory type. The original running image describes a
+`0x100`-page (1 MiB) framebuffer region (`type 2`, address `0x005F6600`).
+After either tested relationship edit, the size stays `0x100` and the driver
+selects `type 1`, with addresses `0x0085021A` or `0x00850800`. Static
+inspection of 417.35's descriptor builder shows its `type 1` branch uses
+address-space `1` and its `type 2` branch uses address-space `2`; NVIDIA's
+published address-space definitions call these system memory and framebuffer
+memory, respectively. The [TU102 FRTS implementation](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/515.43.04/src/nvidia/src/kernel/gpu/gsp/arch/turing/kernel_gsp_frts_tu102.c)
+publishes the descriptor geometry and 4 KiB units, and the [memory descriptor
+definitions](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/515.43.04/src/nvidia/generated/g_mem_desc_nvoc.h)
+name the memory classes. This identifies a firmware buffer relocation, not
+an additional decoded power-policy field; any effect of the selected weight
+on a physical rail remains unmeasured.
+
+The 417.35 pre-edit image already includes initialized FWSEC command bytes.
+The saved 431.36, 472.12, 512.15, 560.94, 581.80, 595.97, 610.88 and
+621.24 pre-edit images, plus two fresh read-only reads on 621.24, are all
+byte-identical to one another and zero in this FWSEC command area. Relative
+to that later-driver image, 417.35 differs by exactly 11 bytes, all in FWSEC
+initialization fields. Its readout behavior is thus unusual among tested
+drivers. The saved 417.35 trials could not separate override presence from the
+restart. A control with no override registry entries restarted the GPU using
+`pnputil`; the before and after images were byte-identical (SHA-256
+`0913aa8b827722986553b709ca07f1fcfd5fa554d118e80898ae6dee47d34c90`).
+Because Druta uses SetupAPI `DICS_PROPCHANGE`, a second no-override control
+used Druta's own `--device-restart-child` path on the same driver, adapter and
+260 W baseline. It too returned that exact image. The `pnputil` control
+restored 621.24 with no reboot; 417.35 was reinstalled for the second control
+and the experiment below.
+
+For the discriminating experiment, `romOverride00` carried the unchanged
+original relationship bytes `00 10` at `0x2FF04`: the record existed but made
+no policy edit. The same SetupAPI restart then changed **only** the FRTS
+descriptor at `0x47F31..0x47F32` and `0x47F38`, from framebuffer type 2,
+address `0x005F6600`, to system memory type 1, address `0x00850800`.
+Its active image SHA-256 was
+`7df4045d8cf2200995a6065c4b4be2e9974e86841a579c4655cbd6728e475e27`.
+The no-op active image and the earlier index-0 +1-weight active image differed
+only at the selected weight byte `0x2FF04`. Removing the no-op record and using
+the same restart path restored the original image exactly. Thus override
+record presence is a sufficient trigger for this descriptor relocation on the
+tested 417.35 TITAN RTX, independent of the weight value. Static inspection
+found three conditions on separate driver objects for the framebuffer branch;
+the internal condition that flips remains unidentified.
+
+With explicit authorization for a bounded guard experiment, the verifier now
+recognizes a unique Turing FWSEC DMAP v3 command and accepts only the observed
+nonzero-address, fixed-size, framebuffer-type-2 to system-memory-type-1 FRTS
+transition on Apply. It still requires exact equality of every other image
+byte, complete INFO equality, and exact full-image restoration on Remove.
+Synthetic tests reject a changed region size, unknown memory type and any
+unrelated byte change (353 relationship checks; 0 failures).
+
+A live index-0 +1 raw-weight trial on 417.35 then passed the product's
+independent fresh-process Apply verifier. The active image differed from the
+original only at `0x2FF04`, `0x47F31..0x47F32` and `0x47F38` (SHA-256
+`4cb0e2f1429110090765b8830cf11ae99cdb0a793a071bb84595d0c18a1e9e9c`).
+Remove passed strict original-image and INFO verification; the image returned
+to `0913aa8b827722986553b709ca07f1fcfd5fa554d118e80898ae6dee47d34c90`.
+This validates image ownership and restoration, not a physical power or rail
+effect from a one-unit relationship request.
+
+### TITAN RTX candidate rerun after the FRTS verifier change
+
+November 27, 2026, Windows 10 x64 build 19044. The local C++ candidate at
+`0ea695f` was tested on the same TITAN RTX, UUID
+`GPU-8b0e5b9d-b0d1-0d5e-f7bb-846bda96b205`, VBIOS `90.02.1E.00.02`.
+The tested core SHA-256 was
+`3160ffde86c5016970eba9521e5547a82f0b0134662215c616ea45ef01ee5330`;
+the app SHA-256 was
+`d993138ea73128d50172fc9f2a31766f8ed051c2ef49578dae88f7c5ce908d9f`.
+Evidence is in the local matrix workspace under `rerun-20261127/<driver>/`.
+Each driver bind paired the exact slot and UUID and began at a 260 W request.
+The 500/600-series drivers ran first, then 472.12, 431.36 and 417.35. All
+nine driver changes and the return to 621.24 reported `Reboot required = 0`.
+
+| Driver | Core / memory | XBAR / SYS / VIDEO / LTC | Power | NVVDD REL | BIOS relationship | V/F and Max It |
+| --- | --- | --- | --- | --- | --- | --- |
+| 621.24 | Apply/Undo pass | Four individual Apply/Undo passes | 259 and 321 W restored; XOC showed 1999 W | −6.25 mV/Undo pass | Apply/exact Remove pass | Edit/Undo, Hold/Release, Max It/Undo pass |
+| 610.88 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass | Pass |
+| 595.97 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass after using current prepare helper | Pass |
+| **595.71 (new)** | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Apply/exact Remove pass | Pass |
+| 581.80 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass | Pass |
+| 560.94 | Apply/Undo pass with paired Pstates20 readback | Four individual Apply/Undo passes | Same | Pass | Pass | Pass after a no-write V/F retry |
+| 512.15 | Apply/Undo pass | Four individual Apply/Undo passes | Same | V1 −6.25 mV/Undo pass | Pass | Pass |
+| 472.12 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass | Pass |
+| 431.36 | Apply/Undo pass | Loaded counter verifier passed 4/4 after one incomplete 3/4 sample; initial fresh-process slider probe refused before qualification | Same | Pass | Pass | Pass |
+| **417.35** | Apply/Undo pass | Loaded counter verifier passed 4/4; initial fresh-process slider probe refused before qualification | Same | Pass | Apply passed with only qualified FRTS relocation; exact Remove passed | Pass |
+
+Every power, rail and BIOS trial restored its captured original request or
+complete original image. Power tests wrote 259 W in normal mode and 321 W under
+XOC, then returned to 260 W. All ten XOC reads exposed a 1999 W software
+request ceiling. This rerun did **not** write 1999 W or measure its physical
+enforcement. The rail test changed only NVVDD reliability by −6.25 mV and
+verified all four original fields after Undo. The BIOS test changed one
+relationship coefficient from raw 4096 to 4097 and verified complete INFO;
+only 417.35 used the narrowly qualified FRTS descriptor relocation on Apply.
+Removal required exact original image and INFO on every driver.
+
+The V/F test's older combined probe held the 950 mV point, tried to edit while
+the hold was active, received the product's expected no-write refusal, and
+released the hold with exact request restoration. A separate loaded V/F edit
+probe then changed one point by −15 MHz and undid it on all ten drivers. Max It
+applied a 1000–1050 mV ramp, 320 W board request, fan and boost requests, and
+the V/F hold, then undid all requests on all ten. On 560.94 the first standalone
+edit refused before writing because its fresh V/F baseline had changed;
+an immediate loaded retest passed Apply and Undo. The refusal is retained in
+`curve-edit-first-attempt.txt` alongside the successful retest.
+
+Follow-up on 2026-11-27: the V/F prewrite guard compared evaluated MHz exactly,
+although the write readback and Undo guards already compare point geometry and
+boost-table requests independently. The guard now accepts a changed evaluated
+MHz only when the voltage/index mapping, divisor, layout and all requested
+deltas are unchanged. The client test proves that a changed request still
+refuses without writing. The first 560.94 refusal did not identify which field
+changed, so its exact trigger remains unproven; 30 consecutive loaded curve
+reads during the follow-up showed no drift.
+
+The local combined probe now releases its owned hold before editing. Under
+loaded P0, hold/release/edit/Undo and the standalone curve edit/Undo passed on
+both 560.94 and 621.24, with the full request table restored each time. The
+standalone probe now reports evaluated-frequency agreement separately from
+request-table restoration. Receipts are in the local matrix workspace under
+`rerun-20261127/diagnose-560/` and `diagnose-621.24/`.
+
+Additional loaded 560.94 investigation on 2026-11-27 recreated the older
+hold-then-edit order. Editing while Druta owned the hold correctly refused
+without writing; release restored the original hold state. Three subsequent
+Max It/Undo cycles restored their captured requests, and the first standalone
+curve edit after Max It applied and undid successfully. Two initial V/F samples
+and 15 consecutive post-Max sample pairs showed no change in layout, point
+mapping, signed requests or evaluated MHz. A separate boost 0 → 100 → 0
+trial also left the sampled curve and signed requests unchanged and restored
+boost. These bounded negatives do not explain the historical first refusal:
+its trace recorded only the generic guard message, with no field-level
+comparison. The prewrite guard now names the field that disagreed (divisor,
+count, layout, mapping, indices or requested delta) while retaining its
+no-write refusal. Source and receipts: local matrix workspace
+`rerun-20261127/vf-first-560-investigation/`.
+
+For 431.36 and 417.35, the individual domain slider probe started in a fresh
+process before the required loaded counter verification, so it refused before
+writing. The subsequent verifier exercised and restored all four domain
+requests at P0. On 431.36 its first sample verified 3/4, and the next verified
+4/4; both samples are retained. On newer drivers the individual slider probes
+passed. The separate counter verifier reported an ambiguous GPC attribution
+on those newer runs; that does not negate the four named domain round trips.
+
+The earlier GTX 1050 Ti/RTX 3070 Ti matrix also used 375.63, 582.28, 582.78,
+and 595.71. [NVIDIA's 375.63 product list](https://www.nvidia.com/Download/driverResults.aspx/109860/en-us/)
+predates TITAN RTX; the [582.28](https://www.nvidia.com/download/driverResults.aspx/263285/en-us/1000/)
+and [582.78](https://www.nvidia.com/Download/driverResults.aspx/280053/en-us/1000/)
+GeForce security packages list Maxwell, Pascal and Volta products, excluding
+this Turing card. They were therefore not installed for this TITAN RTX matrix.
+The [595.71 Game Ready package](https://www.nvidia.com/en-gb/geforce/drivers/details/265269/)
+lists TITAN RTX. It was downloaded from NVIDIA's CDN; its extracted INF
+contains `PCI\\VEN_10DE&DEV_1E02` and reports `32.0.15.9571`. The installer
+SHA-256 was
+`4ab235c4e01ea13cedc59ac339db0be1b5ba7c89e00e6253ab89f354f7711982`.
+After the last run the TITAN RTX was returned to 621.24 and 260 W with no
+active weight receipt.

@@ -7,6 +7,8 @@
 #include <cmath>
 #include <set>
 
+#include "core/slot.h"
+
 namespace druta::backend {
 namespace {
 
@@ -39,6 +41,9 @@ constexpr std::uint32_t VoltCtrlGet = 0x9DF23CA1;
 }  // namespace id
 
 constexpr std::uint32_t kPrivSlotCore = 0, kPrivSlotXbar = 2, kPrivSlotMem = 8, kPrivSlotVideo = 42;
+
+// NVML's memory offset is twice the NVAPI P0 delta expressed in MHz.
+std::int64_t offset_wire_scale(std::uint32_t ctype) { return ctype == 2 ? 2 : 1; }
 
 // nvbackend.PCIE_ERR_FIELDS, in sorted field-id order
 constexpr std::pair<std::uint32_t, const char*> kPcieErrFields[] = {
@@ -257,8 +262,28 @@ const Pstate20Clock* Telemetry::pstate20_clock(const Pstates20& info, std::uint3
     return clocks == 1 ? clock : nullptr;
 }
 
-std::optional<OffsetRange> Telemetry::offset_range(std::uint32_t ctype) {
-    if (ctype != 0 && ctype != 2) return std::nullopt;
+bool Telemetry::PairedOffset::same_layout(const PairedOffset& other) const {
+    return nvml_device == other.nvml_device && nvapi_gpu == other.nvapi_gpu && version == other.version &&
+           kind == other.kind && flags == other.flags && nvml.low == other.nvml.low && nvml.high == other.nvml.high;
+}
+
+bool Telemetry::PairedOffset::same_reading(const PairedOffset& other) const {
+    return same_layout(other) && nvml.current == other.nvml.current && delta_khz == other.delta_khz;
+}
+
+bool Telemetry::offset_handles_paired() const {
+    const Nvapi& a = gpu_.nvapi;
+    const Nvml& n = gpu_.nvml;
+    return a.ok && a.gpu && a.selected && a.gpu == a.selected->handle &&
+           n.ok && n.dev && n.selected && n.dev == n.selected->dev &&
+           gpu_.pairing_error.empty() && same_slot(a.selected->slot, n.selected->slot) &&
+           n.selected->devid == a.selected->devid && n.selected->subsys == a.selected->subsys;
+}
+
+Telemetry::OffsetReading Telemetry::read_offset(std::uint32_t ctype) {
+    if (ctype != 0 && ctype != 2) return {};
+    const auto& guarded = guarded_offsets_[ctype == 2];
+    std::optional<OffsetRange> nvml_range;
     Nvml& nv = gpu_.nvml;
     if (nv.ok) {
         if (auto fn = nv.get<HandlePtrFn>("nvmlDeviceGetClockOffsets")) {
@@ -266,27 +291,68 @@ std::optional<OffsetRange> Telemetry::offset_range(std::uint32_t ctype) {
             co.version = nvml_ver<ClockOffset>(1);
             co.type = ctype;
             co.pstate = 0;
-            if (fn(nv.dev, &co) == 0) return OffsetRange{co.mn, co.mx, co.off};
+            if (fn(nv.dev, &co) == 0) {
+                if (co.version != nvml_ver<ClockOffset>(1) || co.type != ctype || co.pstate != 0 ||
+                    co.off < co.mn || co.off > co.mx) return {{}, {}, true};
+                nvml_range = OffsetRange{co.mn, co.mx, co.off};
+            }
         }
     }
+    const bool paired = offset_handles_paired();
+    if (nvml_range && !paired && !guarded) return {nvml_range, {}, false};
+
     std::string error;
     auto info = read_pstates20(error);
-    if (!info) return std::nullopt;
-    const Pstate20Clock* clock = pstate20_clock(*info, ctype);
-    if (!clock || !(clock->flags & 1)) return std::nullopt;
+    const Pstate20Clock* clock = info ? pstate20_clock(*info, ctype) : nullptr;
+    if (!clock || !(clock->flags & 1) || clock->delta.minimum > clock->delta.maximum)
+        return {guarded ? std::nullopt : nvml_range, {}, guarded.has_value()};
     const Pstate20Delta& delta = clock->delta;
-    if (delta.minimum > delta.maximum) return std::nullopt;
-    // Round bounds inward, in integer MHz. NVML doubles memory offsets.
-    const std::int64_t scale = ctype == 2 ? 2 : 1;
+    const std::int64_t scale = offset_wire_scale(ctype);
     const std::int64_t min_scaled = static_cast<std::int64_t>(delta.minimum) * scale;
     const std::int64_t max_scaled = static_cast<std::int64_t>(delta.maximum) * scale;
+    const std::int64_t current_scaled = static_cast<std::int64_t>(delta.value) * scale;
+    if (paired && nvml_range && clock->kind <= 1 && min_scaled == std::int64_t{nvml_range->low} * 1000 &&
+        max_scaled == std::int64_t{nvml_range->high} * 1000) {
+        const PairedOffset pair{nv.dev, gpu_.nvapi.gpu, info->table.version, clock->kind, clock->flags,
+                                *nvml_range, delta.value};
+        if (guarded && !guarded->same_layout(pair)) return {{}, pair, true};
+        if (current_scaled == std::int64_t{nvml_range->current} * 1000) return {nvml_range, pair, false};
+        if (guarded && guarded->same_reading(pair))
+            return {OffsetRange{nvml_range->low, nvml_range->high, static_cast<std::int32_t>(current_scaled / 1000)},
+                    pair, false};
+        return {{}, pair, true};
+    }
+    if (guarded) return {{}, {}, true};
+    if (nvml_range) return {nvml_range, {}, false};
+
+    // The established single-reader legacy route rounds its bounds inward.
     auto floor_div = [](std::int64_t n, std::int64_t q) { return n >= 0 ? n / q : -((-n + q - 1) / q); };
     const std::int64_t low = -floor_div(-min_scaled, 1000);  // ceil(min/1000)
     const std::int64_t high = floor_div(max_scaled, 1000);   // floor(max/1000)
-    if (low > high) return std::nullopt;
-    // int(delta.value * scale / 1000): truncation toward zero of the float quotient
-    const std::int64_t current = static_cast<std::int64_t>(std::trunc(static_cast<double>(delta.value) * static_cast<double>(scale) / 1000.0));
-    return OffsetRange{static_cast<std::int32_t>(low), static_cast<std::int32_t>(high), static_cast<std::int32_t>(current)};
+    if (low > high) return {};
+    return {OffsetRange{static_cast<std::int32_t>(low), static_cast<std::int32_t>(high),
+                        static_cast<std::int32_t>(current_scaled / 1000)}, {}, false};
+}
+
+bool Telemetry::confirm_paired_offset(std::uint32_t ctype, const OffsetReading& before, const OffsetReading& after,
+                                     std::int32_t requested) {
+    if (!before.range || !before.pair) return false;
+    auto& guarded = guarded_offsets_[ctype == 2];
+    const bool exact = after.pair && before.pair->same_layout(*after.pair) &&
+        std::int64_t{after.pair->delta_khz} * offset_wire_scale(ctype) == std::int64_t{requested} * 1000;
+    if (!exact || (after.pair->nvml.current != requested && after.pair->nvml.current != before.pair->nvml.current)) {
+        // The write may have changed state. A later lone NVML read must not turn
+        // this into a false "already matches" for Undo.
+        if (!guarded) guarded = before.pair;
+        return false;
+    }
+    if (after.pair->nvml.current == requested) guarded.reset();
+    else guarded = after.pair;
+    return true;
+}
+
+std::optional<OffsetRange> Telemetry::offset_range(std::uint32_t ctype) {
+    return read_offset(ctype).range;
 }
 
 // ---- temperatures ---------------------------------------------------------------------------------

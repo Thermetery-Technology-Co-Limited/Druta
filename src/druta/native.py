@@ -1452,7 +1452,7 @@ class Gpu(FrontendSurface):
 
     # dc_cpc_metadata.layout / native_layout: the DC_CP_LAYOUT_* / DC_CP_NATIVE_* values present.
     _CP_LAYOUTS = {2: "rm26", 3: "legacy32"}
-    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended", 4: "policy116"}
+    _CP_NATIVE_LAYOUTS = {2: "policy124", 3: "rm26_extended", 4: "policy116", 5: "modern252"}
 
     def _cp_read_metadata(self):
         """ClientPowerController.read_metadata: Python's dict, key order included, or ClientPowerError.
@@ -3015,7 +3015,7 @@ class Gpu(FrontendSurface):
             raise failure[0]
         if status == DC_E_FAILED and error.kind == DC_ERR_TRANSIENT:  # the core's guard: allocation
             raise MemoryError(_text(error.message))
-        if status == DC_E_FAILED:
+        if status == DC_E_FAILED or (status == DC_E_UNAVAILABLE and error.kind == DC_ERR_TRANSIENT):
             return [], _text(error.message)
         if status == DC_E_RANGE:
             raise IndexError("list index out of range")

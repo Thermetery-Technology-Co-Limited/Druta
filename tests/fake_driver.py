@@ -1108,7 +1108,7 @@ def gp102_clocks():
 class ClockRig(CurveRig):
     """CurveRig plus NVML clock offsets, the locked-clock pair and a state-backed P-state table.
 
-    offsets:     NVML ctype -> {off, mn, mx} (GetClockOffsets answers from it, SetClockOffsets changes off)
+    offsets:     NVML ctype -> {off, mn, mx}. A working NVML setter updates both getters.
     p0:          NVAPI domain -> {value, min, max, flags} for the single P0 entry
     grid:        the graphics clocks enumerated at the top memory clock
     log_grid:    opt-in (default off, so every existing call log is unchanged): each
@@ -1164,6 +1164,8 @@ class ClockRig(CurveRig):
                     return self.nvml_set_status
                 if self.nvml_apply and co.type in self.offsets:
                     self.offsets[co.type]["off"] = co.off
+                    domain, khz_per_unit = (0, 1000) if co.type == 0 else (4, 500)
+                    self.p0[domain]["value"] = co.off * khz_per_unit
                 return 0
             e["nvmlDeviceSetClockOffsets"] = set_offsets
         if with_lock:

@@ -59,7 +59,7 @@ struct Status {
 
 class VfLock {
 public:
-    // rm: the RM escape transport cache for the Turing R472 fallback; nullptr makes the
+    // rm: the RM escape transport cache for the Turing legacy fallback; nullptr makes the
     // fallback answer "not readable", as Python does when its capture fails.
     VfLock(Gpu& gpu, Telemetry& telemetry, RmTransport* rm = nullptr) : gpu_(gpu), telemetry_(telemetry), rm_(rm) {}
 
@@ -89,7 +89,7 @@ public:
 
 private:
     using Recovery = RecoveryRecord;
-    // The Turing R472 fallback: RM performance-limit records (GET 0x20802077) through
+    // The Turing legacy fallback: RM performance-limit records (GET 0x20802077) through
     // the escape transport captured once from VoltRailsCtlGet; never its paired SET.
     std::optional<ClkLockRange> legacy_clk_lock();  // _read_legacy_clk_lock
 
@@ -105,6 +105,10 @@ private:
     Telemetry& telemetry_;
     RmTransport* rm_;
     std::optional<Recovery> recovery_;
+    // Valid only for the most recent legacy GET. An explicit unsupported response
+    // via a current rail envelope distinguishes an absent old channel from a
+    // transient or malformed read.
+    bool legacy_command_unsupported_ = false;
 };
 
 // nvbackend's VF_LOCK_* envelope, in microvolts.

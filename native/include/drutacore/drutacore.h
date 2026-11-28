@@ -1139,10 +1139,11 @@ DC_API dc_status DC_CALL dc_cl_policy_rows(dc_gpu* gpu, const dc_power_layout* l
  * under the recursive GPU lock and only once a table is in hand. */
 typedef int32_t (DC_CALL *dc_cl_policy_inputs_fn)(void* context, int32_t* has_board_mw, int64_t* board_mw,
                                                   dc_cl_statics* statics);
-/* GPU.read_power_policies: DC_OK with the rows, or DC_E_FAILED with Python's error text in
- * error->message (DC_ERR_UNSUPPORTED for a witnessed legacy power envelope with a qualified
- * nominal NVML board request, otherwise DC_ERR_INVALID or the guard's DC_ERR_TRANSIENT) and no
- * rows, or DC_E_CALLER when inputs returned nonzero (no rows, nothing stored). confirm is
+/* GPU.read_power_policies: DC_OK with the rows. A temporarily unreadable table returns
+ * DC_E_UNAVAILABLE and DC_ERR_TRANSIENT. DC_E_FAILED reports DC_ERR_UNSUPPORTED for a witnessed
+ * legacy power envelope with a qualified nominal NVML board request, DC_ERR_INVALID for other
+ * table failures, or the guard's DC_ERR_TRANSIENT for an exception. Table failures return no rows
+ * and put the diagnostic in error->message. DC_E_CALLER means inputs returned nonzero. confirm is
  * get_current_limits' callback; inputs must not be NULL. A unique board candidate is stored as
  * GPU._board_policy. */
 DC_API dc_status DC_CALL dc_cl_power_policies_read(dc_gpu* gpu, dc_cl_confirm_fn confirm, void* context,
