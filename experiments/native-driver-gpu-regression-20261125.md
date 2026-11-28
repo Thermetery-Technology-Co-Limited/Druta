@@ -14,8 +14,8 @@ exercise the original release's GUI frontend.
 | Working-tree candidate | `135ff141a1144984d4cb88f661b36e8ab5eb35677701eff65514ab4c8cef4206` |
 | Shipped 1.10.0 comparator | `47eb34691d81e2db168705c26cd642aa23094e446b2442d70fc30c19c6a92a31` |
 
-The MSI GTX 1050 Ti Gaming X (Pascal GP107) is at `0000:03:00.0`.
-The ASUS Strix RTX 3070 Ti (Ampere GA104) is at `0000:01:00.0`.
+The GTX 1050 Ti (Pascal GP107) is at `0000:03:00.0`.
+The RTX 3070 Ti (Ampere GA104) is at `0000:01:00.0`.
 The TITAN Xp was disconnected. The RTX 3070 Ti is excluded from 375.63
 and 431.36. Those drivers are tested on the GTX 1050 Ti only.
 
@@ -711,3 +711,72 @@ Remove passed strict original-image and INFO verification; the image returned
 to `0913aa8b827722986553b709ca07f1fcfd5fa554d118e80898ae6dee47d34c90`.
 This validates image ownership and restoration, not a physical power or rail
 effect from a one-unit relationship request.
+
+### TITAN RTX candidate rerun after the FRTS verifier change
+
+November 27, 2026, Windows 10 x64 build 19044. The local C++ candidate at
+`0ea695f` was tested on the same TITAN RTX, UUID
+`GPU-8b0e5b9d-b0d1-0d5e-f7bb-846bda96b205`, VBIOS `90.02.1E.00.02`.
+The tested core SHA-256 was
+`3160ffde86c5016970eba9521e5547a82f0b0134662215c616ea45ef01ee5330`;
+the app SHA-256 was
+`d993138ea73128d50172fc9f2a31766f8ed051c2ef49578dae88f7c5ce908d9f`.
+Evidence is in the local matrix workspace under `rerun-20261127/<driver>/`.
+Each driver bind paired the exact slot and UUID and began at a 260 W request.
+The 500/600-series drivers ran first, then 472.12, 431.36 and 417.35. All
+nine driver changes and the return to 621.24 reported `Reboot required = 0`.
+
+| Driver | Core / memory | XBAR / SYS / VIDEO / LTC | Power | NVVDD REL | BIOS relationship | V/F and Max It |
+| --- | --- | --- | --- | --- | --- | --- |
+| 621.24 | Apply/Undo pass | Four individual Apply/Undo passes | 259 and 321 W restored; XOC showed 1999 W | −6.25 mV/Undo pass | Apply/exact Remove pass | Edit/Undo, Hold/Release, Max It/Undo pass |
+| 610.88 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass | Pass |
+| 595.97 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass after using current prepare helper | Pass |
+| **595.71 (new)** | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Apply/exact Remove pass | Pass |
+| 581.80 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass | Pass |
+| 560.94 | Apply/Undo pass with paired Pstates20 readback | Four individual Apply/Undo passes | Same | Pass | Pass | Pass after a no-write V/F retry |
+| 512.15 | Apply/Undo pass | Four individual Apply/Undo passes | Same | V1 −6.25 mV/Undo pass | Pass | Pass |
+| 472.12 | Apply/Undo pass | Four individual Apply/Undo passes | Same | Pass | Pass | Pass |
+| 431.36 | Apply/Undo pass | Loaded counter verifier passed 4/4 after one incomplete 3/4 sample; initial fresh-process slider probe refused before qualification | Same | Pass | Pass | Pass |
+| **417.35** | Apply/Undo pass | Loaded counter verifier passed 4/4; initial fresh-process slider probe refused before qualification | Same | Pass | Apply passed with only qualified FRTS relocation; exact Remove passed | Pass |
+
+Every power, rail and BIOS trial restored its captured original request or
+complete original image. Power tests wrote 259 W in normal mode and 321 W under
+XOC, then returned to 260 W. All ten XOC reads exposed a 1999 W software
+request ceiling. This rerun did **not** write 1999 W or measure its physical
+enforcement. The rail test changed only NVVDD reliability by −6.25 mV and
+verified all four original fields after Undo. The BIOS test changed one
+relationship coefficient from raw 4096 to 4097 and verified complete INFO;
+only 417.35 used the narrowly qualified FRTS descriptor relocation on Apply.
+Removal required exact original image and INFO on every driver.
+
+The V/F test's older combined probe held the 950 mV point, tried to edit while
+the hold was active, received the product's expected no-write refusal, and
+released the hold with exact request restoration. A separate loaded V/F edit
+probe then changed one point by −15 MHz and undid it on all ten drivers. Max It
+applied a 1000–1050 mV ramp, 320 W board request, fan and boost requests, and
+the V/F hold, then undid all requests on all ten. On 560.94 the first standalone
+edit refused before writing because its fresh V/F baseline had changed;
+an immediate loaded retest passed Apply and Undo. The refusal is retained in
+`curve-edit-first-attempt.txt` alongside the successful retest.
+
+For 431.36 and 417.35, the individual domain slider probe started in a fresh
+process before the required loaded counter verification, so it refused before
+writing. The subsequent verifier exercised and restored all four domain
+requests at P0. On 431.36 its first sample verified 3/4, and the next verified
+4/4; both samples are retained. On newer drivers the individual slider probes
+passed. The separate counter verifier reported an ambiguous GPC attribution
+on those newer runs; that does not negate the four named domain round trips.
+
+The earlier GTX 1050 Ti/RTX 3070 Ti matrix also used 375.63, 582.28, 582.78,
+and 595.71. [NVIDIA's 375.63 product list](https://www.nvidia.com/Download/driverResults.aspx/109860/en-us/)
+predates TITAN RTX; the [582.28](https://www.nvidia.com/download/driverResults.aspx/263285/en-us/1000/)
+and [582.78](https://www.nvidia.com/Download/driverResults.aspx/280053/en-us/1000/)
+GeForce security packages list Maxwell, Pascal and Volta products, excluding
+this Turing card. They were therefore not installed for this TITAN RTX matrix.
+The [595.71 Game Ready package](https://www.nvidia.com/en-gb/geforce/drivers/details/265269/)
+lists TITAN RTX. It was downloaded from NVIDIA's CDN; its extracted INF
+contains `PCI\\VEN_10DE&DEV_1E02` and reports `32.0.15.9571`. The installer
+SHA-256 was
+`4ab235c4e01ea13cedc59ac339db0be1b5ba7c89e00e6253ab89f354f7711982`.
+After the last run the TITAN RTX was returned to 621.24 and 260 W with no
+active weight receipt.
